@@ -1,0 +1,13 @@
+device_type: ups
+
+devices:
+  - id: 2c0994b0-2cf0-4d48-9f34-8df2b9a8bfa0
+    code: ups-a01-01
+    name: UPS A01-01
+    device_model_id: 98f89575-febc-4b66-a2c1-19aa22a0ff89
+    serial_number: UPS123456
+    asset_tag: INV-04001
+    external_ref: UPS-A01-01
+    status: installed
+    tags:
+      - power

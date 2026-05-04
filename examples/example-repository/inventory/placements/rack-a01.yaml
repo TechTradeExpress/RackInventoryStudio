@@ -1,0 +1,56 @@
+rack_id: 7d73b40f-53c3-4b11-9a33-9fd5f15f72d2
+
+placements:
+  front:
+    - id: 6d0dc8e6-9c87-4b9f-8d7d-2a4bb9953e22
+      code: plc-srv-db-01
+      target_kind: device
+      target_id: 9a7c5e10-3d3a-4b31-947c-7d3cba39f314
+      start_u: 12
+
+    - id: 6a64de37-c7fd-4b4c-99d6-4d3b5d865ca8
+      code: plc-srv-app-01
+      target_kind: device
+      target_id: b0fd6e38-1e99-44c6-a8d7-e34d95f05e41
+      start_u: 14
+
+    - id: f986f5ef-5307-4cae-b2fc-bc8e8ab23b12
+      code: plc-sw-core-01
+      target_kind: device
+      target_id: a5d56564-a2e3-4c07-8d35-81f2a0864373
+      start_u: 40
+
+    - id: 80d28c9e-c0ef-4c60-84d7-924b9b81dbf6
+      code: plc-blank-panel-front-01
+      target_kind: device_model
+      target_id: 2b65592a-18b8-41c7-9a27-1f03aa631e4f
+      start_u: 18
+      height_u: 2
+      note: Two units represented as blank panels.
+
+    - id: 94a1662d-2bd7-41fc-93ca-a66b38c03511
+      code: plc-reserved-front-01
+      target_kind: device_model
+      target_id: 7ff43b2f-18e0-4522-b170-ea1c8a4e28c5
+      start_u: 30
+      height_u: 4
+      note: Reserved for future storage expansion.
+
+  rear:
+    - id: 31580a71-1d2d-4fd8-a5c2-489b28c3f170
+      code: plc-organizer-rear-01
+      target_kind: device_model
+      target_id: c3cb54dd-f0d8-4594-96a1-d27f59c7f3ee
+      start_u: 20
+
+    - id: dff2aab9-1493-4f8b-b2e6-529c094b0a8d
+      code: plc-fw-edge-01
+      target_kind: device
+      target_id: 7158dccb-145b-42c0-b346-bb13f9c349d9
+      start_u: 38
+
+    - id: 7133f693-457b-4dfa-a294-94107be84054
+      code: plc-ups-a01-01
+      target_kind: device
+      target_id: 2c0994b0-2cf0-4d48-9f34-8df2b9a8bfa0
+      start_u: 1

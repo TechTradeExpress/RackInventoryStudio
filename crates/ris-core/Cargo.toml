@@ -1,0 +1,8 @@
+[package]
+name = "ris-core"
+version = "0.1.0"
+edition = "2021"
+description = "Domain models and domain logic."
+
+[dependencies]
+

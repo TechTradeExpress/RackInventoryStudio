@@ -1,0 +1,9 @@
+locations:
+  - id: 79f0b3c0-f4d3-47ad-89e1-9efae2ad5c87
+    code: warsaw-serverroom-a
+    name: Warszawa - Serwerownia A
+    description: Example primary server room.
+    address: Warszawa, ul. Przykładowa 1
+    tags:
+      - production
+      - warsaw

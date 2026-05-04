@@ -1,0 +1,9 @@
+[package]
+name = "ris-repository"
+version = "0.1.0"
+edition = "2021"
+description = "YAML repository loader/writer and RepositoryIndex."
+
+[dependencies]
+ris-core = { path = "../ris-core" }
+

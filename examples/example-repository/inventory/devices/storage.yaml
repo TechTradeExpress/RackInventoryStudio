@@ -1,0 +1,13 @@
+device_type: storage
+
+devices:
+  - id: 97eb865b-56fc-4fda-b7cb-66f6cb5f309e
+    code: storage-01
+    name: storage-01
+    device_model_id: ddd19fa1-8a1a-4300-80c1-b08f7b79ed38
+    serial_number: STOR123456
+    asset_tag: INV-03001
+    external_ref: STORAGE-01
+    status: installed
+    tags:
+      - storage

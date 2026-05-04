@@ -1,0 +1,21 @@
+# Rust
+target/
+Cargo.lock
+
+# Node
+node_modules/
+dist/
+.pnpm-store/
+
+# Tauri
+src-tauri/target/
+apps/desktop/src-tauri/target/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local app data
+.local/

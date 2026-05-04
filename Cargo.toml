@@ -1,0 +1,11 @@
+[workspace]
+members = [
+  "apps/desktop/src-tauri",
+  "crates/ris-core",
+  "crates/ris-repository",
+  "crates/ris-validation",
+  "crates/ris-import",
+  "crates/ris-git",
+  "crates/ris-application"
+]
+resolver = "2"

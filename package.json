@@ -1,0 +1,11 @@
+{
+  "name": "rack-inventory-studio-workspace",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "dev": "pnpm --filter @rack-inventory-studio/desktop dev",
+    "build": "pnpm --filter @rack-inventory-studio/desktop build",
+    "tauri": "pnpm --filter @rack-inventory-studio/desktop tauri"
+  }
+}

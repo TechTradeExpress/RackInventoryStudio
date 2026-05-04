@@ -1,0 +1,10 @@
+[package]
+    name = "ris-validation"
+    version = "0.1.0"
+    edition = "2021"
+    description = "ValidationEngine and validation rules."
+
+    [dependencies]
+    ris-core = { path = "../ris-core" }
+ris-repository = { path = "../ris-repository" }
+
