@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wsl -d Ubuntu -u su-17 -- bash -lc \"cd ~/projects/RackInventoryStudio && cargo check*)",
+      "Bash(wsl -d Ubuntu -u su-17 -- bash -lc \"cd ~/projects/RackInventoryStudio && cargo test*)",
+      "Bash(wsl -d Ubuntu -u su-17 -- bash -lc \"cd ~/projects/RackInventoryStudio && cargo fmt*)",
+      "Bash(wsl -d Ubuntu -u su-17 -- bash -lc \"cd ~/projects/RackInventoryStudio && cargo build*)"
+    ]
+  }
+}

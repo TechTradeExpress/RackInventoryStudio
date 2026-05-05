@@ -1,0 +1,15 @@
+locations:
+  # VAL-GEN-001: invalid UUID
+  - id: not-a-uuid-at-all
+    code: room-a
+    name: Room A
+
+  # VAL-GEN-003: invalid code format (uppercase + spaces not allowed)
+  - id: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaab
+    code: INVALID CODE
+    name: Room B
+
+  # duplicate id — same as room-a above (VAL-GEN-002)
+  - id: not-a-uuid-at-all
+    code: room-a-dup
+    name: Room A Duplicate

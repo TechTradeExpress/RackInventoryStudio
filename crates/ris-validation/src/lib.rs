@@ -1,6 +1,8 @@
-//! ValidationEngine and validation rules.
-//!
-//! This crate is part of Rack Inventory Studio.
-//! The implementation will be added in the coding phase.
+//! ValidationEngine and validation rules for Rack Inventory Studio.
 
-pub const CRATE_NAME: &str = "ris-validation";
+mod helpers;
+mod validators;
+
+pub mod engine;
+
+pub use engine::ValidationEngine;

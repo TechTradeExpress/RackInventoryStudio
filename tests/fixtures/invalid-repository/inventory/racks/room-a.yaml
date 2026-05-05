@@ -1,0 +1,8 @@
+location_id: ffffffff-ffff-ffff-ffff-ffffffffffff
+
+racks:
+  # VAL-RACK-001: location_id does not exist in locations
+  - id: bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbc
+    code: rack-bad
+    name: Rack Bad
+    height_u: 10

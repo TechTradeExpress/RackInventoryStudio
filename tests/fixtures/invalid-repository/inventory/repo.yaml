@@ -1,0 +1,7 @@
+format: rack-inventory-studio
+version: "wrong"
+
+repository:
+  id: 11111111-1111-1111-1111-111111111112
+  code: invalid-repo
+  name: Invalid Repository

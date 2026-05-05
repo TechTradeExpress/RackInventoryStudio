@@ -1,6 +1,12 @@
-//! YAML repository loader/writer and RepositoryIndex.
-//!
-//! This crate is part of Rack Inventory Studio.
-//! The implementation will be added in the coding phase.
+//! YAML repository loader and RepositoryIndex for Rack Inventory Studio.
 
-pub const CRATE_NAME: &str = "ris-repository";
+mod yaml;
+
+pub mod data;
+pub mod error;
+pub mod index;
+pub mod loader;
+
+pub use data::RepositoryData;
+pub use error::LoadError;
+pub use index::RepositoryIndex;

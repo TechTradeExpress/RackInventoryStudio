@@ -16,6 +16,15 @@ apps/desktop/src-tauri/target/
 .idea/
 .vscode/
 *.swp
+repomix-output.xml
 
 # Local app data
 .local/
+
+# Secrets (defence-in-depth — none currently exist)
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx

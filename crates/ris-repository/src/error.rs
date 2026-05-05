@@ -1,0 +1,23 @@
+#[derive(Debug, thiserror::Error)]
+pub enum LoadError {
+    #[error("IO error reading '{path}': {source}")]
+    Io {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("YAML parse error in '{path}': {source}")]
+    Yaml {
+        path: String,
+        #[source]
+        source: serde_yaml::Error,
+    },
+
+    #[error("Invalid value '{value}' in '{path}': {message}")]
+    InvalidValue {
+        path: String,
+        value: String,
+        message: String,
+    },
+}

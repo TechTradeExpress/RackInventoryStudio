@@ -1,0 +1,7 @@
+device_type: server
+
+models:
+  - id: cccccccc-cccc-cccc-cccc-cccccccccccd
+    code: dell-r650
+    name: Dell PowerEdge R650
+    default_height_u: 1
