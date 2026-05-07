@@ -12,7 +12,7 @@ pub fn validate(data: &RepositoryData, index: &RepositoryIndex) -> Vec<Validatio
             Some(r) => r,
             None => {
                 issues.push(issue_for(
-                    "VAL-PLC-001",
+                    "VAL-PLC-002",
                     ValidationLevel::Error,
                     &format!("placement file references unknown rack_id '{}'", pf.rack_id),
                     "placement_file",
@@ -94,7 +94,23 @@ pub fn validate(data: &RepositoryData, index: &RepositoryIndex) -> Vec<Validatio
                     }
                 };
 
-                let range = ris_core::PlacementRange::new(p.start_u, h);
+                let range = match ris_core::PlacementRange::try_new(p.start_u, h) {
+                    Some(r) => r,
+                    None => {
+                        issues.push(issue_for(
+                            "VAL-PLC-009",
+                            ValidationLevel::Error,
+                            &format!(
+                                "placement '{}': start_u={} or height_u={h} is invalid (must be >= 1)",
+                                p.code, p.start_u
+                            ),
+                            "placement",
+                            &p.id,
+                            &p.code,
+                        ));
+                        continue;
+                    }
+                };
 
                 // VAL-PLC-012: must fit within rack
                 if range.end_u > rack.height_u {

@@ -1,6 +1,5 @@
 # Rust
 target/
-Cargo.lock
 
 # Node
 node_modules/
@@ -20,6 +19,9 @@ repomix-output.xml
 
 # Local app data
 .local/
+
+# Claude Code local settings
+.claude/
 
 # Secrets (defence-in-depth — none currently exist)
 .env

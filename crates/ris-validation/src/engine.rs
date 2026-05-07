@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use ris_core::{ValidationIssue, ValidationLevel};
-use ris_repository::{loader, RepositoryIndex};
+use ris_repository::{loader, LoadError, RepositoryIndex};
 
 use crate::helpers::issue;
 use crate::validators::{general, placement, rack, repository};
@@ -22,6 +22,14 @@ impl ValidationEngine {
         // Phase 2: load data
         let data = match loader::load(repo_path) {
             Ok(d) => d,
+            Err(LoadError::MissingField { path, field, code }) => {
+                issues.push(issue(
+                    code,
+                    ValidationLevel::Error,
+                    &format!("{path}: required field '{field}' is missing"),
+                ));
+                return issues;
+            }
             Err(e) => {
                 issues.push(issue(
                     "VAL-LOAD-000",

@@ -1,8 +1,18 @@
 use std::collections::HashMap;
 
-use ris_core::{Device, DeviceModel, Location, Placement, PlacementFile, Rack};
+use ris_core::{
+    Device, DeviceModel, Location, Placement, PlacementFile, PlacementSide, PlacementTargetKind,
+    Rack,
+};
 
 use crate::data::RepositoryData;
+
+#[derive(Debug, Clone)]
+pub struct IndexedPlacement {
+    pub rack_id: String,
+    pub side: PlacementSide,
+    pub placement: Placement,
+}
 
 pub struct RepositoryIndex {
     pub locations_by_id: HashMap<String, Location>,
@@ -15,8 +25,8 @@ pub struct RepositoryIndex {
     pub devices_by_code: HashMap<String, Device>,
     pub placements_by_id: HashMap<String, Placement>,
     pub placements_by_code: HashMap<String, Placement>,
-    pub placements_by_device_id: HashMap<String, Vec<Placement>>,
-    pub placements_by_rack_id: HashMap<String, Vec<Placement>>,
+    pub placements_by_device_id: HashMap<String, Vec<IndexedPlacement>>,
+    pub placements_by_rack_id: HashMap<String, Vec<IndexedPlacement>>,
     pub placement_file_by_rack_id: HashMap<String, PlacementFile>,
 }
 
@@ -52,28 +62,38 @@ impl RepositoryIndex {
 
         let mut placements_by_id: HashMap<String, Placement> = HashMap::new();
         let mut placements_by_code: HashMap<String, Placement> = HashMap::new();
-        let mut placements_by_device_id: HashMap<String, Vec<Placement>> = HashMap::new();
-        let mut placements_by_rack_id: HashMap<String, Vec<Placement>> = HashMap::new();
+        let mut placements_by_device_id: HashMap<String, Vec<IndexedPlacement>> = HashMap::new();
+        let mut placements_by_rack_id: HashMap<String, Vec<IndexedPlacement>> = HashMap::new();
         let mut placement_file_by_rack_id: HashMap<String, PlacementFile> = HashMap::new();
 
         for pf in &data.placement_files {
             placement_file_by_rack_id.insert(pf.rack_id.clone(), pf.clone());
 
-            let all: Vec<&Placement> = pf.front.iter().chain(pf.rear.iter()).collect();
-            for p in all {
-                placements_by_id.insert(p.id.clone(), p.clone());
-                placements_by_code.insert(p.code.clone(), p.clone());
-                placements_by_rack_id
-                    .entry(pf.rack_id.clone())
-                    .or_default()
-                    .push(p.clone());
+            let sides: [(&Vec<Placement>, PlacementSide); 2] = [
+                (&pf.front, PlacementSide::Front),
+                (&pf.rear, PlacementSide::Rear),
+            ];
+            for (placements, side) in sides {
+                for p in placements {
+                    placements_by_id.insert(p.id.clone(), p.clone());
+                    placements_by_code.insert(p.code.clone(), p.clone());
 
-                use ris_core::PlacementTargetKind;
-                if p.target_kind == PlacementTargetKind::Device {
-                    placements_by_device_id
-                        .entry(p.target_id.clone())
+                    let ip = IndexedPlacement {
+                        rack_id: pf.rack_id.clone(),
+                        side: side.clone(),
+                        placement: p.clone(),
+                    };
+                    placements_by_rack_id
+                        .entry(pf.rack_id.clone())
                         .or_default()
-                        .push(p.clone());
+                        .push(ip.clone());
+
+                    if p.target_kind == PlacementTargetKind::Device {
+                        placements_by_device_id
+                            .entry(p.target_id.clone())
+                            .or_default()
+                            .push(ip);
+                    }
                 }
             }
         }

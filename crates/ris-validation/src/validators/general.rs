@@ -62,11 +62,23 @@ pub fn validate(data: &RepositoryData) -> Vec<ValidationIssue> {
         }))
         .collect();
 
-    // UUID validity + code format
+    // VAL-GEN-001: id must be present (not empty)
+    // VAL-GEN-002: id must be a valid UUID
+    // VAL-GEN-003: code must be present (not empty)
+    // VAL-GEN-005: code must match regex
     for e in &entries {
-        if !uuid_re().is_match(e.id) {
+        if e.id.is_empty() {
             issues.push(issue_for(
                 "VAL-GEN-001",
+                ValidationLevel::Error,
+                &format!("{} has an empty id", e.kind),
+                e.kind,
+                e.id,
+                e.code,
+            ));
+        } else if !uuid_re().is_match(e.id) {
+            issues.push(issue_for(
+                "VAL-GEN-002",
                 ValidationLevel::Error,
                 &format!("{} id '{}' is not a valid UUID", e.kind, e.id),
                 e.kind,
@@ -74,9 +86,18 @@ pub fn validate(data: &RepositoryData) -> Vec<ValidationIssue> {
                 e.code,
             ));
         }
-        if !code_re().is_match(e.code) {
+        if e.code.is_empty() {
             issues.push(issue_for(
-                "VAL-GEN-003",
+                "VAL-GEN-004",
+                ValidationLevel::Error,
+                &format!("{} has an empty code", e.kind),
+                e.kind,
+                e.id,
+                e.code,
+            ));
+        } else if !code_re().is_match(e.code) {
+            issues.push(issue_for(
+                "VAL-GEN-005",
                 ValidationLevel::Error,
                 &format!(
                     "{} code '{}' does not match ^[a-z0-9][a-z0-9._-]*$",
@@ -89,12 +110,12 @@ pub fn validate(data: &RepositoryData) -> Vec<ValidationIssue> {
         }
     }
 
-    // Globally unique IDs
+    // VAL-GEN-006: id must be globally unique
     let mut id_seen: HashMap<&str, &str> = HashMap::new();
     for e in &entries {
         if let Some(prev_kind) = id_seen.insert(e.id, e.kind) {
             issues.push(issue_for(
-                "VAL-GEN-002",
+                "VAL-GEN-006",
                 ValidationLevel::Error,
                 &format!(
                     "duplicate id '{}' found in {} and {}",
@@ -107,7 +128,7 @@ pub fn validate(data: &RepositoryData) -> Vec<ValidationIssue> {
         }
     }
 
-    // Unique codes within each type
+    // VAL-GEN-007: code must be unique within each object type
     let type_groups: &[(&str, Vec<(&str, &str)>)] = &[
         (
             "location",
@@ -143,7 +164,7 @@ pub fn validate(data: &RepositoryData) -> Vec<ValidationIssue> {
         for (id, code) in items {
             if let Some(prev_id) = code_seen.insert(code, id) {
                 issues.push(issue_for(
-                    "VAL-GEN-004",
+                    "VAL-GEN-007",
                     ValidationLevel::Error,
                     &format!("duplicate {kind} code '{code}' (ids: {prev_id}, {id})"),
                     kind,

@@ -80,27 +80,7 @@ fn wrong_version_reports_val_repo_003() {
 // --- general validation ---
 
 #[test]
-fn invalid_uuid_reports_val_gen_001() {
-    let issues = ValidationEngine::validate(&fixture("invalid-repository"));
-    assert!(
-        has_code(&issues, "VAL-GEN-001"),
-        "expected VAL-GEN-001, got: {:?}",
-        errors(&issues)
-    );
-}
-
-#[test]
-fn invalid_code_format_reports_val_gen_003() {
-    let issues = ValidationEngine::validate(&fixture("invalid-repository"));
-    assert!(
-        has_code(&issues, "VAL-GEN-003"),
-        "expected VAL-GEN-003, got: {:?}",
-        errors(&issues)
-    );
-}
-
-#[test]
-fn duplicate_id_reports_val_gen_002() {
+fn invalid_uuid_reports_val_gen_002() {
     let issues = ValidationEngine::validate(&fixture("invalid-repository"));
     assert!(
         has_code(&issues, "VAL-GEN-002"),
@@ -109,14 +89,34 @@ fn duplicate_id_reports_val_gen_002() {
     );
 }
 
+#[test]
+fn invalid_code_format_reports_val_gen_005() {
+    let issues = ValidationEngine::validate(&fixture("invalid-repository"));
+    assert!(
+        has_code(&issues, "VAL-GEN-005"),
+        "expected VAL-GEN-005, got: {:?}",
+        errors(&issues)
+    );
+}
+
+#[test]
+fn duplicate_id_reports_val_gen_006() {
+    let issues = ValidationEngine::validate(&fixture("invalid-repository"));
+    assert!(
+        has_code(&issues, "VAL-GEN-006"),
+        "expected VAL-GEN-006, got: {:?}",
+        errors(&issues)
+    );
+}
+
 // --- rack validation ---
 
 #[test]
-fn unknown_location_id_reports_val_rack_001() {
+fn unknown_location_id_reports_val_rack_002() {
     let issues = ValidationEngine::validate(&fixture("invalid-repository"));
     assert!(
-        has_code(&issues, "VAL-RACK-001"),
-        "expected VAL-RACK-001, got: {:?}",
+        has_code(&issues, "VAL-RACK-002"),
+        "expected VAL-RACK-002, got: {:?}",
         errors(&issues)
     );
 }

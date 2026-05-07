@@ -54,6 +54,9 @@ pub fn load(repo_path: &Path) -> Result<RepositoryData, LoadError> {
     // repo.yaml
     let repo_file: YamlRepoFile = read_yaml(&inv.join("repo.yaml"))?;
     let metadata = RepositoryMetadata {
+        id: repo_file.repository.id,
+        code: repo_file.repository.code,
+        name: repo_file.repository.name,
         format: repo_file.format,
         version: repo_file.version,
     };
@@ -82,14 +85,24 @@ pub fn load(repo_path: &Path) -> Result<RepositoryData, LoadError> {
             message: "unknown device_type".into(),
         })?;
         for y in file.models {
+            let name = y.name.ok_or_else(|| LoadError::MissingField {
+                path: path.clone(),
+                field: "name",
+                code: "VAL-MODEL-004",
+            })?;
+            let default_height_u = y.default_height_u.ok_or_else(|| LoadError::MissingField {
+                path: path.clone(),
+                field: "default_height_u",
+                code: "VAL-MODEL-004",
+            })?;
             device_models.push(DeviceModel {
                 id: y.id,
                 code: y.code,
                 device_type: dt.clone(),
-                name: y.name,
+                name,
                 vendor: y.vendor,
                 model: y.model,
-                default_height_u: y.default_height_u,
+                default_height_u,
                 description: y.description,
                 tags: y.tags,
             });
@@ -129,12 +142,17 @@ pub fn load(repo_path: &Path) -> Result<RepositoryData, LoadError> {
 
     // racks
     let mut racks: Vec<Rack> = Vec::new();
-    for (_path, file) in read_yaml_glob::<YamlRacksFile>(&inv.join("racks"))? {
+    for (path, file) in read_yaml_glob::<YamlRacksFile>(&inv.join("racks"))? {
         for y in file.racks {
+            let name = y.name.ok_or_else(|| LoadError::MissingField {
+                path: path.clone(),
+                field: "name",
+                code: "VAL-RACK-004",
+            })?;
             racks.push(Rack {
                 id: y.id,
                 code: y.code,
-                name: y.name,
+                name,
                 location_id: file.location_id.clone(),
                 height_u: y.height_u,
                 row: y.row,

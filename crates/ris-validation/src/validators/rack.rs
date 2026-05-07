@@ -9,7 +9,7 @@ pub fn validate(data: &RepositoryData, index: &RepositoryIndex) -> Vec<Validatio
     for rack in &data.racks {
         if !index.locations_by_id.contains_key(&rack.location_id) {
             issues.push(issue_for(
-                "VAL-RACK-001",
+                "VAL-RACK-002",
                 ValidationLevel::Error,
                 &format!(
                     "rack '{}' references unknown location_id '{}'",

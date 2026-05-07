@@ -9,4 +9,4 @@ pub mod loader;
 
 pub use data::RepositoryData;
 pub use error::LoadError;
-pub use index::RepositoryIndex;
+pub use index::{IndexedPlacement, RepositoryIndex};

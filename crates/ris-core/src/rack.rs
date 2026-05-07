@@ -2,7 +2,7 @@
 pub struct Rack {
     pub id: String,
     pub code: String,
-    pub name: Option<String>,
+    pub name: String,
     pub location_id: String,
     pub height_u: u32,
     pub row: Option<String>,

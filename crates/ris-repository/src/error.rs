@@ -20,4 +20,12 @@ pub enum LoadError {
         value: String,
         message: String,
     },
+
+    #[error("Required field '{field}' missing in '{path}'")]
+    MissingField {
+        path: String,
+        field: &'static str,
+        /// Validation code to emit (e.g. "VAL-RACK-004").
+        code: &'static str,
+    },
 }
