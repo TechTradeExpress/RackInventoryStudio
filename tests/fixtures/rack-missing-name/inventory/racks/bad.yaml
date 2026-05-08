@@ -1,0 +1,6 @@
+location_id: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+
+racks:
+  - id: bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
+    code: rack-test
+    height_u: 42

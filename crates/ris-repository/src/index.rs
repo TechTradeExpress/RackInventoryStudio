@@ -23,8 +23,8 @@ pub struct RepositoryIndex {
     pub device_models_by_code: HashMap<String, DeviceModel>,
     pub devices_by_id: HashMap<String, Device>,
     pub devices_by_code: HashMap<String, Device>,
-    pub placements_by_id: HashMap<String, Placement>,
-    pub placements_by_code: HashMap<String, Placement>,
+    pub placements_by_id: HashMap<String, IndexedPlacement>,
+    pub placements_by_code: HashMap<String, IndexedPlacement>,
     pub placements_by_device_id: HashMap<String, Vec<IndexedPlacement>>,
     pub placements_by_rack_id: HashMap<String, Vec<IndexedPlacement>>,
     pub placement_file_by_rack_id: HashMap<String, PlacementFile>,
@@ -60,8 +60,8 @@ impl RepositoryIndex {
             devices_by_code.insert(dev.code.clone(), dev.clone());
         }
 
-        let mut placements_by_id: HashMap<String, Placement> = HashMap::new();
-        let mut placements_by_code: HashMap<String, Placement> = HashMap::new();
+        let mut placements_by_id: HashMap<String, IndexedPlacement> = HashMap::new();
+        let mut placements_by_code: HashMap<String, IndexedPlacement> = HashMap::new();
         let mut placements_by_device_id: HashMap<String, Vec<IndexedPlacement>> = HashMap::new();
         let mut placements_by_rack_id: HashMap<String, Vec<IndexedPlacement>> = HashMap::new();
         let mut placement_file_by_rack_id: HashMap<String, PlacementFile> = HashMap::new();
@@ -75,14 +75,14 @@ impl RepositoryIndex {
             ];
             for (placements, side) in sides {
                 for p in placements {
-                    placements_by_id.insert(p.id.clone(), p.clone());
-                    placements_by_code.insert(p.code.clone(), p.clone());
-
                     let ip = IndexedPlacement {
                         rack_id: pf.rack_id.clone(),
                         side: side.clone(),
                         placement: p.clone(),
                     };
+                    placements_by_id.insert(p.id.clone(), ip.clone());
+                    placements_by_code.insert(p.code.clone(), ip.clone());
+
                     placements_by_rack_id
                         .entry(pf.rack_id.clone())
                         .or_default()
@@ -113,5 +113,59 @@ impl RepositoryIndex {
             placements_by_rack_id,
             placement_file_by_rack_id,
         }
+    }
+
+    pub fn get_location_by_id(&self, id: &str) -> Option<&Location> {
+        self.locations_by_id.get(id)
+    }
+
+    pub fn get_location_by_code(&self, code: &str) -> Option<&Location> {
+        self.locations_by_code.get(code)
+    }
+
+    pub fn get_rack_by_id(&self, id: &str) -> Option<&Rack> {
+        self.racks_by_id.get(id)
+    }
+
+    pub fn get_rack_by_code(&self, code: &str) -> Option<&Rack> {
+        self.racks_by_code.get(code)
+    }
+
+    pub fn get_device_model_by_id(&self, id: &str) -> Option<&DeviceModel> {
+        self.device_models_by_id.get(id)
+    }
+
+    pub fn get_device_model_by_code(&self, code: &str) -> Option<&DeviceModel> {
+        self.device_models_by_code.get(code)
+    }
+
+    pub fn get_device_by_id(&self, id: &str) -> Option<&Device> {
+        self.devices_by_id.get(id)
+    }
+
+    pub fn get_device_by_code(&self, code: &str) -> Option<&Device> {
+        self.devices_by_code.get(code)
+    }
+
+    pub fn get_placement_by_id(&self, id: &str) -> Option<&IndexedPlacement> {
+        self.placements_by_id.get(id)
+    }
+
+    pub fn get_placement_by_code(&self, code: &str) -> Option<&IndexedPlacement> {
+        self.placements_by_code.get(code)
+    }
+
+    pub fn get_placements_for_rack(&self, rack_id: &str) -> &[IndexedPlacement] {
+        self.placements_by_rack_id
+            .get(rack_id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    pub fn get_placements_for_device(&self, device_id: &str) -> &[IndexedPlacement] {
+        self.placements_by_device_id
+            .get(device_id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
     }
 }

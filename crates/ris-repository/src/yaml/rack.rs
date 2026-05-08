@@ -11,7 +11,7 @@ pub struct YamlRack {
     pub id: String,
     pub code: String,
     pub name: Option<String>,
-    pub height_u: u32,
+    pub height_u: Option<u32>,
     pub row: Option<String>,
     pub description: Option<String>,
     #[serde(default)]

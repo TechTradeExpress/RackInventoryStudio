@@ -1,0 +1,7 @@
+format: rack-inventory-studio
+version: "0.1"
+
+repository:
+  id: 11111111-1111-1111-1111-111111111111
+  code: test-repo
+  name: Test Repository

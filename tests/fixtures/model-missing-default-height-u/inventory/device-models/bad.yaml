@@ -1,0 +1,6 @@
+device_type: server
+
+models:
+  - id: cccccccc-cccc-cccc-cccc-cccccccccccc
+    code: dell-r650
+    name: Dell PowerEdge R650

@@ -149,12 +149,17 @@ pub fn load(repo_path: &Path) -> Result<RepositoryData, LoadError> {
                 field: "name",
                 code: "VAL-RACK-004",
             })?;
+            let height_u = y.height_u.ok_or_else(|| LoadError::MissingField {
+                path: path.clone(),
+                field: "height_u",
+                code: "VAL-RACK-004",
+            })?;
             racks.push(Rack {
                 id: y.id,
                 code: y.code,
                 name,
                 location_id: file.location_id.clone(),
-                height_u: y.height_u,
+                height_u,
                 row: y.row,
                 description: y.description,
                 tags: y.tags,
