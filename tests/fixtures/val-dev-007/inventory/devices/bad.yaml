@@ -1,0 +1,7 @@
+device_type: server
+devices:
+  - id: dddd0001-0000-0000-0000-000000000000
+    code: device-01
+    name: Device 01
+    status: installed
+    device_model_id: 99999999-9999-9999-9999-999999999999

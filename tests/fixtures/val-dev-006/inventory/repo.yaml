@@ -1,0 +1,6 @@
+format: rack-inventory-studio
+version: 0.1
+repository:
+  id: 00000000-0000-0000-0000-000000000006
+  code: val-dev-006
+  name: val-dev-006 Test

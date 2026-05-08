@@ -1,0 +1,6 @@
+location_id: aaaa0806-0000-0000-0000-000000000000
+racks:
+  - id: bbbb0806-0000-0000-0000-000000000000
+    code: rack-01
+    name: Rack One
+    height_u: -1

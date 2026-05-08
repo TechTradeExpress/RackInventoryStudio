@@ -1,0 +1,6 @@
+format: rack-inventory-studio
+version: 0.1
+repository:
+  id: 00000000-0000-0000-0000-000000000101
+  code: val-plc-001
+  name: val-plc-001 Test

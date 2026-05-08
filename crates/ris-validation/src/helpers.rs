@@ -13,6 +13,25 @@ pub fn issue(code: &str, level: ValidationLevel, message: &str) -> ValidationIss
     }
 }
 
+pub fn issue_f(
+    code: &str,
+    level: ValidationLevel,
+    message: &str,
+    file_path: &str,
+) -> ValidationIssue {
+    ValidationIssue {
+        code: code.to_string(),
+        level,
+        message: message.to_string(),
+        object_type: None,
+        object_id: None,
+        object_code: None,
+        file_path: Some(file_path.to_string()),
+        details: None,
+    }
+}
+
+#[allow(dead_code)]
 pub fn issue_for(
     code: &str,
     level: ValidationLevel,
@@ -29,6 +48,27 @@ pub fn issue_for(
         object_id: Some(object_id.to_string()),
         object_code: Some(object_code.to_string()),
         file_path: None,
+        details: None,
+    }
+}
+
+pub fn issue_for_f(
+    code: &str,
+    level: ValidationLevel,
+    message: &str,
+    object_type: &str,
+    object_id: &str,
+    object_code: &str,
+    file_path: &str,
+) -> ValidationIssue {
+    ValidationIssue {
+        code: code.to_string(),
+        level,
+        message: message.to_string(),
+        object_type: Some(object_type.to_string()),
+        object_id: Some(object_id.to_string()),
+        object_code: Some(object_code.to_string()),
+        file_path: Some(file_path.to_string()),
         details: None,
     }
 }

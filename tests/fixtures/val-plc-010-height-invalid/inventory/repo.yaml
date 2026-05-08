@@ -1,0 +1,6 @@
+format: rack-inventory-studio
+version: 0.1
+repository:
+  id: 00000000-0000-0000-0000-000000000810
+  code: val-plc-010-height-invalid
+  name: val-plc-010-height-invalid Test

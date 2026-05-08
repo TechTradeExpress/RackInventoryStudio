@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use ris_core::{ValidationIssue, ValidationLevel};
+use ris_repository::RawRepositoryData;
 
-use crate::helpers::issue_for;
-use ris_repository::RepositoryData;
+use crate::helpers::{issue_f, issue_for_f};
 
 static UUID_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static CODE_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
@@ -23,157 +23,206 @@ fn code_re() -> &'static regex::Regex {
 
 struct Entry<'a> {
     kind: &'static str,
-    id: &'a str,
-    code: &'a str,
+    id: Option<&'a str>,
+    code: Option<&'a str>,
+    file_path: &'a str,
+    tags_malformed: bool,
 }
 
-pub fn validate(data: &RepositoryData) -> Vec<ValidationIssue> {
+pub fn validate(raw: &RawRepositoryData) -> Vec<ValidationIssue> {
     let mut issues = Vec::new();
+    let entries = collect_entries(raw);
 
-    let entries: Vec<Entry<'_>> = data
-        .locations
-        .iter()
-        .map(|x| Entry {
-            kind: "location",
-            id: &x.id,
-            code: &x.code,
-        })
-        .chain(data.racks.iter().map(|x| Entry {
-            kind: "rack",
-            id: &x.id,
-            code: &x.code,
-        }))
-        .chain(data.device_models.iter().map(|x| Entry {
-            kind: "device_model",
-            id: &x.id,
-            code: &x.code,
-        }))
-        .chain(data.devices.iter().map(|x| Entry {
-            kind: "device",
-            id: &x.id,
-            code: &x.code,
-        }))
-        .chain(data.placement_files.iter().flat_map(|pf| {
-            pf.front.iter().chain(pf.rear.iter()).map(|p| Entry {
-                kind: "placement",
-                id: &p.id,
-                code: &p.code,
-            })
-        }))
-        .collect();
-
-    // VAL-GEN-001: id must be present (not empty)
-    // VAL-GEN-002: id must be a valid UUID
-    // VAL-GEN-003: code must be present (not empty)
-    // VAL-GEN-005: code must match regex
     for e in &entries {
-        if e.id.is_empty() {
-            issues.push(issue_for(
+        let id = e.id.unwrap_or("");
+        let code_str = e.code.unwrap_or("");
+
+        // VAL-GEN-001 / VAL-GEN-002
+        if e.id.is_none() {
+            issues.push(issue_f(
+                "VAL-GEN-001",
+                ValidationLevel::Error,
+                &format!("{} is missing required field 'id'", e.kind),
+                e.file_path,
+            ));
+        } else if id.is_empty() {
+            issues.push(issue_for_f(
                 "VAL-GEN-001",
                 ValidationLevel::Error,
                 &format!("{} has an empty id", e.kind),
                 e.kind,
-                e.id,
-                e.code,
+                id,
+                code_str,
+                e.file_path,
             ));
-        } else if !uuid_re().is_match(e.id) {
-            issues.push(issue_for(
+        } else if !uuid_re().is_match(id) {
+            issues.push(issue_for_f(
                 "VAL-GEN-002",
                 ValidationLevel::Error,
-                &format!("{} id '{}' is not a valid UUID", e.kind, e.id),
+                &format!("{} id '{}' is not a valid UUID", e.kind, id),
                 e.kind,
-                e.id,
-                e.code,
+                id,
+                code_str,
+                e.file_path,
             ));
         }
-        if e.code.is_empty() {
-            issues.push(issue_for(
+
+        // VAL-GEN-003 / VAL-GEN-004 / VAL-GEN-005
+        if e.code.is_none() {
+            issues.push(issue_f(
+                "VAL-GEN-003",
+                ValidationLevel::Error,
+                &format!("{} is missing required field 'code'", e.kind),
+                e.file_path,
+            ));
+        } else if code_str.is_empty() {
+            issues.push(issue_for_f(
                 "VAL-GEN-004",
                 ValidationLevel::Error,
                 &format!("{} has an empty code", e.kind),
                 e.kind,
-                e.id,
-                e.code,
+                id,
+                code_str,
+                e.file_path,
             ));
-        } else if !code_re().is_match(e.code) {
-            issues.push(issue_for(
+        } else if !code_re().is_match(code_str) {
+            issues.push(issue_for_f(
                 "VAL-GEN-005",
                 ValidationLevel::Error,
                 &format!(
                     "{} code '{}' does not match ^[a-z0-9][a-z0-9._-]*$",
-                    e.kind, e.code
+                    e.kind, code_str
                 ),
                 e.kind,
-                e.id,
-                e.code,
+                id,
+                code_str,
+                e.file_path,
+            ));
+        }
+
+        // VAL-GEN-008: tags must be a list of strings
+        if e.tags_malformed {
+            issues.push(issue_for_f(
+                "VAL-GEN-008",
+                ValidationLevel::Error,
+                &format!("{} has invalid tags (must be a list of strings)", e.kind),
+                e.kind,
+                id,
+                code_str,
+                e.file_path,
             ));
         }
     }
 
-    // VAL-GEN-006: id must be globally unique
+    // VAL-GEN-006: globally unique id
     let mut id_seen: HashMap<&str, &str> = HashMap::new();
     for e in &entries {
-        if let Some(prev_kind) = id_seen.insert(e.id, e.kind) {
-            issues.push(issue_for(
+        let id = match e.id {
+            Some(s) if !s.is_empty() => s,
+            _ => continue,
+        };
+        if let Some(prev_kind) = id_seen.insert(id, e.kind) {
+            issues.push(issue_f(
                 "VAL-GEN-006",
                 ValidationLevel::Error,
                 &format!(
                     "duplicate id '{}' found in {} and {}",
-                    e.id, prev_kind, e.kind
+                    id, prev_kind, e.kind
                 ),
-                e.kind,
-                e.id,
-                e.code,
+                e.file_path,
             ));
         }
     }
 
-    // VAL-GEN-007: code must be unique within each object type
-    let type_groups: &[(&str, Vec<(&str, &str)>)] = &[
-        (
-            "location",
-            data.locations
-                .iter()
-                .map(|x| (x.id.as_str(), x.code.as_str()))
-                .collect(),
-        ),
-        (
-            "rack",
-            data.racks
-                .iter()
-                .map(|x| (x.id.as_str(), x.code.as_str()))
-                .collect(),
-        ),
-        (
-            "device_model",
-            data.device_models
-                .iter()
-                .map(|x| (x.id.as_str(), x.code.as_str()))
-                .collect(),
-        ),
-        (
-            "device",
-            data.devices
-                .iter()
-                .map(|x| (x.id.as_str(), x.code.as_str()))
-                .collect(),
-        ),
-    ];
-    for (kind, items) in type_groups {
+    // VAL-GEN-007: code unique within object type
+    let type_groups: &[&str] = &["location", "rack", "device_model", "device", "placement"];
+    for kind in type_groups {
         let mut code_seen: HashMap<&str, &str> = HashMap::new();
-        for (id, code) in items {
-            if let Some(prev_id) = code_seen.insert(code, id) {
-                issues.push(issue_for(
+        for e in entries.iter().filter(|e| e.kind == *kind) {
+            let code_str = match e.code {
+                Some(s) if !s.is_empty() => s,
+                _ => continue,
+            };
+            let id = e.id.unwrap_or("");
+            if let Some(prev_id) = code_seen.insert(code_str, id) {
+                issues.push(issue_f(
                     "VAL-GEN-007",
                     ValidationLevel::Error,
-                    &format!("duplicate {kind} code '{code}' (ids: {prev_id}, {id})"),
-                    kind,
-                    id,
-                    code,
+                    &format!(
+                        "duplicate {} code '{}' (ids: '{}', '{}')",
+                        kind, code_str, prev_id, id
+                    ),
+                    e.file_path,
                 ));
             }
         }
     }
 
     issues
+}
+
+fn collect_entries<'a>(raw: &'a RawRepositoryData) -> Vec<Entry<'a>> {
+    let mut entries = Vec::new();
+
+    if let Some(lf) = &raw.locations_file {
+        for loc in &lf.locations {
+            entries.push(Entry {
+                kind: "location",
+                id: loc.id.as_deref(),
+                code: loc.code.as_deref(),
+                file_path: &lf.file_path,
+                tags_malformed: loc.tags_malformed,
+            });
+        }
+    }
+
+    for rf in &raw.rack_files {
+        for rack in &rf.racks {
+            entries.push(Entry {
+                kind: "rack",
+                id: rack.id.as_deref(),
+                code: rack.code.as_deref(),
+                file_path: &rf.file_path,
+                tags_malformed: rack.tags_malformed,
+            });
+        }
+    }
+
+    for mf in &raw.device_model_files {
+        for m in &mf.models {
+            entries.push(Entry {
+                kind: "device_model",
+                id: m.id.as_deref(),
+                code: m.code.as_deref(),
+                file_path: &mf.file_path,
+                tags_malformed: m.tags_malformed,
+            });
+        }
+    }
+
+    for df in &raw.device_files {
+        for d in &df.devices {
+            entries.push(Entry {
+                kind: "device",
+                id: d.id.as_deref(),
+                code: d.code.as_deref(),
+                file_path: &df.file_path,
+                tags_malformed: d.tags_malformed,
+            });
+        }
+    }
+
+    for pf in &raw.placement_files {
+        for p in pf.front.iter().chain(pf.rear.iter()) {
+            entries.push(Entry {
+                kind: "placement",
+                id: p.id.as_deref(),
+                code: p.code.as_deref(),
+                file_path: &pf.file_path,
+                tags_malformed: p.tags_malformed,
+            });
+        }
+    }
+
+    entries
 }

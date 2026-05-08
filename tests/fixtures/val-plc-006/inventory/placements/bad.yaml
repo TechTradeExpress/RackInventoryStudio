@@ -1,0 +1,8 @@
+rack_id: bbbb0001-0000-0000-0000-000000000000
+placements:
+  front:
+    - id: eeee0001-0000-0000-0000-000000000000
+      code: plc-01
+      target_kind: unknown_kind
+      target_id: cccc0002-0000-0000-0000-000000000000
+      start_u: 1

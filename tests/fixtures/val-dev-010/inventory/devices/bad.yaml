@@ -1,0 +1,12 @@
+device_type: server
+devices:
+  - id: dddd0001-0000-0000-0000-000000000000
+    code: device-01
+    name: Device 01
+    serial_number: DUPLICATE-SN
+    status: installed
+  - id: dddd0002-0000-0000-0000-000000000000
+    code: device-02
+    name: Device 02
+    serial_number: DUPLICATE-SN
+    status: spare

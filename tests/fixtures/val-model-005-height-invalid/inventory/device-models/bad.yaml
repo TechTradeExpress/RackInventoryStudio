@@ -1,0 +1,6 @@
+device_type: server
+models:
+  - id: cccc0807-0000-0000-0000-000000000000
+    code: bad-model
+    name: Bad Model
+    default_height_u: "abc"

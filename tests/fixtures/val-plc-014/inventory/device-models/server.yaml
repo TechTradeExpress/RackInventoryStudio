@@ -1,0 +1,6 @@
+device_type: server
+models:
+  - id: cccc0001-0000-0000-0000-000000000000
+    code: dell-r650
+    name: Dell R650
+    default_height_u: 1

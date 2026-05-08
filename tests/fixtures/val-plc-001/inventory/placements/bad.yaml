@@ -1,0 +1,8 @@
+# missing rack_id
+placements:
+  front:
+    - id: eeee0001-0000-0000-0000-000000000000
+      code: plc-01
+      target_kind: device_model
+      target_id: cccc0002-0000-0000-0000-000000000000
+      start_u: 1

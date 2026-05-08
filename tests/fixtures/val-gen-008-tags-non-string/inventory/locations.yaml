@@ -1,0 +1,7 @@
+locations:
+  - id: aaaa0802-0000-0000-0000-000000000000
+    code: loc-01
+    name: Location One
+    tags:
+      - valid-tag
+      - 123

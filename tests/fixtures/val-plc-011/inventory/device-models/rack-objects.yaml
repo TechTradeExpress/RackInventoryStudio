@@ -1,0 +1,6 @@
+device_type: rack_object
+models:
+  - id: cccc0002-0000-0000-0000-000000000000
+    code: blank-no-height
+    name: Blank Panel (no height)
+    # no default_height_u

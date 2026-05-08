@@ -1,0 +1,5 @@
+locations:
+  - id: aaaa0801-0000-0000-0000-000000000000
+    code: loc-01
+    name: Location One
+    tags: "not-a-list"

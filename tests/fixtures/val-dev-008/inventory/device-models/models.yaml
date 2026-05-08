@@ -1,0 +1,6 @@
+device_type: network
+models:
+  - id: cccc0001-0000-0000-0000-000000000000
+    code: switch-48p
+    name: Switch 48-port
+    default_height_u: 1

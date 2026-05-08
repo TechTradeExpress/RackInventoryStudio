@@ -1,0 +1,6 @@
+format: rack-inventory-studio
+version: 0.1
+repository:
+  id: 00000000-0000-0000-0000-000000000802
+  code: val-gen-008-non-string
+  name: val-gen-008-tags-non-string Test
