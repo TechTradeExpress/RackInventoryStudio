@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use ris_core::{
@@ -6,7 +6,10 @@ use ris_core::{
     PlacementTargetKind, Rack, RepositoryMetadata,
 };
 
-use crate::data::RepositoryData;
+use crate::data::{
+    DeviceFileLayout, DeviceModelFileLayout, PlacementFileLayout, RackFileLayout, RepositoryData,
+    RepositoryLayout,
+};
 use crate::error::LoadError;
 use crate::yaml::{
     device::YamlDevicesFile, device_model::YamlDeviceModelsFile, location::YamlLocationsFile,
@@ -48,6 +51,13 @@ fn read_yaml_glob<T: serde::de::DeserializeOwned>(
     Ok(results)
 }
 
+fn rel_path(full: &str, inv: &Path) -> PathBuf {
+    PathBuf::from(full)
+        .strip_prefix(inv)
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|_| PathBuf::from(full))
+}
+
 pub fn load(repo_path: &Path) -> Result<RepositoryData, LoadError> {
     let inv = repo_path.join("inventory");
 
@@ -78,23 +88,26 @@ pub fn load(repo_path: &Path) -> Result<RepositoryData, LoadError> {
 
     // device-models
     let mut device_models: Vec<DeviceModel> = Vec::new();
-    for (path, file) in read_yaml_glob::<YamlDeviceModelsFile>(&inv.join("device-models"))? {
+    let mut device_model_file_layouts: Vec<DeviceModelFileLayout> = Vec::new();
+    for (path_str, file) in read_yaml_glob::<YamlDeviceModelsFile>(&inv.join("device-models"))? {
         let dt = DeviceType::from_str(&file.device_type).map_err(|_| LoadError::InvalidValue {
-            path: path.clone(),
+            path: path_str.clone(),
             value: file.device_type.clone(),
             message: "unknown device_type".into(),
         })?;
+        let mut model_ids = Vec::new();
         for y in file.models {
             let name = y.name.ok_or_else(|| LoadError::MissingField {
-                path: path.clone(),
+                path: path_str.clone(),
                 field: "name",
                 code: "VAL-MODEL-004",
             })?;
             let default_height_u = y.default_height_u.ok_or_else(|| LoadError::MissingField {
-                path: path.clone(),
+                path: path_str.clone(),
                 field: "default_height_u",
                 code: "VAL-MODEL-004",
             })?;
+            model_ids.push(y.id.clone());
             device_models.push(DeviceModel {
                 id: y.id,
                 code: y.code,
@@ -107,23 +120,31 @@ pub fn load(repo_path: &Path) -> Result<RepositoryData, LoadError> {
                 tags: y.tags,
             });
         }
+        device_model_file_layouts.push(DeviceModelFileLayout {
+            path: rel_path(&path_str, &inv),
+            device_type: dt,
+            model_ids,
+        });
     }
 
     // devices
     let mut devices: Vec<Device> = Vec::new();
-    for (path, file) in read_yaml_glob::<YamlDevicesFile>(&inv.join("devices"))? {
+    let mut device_file_layouts: Vec<DeviceFileLayout> = Vec::new();
+    for (path_str, file) in read_yaml_glob::<YamlDevicesFile>(&inv.join("devices"))? {
         let dt = DeviceType::from_str(&file.device_type).map_err(|_| LoadError::InvalidValue {
-            path: path.clone(),
+            path: path_str.clone(),
             value: file.device_type.clone(),
             message: "unknown device_type".into(),
         })?;
+        let mut device_ids = Vec::new();
         for y in file.devices {
             let status =
                 DeviceStatus::from_str(&y.status).map_err(|_| LoadError::InvalidValue {
-                    path: path.clone(),
+                    path: path_str.clone(),
                     value: y.status.clone(),
                     message: "unknown status".into(),
                 })?;
+            device_ids.push(y.id.clone());
             devices.push(Device {
                 id: y.id,
                 code: y.code,
@@ -138,42 +159,57 @@ pub fn load(repo_path: &Path) -> Result<RepositoryData, LoadError> {
                 tags: y.tags,
             });
         }
+        device_file_layouts.push(DeviceFileLayout {
+            path: rel_path(&path_str, &inv),
+            device_type: dt,
+            device_ids,
+        });
     }
 
     // racks
     let mut racks: Vec<Rack> = Vec::new();
-    for (path, file) in read_yaml_glob::<YamlRacksFile>(&inv.join("racks"))? {
+    let mut rack_file_layouts: Vec<RackFileLayout> = Vec::new();
+    for (path_str, file) in read_yaml_glob::<YamlRacksFile>(&inv.join("racks"))? {
+        let location_id = file.location_id;
+        let mut rack_ids = Vec::new();
         for y in file.racks {
             let name = y.name.ok_or_else(|| LoadError::MissingField {
-                path: path.clone(),
+                path: path_str.clone(),
                 field: "name",
                 code: "VAL-RACK-004",
             })?;
             let height_u = y.height_u.ok_or_else(|| LoadError::MissingField {
-                path: path.clone(),
+                path: path_str.clone(),
                 field: "height_u",
                 code: "VAL-RACK-004",
             })?;
+            rack_ids.push(y.id.clone());
             racks.push(Rack {
                 id: y.id,
                 code: y.code,
                 name,
-                location_id: file.location_id.clone(),
+                location_id: location_id.clone(),
                 height_u,
                 row: y.row,
                 description: y.description,
                 tags: y.tags,
             });
         }
+        rack_file_layouts.push(RackFileLayout {
+            path: rel_path(&path_str, &inv),
+            location_id,
+            rack_ids,
+        });
     }
 
     // placements
     let mut placement_files: Vec<PlacementFile> = Vec::new();
-    for (path, file) in read_yaml_glob::<YamlPlacementsFile>(&inv.join("placements"))? {
+    let mut placement_file_layouts: Vec<PlacementFileLayout> = Vec::new();
+    for (path_str, file) in read_yaml_glob::<YamlPlacementsFile>(&inv.join("placements"))? {
         let map_placement = |y: crate::yaml::placement::YamlPlacement| {
             let target_kind = PlacementTargetKind::from_str(&y.target_kind).map_err(|_| {
                 LoadError::InvalidValue {
-                    path: path.clone(),
+                    path: path_str.clone(),
                     value: y.target_kind.clone(),
                     message: "unknown target_kind".into(),
                 }
@@ -203,6 +239,10 @@ pub fn load(repo_path: &Path) -> Result<RepositoryData, LoadError> {
             .map(&map_placement)
             .collect();
 
+        placement_file_layouts.push(PlacementFileLayout {
+            path: rel_path(&path_str, &inv),
+            rack_id: file.rack_id.clone(),
+        });
         placement_files.push(PlacementFile {
             rack_id: file.rack_id,
             front: front?,
@@ -217,5 +257,11 @@ pub fn load(repo_path: &Path) -> Result<RepositoryData, LoadError> {
         device_models,
         devices,
         placement_files,
+        layout: RepositoryLayout {
+            rack_files: rack_file_layouts,
+            device_model_files: device_model_file_layouts,
+            device_files: device_file_layouts,
+            placement_files: placement_file_layouts,
+        },
     })
 }

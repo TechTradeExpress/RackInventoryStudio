@@ -1,0 +1,7 @@
+device_type: rack_object
+
+models:
+  - id: dddddddd-dddd-dddd-dddd-dddddddddddd
+    code: blank-1u
+    name: Blank Panel 1U
+    default_height_u: 1

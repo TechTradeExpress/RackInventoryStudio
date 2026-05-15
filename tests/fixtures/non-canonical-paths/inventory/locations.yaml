@@ -1,0 +1,7 @@
+locations:
+  - id: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+    code: server-room-a
+    name: Server Room A
+    description: Main server room
+    tags:
+      - production

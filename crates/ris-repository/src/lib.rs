@@ -8,8 +8,12 @@ pub mod index;
 pub mod loader;
 pub mod raw;
 pub mod raw_loader;
+pub mod writer;
 
-pub use data::RepositoryData;
+pub use data::{
+    DeviceFileLayout, DeviceModelFileLayout, PlacementFileLayout, RackFileLayout, RepositoryData,
+    RepositoryLayout,
+};
 pub use error::LoadError;
 pub use index::{IndexedPlacement, RepositoryIndex};
 pub use loader::load;
@@ -18,3 +22,4 @@ pub use raw::{
     RawPlacement, RawPlacementFile, RawRack, RawRackFile, RawRepoFile, RawRepositoryData,
 };
 pub use raw_loader::load_raw;
+pub use writer::{write_if_changed, write_repository, WriteError, WriteReport, WriteStatus};

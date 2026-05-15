@@ -2,7 +2,7 @@ use ris_core::{
     Device, DeviceModel, DeviceStatus, DeviceType, RepositoryMetadata, ValidationLevel,
 };
 use ris_import::{CsvImportContext, CsvRowAction};
-use ris_repository::{RepositoryData, RepositoryIndex};
+use ris_repository::{RepositoryData, RepositoryIndex, RepositoryLayout};
 
 // ── test helpers ──────────────────────────────────────────────────────────────
 
@@ -64,6 +64,7 @@ fn context_with_devices(devices: Vec<Device>) -> CsvImportContext {
         device_models: vec![],
         devices,
         placement_files: vec![],
+        layout: RepositoryLayout::default(),
     };
     let index = RepositoryIndex::build(&data);
     CsvImportContext::from_index(&index)
@@ -77,6 +78,7 @@ fn context_with_models(models: Vec<DeviceModel>) -> CsvImportContext {
         device_models: models,
         devices: vec![],
         placement_files: vec![],
+        layout: RepositoryLayout::default(),
     };
     let index = RepositoryIndex::build(&data);
     CsvImportContext::from_index(&index)
@@ -90,6 +92,7 @@ fn context_with(devices: Vec<Device>, models: Vec<DeviceModel>) -> CsvImportCont
         device_models: models,
         devices,
         placement_files: vec![],
+        layout: RepositoryLayout::default(),
     };
     let index = RepositoryIndex::build(&data);
     CsvImportContext::from_index(&index)

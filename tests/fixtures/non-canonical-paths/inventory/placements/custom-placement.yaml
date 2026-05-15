@@ -1,0 +1,22 @@
+rack_id: bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
+
+placements:
+  front:
+    - id: ffffffff-ffff-ffff-ffff-ffffffffffff
+      code: plc-srv-01
+      target_kind: device
+      target_id: eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee
+      start_u: 10
+
+    - id: 00000000-0000-0000-0000-000000000001
+      code: plc-blank-front
+      target_kind: device_model
+      target_id: dddddddd-dddd-dddd-dddd-dddddddddddd
+      start_u: 20
+
+  rear:
+    - id: 00000000-0000-0000-0000-000000000002
+      code: plc-blank-rear
+      target_kind: device_model
+      target_id: dddddddd-dddd-dddd-dddd-dddddddddddd
+      start_u: 10

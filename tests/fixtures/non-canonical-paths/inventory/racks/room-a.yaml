@@ -1,0 +1,8 @@
+location_id: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+
+racks:
+  - id: bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
+    code: rack-main
+    name: Main Rack
+    height_u: 42
+    row: A

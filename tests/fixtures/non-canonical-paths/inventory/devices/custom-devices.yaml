@@ -1,0 +1,9 @@
+device_type: server
+
+devices:
+  - id: eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee
+    code: srv-01
+    name: srv-01
+    device_model_id: cccccccc-cccc-cccc-cccc-cccccccccccc
+    serial_number: SRV001
+    status: installed
