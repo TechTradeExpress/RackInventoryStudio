@@ -1,6 +1,12 @@
-//! CSV import and import preview.
-//!
-//! This crate is part of Rack Inventory Studio.
-//! The implementation will be added in the coding phase.
+//! CSV import and import preview for Rack Inventory Studio.
 
-pub const CRATE_NAME: &str = "ris-import";
+mod context;
+mod csv_reader;
+mod preview;
+mod validator;
+
+pub use context::CsvImportContext;
+pub use preview::{
+    CsvDeviceImportPreview, CsvDeviceImportPreviewRow, CsvImportSummary, CsvRowAction,
+};
+pub use validator::preview_csv_import;

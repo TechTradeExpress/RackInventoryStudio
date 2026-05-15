@@ -1,11 +1,11 @@
 [package]
-    name = "ris-import"
-    version = "0.1.0"
-    edition = "2021"
-    description = "CSV import and import preview."
+name = "ris-import"
+version = "0.1.0"
+edition = "2021"
+description = "CSV import and import preview."
 
-    [dependencies]
-    ris-core = { path = "../ris-core" }
+[dependencies]
+ris-core = { path = "../ris-core" }
 ris-repository = { path = "../ris-repository" }
-ris-validation = { path = "../ris-validation" }
-
+csv = "1"
+regex = "1"
