@@ -2,9 +2,9 @@ use std::path::Path;
 
 use ris_application::{
     open_repository, validate_repository, AddDeviceInput, AddDeviceModelInput, AddLocationInput,
-    AddRackInput,
+    AddRackInput, MovePlacementInput, PlaceDeviceInput, PlaceRackObjectInput, RemovePlacementInput,
 };
-use ris_core::{DeviceStatus, DeviceType, ValidationLevel};
+use ris_core::{DeviceStatus, DeviceType, PlacementSide, ValidationLevel};
 use ris_import::CsvRowAction;
 
 fn fixture(name: &str) -> std::path::PathBuf {
@@ -1074,4 +1074,789 @@ fn add_device_duplicate_asset_tag_fails() {
         matches!(err, ris_application::ApplicationError::DuplicateAssetTag(_)),
         "expected DuplicateAssetTag, got {err:?}"
     );
+}
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+fn new_server(code: &str) -> AddDeviceInput {
+    AddDeviceInput {
+        id: None,
+        device_type: DeviceType::Server,
+        code: code.to_string(),
+        name: Some(code.to_string()),
+        device_model_id: None,
+        device_model_code: Some("dell-r650".to_string()),
+        serial_number: None,
+        asset_tag: None,
+        external_ref: None,
+        status: DeviceStatus::InStock,
+        description: None,
+        tags: vec![],
+    }
+}
+
+fn new_server_no_model(code: &str) -> AddDeviceInput {
+    AddDeviceInput {
+        id: None,
+        device_type: DeviceType::Server,
+        code: code.to_string(),
+        name: Some(code.to_string()),
+        device_model_id: None,
+        device_model_code: None,
+        serial_number: None,
+        asset_tag: None,
+        external_ref: None,
+        status: DeviceStatus::InStock,
+        description: None,
+        tags: vec![],
+    }
+}
+
+// ── place_device ──────────────────────────────────────────────────────────────
+
+#[test]
+fn place_device_success() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let dev_id = session.add_device(new_server("srv-new")).unwrap();
+
+    let pid = session
+        .place_device(PlaceDeviceInput {
+            id: None,
+            code: None,
+            rack_id: None,
+            rack_code: Some("rack-main".into()),
+            side: PlacementSide::Front,
+            device_id: Some(dev_id.clone()),
+            device_code: None,
+            start_u: 1,
+            height_u: None,
+            note: None,
+            tags: vec![],
+        })
+        .unwrap();
+
+    assert!(!pid.is_empty());
+    let unplaced = session.get_unplaced_devices();
+    assert!(
+        !unplaced.iter().any(|d| d.id == dev_id),
+        "device should no longer be unplaced"
+    );
+}
+
+#[test]
+fn place_device_unknown_device_fails() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let err = session
+        .place_device(PlaceDeviceInput {
+            id: None,
+            code: None,
+            rack_id: None,
+            rack_code: Some("rack-main".into()),
+            side: PlacementSide::Front,
+            device_id: Some("nonexistent-id".into()),
+            device_code: None,
+            start_u: 1,
+            height_u: Some(1),
+            note: None,
+            tags: vec![],
+        })
+        .unwrap_err();
+    assert!(
+        matches!(err, ris_application::ApplicationError::NotFound(_)),
+        "expected NotFound, got {err:?}"
+    );
+}
+
+#[test]
+fn place_device_already_placed_fails() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    // srv-01 is already placed at front U10
+    let err = session
+        .place_device(PlaceDeviceInput {
+            id: None,
+            code: None,
+            rack_id: None,
+            rack_code: Some("rack-main".into()),
+            side: PlacementSide::Front,
+            device_id: None,
+            device_code: Some("srv-01".into()),
+            start_u: 1,
+            height_u: Some(1),
+            note: None,
+            tags: vec![],
+        })
+        .unwrap_err();
+    assert!(
+        matches!(
+            err,
+            ris_application::ApplicationError::DeviceAlreadyPlaced(_)
+        ),
+        "expected DeviceAlreadyPlaced, got {err:?}"
+    );
+}
+
+#[test]
+fn place_device_outside_rack_fails() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    // rack-main is 42U; start_u=42 height_u=2 → end_u=43 > 42
+    let dev_id = session.add_device(new_server("srv-oob")).unwrap();
+    let err = session
+        .place_device(PlaceDeviceInput {
+            id: None,
+            code: None,
+            rack_id: None,
+            rack_code: Some("rack-main".into()),
+            side: PlacementSide::Front,
+            device_id: Some(dev_id),
+            device_code: None,
+            start_u: 42,
+            height_u: Some(2),
+            note: None,
+            tags: vec![],
+        })
+        .unwrap_err();
+    assert!(
+        matches!(err, ris_application::ApplicationError::OutOfRackBounds(_)),
+        "expected OutOfRackBounds, got {err:?}"
+    );
+}
+
+#[test]
+fn place_device_collision_same_side_fails() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    // front U10 is already occupied by srv-01 (1U via model default)
+    let dev_id = session.add_device(new_server("srv-collide")).unwrap();
+    let err = session
+        .place_device(PlaceDeviceInput {
+            id: None,
+            code: None,
+            rack_id: None,
+            rack_code: Some("rack-main".into()),
+            side: PlacementSide::Front,
+            device_id: Some(dev_id),
+            device_code: None,
+            start_u: 10,
+            height_u: None,
+            note: None,
+            tags: vec![],
+        })
+        .unwrap_err();
+    assert!(
+        matches!(err, ris_application::ApplicationError::Collision(_)),
+        "expected Collision, got {err:?}"
+    );
+}
+
+#[test]
+fn place_device_same_u_opposite_side_allowed() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    // front U20 is occupied (blank panel); rear U20 is free — placing on rear U20 must succeed
+    let dev_id = session.add_device(new_server("srv-rear-u20")).unwrap();
+    let result = session.place_device(PlaceDeviceInput {
+        id: None,
+        code: None,
+        rack_id: None,
+        rack_code: Some("rack-main".into()),
+        side: PlacementSide::Rear,
+        device_id: Some(dev_id),
+        device_code: None,
+        start_u: 20,
+        height_u: None,
+        note: None,
+        tags: vec![],
+    });
+    assert!(
+        result.is_ok(),
+        "placing on rear at a front-occupied U should succeed, got {:?}",
+        result.err()
+    );
+}
+
+#[test]
+fn place_device_without_model_requires_height_u() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let dev_id = session
+        .add_device(new_server_no_model("srv-nomodel"))
+        .unwrap();
+
+    // no height_u and no model → EffectiveHeightMissing
+    let err = session
+        .place_device(PlaceDeviceInput {
+            id: None,
+            code: None,
+            rack_id: None,
+            rack_code: Some("rack-main".into()),
+            side: PlacementSide::Front,
+            device_id: Some(dev_id.clone()),
+            device_code: None,
+            start_u: 1,
+            height_u: None,
+            note: None,
+            tags: vec![],
+        })
+        .unwrap_err();
+    assert!(
+        matches!(
+            err,
+            ris_application::ApplicationError::EffectiveHeightMissing(_)
+        ),
+        "expected EffectiveHeightMissing, got {err:?}"
+    );
+
+    // with explicit height_u it must succeed
+    let result = session.place_device(PlaceDeviceInput {
+        id: None,
+        code: None,
+        rack_id: None,
+        rack_code: Some("rack-main".into()),
+        side: PlacementSide::Front,
+        device_id: Some(dev_id),
+        device_code: None,
+        start_u: 1,
+        height_u: Some(2),
+        note: None,
+        tags: vec![],
+    });
+    assert!(
+        result.is_ok(),
+        "with explicit height_u should succeed: {:?}",
+        result.err()
+    );
+}
+
+#[test]
+fn place_device_save_reload_preserves_placement() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    copy_dir_all(&fixture("valid-repository"), tmp.path());
+
+    let mut session = open_repository(tmp.path()).unwrap();
+    let dev_id = session.add_device(new_server("srv-persist-plc")).unwrap();
+    let pid = session
+        .place_device(PlaceDeviceInput {
+            id: Some("a1a1a1a1-0000-0000-0000-000000000001".into()),
+            code: Some("plc-srv-persist-plc".into()),
+            rack_id: None,
+            rack_code: Some("rack-main".into()),
+            side: PlacementSide::Front,
+            device_id: Some(dev_id.clone()),
+            device_code: None,
+            start_u: 1,
+            height_u: None,
+            note: None,
+            tags: vec![],
+        })
+        .unwrap();
+    session.save().unwrap();
+
+    let s2 = open_repository(tmp.path()).unwrap();
+    let ip = s2
+        .index
+        .get_placement_by_id(&pid)
+        .expect("placement not found after reload");
+    assert_eq!(ip.placement.start_u, 1);
+    assert_eq!(ip.placement.target_id, dev_id);
+}
+
+#[test]
+fn place_device_blank_placement_code_fails() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let dev_id = session.add_device(new_server("srv-blank-code")).unwrap();
+    let err = session
+        .place_device(PlaceDeviceInput {
+            id: None,
+            code: Some("   ".into()),
+            rack_id: None,
+            rack_code: Some("rack-main".into()),
+            side: PlacementSide::Front,
+            device_id: Some(dev_id),
+            device_code: None,
+            start_u: 1,
+            height_u: None,
+            note: None,
+            tags: vec![],
+        })
+        .unwrap_err();
+    assert!(
+        matches!(err, ris_application::ApplicationError::InvalidInput(_)),
+        "expected InvalidInput, got {err:?}"
+    );
+}
+
+#[test]
+fn place_device_duplicate_placement_code_fails() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let dev_id = session.add_device(new_server("srv-dup-code")).unwrap();
+    // plc-srv-01 is an existing placement code in the fixture
+    let err = session
+        .place_device(PlaceDeviceInput {
+            id: None,
+            code: Some("plc-srv-01".into()),
+            rack_id: None,
+            rack_code: Some("rack-main".into()),
+            side: PlacementSide::Front,
+            device_id: Some(dev_id),
+            device_code: None,
+            start_u: 1,
+            height_u: None,
+            note: None,
+            tags: vec![],
+        })
+        .unwrap_err();
+    assert!(
+        matches!(err, ris_application::ApplicationError::DuplicateCode(_)),
+        "expected DuplicateCode, got {err:?}"
+    );
+}
+
+// ── place_rack_object ─────────────────────────────────────────────────────────
+
+#[test]
+fn place_rack_object_success() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let pid = session
+        .place_rack_object(PlaceRackObjectInput {
+            id: None,
+            code: None,
+            rack_id: None,
+            rack_code: Some("rack-main".into()),
+            side: PlacementSide::Front,
+            device_model_id: None,
+            device_model_code: Some("blank-1u".into()),
+            start_u: 1,
+            height_u: None,
+            note: None,
+            tags: vec![],
+        })
+        .unwrap();
+    assert!(!pid.is_empty());
+    let rack_id = session.list_racks()[0].id.clone();
+    let front = session.get_rack_side_placements(&rack_id, &PlacementSide::Front);
+    assert!(
+        front.iter().any(|p| p.id == pid),
+        "new placement should appear in front side"
+    );
+}
+
+#[test]
+fn place_rack_object_non_rack_object_model_fails() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    // dell-r650 is device_type=server, not rack_object
+    let err = session
+        .place_rack_object(PlaceRackObjectInput {
+            id: None,
+            code: None,
+            rack_id: None,
+            rack_code: Some("rack-main".into()),
+            side: PlacementSide::Front,
+            device_model_id: None,
+            device_model_code: Some("dell-r650".into()),
+            start_u: 1,
+            height_u: Some(1),
+            note: None,
+            tags: vec![],
+        })
+        .unwrap_err();
+    assert!(
+        matches!(err, ris_application::ApplicationError::InvalidTargetKind(_)),
+        "expected InvalidTargetKind, got {err:?}"
+    );
+}
+
+#[test]
+fn place_rack_object_unknown_model_fails() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let err = session
+        .place_rack_object(PlaceRackObjectInput {
+            id: None,
+            code: None,
+            rack_id: None,
+            rack_code: Some("rack-main".into()),
+            side: PlacementSide::Front,
+            device_model_id: None,
+            device_model_code: Some("nonexistent-model".into()),
+            start_u: 1,
+            height_u: Some(1),
+            note: None,
+            tags: vec![],
+        })
+        .unwrap_err();
+    assert!(
+        matches!(err, ris_application::ApplicationError::NotFound(_)),
+        "expected NotFound, got {err:?}"
+    );
+}
+
+#[test]
+fn place_rack_object_collision_blocked() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    // front U10 is occupied by srv-01 (1U); placing rack_object at U10 front must collide
+    let err = session
+        .place_rack_object(PlaceRackObjectInput {
+            id: None,
+            code: None,
+            rack_id: None,
+            rack_code: Some("rack-main".into()),
+            side: PlacementSide::Front,
+            device_model_id: None,
+            device_model_code: Some("blank-1u".into()),
+            start_u: 10,
+            height_u: None,
+            note: None,
+            tags: vec![],
+        })
+        .unwrap_err();
+    assert!(
+        matches!(err, ris_application::ApplicationError::Collision(_)),
+        "expected Collision, got {err:?}"
+    );
+}
+
+#[test]
+fn place_rack_object_save_reload_preserves_placement() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    copy_dir_all(&fixture("valid-repository"), tmp.path());
+
+    let mut session = open_repository(tmp.path()).unwrap();
+    let pid = session
+        .place_rack_object(PlaceRackObjectInput {
+            id: Some("b2b2b2b2-0000-0000-0000-000000000002".into()),
+            code: Some("plc-blank-persist".into()),
+            rack_id: None,
+            rack_code: Some("rack-main".into()),
+            side: PlacementSide::Rear,
+            device_model_id: None,
+            device_model_code: Some("blank-1u".into()),
+            start_u: 1,
+            height_u: None,
+            note: None,
+            tags: vec![],
+        })
+        .unwrap();
+    session.save().unwrap();
+
+    let s2 = open_repository(tmp.path()).unwrap();
+    let ip = s2
+        .index
+        .get_placement_by_id(&pid)
+        .expect("placement not found after reload");
+    assert_eq!(ip.placement.start_u, 1);
+    assert_eq!(ip.side, PlacementSide::Rear);
+}
+
+#[test]
+fn place_rack_object_blank_placement_code_fails() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let err = session
+        .place_rack_object(PlaceRackObjectInput {
+            id: None,
+            code: Some("".into()),
+            rack_id: None,
+            rack_code: Some("rack-main".into()),
+            side: PlacementSide::Front,
+            device_model_id: None,
+            device_model_code: Some("blank-1u".into()),
+            start_u: 1,
+            height_u: None,
+            note: None,
+            tags: vec![],
+        })
+        .unwrap_err();
+    assert!(
+        matches!(err, ris_application::ApplicationError::InvalidInput(_)),
+        "expected InvalidInput, got {err:?}"
+    );
+}
+
+#[test]
+fn place_rack_object_duplicate_placement_code_fails() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    // plc-blank-front is an existing placement code in the fixture
+    let err = session
+        .place_rack_object(PlaceRackObjectInput {
+            id: None,
+            code: Some("plc-blank-front".into()),
+            rack_id: None,
+            rack_code: Some("rack-main".into()),
+            side: PlacementSide::Front,
+            device_model_id: None,
+            device_model_code: Some("blank-1u".into()),
+            start_u: 1,
+            height_u: None,
+            note: None,
+            tags: vec![],
+        })
+        .unwrap_err();
+    assert!(
+        matches!(err, ris_application::ApplicationError::DuplicateCode(_)),
+        "expected DuplicateCode, got {err:?}"
+    );
+}
+
+// ── move_placement_within_side ────────────────────────────────────────────────
+
+#[test]
+fn move_placement_success() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    // move plc-blank-rear from U10 to U1
+    session
+        .move_placement_within_side(MovePlacementInput {
+            placement_id: None,
+            placement_code: Some("plc-blank-rear".into()),
+            new_start_u: 1,
+            new_height_u: None,
+        })
+        .unwrap();
+
+    let rack_id = session.list_racks()[0].id.clone();
+    let rear = session.get_rack_side_placements(&rack_id, &PlacementSide::Rear);
+    let moved = rear.iter().find(|p| p.code == "plc-blank-rear").unwrap();
+    assert_eq!(moved.start_u, 1);
+}
+
+#[test]
+fn move_placement_blocked_by_collision() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    // move plc-blank-front (front U20) to front U10 → collides with plc-srv-01
+    let err = session
+        .move_placement_within_side(MovePlacementInput {
+            placement_id: None,
+            placement_code: Some("plc-blank-front".into()),
+            new_start_u: 10,
+            new_height_u: None,
+        })
+        .unwrap_err();
+    assert!(
+        matches!(err, ris_application::ApplicationError::Collision(_)),
+        "expected Collision, got {err:?}"
+    );
+}
+
+#[test]
+fn move_placement_blocked_outside_rack() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    // rack-main is 42U; start_u=42 new_height_u=2 → end_u=43 > 42
+    let err = session
+        .move_placement_within_side(MovePlacementInput {
+            placement_id: None,
+            placement_code: Some("plc-blank-front".into()),
+            new_start_u: 42,
+            new_height_u: Some(2),
+        })
+        .unwrap_err();
+    assert!(
+        matches!(err, ris_application::ApplicationError::OutOfRackBounds(_)),
+        "expected OutOfRackBounds, got {err:?}"
+    );
+}
+
+#[test]
+fn move_placement_target_kind_and_id_unchanged() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let before = session
+        .index
+        .get_placement_by_code("plc-srv-01")
+        .unwrap()
+        .placement
+        .clone();
+
+    session
+        .move_placement_within_side(MovePlacementInput {
+            placement_id: None,
+            placement_code: Some("plc-srv-01".into()),
+            new_start_u: 1,
+            new_height_u: None,
+        })
+        .unwrap();
+
+    let after = session
+        .index
+        .get_placement_by_code("plc-srv-01")
+        .unwrap()
+        .placement
+        .clone();
+
+    assert_eq!(before.target_kind, after.target_kind);
+    assert_eq!(before.target_id, after.target_id);
+    assert_eq!(after.start_u, 1);
+}
+
+#[test]
+fn move_placement_save_reload_preserves_new_start_u() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    copy_dir_all(&fixture("valid-repository"), tmp.path());
+
+    let mut session = open_repository(tmp.path()).unwrap();
+    session
+        .move_placement_within_side(MovePlacementInput {
+            placement_id: None,
+            placement_code: Some("plc-blank-rear".into()),
+            new_start_u: 5,
+            new_height_u: None,
+        })
+        .unwrap();
+    session.save().unwrap();
+
+    let s2 = open_repository(tmp.path()).unwrap();
+    let ip = s2
+        .index
+        .get_placement_by_code("plc-blank-rear")
+        .expect("placement not found after reload");
+    assert_eq!(ip.placement.start_u, 5);
+}
+
+// ── remove_placement ──────────────────────────────────────────────────────────
+
+#[test]
+fn remove_placement_success() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let rack_id = session.list_racks()[0].id.clone();
+    let front_before = session
+        .get_rack_side_placements(&rack_id, &PlacementSide::Front)
+        .len();
+
+    session
+        .remove_placement(RemovePlacementInput {
+            placement_id: None,
+            placement_code: Some("plc-blank-front".into()),
+        })
+        .unwrap();
+
+    let front_after = session
+        .get_rack_side_placements(&rack_id, &PlacementSide::Front)
+        .len();
+    assert_eq!(front_after, front_before - 1);
+    assert!(session
+        .index
+        .get_placement_by_code("plc-blank-front")
+        .is_none());
+}
+
+#[test]
+fn remove_placement_device_becomes_unplaced() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let srv = session.index.get_device_by_code("srv-01").unwrap().clone();
+    assert!(
+        session.get_unplaced_devices().is_empty(),
+        "srv-01 should be placed initially"
+    );
+
+    session
+        .remove_placement(RemovePlacementInput {
+            placement_id: None,
+            placement_code: Some("plc-srv-01".into()),
+        })
+        .unwrap();
+
+    let unplaced = session.get_unplaced_devices();
+    assert!(
+        unplaced.iter().any(|d| d.id == srv.id),
+        "srv-01 should be unplaced after its placement is removed"
+    );
+}
+
+#[test]
+fn remove_placement_unknown_fails() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let err = session
+        .remove_placement(RemovePlacementInput {
+            placement_id: Some("nonexistent-placement".into()),
+            placement_code: None,
+        })
+        .unwrap_err();
+    assert!(
+        matches!(err, ris_application::ApplicationError::NotFound(_)),
+        "expected NotFound, got {err:?}"
+    );
+}
+
+#[test]
+fn remove_placement_save_reload_preserves_removal() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    copy_dir_all(&fixture("valid-repository"), tmp.path());
+
+    let mut session = open_repository(tmp.path()).unwrap();
+    session
+        .remove_placement(RemovePlacementInput {
+            placement_id: None,
+            placement_code: Some("plc-blank-front".into()),
+        })
+        .unwrap();
+    session.save().unwrap();
+
+    let s2 = open_repository(tmp.path()).unwrap();
+    assert!(
+        s2.index.get_placement_by_code("plc-blank-front").is_none(),
+        "removed placement should not appear after reload"
+    );
+}
+
+// ── rack without placement file ───────────────────────────────────────────────
+
+#[test]
+fn place_into_rack_without_placement_file_creates_file_in_memory() {
+    // no-placement-files-repository: rack-a has NO placement file in the YAML
+    let mut session = open_repository(&fixture("no-placement-files-repository")).unwrap();
+    let rack = session.list_racks()[0].clone();
+    assert!(
+        session.data.placement_files.is_empty(),
+        "fixture should have no placement files"
+    );
+
+    session
+        .place_device(PlaceDeviceInput {
+            id: None,
+            code: None,
+            rack_id: Some(rack.id.clone()),
+            rack_code: None,
+            side: PlacementSide::Front,
+            device_id: None,
+            device_code: Some("srv-a".into()),
+            start_u: 1,
+            height_u: Some(1),
+            note: None,
+            tags: vec![],
+        })
+        .unwrap();
+
+    assert!(
+        session
+            .data
+            .placement_files
+            .iter()
+            .any(|pf| pf.rack_id == rack.id),
+        "placement file should have been created in memory"
+    );
+}
+
+#[test]
+fn place_into_rack_without_placement_file_save_reload_works() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    copy_dir_all(&fixture("no-placement-files-repository"), tmp.path());
+
+    let mut session = open_repository(tmp.path()).unwrap();
+    let rack_id = session.list_racks()[0].id.clone();
+    let pid = session
+        .place_device(PlaceDeviceInput {
+            id: Some("c3c3c3c3-0000-0000-0000-000000000003".into()),
+            code: Some("plc-srv-a".into()),
+            rack_id: Some(rack_id.clone()),
+            rack_code: None,
+            side: PlacementSide::Front,
+            device_id: None,
+            device_code: Some("srv-a".into()),
+            start_u: 1,
+            height_u: Some(1),
+            note: None,
+            tags: vec![],
+        })
+        .unwrap();
+    session.save().unwrap();
+
+    let s2 = open_repository(tmp.path()).unwrap();
+    let ip = s2
+        .index
+        .get_placement_by_id(&pid)
+        .expect("placement not found after save/reload");
+    assert_eq!(ip.placement.start_u, 1);
+    assert_eq!(ip.rack_id, rack_id);
 }

@@ -18,4 +18,14 @@ pub enum ApplicationError {
     DuplicateAssetTag(String),
     #[error("invalid input: {0}")]
     InvalidInput(String),
+    #[error("collision: {0}")]
+    Collision(String),
+    #[error("out of rack bounds: {0}")]
+    OutOfRackBounds(String),
+    #[error("effective height missing: {0}")]
+    EffectiveHeightMissing(String),
+    #[error("device already placed: {0}")]
+    DeviceAlreadyPlaced(String),
+    #[error("invalid target kind: {0}")]
+    InvalidTargetKind(String),
 }
