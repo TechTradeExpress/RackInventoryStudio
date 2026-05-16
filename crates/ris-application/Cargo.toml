@@ -1,13 +1,17 @@
 [package]
-    name = "ris-application"
-    version = "0.1.0"
-    edition = "2021"
-    description = "Application use cases."
+name = "ris-application"
+version = "0.1.0"
+edition = "2021"
+description = "Application use cases."
 
-    [dependencies]
-    ris-core = { path = "../ris-core" }
+[dependencies]
+ris-core = { path = "../ris-core" }
 ris-repository = { path = "../ris-repository" }
 ris-validation = { path = "../ris-validation" }
 ris-import = { path = "../ris-import" }
-ris-git = { path = "../ris-git" }
+uuid = { version = "1", features = ["v4"] }
+thiserror = "1"
+
+[dev-dependencies]
+tempfile = "3"
 

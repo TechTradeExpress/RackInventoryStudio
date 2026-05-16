@@ -2543,10 +2543,12 @@ name = "ris-application"
 version = "0.1.0"
 dependencies = [
  "ris-core",
- "ris-git",
  "ris-import",
  "ris-repository",
  "ris-validation",
+ "tempfile",
+ "thiserror 1.0.69",
+ "uuid",
 ]
 
 [[package]]

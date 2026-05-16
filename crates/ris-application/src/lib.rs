@@ -1,6 +1,8 @@
-//! Application use cases.
-//!
-//! This crate is part of Rack Inventory Studio.
-//! The implementation will be added in the coding phase.
+pub mod error;
+pub mod session;
 
-pub const CRATE_NAME: &str = "ris-application";
+pub use error::ApplicationError;
+pub use session::{
+    open_repository, validate_repository, AddDeviceInput, AddDeviceModelInput, AddLocationInput,
+    AddRackInput, RepositorySession,
+};
