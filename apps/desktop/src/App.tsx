@@ -4,6 +4,7 @@ import {
   validateCurrentRepository,
   saveCurrentRepository,
   closeRepository,
+  selectRepositoryFolder,
   OpenRepositoryResultDto,
   RepositorySummaryDto,
   ValidationSummaryDto,
@@ -131,6 +132,17 @@ export function App() {
     }
   }
 
+  async function handleBrowse() {
+    try {
+      const path = await selectRepositoryFolder();
+      if (path !== null) {
+        setRepoPath(path);
+      }
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   async function handleClose() {
     await withWorking(() => closeRepository());
     setSummary(null);
@@ -156,6 +168,9 @@ export function App() {
             style={styles.input}
             disabled={working}
           />
+          <button onClick={handleBrowse} disabled={working} style={styles.btn}>
+            Browse…
+          </button>
           <button
             onClick={handleOpen}
             disabled={working || !repoPath.trim()}

@@ -1,5 +1,5 @@
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use ris_application::{open_repository, RepositorySession};
 use ris_core::ValidationLevel;
@@ -12,6 +12,15 @@ use crate::dto::{
 
 pub struct AppState {
     pub session: Mutex<Option<RepositorySession>>,
+}
+
+fn lock_session<'a>(
+    state: &'a State<'a, AppState>,
+) -> Result<MutexGuard<'a, Option<RepositorySession>>, String> {
+    state
+        .session
+        .lock()
+        .map_err(|_| "Internal error: session lock is poisoned".to_string())
 }
 
 fn build_summary(session: &RepositorySession) -> RepositorySummaryDto {
@@ -85,7 +94,7 @@ pub fn open_repository_cmd(
     let summary = build_summary(&session);
     let validation_summary = build_validation_summary(&issues);
 
-    let mut guard = state.session.lock().unwrap();
+    let mut guard = lock_session(&state)?;
     *guard = Some(session);
 
     Ok(OpenRepositoryResultDto {
@@ -96,7 +105,7 @@ pub fn open_repository_cmd(
 
 #[tauri::command]
 pub fn get_repository_summary(state: State<AppState>) -> Result<RepositorySummaryDto, String> {
-    let guard = state.session.lock().unwrap();
+    let guard = lock_session(&state)?;
     let session = guard
         .as_ref()
         .ok_or_else(|| "No repository is currently open".to_string())?;
@@ -107,7 +116,7 @@ pub fn get_repository_summary(state: State<AppState>) -> Result<RepositorySummar
 pub fn validate_current_repository(
     state: State<AppState>,
 ) -> Result<Vec<ValidationIssueDto>, String> {
-    let guard = state.session.lock().unwrap();
+    let guard = lock_session(&state)?;
     let session = guard
         .as_ref()
         .ok_or_else(|| "No repository is currently open".to_string())?;
@@ -117,7 +126,7 @@ pub fn validate_current_repository(
 
 #[tauri::command]
 pub fn save_current_repository(state: State<AppState>) -> Result<SaveSummaryDto, String> {
-    let mut guard = state.session.lock().unwrap();
+    let mut guard = lock_session(&state)?;
     let session = guard
         .as_mut()
         .ok_or_else(|| "No repository is currently open".to_string())?;
@@ -134,7 +143,7 @@ pub fn save_current_repository(state: State<AppState>) -> Result<SaveSummaryDto,
 
 #[tauri::command]
 pub fn close_repository(state: State<AppState>) -> Result<(), String> {
-    let mut guard = state.session.lock().unwrap();
+    let mut guard = lock_session(&state)?;
     *guard = None;
     Ok(())
 }
