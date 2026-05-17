@@ -24,6 +24,9 @@ repomix-output.xml
 # Claude Code local settings
 .claude/
 
+# AI working files (review contexts, reports)
+.ai/
+
 # Secrets (defence-in-depth — none currently exist)
 .env
 .env.*
