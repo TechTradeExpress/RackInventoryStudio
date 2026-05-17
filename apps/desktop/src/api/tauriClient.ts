@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 
 export interface RepositorySummaryDto {
   repo_path: string;
@@ -60,4 +61,15 @@ export function saveCurrentRepository(): Promise<SaveSummaryDto> {
 
 export function closeRepository(): Promise<void> {
   return invoke("close_repository");
+}
+
+export async function selectRepositoryFolder(): Promise<string | null> {
+  const result = await open({
+    directory: true,
+    multiple: false,
+    title: "Select Repository Folder",
+  });
+  if (result === null || result === undefined) return null;
+  if (Array.isArray(result)) return result[0] ?? null;
+  return result;
 }
