@@ -10,6 +10,16 @@ git fetch origin "$BASE_BRANCH" --quiet
 CURRENT_BRANCH="$(git branch --show-current)"
 PR_NUMBER="$(gh pr view --json number --jq '.number' 2>/dev/null || true)"
 
+# Detect whether there are commits ahead of the base branch, or only working-tree changes.
+COMMITS_AHEAD="$(git rev-list --count "origin/${BASE_BRANCH}...HEAD" 2>/dev/null || echo 0)"
+HAS_WORKING_CHANGES=false
+if git diff --quiet HEAD -- 2>/dev/null && git diff --cached --quiet HEAD -- 2>/dev/null; then
+  HAS_WORKING_CHANGES=false
+else
+  HAS_WORKING_CHANGES=true
+fi
+UNTRACKED_FILES="$(git ls-files --others --exclude-standard | grep -v '^pnpm-lock' | grep -vF "$OUT" || true)"
+
 {
   echo "# ChatGPT Code Review Context"
   echo
@@ -34,6 +44,10 @@ PR_NUMBER="$(gh pr view --json number --jq '.number' 2>/dev/null || true)"
   echo "## Branch"
   echo "- Current branch: ${CURRENT_BRANCH}"
   echo "- Base branch: ${BASE_BRANCH}"
+  echo "- Commits ahead of base: ${COMMITS_AHEAD}"
+  if [[ "$HAS_WORKING_CHANGES" == "true" || -n "$UNTRACKED_FILES" ]]; then
+    echo "- Uncommitted changes present: yes"
+  fi
   echo
 
   if [[ -n "${PR_NUMBER}" ]]; then
@@ -72,18 +86,51 @@ PR_NUMBER="$(gh pr view --json number --jq '.number' 2>/dev/null || true)"
   echo
 
   echo "## Changed files"
-  git diff --name-status "origin/${BASE_BRANCH}...HEAD"
+  if [[ "$COMMITS_AHEAD" -gt 0 ]]; then
+    git diff --name-status "origin/${BASE_BRANCH}...HEAD"
+  fi
+  if [[ "$HAS_WORKING_CHANGES" == "true" ]]; then
+    git diff --name-status HEAD --
+  fi
+  if [[ -n "$UNTRACKED_FILES" ]]; then
+    while IFS= read -r f; do
+      echo "A	$f"
+    done <<< "$UNTRACKED_FILES"
+  fi
   echo
 
   echo "## Diff stat"
-  git diff --stat "origin/${BASE_BRANCH}...HEAD"
+  if [[ "$COMMITS_AHEAD" -gt 0 ]]; then
+    git diff --stat "origin/${BASE_BRANCH}...HEAD"
+  fi
+  if [[ "$HAS_WORKING_CHANGES" == "true" ]]; then
+    git diff --stat HEAD --
+  fi
   echo
 
   echo "## Diff"
   if [[ -n "${PR_NUMBER}" ]]; then
     gh pr diff "${PR_NUMBER}" --patch --color never
-  else
+  elif [[ "$COMMITS_AHEAD" -gt 0 ]]; then
     git diff --no-color "origin/${BASE_BRANCH}...HEAD"
+  fi
+
+  # Working-tree changes (modified tracked files)
+  if [[ "$HAS_WORKING_CHANGES" == "true" ]]; then
+    git diff --no-color HEAD --
+  fi
+
+  # New untracked files — emit a synthetic diff so reviewers see full content
+  if [[ -n "$UNTRACKED_FILES" ]]; then
+    echo
+    echo "## New files (untracked)"
+    while IFS= read -r f; do
+      echo
+      echo "### $f"
+      echo '```'
+      cat "$f"
+      echo '```'
+    done <<< "$UNTRACKED_FILES"
   fi
 } > "$OUT"
 
