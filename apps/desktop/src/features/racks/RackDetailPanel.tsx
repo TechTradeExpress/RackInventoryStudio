@@ -8,6 +8,7 @@ import {
 } from "../../api/tauriClient";
 import { RackUnitDiagram } from "./RackUnitDiagram";
 import { PlacementInspectorPanel } from "./PlacementInspectorPanel";
+import { AddPlacementPanel } from "./AddPlacementPanel";
 
 interface Props {
   rack: RackSummaryDto;
@@ -115,21 +116,32 @@ export function RackDetailPanel({ rack, onRepositoryMutated }: Props) {
     );
   }
 
-  function handleMoveSuccess(movedPlacementId: string) {
-    onRepositoryMutated();
+  function refreshAndSelect(targetId: string | null) {
     setLoading(true);
     setError(null);
     getRackDetail(rack.id)
       .then((newDetail) => {
         setDetail(newDetail);
-        const restored =
-          newDetail.front.find((p) => p.id === movedPlacementId) ??
-          newDetail.rear.find((p) => p.id === movedPlacementId) ??
-          null;
-        setSelectedPlacement(restored);
+        if (targetId !== null) {
+          const found =
+            newDetail.front.find((p) => p.id === targetId) ??
+            newDetail.rear.find((p) => p.id === targetId) ??
+            null;
+          setSelectedPlacement(found);
+        }
       })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
+  }
+
+  function handleMoveSuccess(movedPlacementId: string) {
+    onRepositoryMutated();
+    refreshAndSelect(movedPlacementId);
+  }
+
+  function handleAddSuccess(newPlacementId: string) {
+    onRepositoryMutated();
+    refreshAndSelect(newPlacementId);
   }
 
   const selectedSide = deriveSide(selectedPlacement, detail);
@@ -175,6 +187,11 @@ export function RackDetailPanel({ rack, onRepositoryMutated }: Props) {
             selectedPlacementId={selectedPlacement?.id ?? null}
             onSelectPlacement={handleSelectPlacement}
           />
+
+          <h3 style={{ ...common.h3, marginTop: "1.25rem" }}>
+            Add Placement
+          </h3>
+          <AddPlacementPanel rack={rack} onAddSuccess={handleAddSuccess} />
 
           <h3 style={{ ...common.h3, marginTop: "1.25rem" }}>
             Placement Inspector

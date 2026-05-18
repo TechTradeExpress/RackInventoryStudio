@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.15.0 — Add placement UI foundation (milestone 15)
+
+- Added `place_device` Tauri command: accepts `rack_id`, `device_id`, `side` ("front"/"rear"), `start_u`, optional `height_u`; delegates to `RepositorySession::place_device`; requires an open repository; does not auto-save; returns the new placement ID.
+- Added `place_rack_object` Tauri command: accepts `rack_id`, `device_model_id`, `side`, `start_u`, optional `height_u`; delegates to `RepositorySession::place_rack_object`; requires an open repository; does not auto-save; returns the new placement ID. Only `rack_object` type models are valid targets.
+- Added `PlaceDeviceInputDto` and `PlaceRackObjectInputDto` Rust DTOs in `dto.rs`.
+- Extended `tauriClient.ts` with `PlaceDeviceInput`, `PlaceRackObjectInput`, `placeDevice()`, `placeRackObject()`.
+- Added `AddPlacementPanel` component in rack detail area: mode selector (Device / Rack Object), side selector, target dropdown (unplaced devices or rack_object models), start U, optional height U override, inline error/success.
+- Unplaced devices list is derived from `listDevices()` filtered by `is_placed === false`; rack object models from `listDeviceModels()` filtered by `device_type === "rack_object"`.
+- After successful add: rack detail refreshes, newly added placement is selected, global unsaved changes banner appears.
+- `RackDetailPanel` refactored: `refreshAndSelect` helper shared between move and add success paths.
+- All Rust checks pass (222 tests, clippy clean, fmt clean).
+- TypeScript typecheck, Vitest (9 passing), and Vite build pass (173 KB bundle).
+
 ## v0.14.0 — Project state and save UX cleanup (milestone 14)
 
 - **README refresh** — rewrote README to accurately describe v0.13.0 state: lists all supported UI features (rack diagram, placement inspector, move form, global unsaved banner, close confirmation), replaces stale claims ("no rack visualization", "M8 is current", "only Locations and Racks"), and updates limitations section.

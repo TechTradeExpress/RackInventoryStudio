@@ -119,6 +119,26 @@ pub struct MovePlacementInputDto {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct PlaceDeviceInputDto {
+    pub rack_id: String,
+    pub device_id: String,
+    /// "front" or "rear"
+    pub side: String,
+    pub start_u: u32,
+    pub height_u: Option<u32>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PlaceRackObjectInputDto {
+    pub rack_id: String,
+    pub device_model_id: String,
+    /// "front" or "rear"
+    pub side: String,
+    pub start_u: u32,
+    pub height_u: Option<u32>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RackDetailDto {
     pub id: String,
     pub code: String,

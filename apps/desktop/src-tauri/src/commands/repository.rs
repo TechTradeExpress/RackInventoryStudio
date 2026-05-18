@@ -1,14 +1,16 @@
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
-use ris_application::{open_repository, MovePlacementInput, RepositorySession};
-use ris_core::{PlacementTargetKind, ValidationLevel};
+use ris_application::{
+    open_repository, MovePlacementInput, PlaceDeviceInput, PlaceRackObjectInput, RepositorySession,
+};
+use ris_core::{PlacementSide, PlacementTargetKind, ValidationLevel};
 use tauri::State;
 
 use crate::dto::{
     DeviceDto, DeviceModelDto, LocationDto, MovePlacementInputDto, OpenRepositoryResultDto,
-    PlacementDto, RackDetailDto, RackSummaryDto, RepositorySummaryDto, SaveSummaryDto,
-    ValidationIssueDto, ValidationSummaryDto,
+    PlaceDeviceInputDto, PlaceRackObjectInputDto, PlacementDto, RackDetailDto, RackSummaryDto,
+    RepositorySummaryDto, SaveSummaryDto, ValidationIssueDto, ValidationSummaryDto,
 };
 
 pub struct AppState {
@@ -378,6 +380,61 @@ pub fn get_rack_detail(rack_id: String, state: State<AppState>) -> Result<RackDe
         front,
         rear,
     })
+}
+
+fn parse_side(side: &str) -> Result<PlacementSide, String> {
+    match side {
+        "front" => Ok(PlacementSide::Front),
+        "rear" => Ok(PlacementSide::Rear),
+        _ => Err(format!("invalid side '{side}': expected 'front' or 'rear'")),
+    }
+}
+
+#[tauri::command]
+pub fn place_device(input: PlaceDeviceInputDto, state: State<AppState>) -> Result<String, String> {
+    let side = parse_side(&input.side)?;
+    let mut guard = lock_session(&state)?;
+    let session = guard.as_mut().ok_or_else(no_session)?;
+    session
+        .place_device(PlaceDeviceInput {
+            id: None,
+            code: None,
+            rack_id: Some(input.rack_id),
+            rack_code: None,
+            side,
+            device_id: Some(input.device_id),
+            device_code: None,
+            start_u: input.start_u,
+            height_u: input.height_u,
+            note: None,
+            tags: vec![],
+        })
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn place_rack_object(
+    input: PlaceRackObjectInputDto,
+    state: State<AppState>,
+) -> Result<String, String> {
+    let side = parse_side(&input.side)?;
+    let mut guard = lock_session(&state)?;
+    let session = guard.as_mut().ok_or_else(no_session)?;
+    session
+        .place_rack_object(PlaceRackObjectInput {
+            id: None,
+            code: None,
+            rack_id: Some(input.rack_id),
+            rack_code: None,
+            side,
+            device_model_id: Some(input.device_model_id),
+            device_model_code: None,
+            start_u: input.start_u,
+            height_u: input.height_u,
+            note: None,
+            tags: vec![],
+        })
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

@@ -172,6 +172,30 @@ export function movePlacement(input: MovePlacementInput): Promise<void> {
   return invoke("move_placement", { input });
 }
 
+export interface PlaceDeviceInput {
+  rack_id: string;
+  device_id: string;
+  side: "front" | "rear";
+  start_u: number;
+  height_u: number | null;
+}
+
+export function placeDevice(input: PlaceDeviceInput): Promise<string> {
+  return invoke("place_device", { input });
+}
+
+export interface PlaceRackObjectInput {
+  rack_id: string;
+  device_model_id: string;
+  side: "front" | "rear";
+  start_u: number;
+  height_u: number | null;
+}
+
+export function placeRackObject(input: PlaceRackObjectInput): Promise<string> {
+  return invoke("place_rack_object", { input });
+}
+
 // ── Native dialog ─────────────────────────────────────────────────────────────
 
 export async function selectRepositoryFolder(): Promise<string | null> {
