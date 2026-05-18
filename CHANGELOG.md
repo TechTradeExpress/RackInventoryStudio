@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.17.0 — Mutation refresh coordination (milestone 17)
+
+- `RackDetailPanel`: replaced three separate post-mutation refresh paths (`refreshAndSelect`, `handleRemoveSuccess` inline fetch) with a single `refreshAfterMutation({ selectId?, bumpTargets? })` helper. All three handlers (move, add, remove) now call this helper.
+- `AddPlacementPanel`: added `reloadToken: number` prop. Split the single combined `useEffect` into two: one that resets form state on `rack.id` change, and one that reloads target lists on `rack.id` or `reloadToken` change. Extracted a `loadTargets()` local function used by the load effect.
+- After removing a device placement, `RackDetailPanel` bumps `targetReloadToken`; `AddPlacementPanel` reloads its device list so the freed device reappears immediately without switching rack away/back.
+- After adding a device placement, `targetReloadToken` is also bumped; the device list reloads and confirms the placed device is gone.
+- Add success message survives target-list reloads (only cleared on rack switch, not on reload).
+- Selection behavior: add selects new placement, move keeps moved placement selected, remove clears selection. All rely on the same helper.
+- No Rust changes; no new Tauri commands.
+- All Rust checks pass (222 tests, clippy clean, fmt clean).
+- TypeScript typecheck, Vitest (9 passing), and Vite build pass (174 KB bundle).
+
 ## v0.16.0 — Remove placement UI (milestone 16)
 
 - Added `remove_placement` Tauri command: accepts `placement_id`; delegates to `RepositorySession::remove_placement`; requires an open repository; does not auto-save; returns `()` on success.

@@ -13,6 +13,7 @@ import { common } from "../../lib/styles";
 interface Props {
   rack: RackSummaryDto;
   onAddSuccess: (newPlacementId: string) => void;
+  reloadToken: number;
 }
 
 type Mode = "device" | "rack_object";
@@ -25,7 +26,7 @@ function parsePositiveInt(s: string): number | null {
   return n;
 }
 
-export function AddPlacementPanel({ rack, onAddSuccess }: Props) {
+export function AddPlacementPanel({ rack, onAddSuccess, reloadToken }: Props) {
   const [mode, setMode] = useState<Mode>("device");
   const [side, setSide] = useState<"front" | "rear">("front");
   const [deviceId, setDeviceId] = useState("");
@@ -38,6 +39,16 @@ export function AddPlacementPanel({ rack, onAddSuccess }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [successId, setSuccessId] = useState<string | null>(null);
 
+  function loadTargets() {
+    Promise.all([listDevices(), listDeviceModels()])
+      .then(([devs, models]) => {
+        setDevices(devs.filter((d) => !d.is_placed));
+        setDeviceModels(models.filter((m) => m.device_type === "rack_object"));
+      })
+      .catch((e) => setError(String(e)));
+  }
+
+  // Reset form state when the rack changes.
   useEffect(() => {
     setError(null);
     setSuccessId(null);
@@ -45,13 +56,13 @@ export function AddPlacementPanel({ rack, onAddSuccess }: Props) {
     setDeviceModelId("");
     setStartU("");
     setHeightU("");
-    Promise.all([listDevices(), listDeviceModels()])
-      .then(([devs, models]) => {
-        setDevices(devs.filter((d) => !d.is_placed));
-        setDeviceModels(models.filter((m) => m.device_type === "rack_object"));
-      })
-      .catch((e) => setError(String(e)));
   }, [rack.id]);
+
+  // Reload target lists when the rack changes or when explicitly requested via reloadToken.
+  // Runs independently of form state so success messages survive target-list reloads.
+  useEffect(() => {
+    loadTargets();
+  }, [rack.id, reloadToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function resetInputs() {
     setDeviceId("");

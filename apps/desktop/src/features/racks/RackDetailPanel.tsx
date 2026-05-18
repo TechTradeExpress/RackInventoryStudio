@@ -98,6 +98,7 @@ export function RackDetailPanel({ rack, onRepositoryMutated }: Props) {
   const [loading, setLoading] = useState(false);
   const [selectedPlacement, setSelectedPlacement] =
     useState<PlacementDto | null>(null);
+  const [targetReloadToken, setTargetReloadToken] = useState(0);
 
   useEffect(() => {
     setLoading(true);
@@ -116,16 +117,36 @@ export function RackDetailPanel({ rack, onRepositoryMutated }: Props) {
     );
   }
 
-  function refreshAndSelect(targetId: string | null) {
+  /**
+   * Central post-mutation refresh.
+   *
+   * selectId:
+   *   string  — try to restore this placement as selected (clear if not found)
+   *   null    — clear selected placement
+   *   undefined — leave selection unchanged
+   *
+   * bumpTargets:
+   *   true — increment reloadToken so AddPlacementPanel reloads target lists
+   */
+  function refreshAfterMutation(opts: {
+    selectId?: string | null;
+    bumpTargets?: boolean;
+  }) {
+    onRepositoryMutated();
+    if (opts.bumpTargets) {
+      setTargetReloadToken((t) => t + 1);
+    }
     setLoading(true);
     setError(null);
     getRackDetail(rack.id)
       .then((newDetail) => {
         setDetail(newDetail);
-        if (targetId !== null) {
+        if (opts.selectId === null) {
+          setSelectedPlacement(null);
+        } else if (opts.selectId !== undefined) {
           const found =
-            newDetail.front.find((p) => p.id === targetId) ??
-            newDetail.rear.find((p) => p.id === targetId) ??
+            newDetail.front.find((p) => p.id === opts.selectId) ??
+            newDetail.rear.find((p) => p.id === opts.selectId) ??
             null;
           setSelectedPlacement(found);
         }
@@ -135,24 +156,15 @@ export function RackDetailPanel({ rack, onRepositoryMutated }: Props) {
   }
 
   function handleMoveSuccess(movedPlacementId: string) {
-    onRepositoryMutated();
-    refreshAndSelect(movedPlacementId);
+    refreshAfterMutation({ selectId: movedPlacementId });
   }
 
   function handleAddSuccess(newPlacementId: string) {
-    onRepositoryMutated();
-    refreshAndSelect(newPlacementId);
+    refreshAfterMutation({ selectId: newPlacementId, bumpTargets: true });
   }
 
   function handleRemoveSuccess() {
-    onRepositoryMutated();
-    setSelectedPlacement(null);
-    setLoading(true);
-    setError(null);
-    getRackDetail(rack.id)
-      .then(setDetail)
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
+    refreshAfterMutation({ selectId: null, bumpTargets: true });
   }
 
   const selectedSide = deriveSide(selectedPlacement, detail);
@@ -202,7 +214,11 @@ export function RackDetailPanel({ rack, onRepositoryMutated }: Props) {
           <h3 style={{ ...common.h3, marginTop: "1.25rem" }}>
             Add Placement
           </h3>
-          <AddPlacementPanel rack={rack} onAddSuccess={handleAddSuccess} />
+          <AddPlacementPanel
+            rack={rack}
+            onAddSuccess={handleAddSuccess}
+            reloadToken={targetReloadToken}
+          />
 
           <h3 style={{ ...common.h3, marginTop: "1.25rem" }}>
             Placement Inspector
