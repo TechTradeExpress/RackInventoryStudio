@@ -2,9 +2,9 @@ mod commands;
 mod dto;
 
 use commands::{
-    close_repository, get_repository_summary, list_device_models, list_devices, list_locations,
-    list_racks, open_repository_cmd, save_current_repository, validate_current_repository,
-    AppState,
+    close_repository, get_rack_detail, get_repository_summary, list_device_models, list_devices,
+    list_locations, list_racks, open_repository_cmd, save_current_repository,
+    validate_current_repository, AppState,
 };
 use std::sync::Mutex;
 
@@ -25,6 +25,7 @@ pub fn run() {
             list_racks,
             list_devices,
             list_device_models,
+            get_rack_detail,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -130,6 +130,38 @@ export function listDeviceModels(): Promise<DeviceModelDto[]> {
   return invoke("list_device_models");
 }
 
+export interface PlacementDto {
+  id: string;
+  code: string;
+  target_kind: string;
+  target_id: string;
+  target_code: string | null;
+  target_name: string | null;
+  device_type: string | null;
+  start_u: number;
+  height_u: number | null;
+  effective_height_u: number | null;
+  end_u: number | null;
+  note: string | null;
+  tags: string[];
+}
+
+export interface RackDetailDto {
+  id: string;
+  code: string;
+  name: string;
+  location_id: string;
+  location_code: string;
+  height_u: number;
+  row: string | null;
+  front: PlacementDto[];
+  rear: PlacementDto[];
+}
+
+export function getRackDetail(rackId: string): Promise<RackDetailDto> {
+  return invoke("get_rack_detail", { rackId });
+}
+
 // ── Native dialog ─────────────────────────────────────────────────────────────
 
 export async function selectRepositoryFolder(): Promise<string | null> {

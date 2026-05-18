@@ -93,3 +93,33 @@ pub struct DeviceModelDto {
     pub model_number: Option<String>,
     pub default_height_u: u32,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PlacementDto {
+    pub id: String,
+    pub code: String,
+    pub target_kind: String,
+    pub target_id: String,
+    pub target_code: Option<String>,
+    pub target_name: Option<String>,
+    pub device_type: Option<String>,
+    pub start_u: u32,
+    pub height_u: Option<u32>,
+    pub effective_height_u: Option<u32>,
+    pub end_u: Option<u32>,
+    pub note: Option<String>,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RackDetailDto {
+    pub id: String,
+    pub code: String,
+    pub name: String,
+    pub location_id: String,
+    pub location_code: String,
+    pub height_u: u32,
+    pub row: Option<String>,
+    pub front: Vec<PlacementDto>,
+    pub rear: Vec<PlacementDto>,
+}

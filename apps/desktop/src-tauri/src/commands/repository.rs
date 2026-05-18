@@ -2,12 +2,12 @@ use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
 use ris_application::{open_repository, RepositorySession};
-use ris_core::ValidationLevel;
+use ris_core::{PlacementTargetKind, ValidationLevel};
 use tauri::State;
 
 use crate::dto::{
-    DeviceDto, DeviceModelDto, LocationDto, OpenRepositoryResultDto, RackSummaryDto,
-    RepositorySummaryDto, SaveSummaryDto, ValidationIssueDto, ValidationSummaryDto,
+    DeviceDto, DeviceModelDto, LocationDto, OpenRepositoryResultDto, PlacementDto, RackDetailDto,
+    RackSummaryDto, RepositorySummaryDto, SaveSummaryDto, ValidationIssueDto, ValidationSummaryDto,
 };
 
 pub struct AppState {
@@ -267,4 +267,114 @@ pub fn list_device_models(state: State<AppState>) -> Result<Vec<DeviceModelDto>,
         })
         .collect();
     Ok(result)
+}
+
+fn placement_to_dto(placement: &ris_core::Placement, session: &RepositorySession) -> PlacementDto {
+    let (target_code, target_name, device_type) = match placement.target_kind {
+        PlacementTargetKind::Device => {
+            let dev = session.index.devices_by_id.get(&placement.target_id);
+            (
+                dev.map(|d| d.code.clone()),
+                dev.and_then(|d| d.name.clone()),
+                dev.map(|d| d.device_type.as_str().to_string()),
+            )
+        }
+        PlacementTargetKind::DeviceModel => {
+            let dm = session.index.device_models_by_id.get(&placement.target_id);
+            (
+                dm.map(|m| m.code.clone()),
+                dm.map(|m| m.name.clone()),
+                dm.map(|m| m.device_type.as_str().to_string()),
+            )
+        }
+    };
+
+    let model = match placement.target_kind {
+        PlacementTargetKind::Device => session
+            .index
+            .devices_by_id
+            .get(&placement.target_id)
+            .and_then(|d| d.device_model_id.as_deref())
+            .and_then(|mid| session.index.device_models_by_id.get(mid)),
+        PlacementTargetKind::DeviceModel => {
+            session.index.device_models_by_id.get(&placement.target_id)
+        }
+    };
+
+    let effective_height_u = placement.effective_height_u(model);
+    let end_u = effective_height_u
+        .filter(|&h| h > 0)
+        .and_then(|h| placement.start_u.checked_add(h - 1));
+
+    PlacementDto {
+        id: placement.id.clone(),
+        code: placement.code.clone(),
+        target_kind: match placement.target_kind {
+            PlacementTargetKind::Device => "device".to_string(),
+            PlacementTargetKind::DeviceModel => "device_model".to_string(),
+        },
+        target_id: placement.target_id.clone(),
+        target_code,
+        target_name,
+        device_type,
+        start_u: placement.start_u,
+        height_u: placement.height_u,
+        effective_height_u,
+        end_u,
+        note: placement.note.clone(),
+        tags: placement.tags.clone(),
+    }
+}
+
+#[tauri::command]
+pub fn get_rack_detail(rack_id: String, state: State<AppState>) -> Result<RackDetailDto, String> {
+    let guard = lock_session(&state)?;
+    let session = guard.as_ref().ok_or_else(no_session)?;
+
+    let rack = session
+        .index
+        .racks_by_id
+        .get(&rack_id)
+        .ok_or_else(|| format!("Rack not found: {rack_id}"))?;
+
+    let location_code = session
+        .index
+        .locations_by_id
+        .get(&rack.location_id)
+        .map(|l| l.code.clone())
+        .unwrap_or_default();
+
+    let (mut front, mut rear): (Vec<PlacementDto>, Vec<PlacementDto>) = match session
+        .data
+        .placement_files
+        .iter()
+        .find(|pf| pf.rack_id == rack_id)
+    {
+        Some(pf) => (
+            pf.front
+                .iter()
+                .map(|p| placement_to_dto(p, session))
+                .collect(),
+            pf.rear
+                .iter()
+                .map(|p| placement_to_dto(p, session))
+                .collect(),
+        ),
+        None => (vec![], vec![]),
+    };
+
+    front.sort_by_key(|p| p.start_u);
+    rear.sort_by_key(|p| p.start_u);
+
+    Ok(RackDetailDto {
+        id: rack.id.clone(),
+        code: rack.code.clone(),
+        name: rack.name.clone(),
+        location_id: rack.location_id.clone(),
+        location_code,
+        height_u: rack.height_u,
+        row: rack.row.clone(),
+        front,
+        rear,
+    })
 }

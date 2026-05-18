@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.9.0 — Read-only navigation and rack detail (milestone 9)
+
+- Added `DevicesPanel` — lists all devices with code, type, name, status, serial, asset tag, model, placed flag.
+- Added `DeviceModelsPanel` — lists all device models with code, type, name, vendor, model number, height.
+- Added `Devices` and `Device Models` tabs to the main tab bar (disabled when no repo open).
+- Added rack row selection to `RacksPanel`: click a row to select, click again to deselect.
+- Added `RackDetailPanel` — shows rack metadata and front/rear placement tables with resolved target info.
+- Added `get_rack_detail` Tauri command returning `RackDetailDto` with resolved placements.
+- Added `PlacementDto` and `RackDetailDto` backend DTOs; placement target names and codes are resolved from device/device-model indexes.
+- Placements sorted by `start_u` ascending within each side.
+- Extended `tauriClient.ts` with `PlacementDto`, `RackDetailDto`, and `getRackDetail`.
+- Closing a repository resets selected rack state.
+- All Rust checks (`cargo fmt`, `cargo clippy -D warnings`, `cargo test`) pass (222 tests green).
+- TypeScript typecheck and Vite build pass.
+
 ## v0.8.0 — Frontend foundation cleanup (milestone 8)
 
 - Rewrote README to reflect real project state, architecture, and capabilities.
