@@ -128,7 +128,8 @@ export function RackUnitDiagram({ heightU, front, rear }: Props) {
         </span>
       </div>
 
-      <div style={{ display: "flex", fontFamily: "monospace", fontSize: "0.78rem", overflowX: "auto" }}>
+      <div style={{ maxHeight: "60vh", overflowY: "auto", overflowX: "auto", border: "1px solid #ddd", borderRadius: 3 }}>
+      <div style={{ display: "flex", fontFamily: "monospace", fontSize: "0.78rem" }}>
         {/* U-number gutter */}
         <div style={{ width: LABEL_W, flexShrink: 0, background: colors.labelBg }}>
           <div style={{ height: ROW_H, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "bold", background: colors.headerBg, borderBottom: "1px solid #ccc" }}>
@@ -171,6 +172,7 @@ export function RackUnitDiagram({ heightU, front, rear }: Props) {
             <SideColumn units={rearOcc.units} />
           </div>
         </div>
+      </div>
       </div>
 
       {allWarnings.length > 0 && (

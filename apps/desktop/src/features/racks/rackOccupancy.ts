@@ -48,6 +48,17 @@ export function buildOccupancy(
           reason: `start_u ${p.start_u} exceeds rack height ${heightU}`,
         });
       } else {
+        const existing = units[idx];
+        if (existing.kind !== "empty") {
+          const prevCode =
+            existing.kind === "occupied" || existing.kind === "incomplete"
+              ? existing.placement.code
+              : "unknown";
+          warnings.push({
+            placementCode: p.code,
+            reason: `overlaps U${p.start_u} already occupied by ${prevCode}`,
+          });
+        }
         units[idx] = { kind: "incomplete", placement: p };
       }
       warnings.push({
@@ -74,7 +85,19 @@ export function buildOccupancy(
     }
 
     for (let u = p.start_u; u <= clampedEnd; u++) {
-      units[u - 1] = { kind: "occupied", placement: p, isTop: u === clampedEnd };
+      const idx = u - 1;
+      const existing = units[idx];
+      if (existing.kind !== "empty") {
+        const prevCode =
+          existing.kind === "occupied" || existing.kind === "incomplete"
+            ? existing.placement.code
+            : "unknown";
+        warnings.push({
+          placementCode: p.code,
+          reason: `overlaps U${u} already occupied by ${prevCode}`,
+        });
+      }
+      units[idx] = { kind: "occupied", placement: p, isTop: u === clampedEnd };
     }
   }
 

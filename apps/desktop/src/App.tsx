@@ -43,6 +43,7 @@ export function App() {
         repoPath.trim(),
       );
       setSummary(result.summary);
+      setSelectedRack(null);
       setActiveTab("repository");
     } catch (e) {
       setError(String(e));

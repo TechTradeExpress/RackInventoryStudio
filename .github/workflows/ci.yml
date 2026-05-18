@@ -69,5 +69,8 @@ jobs:
       - name: TypeScript check
         run: pnpm --filter @rack-inventory-studio/desktop typecheck
 
+      - name: Frontend tests
+        run: pnpm --filter @rack-inventory-studio/desktop test
+
       - name: Frontend build
         run: pnpm --filter @rack-inventory-studio/desktop build

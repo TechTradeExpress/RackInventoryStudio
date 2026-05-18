@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.11.0 — UX hardening and occupancy tests (milestone 11)
+
+- Added Vitest v2 as the frontend test framework; `pnpm test` runs `vitest run`.
+- Added 9 unit tests for `rackOccupancy.ts` covering: empty rack, single-U placement, multi-U grouping with `isTop`, `end_u` derived from `effective_height_u`, incomplete placement (no height, no model), out-of-bounds `start_u` (below/above rack), clamped `end_u`, and overlapping placements.
+- `buildOccupancy` now detects overlapping placements and emits a warning naming both placement codes and the conflicting U slot.
+- All list panels (`LocationsPanel`, `DevicesPanel`, `DeviceModelsPanel`, `RacksPanel`) clear their data array before each async fetch, eliminating stale rows on repository switch.
+- `App.tsx` resets `selectedRack` on successful repository open (previously only reset on close).
+- `RackUnitDiagram` diagram grid wrapped in a scroll container (`maxHeight: 60vh`, `overflowY: auto`) so tall racks remain usable without scrolling the whole page.
+- Added a Frontend tests step to the CI `frontend` job (runs between TypeScript check and Vite build).
+- All Rust checks pass (222 tests, clippy clean, fmt clean).
+- TypeScript typecheck and Vite build pass (162 KB bundle).
+
 ## v0.10.0 — Read-only rack unit diagram (milestone 10)
 
 - Added `RackUnitDiagram` component — visual column diagram showing front and rear sides, U numbers top to bottom.
