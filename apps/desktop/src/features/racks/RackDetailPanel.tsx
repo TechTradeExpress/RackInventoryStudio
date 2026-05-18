@@ -7,12 +7,23 @@ import {
   type RackSummaryDto,
 } from "../../api/tauriClient";
 import { RackUnitDiagram } from "./RackUnitDiagram";
+import { PlacementInspectorPanel } from "./PlacementInspectorPanel";
 
 interface Props {
   rack: RackSummaryDto;
 }
 
-function PlacementTable({ placements }: { placements: PlacementDto[] }) {
+interface PlacementTableProps {
+  placements: PlacementDto[];
+  selectedPlacementId: string | null;
+  onSelectPlacement: (p: PlacementDto | null) => void;
+}
+
+function PlacementTable({
+  placements,
+  selectedPlacementId,
+  onSelectPlacement,
+}: PlacementTableProps) {
   if (placements.length === 0) {
     return <p style={common.hint}>No placements.</p>;
   }
@@ -20,49 +31,92 @@ function PlacementTable({ placements }: { placements: PlacementDto[] }) {
     <table style={{ ...common.table, fontSize: "0.82rem" }}>
       <thead>
         <tr>
-          {["U", "End U", "Code", "Kind", "Target", "Name", "Type", "Note"].map(
-            (h) => (
-              <th key={h} style={common.th}>
-                {h}
-              </th>
-            ),
-          )}
+          {[
+            "U",
+            "End U",
+            "Code",
+            "Kind",
+            "Target",
+            "Name",
+            "Type",
+            "Note",
+          ].map((h) => (
+            <th key={h} style={common.th}>
+              {h}
+            </th>
+          ))}
         </tr>
       </thead>
       <tbody>
-        {placements.map((p) => (
-          <tr key={p.id}>
-            <td style={common.td}>{p.start_u}</td>
-            <td style={common.td}>{p.end_u ?? ""}</td>
-            <td style={{ ...common.td, fontFamily: "monospace" }}>{p.code}</td>
-            <td style={common.td}>{p.target_kind}</td>
-            <td style={{ ...common.td, fontFamily: "monospace" }}>
-              {p.target_code ?? p.target_id}
-            </td>
-            <td style={common.td}>{p.target_name ?? ""}</td>
-            <td style={common.td}>{p.device_type ?? ""}</td>
-            <td style={common.td}>{p.note ?? ""}</td>
-          </tr>
-        ))}
+        {placements.map((p) => {
+          const isSelected = p.id === selectedPlacementId;
+          return (
+            <tr
+              key={p.id}
+              title={p.code}
+              onClick={() =>
+                onSelectPlacement(isSelected ? null : p)
+              }
+              style={{
+                cursor: "pointer",
+                background: isSelected ? "#dce8fc" : "inherit",
+              }}
+            >
+              <td style={common.td}>{p.start_u}</td>
+              <td style={common.td}>{p.end_u ?? ""}</td>
+              <td style={{ ...common.td, fontFamily: "monospace" }}>
+                {p.code}
+              </td>
+              <td style={common.td}>{p.target_kind}</td>
+              <td style={{ ...common.td, fontFamily: "monospace" }}>
+                {p.target_code ?? p.target_id}
+              </td>
+              <td style={common.td}>{p.target_name ?? ""}</td>
+              <td style={common.td}>{p.device_type ?? ""}</td>
+              <td style={common.td}>{p.note ?? ""}</td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );
+}
+
+function deriveSide(
+  placement: PlacementDto | null,
+  detail: RackDetailDto | null,
+): "Front" | "Rear" | null {
+  if (!placement || !detail) return null;
+  if (detail.front.some((p) => p.id === placement.id)) return "Front";
+  if (detail.rear.some((p) => p.id === placement.id)) return "Rear";
+  return null;
 }
 
 export function RackDetailPanel({ rack }: Props) {
   const [detail, setDetail] = useState<RackDetailDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [selectedPlacement, setSelectedPlacement] =
+    useState<PlacementDto | null>(null);
 
   useEffect(() => {
     setLoading(true);
     setError(null);
     setDetail(null);
+    setSelectedPlacement(null);
     getRackDetail(rack.id)
       .then(setDetail)
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
   }, [rack.id]);
+
+  function handleSelectPlacement(p: PlacementDto | null) {
+    setSelectedPlacement((prev) =>
+      p === null ? null : prev?.id === p.id ? null : p,
+    );
+  }
+
+  const selectedSide = deriveSide(selectedPlacement, detail);
 
   return (
     <section style={{ ...common.section, borderTop: "2px solid #ccc" }}>
@@ -102,13 +156,35 @@ export function RackDetailPanel({ rack }: Props) {
             heightU={detail.height_u}
             front={detail.front}
             rear={detail.rear}
+            selectedPlacementId={selectedPlacement?.id ?? null}
+            onSelectPlacement={handleSelectPlacement}
           />
 
-          <h3 style={{ ...common.h3, marginTop: "1.25rem" }}>Front — placement detail</h3>
-          <PlacementTable placements={detail.front} />
+          <h3 style={{ ...common.h3, marginTop: "1.25rem" }}>
+            Placement Inspector
+          </h3>
+          <PlacementInspectorPanel
+            placement={selectedPlacement}
+            side={selectedSide}
+          />
 
-          <h3 style={{ ...common.h3, marginTop: "0.75rem" }}>Rear — placement detail</h3>
-          <PlacementTable placements={detail.rear} />
+          <h3 style={{ ...common.h3, marginTop: "1.25rem" }}>
+            Front — placement detail
+          </h3>
+          <PlacementTable
+            placements={detail.front}
+            selectedPlacementId={selectedPlacement?.id ?? null}
+            onSelectPlacement={handleSelectPlacement}
+          />
+
+          <h3 style={{ ...common.h3, marginTop: "0.75rem" }}>
+            Rear — placement detail
+          </h3>
+          <PlacementTable
+            placements={detail.rear}
+            selectedPlacementId={selectedPlacement?.id ?? null}
+            onSelectPlacement={handleSelectPlacement}
+          />
         </>
       )}
     </section>
