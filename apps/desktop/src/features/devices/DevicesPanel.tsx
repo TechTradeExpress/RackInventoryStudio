@@ -15,6 +15,7 @@ export function DevicesPanel({ repoPath }: Props) {
     if (!repoPath) return;
     setLoading(true);
     setError(null);
+    setDevices([]);
     listDevices()
       .then(setDevices)
       .catch((e) => setError(String(e)))

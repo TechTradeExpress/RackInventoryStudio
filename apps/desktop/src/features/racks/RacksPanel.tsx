@@ -18,6 +18,7 @@ export function RacksPanel({ repoPath, selectedRackId, onSelectRack }: Props) {
     if (!repoPath) return;
     setLoading(true);
     setError(null);
+    setRacks([]);
     listRacks()
       .then(setRacks)
       .catch((e) => setError(String(e)))

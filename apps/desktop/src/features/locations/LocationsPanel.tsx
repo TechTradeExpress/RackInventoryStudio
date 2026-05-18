@@ -15,6 +15,7 @@ export function LocationsPanel({ repoPath }: Props) {
     if (!repoPath) return;
     setLoading(true);
     setError(null);
+    setLocations([]);
     listLocations()
       .then(setLocations)
       .catch((e) => setError(String(e)))
