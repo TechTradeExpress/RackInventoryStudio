@@ -33,8 +33,6 @@ tests/                  Shared test fixtures
 
 ## Current backend capabilities
 
-The Rust backend is well ahead of the UI. The following is implemented and tested:
-
 | Area | Status |
 |---|---|
 | Domain models (Device, Rack, Location, Placement, …) | Done |
@@ -46,22 +44,23 @@ The Rust backend is well ahead of the UI. The following is implemented and teste
 | Application session — open, save, validate | Done |
 | Application mutations — add location/rack/device model/device | Done |
 | Placement use cases — place, move, remove device and rack objects | Done |
-| Tauri commands — open, save, validate, close, list entities | Done |
+| Tauri commands — open, save, validate, close, list entities, move placement | Done |
 
-222 workspace tests pass as of the frontend-foundation-cleanup milestone.
+222 workspace tests pass as of v0.13.0.
 
-## Current frontend / Tauri status
+## Current desktop UI capabilities (v0.13.0)
 
-The desktop UI is a functional but minimal shell. It supports:
-
-- Selecting and opening a local inventory repository via folder picker or path input
-- Displaying a repository summary (counts of locations, racks, devices, placements)
-- Running validation and showing per-issue results (level, code, message, object)
-- Saving changes back to YAML files
-- Closing the current repository session
-- Tab-based navigation to Locations and Racks list views
-
-The UI is intentionally minimal. Full rack visualization, device editing, CSV import UI, and Git workflow are not yet implemented.
+- Opening a local inventory repository via folder picker or path input
+- Repository summary (counts of locations, racks, devices, placements)
+- Validation — run rules, view per-issue results (level, code, message, object)
+- Save changes back to YAML files
+- Close the current repository session (with unsaved-changes confirmation)
+- Global unsaved changes banner whenever in-memory state differs from disk
+- Tab navigation: Locations list, Racks list, Devices list, Device Models list
+- Rack detail view — metadata table, graphical read-only rack unit diagram (U-position, front and rear sides)
+- Placement inspector — all placement fields visible when a placement is selected
+- Move a placement within the same rack side via a simple form (new start U, optional height override)
+- Frontend Vitest unit tests
 
 ## Running Rust tests
 
@@ -97,8 +96,11 @@ pnpm tauri dev
 ## Running frontend checks
 
 ```bash
-# TypeScript type check only
+# TypeScript type check
 pnpm --filter @rack-inventory-studio/desktop typecheck
+
+# Run Vitest unit tests
+pnpm --filter @rack-inventory-studio/desktop test
 
 # Full frontend build (TypeScript + Vite bundle)
 pnpm --filter @rack-inventory-studio/desktop build
@@ -107,28 +109,9 @@ pnpm --filter @rack-inventory-studio/desktop build
 ## Current limitations
 
 - **No Git workflow** — `ris-git` crate is a stub. Commit, push, pull, and diff are not implemented.
-- **No device editing** — mutation commands (update, delete) are not exposed via UI.
-- **No CSV import UI** — the import engine exists in `ris-import` but the confirmation/write step is not implemented.
-- **No rack visualization** — rack view shows a placement summary count, not a visual U-position diagram.
-- **Single-user, local only** — no server, no sync, no multi-user conflict resolution yet.
-- **Placement side (front/rear)** is tracked in the domain but not yet visible in the UI.
-
-## Milestone status
-
-### Completed
-- M1 — Core domain models
-- M2 — YAML loader + RepositoryIndex
-- M3 — ValidationEngine (36 rules)
-- M4 — CSV import preview
-- M5 — YAML writer with path preservation
-- M6A — Application session, open/save/validate, add_* mutations
-- M6B — Placement use cases (place, move, remove)
-- M7 — Minimal Tauri shell with repository picker
-- M8 — Frontend foundation cleanup (this milestone)
-
-### In progress / next
-- M9 — Read-only navigation screens (locations list, rack list, rack detail)
-- M10 — Device and device model list views
-- M11 — Editing flows (add/update/delete via UI)
-- M12 — CSV import UI (confirm and write)
-- M13 — Git workflow (commit, push, pull, diff view)
+- **No CSV import UI** — the import engine exists in `ris-import` but the confirmation/write step has no UI.
+- **No drag and drop** — placement positions are changed via the inspector form only.
+- **No add/remove placement UI** — the backend supports these use cases but they are not yet exposed in the UI.
+- **No side/rack change move** — the move form only moves within the same rack side; changing side or rack is not yet supported.
+- **No full dirty diff tracking** — the app uses a global unsaved-changes flag. It warns that in-memory state may differ from disk, but it does not track exactly which rack or placement changed.
+- **Local desktop, single-user** — no server, no sync, no multi-user conflict resolution.

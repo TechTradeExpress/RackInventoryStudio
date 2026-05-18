@@ -276,7 +276,7 @@ export function PlacementInspectorPanel({ placement, side, onMoveSuccess }: Prop
               color: "#2a7a2a",
             }}
           >
-            Moved. Refreshing rack…
+            Moved in memory. Use Save to persist changes.
           </p>
         )}
       </div>

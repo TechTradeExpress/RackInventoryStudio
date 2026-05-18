@@ -7,9 +7,10 @@ interface Props {
   repoPath: string;
   selectedRackId: string | null;
   onSelectRack: (rack: RackSummaryDto | null) => void;
+  onRepositoryMutated: () => void;
 }
 
-export function RacksPanel({ repoPath, selectedRackId, onSelectRack }: Props) {
+export function RacksPanel({ repoPath, selectedRackId, onSelectRack, onRepositoryMutated }: Props) {
   const [racks, setRacks] = useState<RackSummaryDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -92,7 +93,9 @@ export function RacksPanel({ repoPath, selectedRackId, onSelectRack }: Props) {
         )}
       </section>
 
-      {selectedRack && <RackDetailPanel rack={selectedRack} />}
+      {selectedRack && (
+        <RackDetailPanel rack={selectedRack} onRepositoryMutated={onRepositoryMutated} />
+      )}
     </>
   );
 }

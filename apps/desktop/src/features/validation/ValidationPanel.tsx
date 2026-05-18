@@ -12,6 +12,7 @@ interface Props {
   working: boolean;
   setWorking: (v: boolean) => void;
   setError: (v: string | null) => void;
+  onSaveSuccess: () => void;
 }
 
 function ValidationSummaryPanel({ vs }: { vs: ValidationSummaryDto }) {
@@ -48,7 +49,7 @@ function IssueRow({ issue }: { issue: ValidationIssueDto }) {
   );
 }
 
-export function ValidationPanel({ working, setWorking, setError }: Props) {
+export function ValidationPanel({ working, setWorking, setError, onSaveSuccess }: Props) {
   const [validationSummary, setValidationSummary] =
     useState<ValidationSummaryDto | null>(null);
   const [issues, setIssues] = useState<ValidationIssueDto[]>([]);
@@ -80,6 +81,7 @@ export function ValidationPanel({ working, setWorking, setError }: Props) {
     try {
       const result = await saveCurrentRepository();
       setSaveSummary(result);
+      onSaveSuccess();
     } catch (e) {
       setError(String(e));
     } finally {

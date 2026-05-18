@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_BRANCH="${1:-main}"
+BASE_BRANCH="${1:-master}"
 OUT="${2:-.ai/review-context-$(date +%Y%m%d-%H%M).md}"
 
 mkdir -p .ai
@@ -18,7 +18,7 @@ if git diff --quiet HEAD -- 2>/dev/null && git diff --cached --quiet HEAD -- 2>/
 else
   HAS_WORKING_CHANGES=true
 fi
-UNTRACKED_FILES="$(git ls-files --others --exclude-standard | grep -v '^pnpm-lock' | grep -vF "$OUT" || true)"
+UNTRACKED_FILES="$(git ls-files --others --exclude-standard | grep -vF "$OUT" || true)"
 
 {
   echo "# ChatGPT Code Review Context"
