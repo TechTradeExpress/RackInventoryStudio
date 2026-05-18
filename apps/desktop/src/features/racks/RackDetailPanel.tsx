@@ -54,9 +54,7 @@ function PlacementTable({
             <tr
               key={p.id}
               title={p.code}
-              onClick={() =>
-                onSelectPlacement(isSelected ? null : p)
-              }
+              onClick={() => onSelectPlacement(isSelected ? null : p)}
               style={{
                 cursor: "pointer",
                 background: isSelected ? "#dce8fc" : "inherit",
@@ -98,12 +96,14 @@ export function RackDetailPanel({ rack }: Props) {
   const [loading, setLoading] = useState(false);
   const [selectedPlacement, setSelectedPlacement] =
     useState<PlacementDto | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   useEffect(() => {
     setLoading(true);
     setError(null);
     setDetail(null);
     setSelectedPlacement(null);
+    setHasUnsavedChanges(false);
     getRackDetail(rack.id)
       .then(setDetail)
       .catch((e) => setError(String(e)))
@@ -116,6 +116,23 @@ export function RackDetailPanel({ rack }: Props) {
     );
   }
 
+  function handleMoveSuccess(movedPlacementId: string) {
+    setHasUnsavedChanges(true);
+    setLoading(true);
+    setError(null);
+    getRackDetail(rack.id)
+      .then((newDetail) => {
+        setDetail(newDetail);
+        const restored =
+          newDetail.front.find((p) => p.id === movedPlacementId) ??
+          newDetail.rear.find((p) => p.id === movedPlacementId) ??
+          null;
+        setSelectedPlacement(restored);
+      })
+      .catch((e) => setError(String(e)))
+      .finally(() => setLoading(false));
+  }
+
   const selectedSide = deriveSide(selectedPlacement, detail);
 
   return (
@@ -124,6 +141,23 @@ export function RackDetailPanel({ rack }: Props) {
         Rack Detail —{" "}
         <span style={{ fontFamily: "monospace" }}>{rack.code}</span>
       </h2>
+
+      {hasUnsavedChanges && (
+        <div
+          style={{
+            marginBottom: "0.6rem",
+            padding: "0.35rem 0.6rem",
+            background: "#fff8e1",
+            border: "1px solid #f5c800",
+            borderRadius: 3,
+            fontSize: "0.82rem",
+            color: "#7a5800",
+          }}
+        >
+          Placement moved in memory. Use <strong>Save</strong> in the
+          Validation tab to write changes to disk.
+        </div>
+      )}
 
       {loading && <p style={common.working}>Loading…</p>}
       {error && <div style={common.errorBox}>{error}</div>}
@@ -166,6 +200,7 @@ export function RackDetailPanel({ rack }: Props) {
           <PlacementInspectorPanel
             placement={selectedPlacement}
             side={selectedSide}
+            onMoveSuccess={handleMoveSuccess}
           />
 
           <h3 style={{ ...common.h3, marginTop: "1.25rem" }}>

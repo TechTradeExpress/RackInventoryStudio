@@ -112,6 +112,13 @@ pub struct PlacementDto {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct MovePlacementInputDto {
+    pub placement_id: String,
+    pub new_start_u: u32,
+    pub new_height_u: Option<u32>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RackDetailDto {
     pub id: String,
     pub code: String,
