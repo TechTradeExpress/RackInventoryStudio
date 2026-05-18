@@ -31,3 +31,13 @@ Anything intentionally left out.
 
 ## Suggested next step
 One concrete next step.
+
+## Final review-context handoff
+
+After all implementation, checks, and `.ai/cc-report.md` update, generate the review context as the last step using a timestamped filename:
+
+```bash
+bash scripts/ai/build-review-context.sh master .ai/review-context-$(date +%Y%m%d-%H%M).md
+```
+
+The file `.ai/review-context-YYYYMMDD-HHMM.md` should be attached or pasted to ChatGPT as the code review context before approving the milestone.

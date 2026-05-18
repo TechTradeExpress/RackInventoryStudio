@@ -16,7 +16,7 @@ apps/desktop/src-tauri/gen/
 .idea/
 .vscode/
 *.swp
-repomix-output.xml
+repomix/
 
 # Local app data
 .local/

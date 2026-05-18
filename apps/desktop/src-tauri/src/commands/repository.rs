@@ -6,8 +6,8 @@ use ris_core::ValidationLevel;
 use tauri::State;
 
 use crate::dto::{
-    OpenRepositoryResultDto, RepositorySummaryDto, SaveSummaryDto, ValidationIssueDto,
-    ValidationSummaryDto,
+    DeviceDto, DeviceModelDto, LocationDto, OpenRepositoryResultDto, RackSummaryDto,
+    RepositorySummaryDto, SaveSummaryDto, ValidationIssueDto, ValidationSummaryDto,
 };
 
 pub struct AppState {
@@ -21,6 +21,10 @@ fn lock_session<'a>(
         .session
         .lock()
         .map_err(|_| "Internal error: session lock is poisoned".to_string())
+}
+
+fn no_session() -> String {
+    "No repository is currently open".to_string()
 }
 
 fn build_summary(session: &RepositorySession) -> RepositorySummaryDto {
@@ -106,9 +110,7 @@ pub fn open_repository_cmd(
 #[tauri::command]
 pub fn get_repository_summary(state: State<AppState>) -> Result<RepositorySummaryDto, String> {
     let guard = lock_session(&state)?;
-    let session = guard
-        .as_ref()
-        .ok_or_else(|| "No repository is currently open".to_string())?;
+    let session = guard.as_ref().ok_or_else(no_session)?;
     Ok(build_summary(session))
 }
 
@@ -117,9 +119,7 @@ pub fn validate_current_repository(
     state: State<AppState>,
 ) -> Result<Vec<ValidationIssueDto>, String> {
     let guard = lock_session(&state)?;
-    let session = guard
-        .as_ref()
-        .ok_or_else(|| "No repository is currently open".to_string())?;
+    let session = guard.as_ref().ok_or_else(no_session)?;
     let issues = session.validate();
     Ok(issues.iter().map(issue_to_dto).collect())
 }
@@ -127,9 +127,7 @@ pub fn validate_current_repository(
 #[tauri::command]
 pub fn save_current_repository(state: State<AppState>) -> Result<SaveSummaryDto, String> {
     let mut guard = lock_session(&state)?;
-    let session = guard
-        .as_mut()
-        .ok_or_else(|| "No repository is currently open".to_string())?;
+    let session = guard.as_mut().ok_or_else(no_session)?;
     let report = session
         .save()
         .map_err(|e| format!("Failed to save repository: {e}"))?;
@@ -146,4 +144,127 @@ pub fn close_repository(state: State<AppState>) -> Result<(), String> {
     let mut guard = lock_session(&state)?;
     *guard = None;
     Ok(())
+}
+
+#[tauri::command]
+pub fn list_locations(state: State<AppState>) -> Result<Vec<LocationDto>, String> {
+    let guard = lock_session(&state)?;
+    let session = guard.as_ref().ok_or_else(no_session)?;
+    let result = session
+        .data
+        .locations
+        .iter()
+        .map(|loc| {
+            let rack_count = session
+                .data
+                .racks
+                .iter()
+                .filter(|r| r.location_id == loc.id)
+                .count();
+            LocationDto {
+                id: loc.id.clone(),
+                code: loc.code.clone(),
+                name: loc.name.clone(),
+                description: loc.description.clone(),
+                address: loc.address.clone(),
+                tags: loc.tags.clone(),
+                rack_count,
+            }
+        })
+        .collect();
+    Ok(result)
+}
+
+#[tauri::command]
+pub fn list_racks(state: State<AppState>) -> Result<Vec<RackSummaryDto>, String> {
+    let guard = lock_session(&state)?;
+    let session = guard.as_ref().ok_or_else(no_session)?;
+    let result = session
+        .data
+        .racks
+        .iter()
+        .map(|rack| {
+            let location_code = session
+                .index
+                .locations_by_id
+                .get(&rack.location_id)
+                .map(|l| l.code.clone())
+                .unwrap_or_default();
+            let placement_count = session
+                .data
+                .placement_files
+                .iter()
+                .find(|pf| pf.rack_id == rack.id)
+                .map(|pf| pf.front.len() + pf.rear.len())
+                .unwrap_or(0);
+            RackSummaryDto {
+                id: rack.id.clone(),
+                code: rack.code.clone(),
+                name: rack.name.clone(),
+                location_id: rack.location_id.clone(),
+                location_code,
+                height_u: rack.height_u,
+                row: rack.row.clone(),
+                placement_count,
+            }
+        })
+        .collect();
+    Ok(result)
+}
+
+#[tauri::command]
+pub fn list_devices(state: State<AppState>) -> Result<Vec<DeviceDto>, String> {
+    let guard = lock_session(&state)?;
+    let session = guard.as_ref().ok_or_else(no_session)?;
+    let result = session
+        .data
+        .devices
+        .iter()
+        .map(|dev| {
+            let device_model_code = dev
+                .device_model_id
+                .as_deref()
+                .and_then(|mid| session.index.device_models_by_id.get(mid))
+                .map(|m| m.code.clone());
+            let is_placed = session
+                .index
+                .placements_by_device_id
+                .get(&dev.id)
+                .map(|v| !v.is_empty())
+                .unwrap_or(false);
+            DeviceDto {
+                id: dev.id.clone(),
+                code: dev.code.clone(),
+                device_type: dev.device_type.as_str().to_string(),
+                name: dev.name.clone(),
+                serial_number: dev.serial_number.clone(),
+                asset_tag: dev.asset_tag.clone(),
+                status: dev.status.as_str().to_string(),
+                device_model_code,
+                is_placed,
+            }
+        })
+        .collect();
+    Ok(result)
+}
+
+#[tauri::command]
+pub fn list_device_models(state: State<AppState>) -> Result<Vec<DeviceModelDto>, String> {
+    let guard = lock_session(&state)?;
+    let session = guard.as_ref().ok_or_else(no_session)?;
+    let result = session
+        .data
+        .device_models
+        .iter()
+        .map(|m| DeviceModelDto {
+            id: m.id.clone(),
+            code: m.code.clone(),
+            device_type: m.device_type.as_str().to_string(),
+            name: m.name.clone(),
+            vendor: m.vendor.clone(),
+            model_number: m.model.clone(),
+            default_height_u: m.default_height_u,
+        })
+        .collect();
+    Ok(result)
 }
