@@ -196,6 +196,14 @@ export function placeRackObject(input: PlaceRackObjectInput): Promise<string> {
   return invoke("place_rack_object", { input });
 }
 
+export interface RemovePlacementInput {
+  placement_id: string;
+}
+
+export function removePlacement(input: RemovePlacementInput): Promise<void> {
+  return invoke("remove_placement", { input });
+}
+
 // ── Native dialog ─────────────────────────────────────────────────────────────
 
 export async function selectRepositoryFolder(): Promise<string | null> {

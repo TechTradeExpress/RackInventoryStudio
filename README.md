@@ -44,11 +44,11 @@ tests/                  Shared test fixtures
 | Application session — open, save, validate | Done |
 | Application mutations — add location/rack/device model/device | Done |
 | Placement use cases — place, move, remove device and rack objects | Done |
-| Tauri commands — open, save, validate, close, list entities, move placement | Done |
+| Tauri commands — open, save, validate, close, list entities, move placement, remove placement | Done |
 
-222 workspace tests pass as of v0.13.0.
+222 workspace tests pass as of v0.16.0.
 
-## Current desktop UI capabilities (v0.13.0)
+## Current desktop UI capabilities
 
 - Opening a local inventory repository via folder picker or path input
 - Repository summary (counts of locations, racks, devices, placements)
@@ -61,6 +61,7 @@ tests/                  Shared test fixtures
 - Placement inspector — all placement fields visible when a placement is selected
 - Move a placement within the same rack side via a simple form (new start U, optional height override)
 - Add a new device or rack object placement to the selected rack via a simple form (side, target, start U, optional height override); unsaved changes must be saved explicitly via the Validation tab
+- Remove an existing placement from the selected rack via a confirmation button in the Placement Inspector; unsaved changes must be saved explicitly via the Validation tab
 - Frontend Vitest unit tests
 
 ## Running Rust tests
@@ -112,7 +113,6 @@ pnpm --filter @rack-inventory-studio/desktop build
 - **No Git workflow** — `ris-git` crate is a stub. Commit, push, pull, and diff are not implemented.
 - **No CSV import UI** — the import engine exists in `ris-import` but the confirmation/write step has no UI.
 - **No drag and drop** — placement positions are changed via the inspector form only.
-- **No remove placement UI** — the backend supports remove but it is not yet exposed in the UI.
 - **No side/rack change move** — the move form only moves within the same rack side; changing side or rack is not yet supported.
 - **No full dirty diff tracking** — the app uses a global unsaved-changes flag. It warns that in-memory state may differ from disk, but it does not track exactly which rack or placement changed.
 - **Local desktop, single-user** — no server, no sync, no multi-user conflict resolution.

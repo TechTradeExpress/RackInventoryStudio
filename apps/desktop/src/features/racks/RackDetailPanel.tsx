@@ -144,6 +144,17 @@ export function RackDetailPanel({ rack, onRepositoryMutated }: Props) {
     refreshAndSelect(newPlacementId);
   }
 
+  function handleRemoveSuccess() {
+    onRepositoryMutated();
+    setSelectedPlacement(null);
+    setLoading(true);
+    setError(null);
+    getRackDetail(rack.id)
+      .then(setDetail)
+      .catch((e) => setError(String(e)))
+      .finally(() => setLoading(false));
+  }
+
   const selectedSide = deriveSide(selectedPlacement, detail);
 
   return (
@@ -200,6 +211,7 @@ export function RackDetailPanel({ rack, onRepositoryMutated }: Props) {
             placement={selectedPlacement}
             side={selectedSide}
             onMoveSuccess={handleMoveSuccess}
+            onRemoveSuccess={handleRemoveSuccess}
           />
 
           <h3 style={{ ...common.h3, marginTop: "1.25rem" }}>

@@ -2,7 +2,8 @@ use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
 use ris_application::{
-    open_repository, MovePlacementInput, PlaceDeviceInput, PlaceRackObjectInput, RepositorySession,
+    open_repository, MovePlacementInput, PlaceDeviceInput, PlaceRackObjectInput,
+    RemovePlacementInput, RepositorySession,
 };
 use ris_core::{PlacementSide, PlacementTargetKind, ValidationLevel};
 use tauri::State;
@@ -10,7 +11,8 @@ use tauri::State;
 use crate::dto::{
     DeviceDto, DeviceModelDto, LocationDto, MovePlacementInputDto, OpenRepositoryResultDto,
     PlaceDeviceInputDto, PlaceRackObjectInputDto, PlacementDto, RackDetailDto, RackSummaryDto,
-    RepositorySummaryDto, SaveSummaryDto, ValidationIssueDto, ValidationSummaryDto,
+    RemovePlacementInputDto, RepositorySummaryDto, SaveSummaryDto, ValidationIssueDto,
+    ValidationSummaryDto,
 };
 
 pub struct AppState {
@@ -447,6 +449,21 @@ pub fn move_placement(input: MovePlacementInputDto, state: State<AppState>) -> R
             placement_code: None,
             new_start_u: input.new_start_u,
             new_height_u: input.new_height_u,
+        })
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn remove_placement(
+    input: RemovePlacementInputDto,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let mut guard = lock_session(&state)?;
+    let session = guard.as_mut().ok_or_else(no_session)?;
+    session
+        .remove_placement(RemovePlacementInput {
+            placement_id: Some(input.placement_id),
+            placement_code: None,
         })
         .map_err(|e| e.to_string())
 }

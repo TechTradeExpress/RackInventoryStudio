@@ -4,7 +4,8 @@ mod dto;
 use commands::{
     close_repository, get_rack_detail, get_repository_summary, list_device_models, list_devices,
     list_locations, list_racks, move_placement, open_repository_cmd, place_device,
-    place_rack_object, save_current_repository, validate_current_repository, AppState,
+    place_rack_object, remove_placement, save_current_repository, validate_current_repository,
+    AppState,
 };
 use std::sync::Mutex;
 
@@ -29,6 +30,7 @@ pub fn run() {
             move_placement,
             place_device,
             place_rack_object,
+            remove_placement,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

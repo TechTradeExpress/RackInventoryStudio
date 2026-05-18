@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.16.0 — Remove placement UI (milestone 16)
+
+- Added `remove_placement` Tauri command: accepts `placement_id`; delegates to `RepositorySession::remove_placement`; requires an open repository; does not auto-save; returns `()` on success.
+- Added `RemovePlacementInputDto` Rust DTO in `dto.rs`.
+- Extended `tauriClient.ts` with `RemovePlacementInput` and `removePlacement()`.
+- `PlacementInspectorPanel` now shows a "Remove placement" section when a placement is selected: a red "Remove placement" button, a `window.confirm` dialog with the placement code before mutating, inline error on failure, button disabled while working.
+- Confirmation message: `Remove placement <CODE> from this rack? This change is in memory until Save is used.`
+- After successful remove: `onRemoveSuccess` is called, which triggers `onRepositoryMutated` (global unsaved banner appears), clears selected placement, and refreshes rack detail; diagram and placement tables update immediately.
+- `AddPlacementPanel` reloads unplaced devices and rack object models when the rack changes; after a remove the panel continues to work correctly; devices become available again after switching rack away and back (or after re-opening the panel).
+- Existing add, move, save, and close-with-dirty workflows are unaffected.
+- All Rust checks pass (222 tests, clippy clean, fmt clean).
+- TypeScript typecheck, Vitest (9 passing), and Vite build pass (174 KB bundle).
+
 ## v0.15.0 — Add placement UI foundation (milestone 15)
 
 - Added `place_device` Tauri command: accepts `rack_id`, `device_id`, `side` ("front"/"rear"), `start_u`, optional `height_u`; delegates to `RepositorySession::place_device`; requires an open repository; does not auto-save; returns the new placement ID.

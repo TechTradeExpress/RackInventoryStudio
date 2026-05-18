@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import type { PlacementDto } from "../../api/tauriClient";
-import { movePlacement } from "../../api/tauriClient";
+import { movePlacement, removePlacement } from "../../api/tauriClient";
 import { common } from "../../lib/styles";
 
 interface Props {
   placement: PlacementDto | null;
   side: "Front" | "Rear" | null;
   onMoveSuccess: (placementId: string) => void;
+  onRemoveSuccess: () => void;
 }
 
 const NULL_DISPLAY = "—";
@@ -41,12 +42,14 @@ function parsePositiveInt(s: string): number | null {
   return n;
 }
 
-export function PlacementInspectorPanel({ placement, side, onMoveSuccess }: Props) {
+export function PlacementInspectorPanel({ placement, side, onMoveSuccess, onRemoveSuccess }: Props) {
   const [newStartU, setNewStartU] = useState("");
   const [newHeightU, setNewHeightU] = useState("");
   const [working, setWorking] = useState(false);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [moveSuccess, setMoveSuccess] = useState(false);
+  const [removeWorking, setRemoveWorking] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
   // Reset form when the selected placement changes
   useEffect(() => {
@@ -61,6 +64,7 @@ export function PlacementInspectorPanel({ placement, side, onMoveSuccess }: Prop
     }
     setMoveError(null);
     setMoveSuccess(false);
+    setRemoveError(null);
   }, [placement?.id]);
 
   if (!placement) {
@@ -138,6 +142,24 @@ export function PlacementInspectorPanel({ placement, side, onMoveSuccess }: Prop
       setMoveError(String(e));
     } finally {
       setWorking(false);
+    }
+  }
+
+  async function handleRemove() {
+    if (!placement) return;
+    const confirmed = window.confirm(
+      `Remove placement ${placement.code} from this rack? This change is in memory until Save is used.`,
+    );
+    if (!confirmed) return;
+    setRemoveWorking(true);
+    setRemoveError(null);
+    try {
+      await removePlacement({ placement_id: placement.id });
+      onRemoveSuccess();
+    } catch (e) {
+      setRemoveError(String(e));
+    } finally {
+      setRemoveWorking(false);
     }
   }
 
@@ -278,6 +300,53 @@ export function PlacementInspectorPanel({ placement, side, onMoveSuccess }: Prop
           >
             Moved in memory. Use Save to persist changes.
           </p>
+        )}
+      </div>
+
+      {/* Remove section */}
+      <div
+        style={{
+          padding: "0.6rem 0.75rem",
+          borderTop: "1px solid #c5d5e8",
+          background: "#fdf0f0",
+        }}
+      >
+        <p
+          style={{
+            margin: "0 0 0.4rem",
+            fontWeight: "bold",
+            fontSize: "0.8rem",
+          }}
+        >
+          Remove placement
+        </p>
+        <button
+          type="button"
+          onClick={handleRemove}
+          disabled={removeWorking}
+          style={{
+            ...common.btn,
+            background: "#c0392b",
+            color: "#fff",
+            border: "1px solid #a93226",
+          }}
+        >
+          {removeWorking ? "Removing…" : "Remove placement"}
+        </button>
+        {removeError && (
+          <div
+            style={{
+              marginTop: "0.4rem",
+              padding: "0.3rem 0.5rem",
+              background: "#fff0f0",
+              border: "1px solid #f88",
+              color: "#b00",
+              borderRadius: 3,
+              fontSize: "0.78rem",
+            }}
+          >
+            {removeError}
+          </div>
         )}
       </div>
     </div>
