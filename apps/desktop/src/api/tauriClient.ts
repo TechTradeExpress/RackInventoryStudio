@@ -162,6 +162,16 @@ export function getRackDetail(rackId: string): Promise<RackDetailDto> {
   return invoke("get_rack_detail", { rackId });
 }
 
+export interface MovePlacementInput {
+  placement_id: string;
+  new_start_u: number;
+  new_height_u: number | null;
+}
+
+export function movePlacement(input: MovePlacementInput): Promise<void> {
+  return invoke("move_placement", { input });
+}
+
 // ── Native dialog ─────────────────────────────────────────────────────────────
 
 export async function selectRepositoryFolder(): Promise<string | null> {

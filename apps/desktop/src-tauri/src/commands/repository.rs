@@ -1,13 +1,14 @@
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
-use ris_application::{open_repository, RepositorySession};
+use ris_application::{open_repository, MovePlacementInput, RepositorySession};
 use ris_core::{PlacementTargetKind, ValidationLevel};
 use tauri::State;
 
 use crate::dto::{
-    DeviceDto, DeviceModelDto, LocationDto, OpenRepositoryResultDto, PlacementDto, RackDetailDto,
-    RackSummaryDto, RepositorySummaryDto, SaveSummaryDto, ValidationIssueDto, ValidationSummaryDto,
+    DeviceDto, DeviceModelDto, LocationDto, MovePlacementInputDto, OpenRepositoryResultDto,
+    PlacementDto, RackDetailDto, RackSummaryDto, RepositorySummaryDto, SaveSummaryDto,
+    ValidationIssueDto, ValidationSummaryDto,
 };
 
 pub struct AppState {
@@ -377,4 +378,18 @@ pub fn get_rack_detail(rack_id: String, state: State<AppState>) -> Result<RackDe
         front,
         rear,
     })
+}
+
+#[tauri::command]
+pub fn move_placement(input: MovePlacementInputDto, state: State<AppState>) -> Result<(), String> {
+    let mut guard = lock_session(&state)?;
+    let session = guard.as_mut().ok_or_else(no_session)?;
+    session
+        .move_placement_within_side(MovePlacementInput {
+            placement_id: Some(input.placement_id),
+            placement_code: None,
+            new_start_u: input.new_start_u,
+            new_height_u: input.new_height_u,
+        })
+        .map_err(|e| e.to_string())
 }
