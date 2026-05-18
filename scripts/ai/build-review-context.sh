@@ -2,7 +2,7 @@
 set -euo pipefail
 
 BASE_BRANCH="${1:-main}"
-OUT="${2:-.ai/review-context.md}"
+OUT="${2:-.ai/review-context-$(date +%Y%m%d-%H%M).md}"
 
 mkdir -p .ai
 git fetch origin "$BASE_BRANCH" --quiet

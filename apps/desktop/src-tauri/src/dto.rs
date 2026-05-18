@@ -46,3 +46,50 @@ pub struct OpenRepositoryResultDto {
     pub summary: RepositorySummaryDto,
     pub validation_summary: ValidationSummaryDto,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LocationDto {
+    pub id: String,
+    pub code: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub address: Option<String>,
+    pub tags: Vec<String>,
+    pub rack_count: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RackSummaryDto {
+    pub id: String,
+    pub code: String,
+    pub name: String,
+    pub location_id: String,
+    pub location_code: String,
+    pub height_u: u32,
+    pub row: Option<String>,
+    pub placement_count: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DeviceDto {
+    pub id: String,
+    pub code: String,
+    pub device_type: String,
+    pub name: Option<String>,
+    pub serial_number: Option<String>,
+    pub asset_tag: Option<String>,
+    pub status: String,
+    pub device_model_code: Option<String>,
+    pub is_placed: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DeviceModelDto {
+    pub id: String,
+    pub code: String,
+    pub device_type: String,
+    pub name: String,
+    pub vendor: Option<String>,
+    pub model_number: Option<String>,
+    pub default_height_u: u32,
+}

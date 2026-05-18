@@ -11,4 +11,6 @@ lint:
 	cargo clippy --workspace -- -D warnings
 
 repomix:
-	docker run -v .:/app -it --rm ghcr.io/yamadashy/repomix
+	mkdir -p repomix
+	docker run -v .:/app -it --rm ghcr.io/yamadashy/repomix \
+		--output repomix/repomix-output-$(shell date +%Y%m%d-%H%M).xml

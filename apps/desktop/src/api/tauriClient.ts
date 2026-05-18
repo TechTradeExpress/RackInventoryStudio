@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 
+// ── Repository summary ────────────────────────────────────────────────────────
+
 export interface RepositorySummaryDto {
   repo_path: string;
   repository_code: string;
@@ -43,6 +45,53 @@ export interface OpenRepositoryResultDto {
   validation_summary: ValidationSummaryDto;
 }
 
+// ── Entity list DTOs ──────────────────────────────────────────────────────────
+
+export interface LocationDto {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  address: string | null;
+  tags: string[];
+  rack_count: number;
+}
+
+export interface RackSummaryDto {
+  id: string;
+  code: string;
+  name: string;
+  location_id: string;
+  location_code: string;
+  height_u: number;
+  row: string | null;
+  placement_count: number;
+}
+
+export interface DeviceDto {
+  id: string;
+  code: string;
+  device_type: string;
+  name: string | null;
+  serial_number: string | null;
+  asset_tag: string | null;
+  status: string;
+  device_model_code: string | null;
+  is_placed: boolean;
+}
+
+export interface DeviceModelDto {
+  id: string;
+  code: string;
+  device_type: string;
+  name: string;
+  vendor: string | null;
+  model_number: string | null;
+  default_height_u: number;
+}
+
+// ── Session commands ──────────────────────────────────────────────────────────
+
 export function openRepository(path: string): Promise<OpenRepositoryResultDto> {
   return invoke("open_repository_cmd", { path });
 }
@@ -62,6 +111,26 @@ export function saveCurrentRepository(): Promise<SaveSummaryDto> {
 export function closeRepository(): Promise<void> {
   return invoke("close_repository");
 }
+
+// ── Read-only entity queries ──────────────────────────────────────────────────
+
+export function listLocations(): Promise<LocationDto[]> {
+  return invoke("list_locations");
+}
+
+export function listRacks(): Promise<RackSummaryDto[]> {
+  return invoke("list_racks");
+}
+
+export function listDevices(): Promise<DeviceDto[]> {
+  return invoke("list_devices");
+}
+
+export function listDeviceModels(): Promise<DeviceModelDto[]> {
+  return invoke("list_device_models");
+}
+
+// ── Native dialog ─────────────────────────────────────────────────────────────
 
 export async function selectRepositoryFolder(): Promise<string | null> {
   const result = await open({
