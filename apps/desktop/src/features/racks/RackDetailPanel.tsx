@@ -11,6 +11,7 @@ import { PlacementInspectorPanel } from "./PlacementInspectorPanel";
 
 interface Props {
   rack: RackSummaryDto;
+  onRepositoryMutated: () => void;
 }
 
 interface PlacementTableProps {
@@ -90,20 +91,18 @@ function deriveSide(
   return null;
 }
 
-export function RackDetailPanel({ rack }: Props) {
+export function RackDetailPanel({ rack, onRepositoryMutated }: Props) {
   const [detail, setDetail] = useState<RackDetailDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [selectedPlacement, setSelectedPlacement] =
     useState<PlacementDto | null>(null);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   useEffect(() => {
     setLoading(true);
     setError(null);
     setDetail(null);
     setSelectedPlacement(null);
-    setHasUnsavedChanges(false);
     getRackDetail(rack.id)
       .then(setDetail)
       .catch((e) => setError(String(e)))
@@ -117,7 +116,7 @@ export function RackDetailPanel({ rack }: Props) {
   }
 
   function handleMoveSuccess(movedPlacementId: string) {
-    setHasUnsavedChanges(true);
+    onRepositoryMutated();
     setLoading(true);
     setError(null);
     getRackDetail(rack.id)
@@ -141,23 +140,6 @@ export function RackDetailPanel({ rack }: Props) {
         Rack Detail —{" "}
         <span style={{ fontFamily: "monospace" }}>{rack.code}</span>
       </h2>
-
-      {hasUnsavedChanges && (
-        <div
-          style={{
-            marginBottom: "0.6rem",
-            padding: "0.35rem 0.6rem",
-            background: "#fff8e1",
-            border: "1px solid #f5c800",
-            borderRadius: 3,
-            fontSize: "0.82rem",
-            color: "#7a5800",
-          }}
-        >
-          Placement moved in memory. Use <strong>Save</strong> in the
-          Validation tab to write changes to disk.
-        </div>
-      )}
 
       {loading && <p style={common.working}>Loading…</p>}
       {error && <div style={common.errorBox}>{error}</div>}

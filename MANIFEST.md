@@ -1,6 +1,9 @@
 # Rack Inventory Studio — Coding Starter Pack v0.1
 
-## Contents
+> **Archival document.** This file was the initial coding starter pack used to bootstrap the project.
+> For current repository contents and status, see [README.md](README.md) and [CHANGELOG.md](CHANGELOG.md).
+
+## Contents (at project creation)
 
 ```text
 README.md
@@ -43,16 +46,4 @@ Repository structure:
 
 Data source:
   YAML files in Git repository
-```
-
-## Next implementation step
-
-Start with:
-
-```text
-1. cargo check
-2. pnpm install
-3. implement ris-core domain models
-4. implement ris-repository YAML loader
-5. implement ris-validation ValidationEngine
 ```

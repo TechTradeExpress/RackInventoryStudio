@@ -31,6 +31,7 @@ export function App() {
   const [working, setWorking] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("repository");
   const [selectedRack, setSelectedRack] = useState<RackSummaryDto | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   const isOpen = summary !== null;
 
@@ -44,6 +45,7 @@ export function App() {
       );
       setSummary(result.summary);
       setSelectedRack(null);
+      setHasUnsavedChanges(false);
       setActiveTab("repository");
     } catch (e) {
       setError(String(e));
@@ -62,12 +64,21 @@ export function App() {
   }
 
   async function handleClose() {
+    if (
+      hasUnsavedChanges &&
+      !confirm(
+        "You have unsaved in-memory changes. Close anyway? Changes not saved to disk will be lost.",
+      )
+    ) {
+      return;
+    }
     setWorking(true);
     setError(null);
     try {
       await closeRepository();
       setSummary(null);
       setSelectedRack(null);
+      setHasUnsavedChanges(false);
       setActiveTab("repository");
     } catch (e) {
       setError(String(e));
@@ -97,6 +108,13 @@ export function App() {
         </div>
       )}
 
+      {hasUnsavedChanges && (
+        <div style={styles.unsavedBanner}>
+          Unsaved changes in memory — use <strong>Save</strong> in the
+          Validation tab to write changes to disk.
+        </div>
+      )}
+
       <TabBar
         tabs={tabs}
         active={activeTab}
@@ -120,6 +138,7 @@ export function App() {
           working={working}
           setWorking={setWorking}
           setError={setError}
+          onSaveSuccess={() => setHasUnsavedChanges(false)}
         />
       )}
 
@@ -132,6 +151,7 @@ export function App() {
           repoPath={summary.repo_path}
           selectedRackId={selectedRack?.id ?? null}
           onSelectRack={setSelectedRack}
+          onRepositoryMutated={() => setHasUnsavedChanges(true)}
         />
       )}
 
@@ -152,5 +172,14 @@ const styles = {
     padding: "1.25rem",
     maxWidth: "960px",
     margin: "0 auto",
+  },
+  unsavedBanner: {
+    marginBottom: "0.6rem",
+    padding: "0.35rem 0.75rem",
+    background: "#fff8e1",
+    border: "1px solid #f5c800",
+    borderRadius: 3,
+    fontSize: "0.82rem",
+    color: "#7a5800",
   },
 };

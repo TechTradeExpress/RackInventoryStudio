@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.14.0 — Project state and save UX cleanup (milestone 14)
+
+- **README refresh** — rewrote README to accurately describe v0.13.0 state: lists all supported UI features (rack diagram, placement inspector, move form, global unsaved banner, close confirmation), replaces stale claims ("no rack visualization", "M8 is current", "only Locations and Racks"), and updates limitations section.
+- **MANIFEST.md archival** — marked MANIFEST.md as an archival starter-pack document; points readers to README and CHANGELOG for current status.
+- **AI script: default base branch** — `build-review-context.sh` now defaults to `master` instead of `main`.
+- **AI script: pnpm-lock.yaml visible** — `build-review-context.sh` no longer excludes untracked `pnpm-lock.yaml` from review context; CI uses `--frozen-lockfile` so a changed lockfile is important review context.
+- **AI script: build-fix-prompt.sh removed** — the fix-prompt script has been removed. The review workflow now goes directly from `build-review-context.sh` to ChatGPT, which provides a corrective prompt to paste into Claude Code.
+- **CLAUDE.md** — branch rule updated to say "master/main"; `master` noted as the standard base branch for this repo.
+- **Global unsaved changes banner** — `App` now owns `hasUnsavedChanges` state; a yellow banner is shown at the top regardless of which tab is active; banner clears on successful save, on open, and on close.
+- **Close confirmation when dirty** — if there are unsaved changes and the user clicks Close, a `confirm()` dialog warns that in-memory changes will be lost; cancelling aborts the close.
+- **Dirty state clears after save** — `ValidationPanel` accepts an `onSaveSuccess` callback; `App` clears `hasUnsavedChanges` only after `save_current_repository` succeeds.
+- **Move success message** — `PlacementInspectorPanel` now shows "Moved in memory. Use Save to persist changes." instead of the misleading "Refreshing rack…" which persisted after the refresh completed.
+- All Rust checks pass (222 tests, clippy clean, fmt clean).
+- TypeScript typecheck, Vitest (9 passing), and Vite build pass (168 KB bundle).
+
 ## v0.13.0 — Placement move action foundation (milestone 13)
 
 - Added `move_placement` Tauri command: accepts `placement_id`, `new_start_u`, and optional `new_height_u`; delegates to `RepositorySession::move_placement_within_side`; requires an open repository; does not auto-save.

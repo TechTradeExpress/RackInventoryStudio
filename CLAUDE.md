@@ -3,7 +3,7 @@
 You are working in this repository as an implementation agent.
 
 Rules:
-- Work on a feature branch, never directly on main.
+- Work on a feature branch, never directly on master/main. The standard base branch for this repository is `master`.
 - Keep the scope minimal and aligned with the issue.
 - Do not perform unrelated refactors.
 - Do not remove tests unless explicitly asked.
@@ -34,7 +34,8 @@ One concrete next step.
 
 ## Final review-context handoff
 
-After all implementation, checks, and `.ai/cc-report.md` update, generate the review context as the last step using a timestamped filename:
+After all implementation, checks, and `.ai/cc-report.md` update, generate the review context as the last step using a timestamped filename.
+The base branch for this repository is `master` unless explicitly instructed otherwise.
 
 ```bash
 bash scripts/ai/build-review-context.sh master .ai/review-context-$(date +%Y%m%d-%H%M).md
