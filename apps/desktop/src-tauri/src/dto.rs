@@ -139,6 +139,11 @@ pub struct PlaceRackObjectInputDto {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct RemovePlacementInputDto {
+    pub placement_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RackDetailDto {
     pub id: String,
     pub code: String,
