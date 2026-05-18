@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.12.0 — Read-only placement inspector (milestone 12)
+
+- Placement cells in `RackUnitDiagram` are now clickable: occupied and incomplete cells select the placement; clicking an empty cell clears the selection.
+- Selected placement is visually highlighted in the diagram with a gold ring and a darker background; all U-rows of a multi-U placement show selected state simultaneously.
+- Placement table rows in `RackDetailPanel` are now clickable; clicking the selected row again deselects it.
+- Selection is shared between the diagram and both placement tables — a click in any one reflects in all.
+- Added `PlacementInspectorPanel`: shows an empty-state hint when nothing is selected; when a placement is selected displays all `PlacementDto` fields (code, side, target kind/code/name/ID, device type, start U, end U, explicit/effective height, note, tags) with `—` for null/empty fields.
+- `RackDetailPanel` owns `selectedPlacement` state; selection resets when a different rack is selected, when a repository is opened or closed, and when rack detail reloads.
+- Side (Front / Rear) is derived in `RackDetailPanel` from the placement's presence in `detail.front` / `detail.rear` — no backend changes required.
+- No Rust backend changes; all new logic is pure TypeScript frontend.
+- All Rust checks pass (222 tests, clippy clean, fmt clean).
+- TypeScript typecheck, Vitest tests (9 passing), and Vite build pass (165 KB bundle).
+
 ## v0.11.0 — UX hardening and occupancy tests (milestone 11)
 
 - Added Vitest v2 as the frontend test framework; `pnpm test` runs `vitest run`.
