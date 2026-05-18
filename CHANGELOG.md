@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.10.0 — Read-only rack unit diagram (milestone 10)
+
+- Added `RackUnitDiagram` component — visual column diagram showing front and rear sides, U numbers top to bottom.
+- Added `rackOccupancy.ts` helper — derives per-U occupancy from `PlacementDto` data; handles missing `end_u`, clamping out-of-bounds placements, and incomplete height with warnings.
+- Occupied U ranges are visually grouped: top cell rendered in a darker shade, label shown at the top cell only.
+- Empty, occupied, and incomplete-height slots are colour-coded with a legend.
+- Placement cells show `target_code` (or fallback to `target_name`/`code`) and have a tooltip with the full placement code.
+- Out-of-bounds or incomplete placements surface warnings beneath the diagram — do not crash the UI.
+- `RackDetailPanel` now renders: metadata table → rack diagram → front/rear placement detail tables.
+- No Rust backend changes — all new logic is pure TypeScript frontend.
+- All Rust checks pass (222 tests, clippy clean).
+- TypeScript typecheck and Vite build pass (161 KB bundle).
+
 ## v0.9.0 — Read-only navigation and rack detail (milestone 9)
 
 - Added `DevicesPanel` — lists all devices with code, type, name, status, serial, asset tag, model, placed flag.
