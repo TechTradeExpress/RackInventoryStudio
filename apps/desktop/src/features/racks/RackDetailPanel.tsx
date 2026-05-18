@@ -6,6 +6,7 @@ import {
   type RackDetailDto,
   type RackSummaryDto,
 } from "../../api/tauriClient";
+import { RackUnitDiagram } from "./RackUnitDiagram";
 
 interface Props {
   rack: RackSummaryDto;
@@ -96,10 +97,17 @@ export function RackDetailPanel({ rack }: Props) {
             </tbody>
           </table>
 
-          <h3 style={common.h3}>Front</h3>
+          <h3 style={common.h3}>Rack Diagram</h3>
+          <RackUnitDiagram
+            heightU={detail.height_u}
+            front={detail.front}
+            rear={detail.rear}
+          />
+
+          <h3 style={{ ...common.h3, marginTop: "1.25rem" }}>Front — placement detail</h3>
           <PlacementTable placements={detail.front} />
 
-          <h3 style={{ ...common.h3, marginTop: "0.75rem" }}>Rear</h3>
+          <h3 style={{ ...common.h3, marginTop: "0.75rem" }}>Rear — placement detail</h3>
           <PlacementTable placements={detail.rear} />
         </>
       )}
