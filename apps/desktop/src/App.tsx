@@ -5,15 +5,24 @@ import {
   selectRepositoryFolder,
   type OpenRepositoryResultDto,
   type RepositorySummaryDto,
+  type RackSummaryDto,
 } from "./api/tauriClient";
 import { TabBar } from "./components/TabBar";
 import { RepositoryPanel } from "./features/repository/RepositoryPanel";
 import { ValidationPanel } from "./features/validation/ValidationPanel";
 import { LocationsPanel } from "./features/locations/LocationsPanel";
 import { RacksPanel } from "./features/racks/RacksPanel";
+import { DevicesPanel } from "./features/devices/DevicesPanel";
+import { DeviceModelsPanel } from "./features/deviceModels/DeviceModelsPanel";
 import { common } from "./lib/styles";
 
-type Tab = "repository" | "validation" | "locations" | "racks";
+type Tab =
+  | "repository"
+  | "validation"
+  | "locations"
+  | "racks"
+  | "devices"
+  | "device_models";
 
 export function App() {
   const [repoPath, setRepoPath] = useState("");
@@ -21,6 +30,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("repository");
+  const [selectedRack, setSelectedRack] = useState<RackSummaryDto | null>(null);
 
   const isOpen = summary !== null;
 
@@ -56,6 +66,7 @@ export function App() {
     try {
       await closeRepository();
       setSummary(null);
+      setSelectedRack(null);
       setActiveTab("repository");
     } catch (e) {
       setError(String(e));
@@ -69,6 +80,8 @@ export function App() {
     { id: "validation", label: "Validation", disabled: !isOpen },
     { id: "locations", label: "Locations", disabled: !isOpen },
     { id: "racks", label: "Racks", disabled: !isOpen },
+    { id: "devices", label: "Devices", disabled: !isOpen },
+    { id: "device_models", label: "Device Models", disabled: !isOpen },
   ];
 
   return (
@@ -114,7 +127,19 @@ export function App() {
       )}
 
       {activeTab === "racks" && isOpen && (
-        <RacksPanel repoPath={summary.repo_path} />
+        <RacksPanel
+          repoPath={summary.repo_path}
+          selectedRackId={selectedRack?.id ?? null}
+          onSelectRack={setSelectedRack}
+        />
+      )}
+
+      {activeTab === "devices" && isOpen && (
+        <DevicesPanel repoPath={summary.repo_path} />
+      )}
+
+      {activeTab === "device_models" && isOpen && (
+        <DeviceModelsPanel repoPath={summary.repo_path} />
       )}
     </main>
   );
