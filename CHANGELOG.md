@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.19.0 — Target-load Retry UX (milestone 19)
+
+- `AddPlacementPanel`: added a `manualRetryToken` state (integer counter); when the user clicks "Retry" on a `targetLoadError`, `manualRetryToken` is incremented and triggers the existing target-load effect.
+- The existing `useEffect` for loading targets now depends on `[rack.id, reloadToken, manualRetryToken]`; the effect already clears `targetLoadError` and sets `targetsLoading` at the start, so Retry re-uses all existing loading and error state machinery without duplication.
+- Stale async response protection (`cancelled` flag) remains fully effective: incrementing `manualRetryToken` triggers a new effect run whose cleanup cancels any in-flight response from the previous attempt.
+- Retry does not reset form inputs (start U, height U, side, device/model selection) or clear the Add success message; those are only cleared on rack switch, as before.
+- `submitError` remains separate from `targetLoadError`; Retry has no effect on `submitError`.
+- Target dropdowns and Add button remain disabled while retry is in progress (`targetsLoading === true`).
+- No new Tauri commands; no new mutation types; no Rust changes.
+- All Rust checks pass (222 tests, clippy clean, fmt clean, check clean).
+- TypeScript typecheck, Vitest (18 passing), and Vite build pass (174 KB bundle).
+
 ## v0.18.0 — AddPlacementPanel UX hardening (milestone 18)
 
 - `AddPlacementPanel`: added `targetsLoading` state; target dropdowns and Add button are disabled while the list loads; a "Loading available targets…" inline message is shown during load.
