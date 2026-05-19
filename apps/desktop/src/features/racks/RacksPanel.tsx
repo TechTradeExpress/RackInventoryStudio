@@ -21,12 +21,16 @@ export function RacksPanel({ repoPath, selectedRackId, onSelectRack, onRepositor
   const [loading, setLoading] = useState(false);
   const [pendingNavigation, setPendingNavigation] =
     useState<PendingNavigation | null>(null);
+  const [recentlyNavigatedRackId, setRecentlyNavigatedRackId] = useState<
+    string | null
+  >(null);
 
   useEffect(() => {
     if (!repoPath) return;
     setLoading(true);
     setError(null);
     setRacks([]);
+    setRecentlyNavigatedRackId(null);
     listRacks()
       .then(setRacks)
       .catch((e) => setError(String(e)))
@@ -37,6 +41,7 @@ export function RacksPanel({ repoPath, selectedRackId, onSelectRack, onRepositor
 
   function handleRowClick(rack: RackSummaryDto) {
     setPendingNavigation(null);
+    setRecentlyNavigatedRackId(null);
     onSelectRack(selectedRackId === rack.id ? null : rack);
   }
 
@@ -50,6 +55,7 @@ export function RacksPanel({ repoPath, selectedRackId, onSelectRack, onRepositor
       placementId,
       message: `Moved to rack ${destRack.code} in memory. Use Save to persist changes.`,
     });
+    setRecentlyNavigatedRackId(destRack.id);
     onSelectRack(destRack);
     return true;
   }
@@ -88,13 +94,19 @@ export function RacksPanel({ repoPath, selectedRackId, onSelectRack, onRepositor
             <tbody>
               {racks.map((rack) => {
                 const isSelected = rack.id === selectedRackId;
+                const isRecentNav = rack.id === recentlyNavigatedRackId;
                 return (
                   <tr
                     key={rack.id}
                     onClick={() => handleRowClick(rack)}
                     style={{
                       cursor: "pointer",
-                      background: isSelected ? "#e8f0fe" : "inherit",
+                      background:
+                        isSelected && isRecentNav
+                          ? "#d5ebd5"
+                          : isSelected
+                            ? "#e8f0fe"
+                            : "inherit",
                     }}
                   >
                     <td style={{ ...common.td, fontFamily: "monospace" }}>
@@ -121,6 +133,7 @@ export function RacksPanel({ repoPath, selectedRackId, onSelectRack, onRepositor
           onRepositoryMutated={onRepositoryMutated}
           onNavigateToRackPlacement={handleNavigateToRackPlacement}
           initialNavigation={pendingNavigation}
+          onNavigationConsumed={() => setPendingNavigation(null)}
         />
       )}
     </>
