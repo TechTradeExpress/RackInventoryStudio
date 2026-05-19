@@ -176,3 +176,20 @@ fn scaffold_contains_device_files_but_not_rack_objects() {
         "devices/rack-objects.yaml must not be created"
     );
 }
+
+#[test]
+fn name_with_yaml_special_chars_is_preserved_correctly() {
+    let tmp = tempfile::tempdir().unwrap();
+    let special_name = "Main DC: Warsaw #1";
+    let result = create_repository(make_input(tmp.path(), "dc-warsaw", special_name));
+    assert!(result.is_ok(), "expected Ok, got: {:?}", result.err());
+    let session = result.unwrap();
+    assert_eq!(
+        session.data.metadata.name, special_name,
+        "name with YAML special characters must round-trip correctly"
+    );
+    let repo_yaml = tmp.path().join("inventory").join("repo.yaml");
+    assert!(repo_yaml.exists(), "repo.yaml must exist");
+    let contents = std::fs::read_to_string(&repo_yaml).unwrap();
+    assert!(!contents.is_empty(), "repo.yaml must not be empty");
+}

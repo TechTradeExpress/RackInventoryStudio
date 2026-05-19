@@ -55,6 +55,16 @@ fn code_is_valid(code: &str) -> bool {
     chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '_' || c == '-')
 }
 
+// ── YAML helpers ─────────────────────────────────────────────────────────────
+
+/// Wraps `s` in YAML double-quote scalars, escaping `\` and `"`.
+/// Safe for any user-provided string: `:`, `#`, `{`, `[`, `|`, etc.
+/// are all inert inside a YAML double-quoted scalar.
+fn yaml_quote_string(s: &str) -> String {
+    let escaped = s.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("\"{escaped}\"")
+}
+
 // ── File I/O helpers ──────────────────────────────────────────────────────────
 
 fn write_text(path: &Path, content: &str) -> Result<(), ApplicationError> {
@@ -129,13 +139,14 @@ pub fn create_repository(
     }
 
     let id = input.id.unwrap_or_else(|| Uuid::new_v4().to_string());
+    let name_yaml = yaml_quote_string(&name);
 
-    // repo.yaml
+    // repo.yaml — name is double-quoted to safely handle YAML special chars.
     write_text(
         &inventory_dir.join("repo.yaml"),
         &format!(
             "format: rack-inventory-studio\nversion: \"0.1\"\n\n\
-             repository:\n  id: {id}\n  code: {code}\n  name: {name}\n"
+             repository:\n  id: {id}\n  code: {code}\n  name: {name_yaml}\n"
         ),
     )?;
 
