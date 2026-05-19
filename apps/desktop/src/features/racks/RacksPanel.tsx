@@ -15,6 +15,7 @@ interface Props {
   repoPath: string;
   selectedRackId: string | null;
   onSelectRack: (rack: RackSummaryDto | null) => void;
+  mutationToken: number;
   onRepositoryMutated: () => void;
 }
 
@@ -23,7 +24,7 @@ interface PendingNavigation {
   message: string;
 }
 
-export function RacksPanel({ repoPath, selectedRackId, onSelectRack, onRepositoryMutated }: Props) {
+export function RacksPanel({ repoPath, selectedRackId, onSelectRack, mutationToken, onRepositoryMutated }: Props) {
   const [racks, setRacks] = useState<RackSummaryDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -300,6 +301,7 @@ export function RacksPanel({ repoPath, selectedRackId, onSelectRack, onRepositor
       {selectedRack && (
         <RackDetailPanel
           rack={selectedRack}
+          mutationToken={mutationToken}
           onRepositoryMutated={handleRepositoryMutated}
           onNavigateToRackPlacement={handleNavigateToRackPlacement}
           initialNavigation={pendingNavigation}

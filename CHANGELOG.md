@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.31.0 — MVP smoke-test readiness + refresh coordination hardening (milestone 30)
+
+- Introduced `repositoryMutationToken` (integer state) in `App.tsx`; incremented on every repository mutation.
+- `handleRepositoryMutated()` in App: sets dirty state, increments token, and refreshes Repository Summary by calling `getRepositorySummary()` — counts in the Repository tab now update live after any mutation.
+- All `onRepositoryMutated` callbacks that were inline `() => setHasUnsavedChanges(true)` now point to the shared `handleRepositoryMutated`.
+- `DevicesPanel` and `DeviceModelsPanel` accept `mutationToken` and include it in their data-load `useEffect` deps — both panels now auto-refresh when devices or models are added from another tab (e.g. CSV Import).
+- `RacksPanel` → `RackDetailPanel` → `AddPlacementPanel` token propagation: global `mutationToken` threaded through all three components so `AddPlacementPanel` reloads its target lists (unplaced devices + rack_object models) whenever any mutation happens in the session.
+- Added `docs/MVP_SMOKE_TEST_CHECKLIST_EN.md` — 15-step end-to-end checklist covering open, create location/rack/device model/device, CSV import, placement, move, remove, validate, save, reload, and close-with-dirty-state.
+- No changes to Rust backend or Tauri commands.
+- Local checks: 242 Rust tests pass, 24 Vitest tests pass, typecheck/build clean, Clippy clean.
+
 ## v0.30.0 — CSV import preview + confirm/write flow (milestone 29)
 
 - Added **CSV Import** tab with textarea paste, Preview, and Import buttons.

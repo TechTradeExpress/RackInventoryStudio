@@ -15,11 +15,12 @@ interface Props {
   rack: RackSummaryDto;
   onAddSuccess: (newPlacementId: string) => void;
   reloadToken: number;
+  mutationToken: number;
 }
 
 type Mode = "device" | "rack_object";
 
-export function AddPlacementPanel({ rack, onAddSuccess, reloadToken }: Props) {
+export function AddPlacementPanel({ rack, onAddSuccess, reloadToken, mutationToken }: Props) {
   const [mode, setMode] = useState<Mode>("device");
   const [side, setSide] = useState<"front" | "rear">("front");
   const [deviceId, setDeviceId] = useState("");
@@ -73,7 +74,7 @@ export function AddPlacementPanel({ rack, onAddSuccess, reloadToken }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [rack.id, reloadToken, manualRetryToken]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [rack.id, reloadToken, mutationToken, manualRetryToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function resetInputs() {
     setDeviceId("");

@@ -31,10 +31,11 @@ const EMPTY_FORM = {
 
 interface Props {
   repoPath: string;
+  mutationToken: number;
   onRepositoryMutated: () => void;
 }
 
-export function DeviceModelsPanel({ repoPath, onRepositoryMutated }: Props) {
+export function DeviceModelsPanel({ repoPath, mutationToken, onRepositoryMutated }: Props) {
   const [models, setModels] = useState<DeviceModelDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -62,7 +63,7 @@ export function DeviceModelsPanel({ repoPath, onRepositoryMutated }: Props) {
       .then(setModels)
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
-  }, [repoPath]);
+  }, [repoPath, mutationToken]);
 
   function set(field: keyof typeof EMPTY_FORM, value: string) {
     setForm((f) => ({ ...f, [field]: value }));
