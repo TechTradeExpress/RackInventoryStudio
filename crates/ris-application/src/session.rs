@@ -72,6 +72,52 @@ pub struct AddDeviceInput {
     pub tags: Vec<String>,
 }
 
+pub struct UpdateLocationInput {
+    pub id: String,
+    pub code: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub address: Option<String>,
+    pub tags: Vec<String>,
+}
+
+pub struct UpdateRackInput {
+    pub id: String,
+    pub location_id: String,
+    pub code: String,
+    pub name: String,
+    pub height_u: u32,
+    pub row: Option<String>,
+    pub description: Option<String>,
+    pub tags: Vec<String>,
+}
+
+pub struct UpdateDeviceModelInput {
+    pub id: String,
+    pub device_type: DeviceType,
+    pub code: String,
+    pub name: String,
+    pub vendor: Option<String>,
+    pub model: Option<String>,
+    pub default_height_u: u32,
+    pub description: Option<String>,
+    pub tags: Vec<String>,
+}
+
+pub struct UpdateDeviceInput {
+    pub id: String,
+    pub device_type: DeviceType,
+    pub code: String,
+    pub name: Option<String>,
+    pub device_model_id: Option<String>,
+    pub serial_number: Option<String>,
+    pub asset_tag: Option<String>,
+    pub external_ref: Option<String>,
+    pub status: DeviceStatus,
+    pub description: Option<String>,
+    pub tags: Vec<String>,
+}
+
 #[derive(Debug)]
 pub struct DeviceCsvImportResult {
     pub created_count: usize,
@@ -422,6 +468,358 @@ impl RepositorySession {
         });
         self.rebuild_index();
         Ok(id)
+    }
+
+    pub fn update_location(&mut self, input: UpdateLocationInput) -> Result<(), ApplicationError> {
+        if is_blank(&input.code) {
+            return Err(ApplicationError::InvalidInput(
+                "code must not be blank".into(),
+            ));
+        }
+        if is_blank(&input.name) {
+            return Err(ApplicationError::InvalidInput(
+                "name must not be blank".into(),
+            ));
+        }
+        if !self.index.locations_by_id.contains_key(&input.id) {
+            return Err(ApplicationError::NotFound(format!(
+                "location id: {}",
+                input.id
+            )));
+        }
+        // Code uniqueness: allowed if unchanged (same id owns that code).
+        if let Some(existing) = self.index.locations_by_code.get(&input.code) {
+            if existing.id != input.id {
+                return Err(ApplicationError::DuplicateCode(input.code));
+            }
+        }
+        let loc = self
+            .data
+            .locations
+            .iter_mut()
+            .find(|l| l.id == input.id)
+            .unwrap();
+        loc.code = input.code;
+        loc.name = input.name;
+        loc.description = input.description;
+        loc.address = input.address;
+        loc.tags = input.tags;
+        self.rebuild_index();
+        Ok(())
+    }
+
+    pub fn delete_location(&mut self, id: &str) -> Result<(), ApplicationError> {
+        if !self.index.locations_by_id.contains_key(id) {
+            return Err(ApplicationError::NotFound(format!("location id: {id}")));
+        }
+        if self.data.racks.iter().any(|r| r.location_id == id) {
+            return Err(ApplicationError::InvalidInput(
+                "Cannot delete location because racks still reference it.".into(),
+            ));
+        }
+        self.data.locations.retain(|l| l.id != id);
+        self.rebuild_index();
+        Ok(())
+    }
+
+    pub fn update_rack(&mut self, input: UpdateRackInput) -> Result<(), ApplicationError> {
+        if is_blank(&input.code) {
+            return Err(ApplicationError::InvalidInput(
+                "code must not be blank".into(),
+            ));
+        }
+        if is_blank(&input.name) {
+            return Err(ApplicationError::InvalidInput(
+                "name must not be blank".into(),
+            ));
+        }
+        if input.height_u == 0 {
+            return Err(ApplicationError::InvalidInput(
+                "height_u must be > 0".into(),
+            ));
+        }
+        if !self.index.racks_by_id.contains_key(&input.id) {
+            return Err(ApplicationError::NotFound(format!("rack id: {}", input.id)));
+        }
+        if !self.index.locations_by_id.contains_key(&input.location_id) {
+            return Err(ApplicationError::NotFound(format!(
+                "location id: {}",
+                input.location_id
+            )));
+        }
+        if let Some(existing) = self.index.racks_by_code.get(&input.code) {
+            if existing.id != input.id {
+                return Err(ApplicationError::DuplicateCode(input.code));
+            }
+        }
+        // Reject height reduction if any placement would fall outside the new bounds.
+        for ip in self.index.get_placements_for_rack(&input.id) {
+            let model = self.model_for_placement(&ip.placement);
+            if let Some(range) = ip.placement.placement_range(model) {
+                if range.end_u > input.height_u {
+                    return Err(ApplicationError::InvalidInput(format!(
+                        "Cannot reduce rack height to {} U: placement {} occupies up to U{}",
+                        input.height_u, ip.placement.code, range.end_u
+                    )));
+                }
+            }
+        }
+        let rack = self
+            .data
+            .racks
+            .iter_mut()
+            .find(|r| r.id == input.id)
+            .unwrap();
+        rack.location_id = input.location_id;
+        rack.code = input.code;
+        rack.name = input.name;
+        rack.height_u = input.height_u;
+        rack.row = input.row;
+        rack.description = input.description;
+        rack.tags = input.tags;
+        self.rebuild_index();
+        Ok(())
+    }
+
+    pub fn delete_rack(&mut self, id: &str) -> Result<(), ApplicationError> {
+        if !self.index.racks_by_id.contains_key(id) {
+            return Err(ApplicationError::NotFound(format!("rack id: {id}")));
+        }
+        let has_placements = self
+            .index
+            .placements_by_rack_id
+            .get(id)
+            .map(|v| !v.is_empty())
+            .unwrap_or(false);
+        if has_placements {
+            return Err(ApplicationError::InvalidInput(
+                "Cannot delete rack because placements still reference it.".into(),
+            ));
+        }
+        self.data.racks.retain(|r| r.id != id);
+        self.data.placement_files.retain(|pf| pf.rack_id != id);
+        self.rebuild_index();
+        Ok(())
+    }
+
+    pub fn update_device_model(
+        &mut self,
+        input: UpdateDeviceModelInput,
+    ) -> Result<(), ApplicationError> {
+        if is_blank(&input.code) {
+            return Err(ApplicationError::InvalidInput(
+                "code must not be blank".into(),
+            ));
+        }
+        if is_blank(&input.name) {
+            return Err(ApplicationError::InvalidInput(
+                "name must not be blank".into(),
+            ));
+        }
+        if input.default_height_u == 0 {
+            return Err(ApplicationError::InvalidInput(
+                "default_height_u must be > 0".into(),
+            ));
+        }
+        let current_type = self
+            .index
+            .device_models_by_id
+            .get(&input.id)
+            .ok_or_else(|| ApplicationError::NotFound(format!("device_model id: {}", input.id)))?
+            .device_type
+            .clone();
+        if input.device_type != current_type {
+            // Reject if any device references this model.
+            let referenced_by_device = self
+                .data
+                .devices
+                .iter()
+                .any(|d| d.device_model_id.as_deref() == Some(&input.id));
+            // Reject if any rack-object placement targets this model.
+            let referenced_by_placement = self.index.placements_by_id.values().any(|ip| {
+                ip.placement.target_kind == PlacementTargetKind::DeviceModel
+                    && ip.placement.target_id == input.id
+            });
+            if referenced_by_device || referenced_by_placement {
+                return Err(ApplicationError::InvalidInput(
+                    "Cannot change device_type because devices or rack-object placements still reference this model.".into(),
+                ));
+            }
+        }
+        if let Some(existing) = self.index.device_models_by_code.get(&input.code) {
+            if existing.id != input.id {
+                return Err(ApplicationError::DuplicateCode(input.code));
+            }
+        }
+        let model = self
+            .data
+            .device_models
+            .iter_mut()
+            .find(|m| m.id == input.id)
+            .unwrap();
+        model.device_type = input.device_type;
+        model.code = input.code;
+        model.name = input.name;
+        model.vendor = input.vendor;
+        model.model = input.model;
+        model.default_height_u = input.default_height_u;
+        model.description = input.description;
+        model.tags = input.tags;
+        self.rebuild_index();
+        Ok(())
+    }
+
+    pub fn delete_device_model(&mut self, id: &str) -> Result<(), ApplicationError> {
+        if !self.index.device_models_by_id.contains_key(id) {
+            return Err(ApplicationError::NotFound(format!("device_model id: {id}")));
+        }
+        let referenced_by_device = self
+            .data
+            .devices
+            .iter()
+            .any(|d| d.device_model_id.as_deref() == Some(id));
+        let referenced_by_placement = self.index.placements_by_id.values().any(|ip| {
+            ip.placement.target_kind == PlacementTargetKind::DeviceModel
+                && ip.placement.target_id == id
+        });
+        if referenced_by_device || referenced_by_placement {
+            return Err(ApplicationError::InvalidInput(
+                "Cannot delete device model because devices or rack-object placements still reference it.".into(),
+            ));
+        }
+        self.data.device_models.retain(|m| m.id != id);
+        self.rebuild_index();
+        Ok(())
+    }
+
+    pub fn update_device(&mut self, input: UpdateDeviceInput) -> Result<(), ApplicationError> {
+        if is_blank(&input.code) {
+            return Err(ApplicationError::InvalidInput(
+                "code must not be blank".into(),
+            ));
+        }
+        if input.device_type == DeviceType::RackObject {
+            return Err(ApplicationError::InvalidInput(
+                "device_type rack_object is not allowed for device instances".into(),
+            ));
+        }
+        if !opt_has_nonblank(&input.name)
+            && !opt_has_nonblank(&input.serial_number)
+            && !opt_has_nonblank(&input.asset_tag)
+        {
+            return Err(ApplicationError::InvalidInput(
+                "at least one of name, serial_number, or asset_tag must be non-blank".into(),
+            ));
+        }
+        let current_type = self
+            .index
+            .devices_by_id
+            .get(&input.id)
+            .ok_or_else(|| ApplicationError::NotFound(format!("device id: {}", input.id)))?
+            .device_type
+            .clone();
+        if input.device_type != current_type {
+            let is_placed = self
+                .index
+                .placements_by_device_id
+                .get(&input.id)
+                .map(|v| !v.is_empty())
+                .unwrap_or(false);
+            if is_placed {
+                return Err(ApplicationError::InvalidInput(
+                    "Cannot change device_type because the device is currently placed in a rack."
+                        .into(),
+                ));
+            }
+        }
+        if let Some(existing) = self.index.devices_by_code.get(&input.code) {
+            if existing.id != input.id {
+                return Err(ApplicationError::DuplicateCode(input.code));
+            }
+        }
+        // Resolve and validate model if provided.
+        let resolved_model_id: Option<String> = if let Some(ref mid) = input.device_model_id {
+            let model = self
+                .index
+                .device_models_by_id
+                .get(mid.as_str())
+                .ok_or_else(|| ApplicationError::NotFound(format!("device_model id: {mid}")))?;
+            if model.device_type == DeviceType::RackObject {
+                return Err(ApplicationError::InvalidInput(
+                    "device must not reference a rack_object model".into(),
+                ));
+            }
+            if model.device_type != input.device_type {
+                return Err(ApplicationError::InvalidInput(format!(
+                    "device_type mismatch: device is {} but model is {}",
+                    input.device_type.as_str(),
+                    model.device_type.as_str()
+                )));
+            }
+            Some(mid.clone())
+        } else {
+            None
+        };
+        // Serial uniqueness: exclude self.
+        if let Some(ref sn) = input.serial_number {
+            let conflict = self
+                .data
+                .devices
+                .iter()
+                .any(|d| d.id != input.id && d.serial_number.as_deref() == Some(sn.as_str()));
+            if conflict {
+                return Err(ApplicationError::DuplicateSerialNumber(sn.clone()));
+            }
+        }
+        // Asset tag uniqueness: exclude self.
+        if let Some(ref at) = input.asset_tag {
+            let conflict = self
+                .data
+                .devices
+                .iter()
+                .any(|d| d.id != input.id && d.asset_tag.as_deref() == Some(at.as_str()));
+            if conflict {
+                return Err(ApplicationError::DuplicateAssetTag(at.clone()));
+            }
+        }
+        let device = self
+            .data
+            .devices
+            .iter_mut()
+            .find(|d| d.id == input.id)
+            .unwrap();
+        device.device_type = input.device_type;
+        device.code = input.code;
+        device.name = input.name;
+        device.device_model_id = resolved_model_id;
+        device.serial_number = input.serial_number;
+        device.asset_tag = input.asset_tag;
+        device.external_ref = input.external_ref;
+        device.status = input.status;
+        device.description = input.description;
+        device.tags = input.tags;
+        self.rebuild_index();
+        Ok(())
+    }
+
+    pub fn delete_device(&mut self, id: &str) -> Result<(), ApplicationError> {
+        if !self.index.devices_by_id.contains_key(id) {
+            return Err(ApplicationError::NotFound(format!("device id: {id}")));
+        }
+        let is_placed = self
+            .index
+            .placements_by_device_id
+            .get(id)
+            .map(|v| !v.is_empty())
+            .unwrap_or(false);
+        if is_placed {
+            return Err(ApplicationError::InvalidInput(
+                "Cannot delete device because it is placed in a rack.".into(),
+            ));
+        }
+        self.data.devices.retain(|d| d.id != id);
+        self.rebuild_index();
+        Ok(())
     }
 
     // ── CSV preview ───────────────────────────────────────────────────────────

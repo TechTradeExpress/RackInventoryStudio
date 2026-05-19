@@ -3,7 +3,8 @@ use std::path::Path;
 use ris_application::{
     open_repository, validate_repository, AddDeviceInput, AddDeviceModelInput, AddLocationInput,
     AddRackInput, MovePlacementInput, MovePlacementToTargetInput, PlaceDeviceInput,
-    PlaceRackObjectInput, RemovePlacementInput,
+    PlaceRackObjectInput, RemovePlacementInput, UpdateDeviceInput, UpdateDeviceModelInput,
+    UpdateLocationInput, UpdateRackInput,
 };
 use ris_core::{DeviceStatus, DeviceType, PlacementSide, ValidationLevel};
 use ris_import::CsvRowAction;
@@ -2316,4 +2317,590 @@ fn import_devices_csv_rejects_rack_object_type() {
     let err = session.import_devices_csv(csv).unwrap_err();
     assert!(err.to_string().contains("errors"), "{err}");
     assert_eq!(session.data.devices.len(), before);
+}
+
+// ── update_location ───────────────────────────────────────────────────────────
+
+#[test]
+fn update_location_changes_name_and_preserves_id() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let loc = session
+        .index
+        .get_location_by_code("server-room-a")
+        .unwrap()
+        .clone();
+    session
+        .update_location(UpdateLocationInput {
+            id: loc.id.clone(),
+            code: loc.code.clone(),
+            name: "Renamed Room".to_string(),
+            description: Some("desc".to_string()),
+            address: None,
+            tags: vec![],
+        })
+        .unwrap();
+    let updated = session.index.get_location_by_code("server-room-a").unwrap();
+    assert_eq!(updated.id, loc.id);
+    assert_eq!(updated.name, "Renamed Room");
+}
+
+#[test]
+fn update_location_duplicate_code_fails() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    session
+        .add_location(AddLocationInput {
+            id: None,
+            code: "room-b".to_string(),
+            name: "Room B".to_string(),
+            description: None,
+            address: None,
+            tags: vec![],
+        })
+        .unwrap();
+    let room_b = session
+        .index
+        .get_location_by_code("room-b")
+        .unwrap()
+        .clone();
+    let err = session
+        .update_location(UpdateLocationInput {
+            id: room_b.id,
+            code: "server-room-a".to_string(),
+            name: "Room B".to_string(),
+            description: None,
+            address: None,
+            tags: vec![],
+        })
+        .unwrap_err();
+    assert!(
+        matches!(err, ris_application::ApplicationError::DuplicateCode(_)),
+        "expected DuplicateCode, got {err:?}"
+    );
+}
+
+#[test]
+fn update_location_not_found_fails() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let err = session
+        .update_location(UpdateLocationInput {
+            id: "nonexistent-id".to_string(),
+            code: "code".to_string(),
+            name: "Name".to_string(),
+            description: None,
+            address: None,
+            tags: vec![],
+        })
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        ris_application::ApplicationError::NotFound(_)
+    ));
+}
+
+// ── delete_location ───────────────────────────────────────────────────────────
+
+#[test]
+fn delete_location_succeeds_when_unreferenced() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let id = session
+        .add_location(AddLocationInput {
+            id: None,
+            code: "empty-room".to_string(),
+            name: "Empty Room".to_string(),
+            description: None,
+            address: None,
+            tags: vec![],
+        })
+        .unwrap();
+    let before = session.list_locations().len();
+    session.delete_location(&id).unwrap();
+    assert_eq!(session.list_locations().len(), before - 1);
+    assert!(session.index.get_location_by_code("empty-room").is_none());
+}
+
+#[test]
+fn delete_location_fails_when_racks_reference_it() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let loc = session
+        .index
+        .get_location_by_code("server-room-a")
+        .unwrap()
+        .clone();
+    let err = session.delete_location(&loc.id).unwrap_err();
+    assert!(
+        err.to_string().contains("racks still reference"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn delete_location_not_found_fails() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let err = session.delete_location("no-such-id").unwrap_err();
+    assert!(matches!(
+        err,
+        ris_application::ApplicationError::NotFound(_)
+    ));
+}
+
+// ── update_rack ───────────────────────────────────────────────────────────────
+
+#[test]
+fn update_rack_changes_name_and_preserves_id() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let rack = session.index.get_rack_by_code("rack-main").unwrap().clone();
+    let loc_id = rack.location_id.clone();
+    session
+        .update_rack(UpdateRackInput {
+            id: rack.id.clone(),
+            location_id: loc_id,
+            code: rack.code.clone(),
+            name: "Renamed Rack".to_string(),
+            height_u: rack.height_u,
+            row: None,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap();
+    let updated = session.index.get_rack_by_code("rack-main").unwrap();
+    assert_eq!(updated.id, rack.id);
+    assert_eq!(updated.name, "Renamed Rack");
+}
+
+#[test]
+fn update_rack_height_reduction_blocked_by_placements() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let rack = session.index.get_rack_by_code("rack-main").unwrap().clone();
+    let loc_id = rack.location_id.clone();
+    let err = session
+        .update_rack(UpdateRackInput {
+            id: rack.id.clone(),
+            location_id: loc_id,
+            code: rack.code.clone(),
+            name: rack.name.clone(),
+            height_u: 1,
+            row: None,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("Cannot reduce rack height"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn update_rack_duplicate_code_fails() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let loc = session
+        .index
+        .get_location_by_code("server-room-a")
+        .unwrap()
+        .clone();
+    let id2 = session
+        .add_rack(AddRackInput {
+            id: None,
+            location_id: Some(loc.id.clone()),
+            location_code: None,
+            code: "rack-b".to_string(),
+            name: "Rack B".to_string(),
+            height_u: 10,
+            row: None,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap();
+    let err = session
+        .update_rack(UpdateRackInput {
+            id: id2,
+            location_id: loc.id,
+            code: "rack-main".to_string(),
+            name: "Rack B".to_string(),
+            height_u: 10,
+            row: None,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        ris_application::ApplicationError::DuplicateCode(_)
+    ));
+}
+
+// ── delete_rack ───────────────────────────────────────────────────────────────
+
+#[test]
+fn delete_rack_succeeds_when_empty() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let loc = session
+        .index
+        .get_location_by_code("server-room-a")
+        .unwrap()
+        .clone();
+    let id = session
+        .add_rack(AddRackInput {
+            id: None,
+            location_id: Some(loc.id),
+            location_code: None,
+            code: "rack-empty".to_string(),
+            name: "Empty Rack".to_string(),
+            height_u: 10,
+            row: None,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap();
+    let pf_before = session.data.placement_files.len();
+    session.delete_rack(&id).unwrap();
+    assert!(session.index.get_rack_by_code("rack-empty").is_none());
+    assert_eq!(session.data.placement_files.len(), pf_before - 1);
+}
+
+#[test]
+fn delete_rack_fails_when_placements_exist() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let rack = session.index.get_rack_by_code("rack-main").unwrap().clone();
+    let err = session.delete_rack(&rack.id).unwrap_err();
+    assert!(
+        err.to_string().contains("placements still reference"),
+        "unexpected error: {err}"
+    );
+}
+
+// ── update_device_model ───────────────────────────────────────────────────────
+
+#[test]
+fn update_device_model_changes_name_preserves_id() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let model = session
+        .index
+        .get_device_model_by_code("dell-r650")
+        .unwrap()
+        .clone();
+    session
+        .update_device_model(UpdateDeviceModelInput {
+            id: model.id.clone(),
+            device_type: model.device_type.clone(),
+            code: model.code.clone(),
+            name: "Dell R650 Updated".to_string(),
+            vendor: model.vendor.clone(),
+            model: model.model.clone(),
+            default_height_u: model.default_height_u,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap();
+    let updated = session.index.get_device_model_by_code("dell-r650").unwrap();
+    assert_eq!(updated.id, model.id);
+    assert_eq!(updated.name, "Dell R650 Updated");
+}
+
+#[test]
+fn update_device_model_type_change_blocked_by_device_reference() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let model = session
+        .index
+        .get_device_model_by_code("dell-r650")
+        .unwrap()
+        .clone();
+    let err = session
+        .update_device_model(UpdateDeviceModelInput {
+            id: model.id.clone(),
+            device_type: DeviceType::Network,
+            code: model.code.clone(),
+            name: model.name.clone(),
+            vendor: model.vendor.clone(),
+            model: model.model.clone(),
+            default_height_u: model.default_height_u,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("devices or rack-object placements"),
+        "unexpected error: {err}"
+    );
+}
+
+// ── delete_device_model ───────────────────────────────────────────────────────
+
+#[test]
+fn delete_device_model_succeeds_when_unreferenced() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let id = session
+        .add_device_model(AddDeviceModelInput {
+            id: None,
+            device_type: DeviceType::Network,
+            code: "sw-unused".to_string(),
+            name: "Unused Switch".to_string(),
+            vendor: None,
+            model: None,
+            default_height_u: 1,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap();
+    let before = session.list_device_models().len();
+    session.delete_device_model(&id).unwrap();
+    assert_eq!(session.list_device_models().len(), before - 1);
+}
+
+#[test]
+fn delete_device_model_fails_when_referenced_by_device() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let model = session
+        .index
+        .get_device_model_by_code("dell-r650")
+        .unwrap()
+        .clone();
+    let err = session.delete_device_model(&model.id).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("devices or rack-object placements"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn delete_device_model_fails_when_referenced_by_placement() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let model = session
+        .index
+        .get_device_model_by_code("blank-1u")
+        .unwrap()
+        .clone();
+    let err = session.delete_device_model(&model.id).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("devices or rack-object placements"),
+        "unexpected error: {err}"
+    );
+}
+
+// ── update_device ─────────────────────────────────────────────────────────────
+
+#[test]
+fn update_device_changes_name_preserves_id() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let device = session.index.get_device_by_code("srv-01").unwrap().clone();
+    session
+        .update_device(UpdateDeviceInput {
+            id: device.id.clone(),
+            device_type: device.device_type.clone(),
+            code: device.code.clone(),
+            name: Some("Server 01 Updated".to_string()),
+            device_model_id: device.device_model_id.clone(),
+            serial_number: device.serial_number.clone(),
+            asset_tag: device.asset_tag.clone(),
+            external_ref: None,
+            status: device.status.clone(),
+            description: None,
+            tags: vec![],
+        })
+        .unwrap();
+    let updated = session.index.get_device_by_code("srv-01").unwrap();
+    assert_eq!(updated.id, device.id);
+    assert_eq!(updated.name.as_deref(), Some("Server 01 Updated"));
+}
+
+#[test]
+fn update_device_type_change_blocked_when_placed() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let device = session.index.get_device_by_code("srv-01").unwrap().clone();
+    let err = session
+        .update_device(UpdateDeviceInput {
+            id: device.id.clone(),
+            device_type: DeviceType::Network,
+            code: device.code.clone(),
+            name: device.name.clone(),
+            device_model_id: None,
+            serial_number: device.serial_number.clone(),
+            asset_tag: device.asset_tag.clone(),
+            external_ref: None,
+            status: device.status.clone(),
+            description: None,
+            tags: vec![],
+        })
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("currently placed"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn update_device_duplicate_code_fails() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let id2 = session
+        .add_device(AddDeviceInput {
+            id: None,
+            device_type: DeviceType::Server,
+            code: "srv-02".to_string(),
+            name: Some("Server 02".to_string()),
+            device_model_id: None,
+            device_model_code: None,
+            serial_number: None,
+            asset_tag: None,
+            external_ref: None,
+            status: DeviceStatus::InStock,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap();
+    let device2 = session.index.devices_by_id.get(&id2).unwrap().clone();
+    let err = session
+        .update_device(UpdateDeviceInput {
+            id: device2.id.clone(),
+            device_type: device2.device_type.clone(),
+            code: "srv-01".to_string(),
+            name: device2.name.clone(),
+            device_model_id: None,
+            serial_number: None,
+            asset_tag: None,
+            external_ref: None,
+            status: device2.status.clone(),
+            description: None,
+            tags: vec![],
+        })
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        ris_application::ApplicationError::DuplicateCode(_)
+    ));
+}
+
+// ── delete_device ─────────────────────────────────────────────────────────────
+
+#[test]
+fn delete_device_succeeds_when_unplaced() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let id = session
+        .add_device(AddDeviceInput {
+            id: None,
+            device_type: DeviceType::Server,
+            code: "srv-unplaced".to_string(),
+            name: Some("Unplaced".to_string()),
+            device_model_id: None,
+            device_model_code: None,
+            serial_number: None,
+            asset_tag: None,
+            external_ref: None,
+            status: DeviceStatus::InStock,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap();
+    let before = session.list_devices().len();
+    session.delete_device(&id).unwrap();
+    assert_eq!(session.list_devices().len(), before - 1);
+    assert!(session.index.devices_by_id.get(&id).is_none());
+}
+
+#[test]
+fn delete_device_fails_when_placed() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let device = session.index.get_device_by_code("srv-01").unwrap().clone();
+    let err = session.delete_device(&device.id).unwrap_err();
+    assert!(
+        err.to_string().contains("placed in a rack"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn delete_device_not_found_fails() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let err = session.delete_device("no-such-id").unwrap_err();
+    assert!(matches!(
+        err,
+        ris_application::ApplicationError::NotFound(_)
+    ));
+}
+
+// ── field-preservation tests ──────────────────────────────────────────────────
+
+#[test]
+fn update_device_preserves_external_ref_and_description_when_provided() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let id = session
+        .add_device(AddDeviceInput {
+            id: None,
+            device_type: DeviceType::Server,
+            code: "srv-field-test".to_string(),
+            name: Some("Field Test Server".to_string()),
+            device_model_id: None,
+            device_model_code: None,
+            serial_number: None,
+            asset_tag: None,
+            external_ref: Some("EXT-001".to_string()),
+            status: DeviceStatus::InStock,
+            description: Some("original description".to_string()),
+            tags: vec![],
+        })
+        .unwrap();
+
+    // Update name only; pass through the original external_ref and description.
+    session
+        .update_device(UpdateDeviceInput {
+            id: id.clone(),
+            device_type: DeviceType::Server,
+            code: "srv-field-test".to_string(),
+            name: Some("Field Test Server Renamed".to_string()),
+            device_model_id: None,
+            serial_number: None,
+            asset_tag: None,
+            external_ref: Some("EXT-001".to_string()),
+            status: DeviceStatus::InStock,
+            description: Some("original description".to_string()),
+            tags: vec![],
+        })
+        .unwrap();
+
+    let dev = session.index.devices_by_id.get(&id).unwrap();
+    assert_eq!(dev.external_ref.as_deref(), Some("EXT-001"));
+    assert_eq!(dev.description.as_deref(), Some("original description"));
+    assert_eq!(dev.name.as_deref(), Some("Field Test Server Renamed"));
+}
+
+#[test]
+fn update_device_model_preserves_description_when_provided() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let id = session
+        .add_device_model(AddDeviceModelInput {
+            id: None,
+            device_type: DeviceType::Network,
+            code: "sw-desc-test".to_string(),
+            name: "Switch Desc Test".to_string(),
+            vendor: None,
+            model: None,
+            default_height_u: 1,
+            description: Some("original model description".to_string()),
+            tags: vec![],
+        })
+        .unwrap();
+
+    // Update vendor only; pass through the original description.
+    session
+        .update_device_model(UpdateDeviceModelInput {
+            id: id.clone(),
+            device_type: DeviceType::Network,
+            code: "sw-desc-test".to_string(),
+            name: "Switch Desc Test".to_string(),
+            vendor: Some("Cisco".to_string()),
+            model: None,
+            default_height_u: 1,
+            description: Some("original model description".to_string()),
+            tags: vec![],
+        })
+        .unwrap();
+
+    let model = session.index.device_models_by_id.get(&id).unwrap();
+    assert_eq!(
+        model.description.as_deref(),
+        Some("original model description")
+    );
+    assert_eq!(model.vendor.as_deref(), Some("Cisco"));
 }

@@ -79,6 +79,7 @@ The core backend and the rack placement workflow are complete. The app is usable
 - Remove placement via confirmation button
 - Rack list shows Front / Rear / Total placement counts, updated live after mutations
 - Unsaved changes banner, save flow, close with confirmation
+- Edit and delete for all catalog entity types (locations, racks, device models, devices) with referential integrity guards
 - CI: Rust workspace tests and frontend checks pass
 
 ### Remaining MVP gaps
@@ -87,7 +88,6 @@ The core backend and the rack placement workflow are complete. The app is usable
 |---|---|
 | Git remote sync — auth configuration | Auth (SSH keys, HTTPS credentials) must be configured in the OS/git-credential-helper outside the app |
 | Native CSV file picker | Not implemented; users paste CSV into textarea |
-| Edit / delete UI for all entity types | Add-only; edit requires direct YAML or Remove Placement |
 | Drag-and-drop placement | Deferred post-MVP; form-based operations cover core use case |
 
 See [`docs/MVP_READINESS_REPORT_EN.md`](docs/MVP_READINESS_REPORT_EN.md) for the full readiness assessment and [`docs/MVP_SMOKE_TEST_CHECKLIST_EN.md`](docs/MVP_SMOKE_TEST_CHECKLIST_EN.md) for the manual smoke-test checklist.

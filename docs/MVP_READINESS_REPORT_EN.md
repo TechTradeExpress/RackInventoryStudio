@@ -90,9 +90,7 @@ None — the local Git workflow (init / commit / log) and remote sync (remote ad
 ### Usability gaps (acceptable for MVP, documented)
 
 2. **No native CSV file picker** — users must paste CSV content into a textarea.
-3. **No edit/delete UI** for locations, racks, devices, device models, or placements
-   (add-only; removal requires editing YAML directly or using the Remove Placement
-   operation for placements).
+3. ~~**No edit/delete UI**~~ **Implemented (M35)** — edit and delete for locations, racks, device models, and devices. Placements are managed via the Placement Inspector (Move / Remove Placement).
 4. **No drag-and-drop** for rack unit placement.
 5. **No scrollIntoView** for validation-highlighted rows — rows may need manual
    scrolling to become visible.
@@ -114,7 +112,7 @@ None — the local Git workflow (init / commit / log) and remote sync (remote ad
 
 ## Recommended next step
 
-**M35 — Edit/delete UI for entity types**: Add edit and delete operations for locations, racks, device models, and devices. Currently the app is add-only (except Remove Placement). This is the most impactful remaining usability gap for real-world use.
+**M35 — Edit/delete UI for entity types**: Completed. Edit and delete are now available for all four catalog entity types with referential integrity guards.
 
 ---
 

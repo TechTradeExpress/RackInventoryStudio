@@ -1,9 +1,11 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { common } from "../../lib/styles";
-import { parseTags } from "../../lib/tags";
+import { parseTags, joinTags } from "../../lib/tags";
 import {
   addLocation,
+  deleteLocation,
   listLocations,
+  updateLocation,
   type LocationDto,
 } from "../../api/tauriClient";
 
@@ -29,6 +31,16 @@ const EMPTY_FORM: FormState = {
   tags: "",
 };
 
+function locationToForm(loc: LocationDto): FormState {
+  return {
+    code: loc.code,
+    name: loc.name,
+    description: loc.description ?? "",
+    address: loc.address ?? "",
+    tags: joinTags(loc.tags),
+  };
+}
+
 export function LocationsPanel({
   repoPath,
   highlightedLocationId,
@@ -43,6 +55,9 @@ export function LocationsPanel({
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  // null = add mode; string = edit mode (the id being edited)
+  const [editingId, setEditingId] = useState<string | null>(null);
+
   const prevRepoPathRef = useRef<string>("");
 
   useEffect(() => {
@@ -55,6 +70,7 @@ export function LocationsPanel({
       setForm(EMPTY_FORM);
       setFormError(null);
       setFormSuccess(null);
+      setEditingId(null);
     }
     setLoading(true);
     listLocations()
@@ -70,26 +86,34 @@ export function LocationsPanel({
 
     const code = form.code.trim();
     const name = form.name.trim();
-    if (!code) {
-      setFormError("Code is required.");
-      return;
-    }
-    if (!name) {
-      setFormError("Name is required.");
-      return;
-    }
+    if (!code) { setFormError("Code is required."); return; }
+    if (!name) { setFormError("Name is required."); return; }
 
     setSubmitting(true);
     try {
-      await addLocation({
-        code,
-        name,
-        description: form.description.trim() || undefined,
-        address: form.address.trim() || undefined,
-        tags: parseTags(form.tags),
-      });
-      setFormSuccess(`Location "${code}" added.`);
-      setForm(EMPTY_FORM);
+      if (editingId) {
+        await updateLocation({
+          id: editingId,
+          code,
+          name,
+          description: form.description.trim() || undefined,
+          address: form.address.trim() || undefined,
+          tags: parseTags(form.tags),
+        });
+        setFormSuccess(`Location "${code}" updated.`);
+        setEditingId(null);
+        setForm(EMPTY_FORM);
+      } else {
+        await addLocation({
+          code,
+          name,
+          description: form.description.trim() || undefined,
+          address: form.address.trim() || undefined,
+          tags: parseTags(form.tags),
+        });
+        setFormSuccess(`Location "${code}" added.`);
+        setForm(EMPTY_FORM);
+      }
       const updated = await listLocations();
       setLocations(updated);
       onRepositoryMutated();
@@ -97,6 +121,38 @@ export function LocationsPanel({
       setFormError(String(e));
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  function handleEdit(loc: LocationDto) {
+    setEditingId(loc.id);
+    setForm(locationToForm(loc));
+    setFormError(null);
+    setFormSuccess(null);
+  }
+
+  function handleCancelEdit() {
+    setEditingId(null);
+    setForm(EMPTY_FORM);
+    setFormError(null);
+    setFormSuccess(null);
+  }
+
+  async function handleDelete(loc: LocationDto) {
+    if (!confirm(`Delete location "${loc.name}"? This cannot be undone.`)) return;
+    setFormError(null);
+    setFormSuccess(null);
+    try {
+      await deleteLocation(loc.id);
+      if (editingId === loc.id) {
+        setEditingId(null);
+        setForm(EMPTY_FORM);
+      }
+      const updated = await listLocations();
+      setLocations(updated);
+      onRepositoryMutated();
+    } catch (e) {
+      setFormError(String(e));
     }
   }
 
@@ -124,6 +180,8 @@ export function LocationsPanel({
     );
   }
 
+  const isEditing = editingId !== null;
+
   return (
     <section style={common.section}>
       <h2 style={common.h2}>Locations</h2>
@@ -139,10 +197,8 @@ export function LocationsPanel({
         <table style={common.table}>
           <thead>
             <tr>
-              {["Code", "Name", "Racks", "Address", "Description"].map((h) => (
-                <th key={h} style={common.th}>
-                  {h}
-                </th>
+              {["Code", "Name", "Racks", "Address", "Description", "Actions"].map((h) => (
+                <th key={h} style={common.th}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -156,13 +212,25 @@ export function LocationsPanel({
                     : undefined
                 }
               >
-                <td style={{ ...common.td, fontFamily: "monospace" }}>
-                  {loc.code}
-                </td>
+                <td style={{ ...common.td, fontFamily: "monospace" }}>{loc.code}</td>
                 <td style={common.td}>{loc.name}</td>
                 <td style={common.td}>{loc.rack_count}</td>
                 <td style={common.td}>{loc.address ?? ""}</td>
                 <td style={common.td}>{loc.description ?? ""}</td>
+                <td style={{ ...common.td, whiteSpace: "nowrap" }}>
+                  <button
+                    style={styles.actionBtn}
+                    onClick={() => handleEdit(loc)}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    style={{ ...styles.actionBtn, ...styles.deleteBtn }}
+                    onClick={() => handleDelete(loc)}
+                  >
+                    Delete
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -170,7 +238,7 @@ export function LocationsPanel({
       )}
 
       <section style={styles.formSection}>
-        <h3 style={common.h3}>Add Location</h3>
+        <h3 style={common.h3}>{isEditing ? "Edit Location" : "Add Location"}</h3>
         <form onSubmit={handleSubmit} style={styles.form}>
           {field("Code", "code", "e.g. warsaw-serverroom-a", true)}
           {field("Name", "name", "e.g. Warsaw - Server Room A", true)}
@@ -181,13 +249,22 @@ export function LocationsPanel({
           {formError && <div style={common.errorBox}>{formError}</div>}
           {formSuccess && <div style={styles.successBox}>{formSuccess}</div>}
 
-          <button
-            type="submit"
-            style={common.btn}
-            disabled={submitting}
-          >
-            {submitting ? "Adding…" : "Add location"}
-          </button>
+          <div style={styles.btnRow}>
+            <button type="submit" style={common.btn} disabled={submitting}>
+              {submitting
+                ? isEditing ? "Saving…" : "Adding…"
+                : isEditing ? "Save changes" : "Add location"}
+            </button>
+            {isEditing && (
+              <button
+                type="button"
+                style={{ ...common.btn, ...styles.cancelBtn }}
+                onClick={handleCancelEdit}
+              >
+                Cancel
+              </button>
+            )}
+          </div>
         </form>
       </section>
     </section>
@@ -225,5 +302,28 @@ const styles = {
     color: "#2d6a2d",
     borderRadius: "3px",
     fontSize: "0.85rem",
+  },
+  btnRow: {
+    display: "flex",
+    gap: "0.5rem",
+  },
+  actionBtn: {
+    fontSize: "0.78rem",
+    padding: "0.2rem 0.5rem",
+    marginRight: "0.25rem",
+    cursor: "pointer",
+    border: "1px solid #bbb",
+    borderRadius: "3px",
+    background: "#f5f5f5",
+  },
+  deleteBtn: {
+    borderColor: "#d9534f",
+    color: "#b52b27",
+    background: "#fff5f5",
+  },
+  cancelBtn: {
+    background: "#f5f5f5",
+    color: "#555",
+    border: "1px solid #bbb",
   },
 };

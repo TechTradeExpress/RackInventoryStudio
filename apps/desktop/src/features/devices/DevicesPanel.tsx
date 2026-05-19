@@ -4,10 +4,12 @@ import {
   listDevices,
   listDeviceModels,
   addDevice,
+  updateDevice,
+  deleteDevice,
   type DeviceDto,
   type DeviceModelDto,
 } from "../../api/tauriClient";
-import { parseTags } from "../../lib/tags";
+import { parseTags, joinTags } from "../../lib/tags";
 
 const DEVICE_TYPES = [
   "server",
@@ -48,6 +50,21 @@ interface Props {
   onRepositoryMutated: () => void;
 }
 
+function deviceToForm(dev: DeviceDto) {
+  return {
+    deviceType: dev.device_type,
+    code: dev.code,
+    name: dev.name ?? "",
+    deviceModelId: dev.device_model_id ?? "",
+    serialNumber: dev.serial_number ?? "",
+    assetTag: dev.asset_tag ?? "",
+    externalRef: dev.external_ref ?? "",
+    status: dev.status,
+    description: dev.description ?? "",
+    tags: joinTags(dev.tags),
+  };
+}
+
 export function DevicesPanel({
   repoPath,
   mutationToken,
@@ -65,6 +82,9 @@ export function DevicesPanel({
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  // null = add mode; string = edit mode (id being edited)
+  const [editingId, setEditingId] = useState<string | null>(null);
+
   const prevRepoPathRef = useRef<string>("");
 
   useEffect(() => {
@@ -78,6 +98,7 @@ export function DevicesPanel({
       setForm(EMPTY_FORM);
       setFormError(null);
       setFormSuccess(null);
+      setEditingId(null);
     }
     setLoading(true);
     Promise.all([listDevices(), listDeviceModels()])
@@ -92,7 +113,6 @@ export function DevicesPanel({
   function set(field: keyof typeof EMPTY_FORM, value: string) {
     setForm((f) => {
       const next = { ...f, [field]: value };
-      // clear model selection if device_type changes and model no longer matches
       if (field === "deviceType" && next.deviceModelId) {
         const selected = models.find((m) => m.id === next.deviceModelId);
         if (selected && selected.device_type !== value) {
@@ -108,67 +128,111 @@ export function DevicesPanel({
       ? models.filter((m) => m.device_type === form.deviceType)
       : models;
 
-  async function handleAdd(e: FormEvent) {
+  function validate() {
+    if (!form.deviceType) return "Device type is required.";
+    if (!form.code.trim()) return "Code is required.";
+    if (!form.status) return "Status is required.";
+    if (!form.name.trim() && !form.serialNumber.trim() && !form.assetTag.trim())
+      return "At least one of Name, Serial Number, or Asset Tag is required.";
+    return null;
+  }
+
+  async function reloadData() {
+    const [updatedDevices, updatedModels] = await Promise.all([
+      listDevices(),
+      listDeviceModels(),
+    ]);
+    setDevices(updatedDevices);
+    setModels(updatedModels.filter((m) => m.device_type !== "rack_object"));
+  }
+
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setFormError(null);
     setFormSuccess(null);
-
-    if (!form.deviceType) {
-      setFormError("Device type is required.");
-      return;
-    }
-    if (!form.code.trim()) {
-      setFormError("Code is required.");
-      return;
-    }
-    if (!form.status) {
-      setFormError("Status is required.");
-      return;
-    }
-    if (
-      !form.name.trim() &&
-      !form.serialNumber.trim() &&
-      !form.assetTag.trim()
-    ) {
-      setFormError(
-        "At least one of Name, Serial Number, or Asset Tag is required.",
-      );
-      return;
-    }
+    const err = validate();
+    if (err) { setFormError(err); return; }
 
     setSubmitting(true);
     try {
-      await addDevice({
-        device_type: form.deviceType,
-        code: form.code.trim(),
-        name: form.name.trim() || undefined,
-        device_model_id: form.deviceModelId || undefined,
-        serial_number: form.serialNumber.trim() || undefined,
-        asset_tag: form.assetTag.trim() || undefined,
-        external_ref: form.externalRef.trim() || undefined,
-        status: form.status,
-        description: form.description.trim() || undefined,
-        tags: parseTags(form.tags),
-      });
-      const [updatedDevices, updatedModels] = await Promise.all([
-        listDevices(),
-        listDeviceModels(),
-      ]);
-      setDevices(updatedDevices);
-      setModels(updatedModels.filter((m) => m.device_type !== "rack_object"));
+      if (editingId) {
+        await updateDevice({
+          id: editingId,
+          device_type: form.deviceType,
+          code: form.code.trim(),
+          name: form.name.trim() || undefined,
+          device_model_id: form.deviceModelId || undefined,
+          serial_number: form.serialNumber.trim() || undefined,
+          asset_tag: form.assetTag.trim() || undefined,
+          external_ref: form.externalRef.trim() || undefined,
+          status: form.status,
+          description: form.description.trim() || undefined,
+          tags: parseTags(form.tags),
+        });
+        setFormSuccess(`Device "${form.code.trim()}" updated.`);
+        setEditingId(null);
+        setForm(EMPTY_FORM);
+      } else {
+        await addDevice({
+          device_type: form.deviceType,
+          code: form.code.trim(),
+          name: form.name.trim() || undefined,
+          device_model_id: form.deviceModelId || undefined,
+          serial_number: form.serialNumber.trim() || undefined,
+          asset_tag: form.assetTag.trim() || undefined,
+          external_ref: form.externalRef.trim() || undefined,
+          status: form.status,
+          description: form.description.trim() || undefined,
+          tags: parseTags(form.tags),
+        });
+        setFormSuccess(`Device "${form.code.trim()}" added.`);
+        setForm({
+          ...EMPTY_FORM,
+          deviceType: form.deviceType,
+          status: form.status,
+        });
+      }
+      await reloadData();
       onRepositoryMutated();
-      setFormSuccess(`Device "${form.code.trim()}" added.`);
-      setForm({
-        ...EMPTY_FORM,
-        deviceType: form.deviceType,
-        status: form.status,
-      });
     } catch (e) {
       setFormError(String(e));
     } finally {
       setSubmitting(false);
     }
   }
+
+  function handleEdit(dev: DeviceDto) {
+    setEditingId(dev.id);
+    setForm(deviceToForm(dev));
+    setFormError(null);
+    setFormSuccess(null);
+  }
+
+  function handleCancelEdit() {
+    setEditingId(null);
+    setForm(EMPTY_FORM);
+    setFormError(null);
+    setFormSuccess(null);
+  }
+
+  async function handleDelete(dev: DeviceDto) {
+    if (!confirm(`Delete device "${dev.code}"? This cannot be undone.`)) return;
+    setFormError(null);
+    setFormSuccess(null);
+    try {
+      await deleteDevice(dev.id);
+      if (editingId === dev.id) {
+        setEditingId(null);
+        setForm(EMPTY_FORM);
+      }
+      await reloadData();
+      onRepositoryMutated();
+    } catch (e) {
+      setFormError(String(e));
+    }
+  }
+
+  const isEditing = editingId !== null;
 
   return (
     <section style={common.section}>
@@ -186,18 +250,10 @@ export function DevicesPanel({
           <thead>
             <tr>
               {[
-                "Code",
-                "Type",
-                "Name",
-                "Status",
-                "Serial",
-                "Asset Tag",
-                "Model",
-                "Placed",
+                "Code", "Type", "Name", "Status",
+                "Serial", "Asset Tag", "Model", "Placed", "Actions",
               ].map((h) => (
-                <th key={h} style={common.th}>
-                  {h}
-                </th>
+                <th key={h} style={common.th}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -211,22 +267,21 @@ export function DevicesPanel({
                     : undefined
                 }
               >
-                <td style={{ ...common.td, fontFamily: "monospace" }}>
-                  {dev.code}
-                </td>
+                <td style={{ ...common.td, fontFamily: "monospace" }}>{dev.code}</td>
                 <td style={common.td}>{dev.device_type}</td>
                 <td style={common.td}>{dev.name ?? ""}</td>
                 <td style={common.td}>{dev.status}</td>
-                <td style={{ ...common.td, fontFamily: "monospace" }}>
-                  {dev.serial_number ?? ""}
-                </td>
-                <td style={{ ...common.td, fontFamily: "monospace" }}>
-                  {dev.asset_tag ?? ""}
-                </td>
-                <td style={{ ...common.td, fontFamily: "monospace" }}>
-                  {dev.device_model_code ?? ""}
-                </td>
+                <td style={{ ...common.td, fontFamily: "monospace" }}>{dev.serial_number ?? ""}</td>
+                <td style={{ ...common.td, fontFamily: "monospace" }}>{dev.asset_tag ?? ""}</td>
+                <td style={{ ...common.td, fontFamily: "monospace" }}>{dev.device_model_code ?? ""}</td>
                 <td style={common.td}>{dev.is_placed ? "yes" : "no"}</td>
+                <td style={{ ...common.td, whiteSpace: "nowrap" }}>
+                  <button style={styles.actionBtn} onClick={() => handleEdit(dev)}>Edit</button>
+                  <button
+                    style={{ ...styles.actionBtn, ...styles.deleteBtn }}
+                    onClick={() => handleDelete(dev)}
+                  >Delete</button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -234,9 +289,9 @@ export function DevicesPanel({
       )}
 
       <section style={styles.formSection}>
-        <h3 style={common.h3}>Add Device</h3>
+        <h3 style={common.h3}>{isEditing ? "Edit Device" : "Add Device"}</h3>
 
-        <form onSubmit={handleAdd} style={styles.form}>
+        <form onSubmit={handleSubmit} style={styles.form}>
           <div style={styles.fieldRow}>
             <label style={styles.label}>
               Device Type<span style={styles.required}> *</span>
@@ -249,33 +304,19 @@ export function DevicesPanel({
             >
               <option value="">— select —</option>
               {DEVICE_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
+                <option key={t} value={t}>{t}</option>
               ))}
             </select>
           </div>
 
           <div style={styles.fieldRow}>
-            <label style={styles.label}>
-              Code<span style={styles.required}> *</span>
-            </label>
-            <input
-              value={form.code}
-              onChange={(e) => set("code", e.target.value)}
-              style={common.input}
-              disabled={submitting}
-            />
+            <label style={styles.label}>Code<span style={styles.required}> *</span></label>
+            <input value={form.code} onChange={(e) => set("code", e.target.value)} style={common.input} disabled={submitting} />
           </div>
 
           <div style={styles.fieldRow}>
             <label style={styles.label}>Name</label>
-            <input
-              value={form.name}
-              onChange={(e) => set("name", e.target.value)}
-              style={common.input}
-              disabled={submitting}
-            />
+            <input value={form.name} onChange={(e) => set("name", e.target.value)} style={common.input} disabled={submitting} />
           </div>
 
           <div style={styles.fieldRow}>
@@ -297,38 +338,21 @@ export function DevicesPanel({
 
           <div style={styles.fieldRow}>
             <label style={styles.label}>Serial Number</label>
-            <input
-              value={form.serialNumber}
-              onChange={(e) => set("serialNumber", e.target.value)}
-              style={common.input}
-              disabled={submitting}
-            />
+            <input value={form.serialNumber} onChange={(e) => set("serialNumber", e.target.value)} style={common.input} disabled={submitting} />
           </div>
 
           <div style={styles.fieldRow}>
             <label style={styles.label}>Asset Tag</label>
-            <input
-              value={form.assetTag}
-              onChange={(e) => set("assetTag", e.target.value)}
-              style={common.input}
-              disabled={submitting}
-            />
+            <input value={form.assetTag} onChange={(e) => set("assetTag", e.target.value)} style={common.input} disabled={submitting} />
           </div>
 
           <div style={styles.fieldRow}>
             <label style={styles.label}>External Ref</label>
-            <input
-              value={form.externalRef}
-              onChange={(e) => set("externalRef", e.target.value)}
-              style={common.input}
-              disabled={submitting}
-            />
+            <input value={form.externalRef} onChange={(e) => set("externalRef", e.target.value)} style={common.input} disabled={submitting} />
           </div>
 
           <div style={styles.fieldRow}>
-            <label style={styles.label}>
-              Status<span style={styles.required}> *</span>
-            </label>
+            <label style={styles.label}>Status<span style={styles.required}> *</span></label>
             <select
               value={form.status}
               onChange={(e) => set("status", e.target.value)}
@@ -336,31 +360,19 @@ export function DevicesPanel({
               disabled={submitting}
             >
               {DEVICE_STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
+                <option key={s} value={s}>{s}</option>
               ))}
             </select>
           </div>
 
           <div style={styles.fieldRow}>
             <label style={styles.label}>Description</label>
-            <input
-              value={form.description}
-              onChange={(e) => set("description", e.target.value)}
-              style={common.input}
-              disabled={submitting}
-            />
+            <input value={form.description} onChange={(e) => set("description", e.target.value)} style={common.input} disabled={submitting} />
           </div>
 
           <div style={styles.fieldRow}>
             <label style={styles.label}>Tags (comma-separated)</label>
-            <input
-              value={form.tags}
-              onChange={(e) => set("tags", e.target.value)}
-              style={common.input}
-              disabled={submitting}
-            />
+            <input value={form.tags} onChange={(e) => set("tags", e.target.value)} style={common.input} disabled={submitting} />
           </div>
 
           <p style={styles.requiredNote}>
@@ -370,10 +382,21 @@ export function DevicesPanel({
           {formError && <div style={common.errorBox}>{formError}</div>}
           {formSuccess && <div style={styles.successBox}>{formSuccess}</div>}
 
-          <div>
+          <div style={styles.btnRow}>
             <button type="submit" disabled={submitting} style={common.btn}>
-              {submitting ? "Adding…" : "Add device"}
+              {submitting
+                ? isEditing ? "Saving…" : "Adding…"
+                : isEditing ? "Save changes" : "Add device"}
             </button>
+            {isEditing && (
+              <button
+                type="button"
+                style={{ ...common.btn, ...styles.cancelBtn }}
+                onClick={handleCancelEdit}
+              >
+                Cancel
+              </button>
+            )}
           </div>
         </form>
       </section>
@@ -415,5 +438,28 @@ const styles = {
     color: "#2d6a2d",
     borderRadius: "3px",
     fontSize: "0.85rem",
+  },
+  btnRow: {
+    display: "flex",
+    gap: "0.5rem",
+  },
+  actionBtn: {
+    fontSize: "0.78rem",
+    padding: "0.2rem 0.5rem",
+    marginRight: "0.25rem",
+    cursor: "pointer",
+    border: "1px solid #bbb",
+    borderRadius: "3px",
+    background: "#f5f5f5",
+  },
+  deleteBtn: {
+    borderColor: "#d9534f",
+    color: "#b52b27",
+    background: "#fff5f5",
+  },
+  cancelBtn: {
+    background: "#f5f5f5",
+    color: "#555",
+    border: "1px solid #bbb",
   },
 };

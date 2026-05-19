@@ -7,3 +7,10 @@ export function parseTags(raw: string): string[] {
     .map((t) => t.trim())
     .filter((t) => t.length > 0);
 }
+
+/**
+ * Joins a tag array back into a comma-separated string for form display.
+ */
+export function joinTags(tags: string[]): string {
+  return tags.join(", ");
+}

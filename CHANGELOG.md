@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.36.0 — Edit/delete UI for entity types (milestone 35)
+
+- Added `update_location`, `delete_location`, `update_rack`, `delete_rack`, `update_device_model`, `delete_device_model`, `update_device`, `delete_device` to `ris-application::RepositorySession`.
+- New input types: `UpdateLocationInput`, `UpdateRackInput`, `UpdateDeviceModelInput`, `UpdateDeviceInput`.
+- Referential integrity guards: location delete blocked if racks reference it; rack delete blocked if placements exist (also removes placement file); device model delete/type-change blocked if devices or rack-object placements reference it; device delete blocked if placed; device type change blocked if placed.
+- Height reduction guard: `update_rack` rejects new `height_u` if any existing placement's `end_u` would exceed it.
+- 22 new Rust tests in `crates/ris-application/tests/application_tests.rs` covering update/delete success and all guard conditions.
+- New Tauri commands: `update_location_cmd`, `delete_location_cmd`, `update_rack_cmd`, `delete_rack_cmd`, `update_device_model_cmd`, `delete_device_model_cmd`, `update_device_cmd`, `delete_device_cmd`.
+- `RackSummaryDto` extended with `description` and `tags`; `DeviceDto` extended with `device_model_id` and `tags`; `DeviceModelDto` extended with `tags`.
+- New update DTOs: `UpdateLocationInputDto`, `UpdateRackInputDto`, `UpdateDeviceModelInputDto`, `UpdateDeviceInputDto`.
+- New TypeScript API functions: `updateLocation`, `deleteLocation`, `updateRack`, `deleteRack`, `updateDeviceModel`, `deleteDeviceModel`, `updateDevice`, `deleteDevice`.
+- New `joinTags(tags: string[]): string` utility in `src/lib/tags.ts`.
+- All four catalog panels updated with Actions column (Edit / Delete); Edit pre-populates form inline; Delete uses `confirm()`.
+- `RacksPanel.tsx`: delete deselects deleted rack; action buttons stop row-click propagation.
+- All quality checks pass: 275 Rust workspace tests, 38 Vitest tests, TypeScript typecheck, Clippy, Vite build.
+
 ## v0.35.0 — Git remote sync foundation (milestone 34)
 
 - Extended `ris-git` crate with remote sync: `list_remotes`, `add_remote`, `push_current_branch`, `pull_ff_only`.

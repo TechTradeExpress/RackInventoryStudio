@@ -4,7 +4,8 @@ use std::sync::{Mutex, MutexGuard};
 use ris_application::{
     open_repository, AddDeviceInput, AddDeviceModelInput, AddLocationInput, AddRackInput,
     MovePlacementToTargetInput, PlaceDeviceInput, PlaceRackObjectInput, RemovePlacementInput,
-    RepositorySession,
+    RepositorySession, UpdateDeviceInput, UpdateDeviceModelInput, UpdateLocationInput,
+    UpdateRackInput,
 };
 use ris_core::{DeviceStatus, DeviceType, PlacementSide, PlacementTargetKind, ValidationLevel};
 use ris_import::CsvRowAction;
@@ -16,6 +17,7 @@ use crate::dto::{
     CsvImportSummaryDto, DeviceDto, DeviceModelDto, LocationDto, MovePlacementInputDto,
     OpenRepositoryResultDto, PlaceDeviceInputDto, PlaceRackObjectInputDto, PlacementDto,
     RackDetailDto, RackSummaryDto, RemovePlacementInputDto, RepositorySummaryDto, SaveSummaryDto,
+    UpdateDeviceInputDto, UpdateDeviceModelInputDto, UpdateLocationInputDto, UpdateRackInputDto,
     ValidationIssueDto, ValidationSummaryDto,
 };
 
@@ -216,6 +218,8 @@ pub fn list_racks(state: State<AppState>) -> Result<Vec<RackSummaryDto>, String>
                 location_code,
                 height_u: rack.height_u,
                 row: rack.row.clone(),
+                description: rack.description.clone(),
+                tags: rack.tags.clone(),
                 front_placement_count,
                 rear_placement_count,
                 placement_count,
@@ -252,9 +256,13 @@ pub fn list_devices(state: State<AppState>) -> Result<Vec<DeviceDto>, String> {
                 name: dev.name.clone(),
                 serial_number: dev.serial_number.clone(),
                 asset_tag: dev.asset_tag.clone(),
+                external_ref: dev.external_ref.clone(),
                 status: dev.status.as_str().to_string(),
                 device_model_code,
+                device_model_id: dev.device_model_id.clone(),
                 is_placed,
+                description: dev.description.clone(),
+                tags: dev.tags.clone(),
             }
         })
         .collect();
@@ -277,6 +285,8 @@ pub fn list_device_models(state: State<AppState>) -> Result<Vec<DeviceModelDto>,
             vendor: m.vendor.clone(),
             model_number: m.model.clone(),
             default_height_u: m.default_height_u,
+            description: m.description.clone(),
+            tags: m.tags.clone(),
         })
         .collect();
     Ok(result)
@@ -633,4 +643,118 @@ pub fn import_device_csv_cmd(
             warning_count: r.warning_count,
         })
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_location_cmd(
+    input: UpdateLocationInputDto,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let mut guard = lock_session(&state)?;
+    let session = guard.as_mut().ok_or_else(no_session)?;
+    session
+        .update_location(UpdateLocationInput {
+            id: input.id,
+            code: input.code,
+            name: input.name,
+            description: input.description,
+            address: input.address,
+            tags: input.tags,
+        })
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_location_cmd(id: String, state: State<AppState>) -> Result<(), String> {
+    let mut guard = lock_session(&state)?;
+    let session = guard.as_mut().ok_or_else(no_session)?;
+    session.delete_location(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_rack_cmd(input: UpdateRackInputDto, state: State<AppState>) -> Result<(), String> {
+    let mut guard = lock_session(&state)?;
+    let session = guard.as_mut().ok_or_else(no_session)?;
+    session
+        .update_rack(UpdateRackInput {
+            id: input.id,
+            location_id: input.location_id,
+            code: input.code,
+            name: input.name,
+            height_u: input.height_u,
+            row: input.row,
+            description: input.description,
+            tags: input.tags,
+        })
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_rack_cmd(id: String, state: State<AppState>) -> Result<(), String> {
+    let mut guard = lock_session(&state)?;
+    let session = guard.as_mut().ok_or_else(no_session)?;
+    session.delete_rack(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_device_model_cmd(
+    input: UpdateDeviceModelInputDto,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let mut guard = lock_session(&state)?;
+    let session = guard.as_mut().ok_or_else(no_session)?;
+    let device_type: DeviceType = input.device_type.parse().map_err(|e: String| e)?;
+    session
+        .update_device_model(UpdateDeviceModelInput {
+            id: input.id,
+            device_type,
+            code: input.code,
+            name: input.name,
+            vendor: input.vendor,
+            model: input.model,
+            default_height_u: input.default_height_u,
+            description: input.description,
+            tags: input.tags,
+        })
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_device_model_cmd(id: String, state: State<AppState>) -> Result<(), String> {
+    let mut guard = lock_session(&state)?;
+    let session = guard.as_mut().ok_or_else(no_session)?;
+    session.delete_device_model(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_device_cmd(
+    input: UpdateDeviceInputDto,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let mut guard = lock_session(&state)?;
+    let session = guard.as_mut().ok_or_else(no_session)?;
+    let device_type: DeviceType = input.device_type.parse().map_err(|e: String| e)?;
+    let status: DeviceStatus = input.status.parse().map_err(|e: String| e)?;
+    session
+        .update_device(UpdateDeviceInput {
+            id: input.id,
+            device_type,
+            code: input.code,
+            name: input.name,
+            device_model_id: input.device_model_id,
+            serial_number: input.serial_number,
+            asset_tag: input.asset_tag,
+            external_ref: input.external_ref,
+            status,
+            description: input.description,
+            tags: input.tags,
+        })
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_device_cmd(id: String, state: State<AppState>) -> Result<(), String> {
+    let mut guard = lock_session(&state)?;
+    let session = guard.as_mut().ok_or_else(no_session)?;
+    session.delete_device(&id).map_err(|e| e.to_string())
 }
