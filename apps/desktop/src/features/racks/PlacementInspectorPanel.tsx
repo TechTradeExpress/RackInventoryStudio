@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 import type { PlacementDto } from "../../api/tauriClient";
 import { movePlacement, removePlacement } from "../../api/tauriClient";
 import { common } from "../../lib/styles";
+import { parsePositiveInt } from "./positiveInt";
 
 interface Props {
   placement: PlacementDto | null;
@@ -32,14 +33,6 @@ const tdValue: CSSProperties = {
 function display(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === "") return NULL_DISPLAY;
   return String(value);
-}
-
-function parsePositiveInt(s: string): number | null {
-  const trimmed = s.trim();
-  if (!trimmed) return null;
-  const n = parseInt(trimmed, 10);
-  if (isNaN(n) || n < 1 || String(n) !== trimmed) return null;
-  return n;
 }
 
 export function PlacementInspectorPanel({ placement, side, onMoveSuccess, onRemoveSuccess }: Props) {

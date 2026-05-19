@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.18.0 — AddPlacementPanel UX hardening (milestone 18)
+
+- `AddPlacementPanel`: added `targetsLoading` state; target dropdowns and Add button are disabled while the list loads; a "Loading available targets…" inline message is shown during load.
+- `AddPlacementPanel`: separated `targetLoadError` (shown on failed target-list fetch) from `submitError` (shown on validation failure or add-mutation failure); a successful target reload clears `targetLoadError` without touching an active `submitError` or success message.
+- `AddPlacementPanel`: load effect now uses a `cancelled` flag to discard stale responses; rapidly switching racks or triggering reloadToken changes can no longer let an older `listDevices`/`listDeviceModels` response overwrite a newer target list.
+- `AddPlacementPanel`: success message survives target-list reloads (unchanged from v0.17.0); clearing rules unchanged — rack switch clears it, mode/target/U field edits clear it.
+- Extracted `parsePositiveInt` to `apps/desktop/src/features/racks/positiveInt.ts`; removed the duplicated inline copy from both `AddPlacementPanel` and `PlacementInspectorPanel`.
+- Added 9 Vitest unit tests for `parsePositiveInt` in `positiveInt.test.ts` covering empty, whitespace, valid integers with surrounding whitespace, zero, negative, decimal, non-numeric, and leading-zero inputs.
+- No Rust changes; no new Tauri commands; no new mutation types.
+- All Rust checks pass (222 tests, clippy clean, fmt clean).
+- TypeScript typecheck, Vitest (18 passing), and Vite build pass (174 KB bundle).
+
 ## v0.17.0 — Mutation refresh coordination (milestone 17)
 
 - `RackDetailPanel`: replaced three separate post-mutation refresh paths (`refreshAndSelect`, `handleRemoveSuccess` inline fetch) with a single `refreshAfterMutation({ selectId?, bumpTargets? })` helper. All three handlers (move, add, remove) now call this helper.
