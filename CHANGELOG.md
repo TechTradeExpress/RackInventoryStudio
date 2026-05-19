@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.28.0 — Add Device Model UI foundation (milestone 27)
+
+- Added **Add Device Model** form to the Device Models tab (device_type, code, name, vendor, model number, height U, description, tags).
+- Device type select includes all allowed values: server, network, storage, ups, appliance, rack_object, other.
+- When `rack_object` is selected, a contextual hint explains that rack objects can be placed directly in racks without creating a Device.
+- New Tauri command `add_device_model_cmd` exposes the existing application-layer `add_device_model` method.
+- `DeviceType` string is parsed in the command layer via `DeviceType::from_str`; backend remains source of truth for validation.
+- New TypeScript API wrapper `addDeviceModel` / `AddDeviceModelInput` in `tauriClient.ts`.
+- `default_height_u` uses the existing `parsePositiveInt` helper; tags use the existing `parseTags` helper.
+- Successful add sets global unsaved-changes dirty state, shows the unsaved banner, and refreshes the device model list immediately.
+- After successful add, selected device type is kept in the form for convenience when adding multiple models of the same type.
+- Existing save flow persists newly added device models.
+- `DeviceModelsPanel` adopts `prevRepoPathRef` cleanup pattern (same as LocationsPanel / RacksPanel) so stale state is cleared on repository switch.
+- Local checks: 236 Rust tests pass (application-layer `add_device_model` already has comprehensive tests), 24 Vitest tests pass, typecheck/build clean, Clippy clean.
+
 ## v0.27.0 — Add Location/Rack UI foundation (milestone 26)
 
 - Added **Add Location** form to the Locations tab (code, name, description, address, tags).
