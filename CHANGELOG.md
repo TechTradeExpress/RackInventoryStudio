@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.33.0 — MVP smoke-test automation + readiness report (milestone 32)
+
+- Added automated Rust integration smoke test (`crates/ris-application/tests/mvp_smoke_tests.rs`) covering the full non-Git inventory workflow end-to-end: open repository → add location, rack, device models, device → CSV preview (no mutation) → CSV import (2 devices) → 3 placements (device, CSV device, rack object) → move placement → remove placement → validate (no errors for smoke objects) → save → reload + verify persistence.
+- Two additional negative smoke tests: invalid CSV preview yields `SkipDueToError`; import of `rack_object` device type is rejected and session is not mutated.
+- Documented behavioral detail: CSV-imported devices without a `device_model_code` require an explicit `height_u` override at placement time.
+- Added `docs/MVP_READINESS_REPORT_EN.md` — automated coverage table, current MVP-capable workflow, remaining blockers (Git workflow critical; 7 usability gaps acceptable for MVP), recommended next step.
+- `docs/MVP_SMOKE_TEST_CHECKLIST_EN.md` reviewed and confirmed accurate; no wording changes required.
+- Updated README: test count, "Remaining MVP gaps" table corrected to reflect current state.
+- Local checks: 245 Rust tests pass (242 existing + 3 new smoke tests), 38 Vitest tests pass, typecheck/build clean, Clippy clean.
+
 ## v0.32.0 — Validation navigation drill-down (milestone 31)
 
 - Added **Navigate** column to the validation issues table; each navigable issue shows a button ("Open Rack", "Open Device", "Open Location", "Open Device Model").

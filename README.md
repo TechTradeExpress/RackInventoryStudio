@@ -46,7 +46,7 @@ tests/                  Shared test fixtures
 | Placement use cases — place, move, remove device and rack objects | Done |
 | Tauri commands — open, save, validate, close, list entities, move placement, remove placement | Done |
 
-236 workspace tests pass as of v0.25.0.
+245 workspace tests pass as of v0.33.0.
 
 ## Current desktop UI capabilities
 
@@ -85,12 +85,12 @@ The core backend and the rack placement workflow are complete. The app is usable
 
 | Area | Status |
 |---|---|
-| Add Location / Rack UI | Not yet built |
-| Add Device Model UI | Not yet built |
-| Add Device UI | Not yet built |
-| CSV import confirm/write UI | Not yet built (preview engine exists) |
-| Validation navigation / drill-down | Not yet built |
-| Git workflow (status, pull, publish, conflict branch) | Not yet built (`ris-git` is a stub) |
+| Git workflow (commit, push, pull, diff, log) | Not yet built (`ris-git` is a stub) |
+| Native CSV file picker | Not implemented; users paste CSV into textarea |
+| Edit / delete UI for all entity types | Add-only; edit requires direct YAML or Remove Placement |
+| Drag-and-drop placement | Deferred post-MVP; form-based operations cover core use case |
+
+See [`docs/MVP_READINESS_REPORT_EN.md`](docs/MVP_READINESS_REPORT_EN.md) for the full readiness assessment and [`docs/MVP_SMOKE_TEST_CHECKLIST_EN.md`](docs/MVP_SMOKE_TEST_CHECKLIST_EN.md) for the manual smoke-test checklist.
 
 ### Drag and drop
 
