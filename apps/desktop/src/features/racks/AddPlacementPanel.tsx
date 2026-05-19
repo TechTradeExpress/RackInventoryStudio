@@ -9,6 +9,7 @@ import {
   type RackSummaryDto,
 } from "../../api/tauriClient";
 import { common } from "../../lib/styles";
+import { parsePositiveInt } from "./positiveInt";
 
 interface Props {
   rack: RackSummaryDto;
@@ -17,14 +18,6 @@ interface Props {
 }
 
 type Mode = "device" | "rack_object";
-
-function parsePositiveInt(s: string): number | null {
-  const trimmed = s.trim();
-  if (!trimmed) return null;
-  const n = parseInt(trimmed, 10);
-  if (isNaN(n) || n < 1 || String(n) !== trimmed) return null;
-  return n;
-}
 
 export function AddPlacementPanel({ rack, onAddSuccess, reloadToken }: Props) {
   const [mode, setMode] = useState<Mode>("device");
@@ -35,22 +28,16 @@ export function AddPlacementPanel({ rack, onAddSuccess, reloadToken }: Props) {
   const [heightU, setHeightU] = useState("");
   const [devices, setDevices] = useState<DeviceDto[]>([]);
   const [deviceModels, setDeviceModels] = useState<DeviceModelDto[]>([]);
+  const [targetsLoading, setTargetsLoading] = useState(false);
   const [working, setWorking] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [targetLoadError, setTargetLoadError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [successId, setSuccessId] = useState<string | null>(null);
 
-  function loadTargets() {
-    Promise.all([listDevices(), listDeviceModels()])
-      .then(([devs, models]) => {
-        setDevices(devs.filter((d) => !d.is_placed));
-        setDeviceModels(models.filter((m) => m.device_type === "rack_object"));
-      })
-      .catch((e) => setError(String(e)));
-  }
-
-  // Reset form state when the rack changes.
+  // Reset form state when the rack changes (not on reloadToken changes).
   useEffect(() => {
-    setError(null);
+    setTargetLoadError(null);
+    setSubmitError(null);
     setSuccessId(null);
     setDeviceId("");
     setDeviceModelId("");
@@ -59,9 +46,32 @@ export function AddPlacementPanel({ rack, onAddSuccess, reloadToken }: Props) {
   }, [rack.id]);
 
   // Reload target lists when the rack changes or when explicitly requested via reloadToken.
-  // Runs independently of form state so success messages survive target-list reloads.
+  // A cancellation flag discards stale responses from rapid rack/reload changes.
   useEffect(() => {
-    loadTargets();
+    let cancelled = false;
+    setTargetsLoading(true);
+    setTargetLoadError(null);
+
+    async function load() {
+      try {
+        const [devs, models] = await Promise.all([listDevices(), listDeviceModels()]);
+        if (!cancelled) {
+          setDevices(devs.filter((d) => !d.is_placed));
+          setDeviceModels(models.filter((m) => m.device_type === "rack_object"));
+          setTargetsLoading(false);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setTargetLoadError(String(e));
+          setTargetsLoading(false);
+        }
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
   }, [rack.id, reloadToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function resetInputs() {
@@ -74,7 +84,7 @@ export function AddPlacementPanel({ rack, onAddSuccess, reloadToken }: Props) {
   function handleModeChange(next: Mode) {
     setMode(next);
     resetInputs();
-    setError(null);
+    setSubmitError(null);
     setSuccessId(null);
   }
 
@@ -98,7 +108,7 @@ export function AddPlacementPanel({ rack, onAddSuccess, reloadToken }: Props) {
     e.preventDefault();
     const err = validate();
     if (err) {
-      setError(err);
+      setSubmitError(err);
       return;
     }
     const su = parsePositiveInt(startU)!;
@@ -108,7 +118,7 @@ export function AddPlacementPanel({ rack, onAddSuccess, reloadToken }: Props) {
     const placedDeviceId = deviceId;
 
     setWorking(true);
-    setError(null);
+    setSubmitError(null);
     setSuccessId(null);
     try {
       let newId: string;
@@ -135,7 +145,7 @@ export function AddPlacementPanel({ rack, onAddSuccess, reloadToken }: Props) {
       setSuccessId(newId);
       onAddSuccess(newId);
     } catch (e) {
-      setError(String(e));
+      setSubmitError(String(e));
     } finally {
       setWorking(false);
     }
@@ -143,6 +153,7 @@ export function AddPlacementPanel({ rack, onAddSuccess, reloadToken }: Props) {
 
   const unplacedDevices = devices;
   const rackObjectModels = deviceModels;
+  const addDisabled = working || targetsLoading;
 
   return (
     <div
@@ -227,10 +238,10 @@ export function AddPlacementPanel({ rack, onAddSuccess, reloadToken }: Props) {
                 value={deviceId}
                 onChange={(e) => {
                   setDeviceId(e.target.value);
-                  setError(null);
+                  setSubmitError(null);
                   setSuccessId(null);
                 }}
-                disabled={working}
+                disabled={working || targetsLoading}
                 style={{ ...common.input, width: "100%" }}
               >
                 <option value="">— select —</option>
@@ -254,10 +265,10 @@ export function AddPlacementPanel({ rack, onAddSuccess, reloadToken }: Props) {
                 value={deviceModelId}
                 onChange={(e) => {
                   setDeviceModelId(e.target.value);
-                  setError(null);
+                  setSubmitError(null);
                   setSuccessId(null);
                 }}
-                disabled={working}
+                disabled={working || targetsLoading}
                 style={{ ...common.input, width: "100%" }}
               >
                 <option value="">— select —</option>
@@ -281,7 +292,7 @@ export function AddPlacementPanel({ rack, onAddSuccess, reloadToken }: Props) {
               value={startU}
               onChange={(e) => {
                 setStartU(e.target.value);
-                setError(null);
+                setSubmitError(null);
                 setSuccessId(null);
               }}
               disabled={working}
@@ -303,7 +314,7 @@ export function AddPlacementPanel({ rack, onAddSuccess, reloadToken }: Props) {
               value={heightU}
               onChange={(e) => {
                 setHeightU(e.target.value);
-                setError(null);
+                setSubmitError(null);
                 setSuccessId(null);
               }}
               disabled={working}
@@ -313,14 +324,19 @@ export function AddPlacementPanel({ rack, onAddSuccess, reloadToken }: Props) {
 
           <button
             type="submit"
-            disabled={working}
+            disabled={addDisabled}
             style={{ ...common.btn, alignSelf: "flex-end", background: "#4a7c3f", color: "#fff" }}
           >
             {working ? "Adding…" : "Add"}
           </button>
         </div>
 
-        {error && (
+        {targetsLoading && (
+          <p style={{ marginTop: "0.4rem", fontSize: "0.78rem", color: "#555" }}>
+            Loading available targets…
+          </p>
+        )}
+        {targetLoadError && (
           <div
             style={{
               marginTop: "0.4rem",
@@ -332,7 +348,22 @@ export function AddPlacementPanel({ rack, onAddSuccess, reloadToken }: Props) {
               fontSize: "0.78rem",
             }}
           >
-            {error}
+            Failed to load targets: {targetLoadError}
+          </div>
+        )}
+        {submitError && (
+          <div
+            style={{
+              marginTop: "0.4rem",
+              padding: "0.3rem 0.5rem",
+              background: "#fff0f0",
+              border: "1px solid #f88",
+              color: "#b00",
+              borderRadius: 3,
+              fontSize: "0.78rem",
+            }}
+          >
+            {submitError}
           </div>
         )}
         {successId && (
