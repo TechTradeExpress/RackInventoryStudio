@@ -2,17 +2,18 @@ use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
 use ris_application::{
-    open_repository, AddLocationInput, AddRackInput, MovePlacementToTargetInput, PlaceDeviceInput,
-    PlaceRackObjectInput, RemovePlacementInput, RepositorySession,
+    open_repository, AddDeviceModelInput, AddLocationInput, AddRackInput,
+    MovePlacementToTargetInput, PlaceDeviceInput, PlaceRackObjectInput, RemovePlacementInput,
+    RepositorySession,
 };
-use ris_core::{PlacementSide, PlacementTargetKind, ValidationLevel};
+use ris_core::{DeviceType, PlacementSide, PlacementTargetKind, ValidationLevel};
 use tauri::State;
 
 use crate::dto::{
-    AddLocationInputDto, AddRackInputDto, DeviceDto, DeviceModelDto, LocationDto,
-    MovePlacementInputDto, OpenRepositoryResultDto, PlaceDeviceInputDto, PlaceRackObjectInputDto,
-    PlacementDto, RackDetailDto, RackSummaryDto, RemovePlacementInputDto, RepositorySummaryDto,
-    SaveSummaryDto, ValidationIssueDto, ValidationSummaryDto,
+    AddDeviceModelInputDto, AddLocationInputDto, AddRackInputDto, DeviceDto, DeviceModelDto,
+    LocationDto, MovePlacementInputDto, OpenRepositoryResultDto, PlaceDeviceInputDto,
+    PlaceRackObjectInputDto, PlacementDto, RackDetailDto, RackSummaryDto, RemovePlacementInputDto,
+    RepositorySummaryDto, SaveSummaryDto, ValidationIssueDto, ValidationSummaryDto,
 };
 
 pub struct AppState {
@@ -509,6 +510,29 @@ pub fn add_rack_cmd(input: AddRackInputDto, state: State<AppState>) -> Result<St
             name: input.name,
             height_u: input.height_u,
             row: input.row,
+            description: input.description,
+            tags: input.tags,
+        })
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn add_device_model_cmd(
+    input: AddDeviceModelInputDto,
+    state: State<AppState>,
+) -> Result<String, String> {
+    let device_type: DeviceType = input.device_type.parse().map_err(|e: String| e)?;
+    let mut guard = lock_session(&state)?;
+    let session = guard.as_mut().ok_or_else(no_session)?;
+    session
+        .add_device_model(AddDeviceModelInput {
+            id: None,
+            device_type,
+            code: input.code,
+            name: input.name,
+            vendor: input.vendor,
+            model: input.model,
+            default_height_u: input.default_height_u,
             description: input.description,
             tags: input.tags,
         })

@@ -239,6 +239,21 @@ export function addRack(input: AddRackInput): Promise<string> {
   return invoke("add_rack_cmd", { input });
 }
 
+export interface AddDeviceModelInput {
+  device_type: string;
+  code: string;
+  name: string;
+  vendor?: string;
+  model?: string;
+  default_height_u: number;
+  description?: string;
+  tags: string[];
+}
+
+export function addDeviceModel(input: AddDeviceModelInput): Promise<string> {
+  return invoke("add_device_model_cmd", { input });
+}
+
 // ── Native dialog ─────────────────────────────────────────────────────────────
 
 export async function selectRepositoryFolder(): Promise<string | null> {
