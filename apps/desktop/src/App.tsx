@@ -143,7 +143,10 @@ export function App() {
       )}
 
       {activeTab === "locations" && isOpen && (
-        <LocationsPanel repoPath={summary.repo_path} />
+        <LocationsPanel
+          repoPath={summary.repo_path}
+          onRepositoryMutated={() => setHasUnsavedChanges(true)}
+        />
       )}
 
       {activeTab === "racks" && isOpen && (

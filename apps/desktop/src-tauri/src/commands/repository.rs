@@ -2,17 +2,17 @@ use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
 use ris_application::{
-    open_repository, MovePlacementToTargetInput, PlaceDeviceInput, PlaceRackObjectInput,
-    RemovePlacementInput, RepositorySession,
+    open_repository, AddLocationInput, AddRackInput, MovePlacementToTargetInput, PlaceDeviceInput,
+    PlaceRackObjectInput, RemovePlacementInput, RepositorySession,
 };
 use ris_core::{PlacementSide, PlacementTargetKind, ValidationLevel};
 use tauri::State;
 
 use crate::dto::{
-    DeviceDto, DeviceModelDto, LocationDto, MovePlacementInputDto, OpenRepositoryResultDto,
-    PlaceDeviceInputDto, PlaceRackObjectInputDto, PlacementDto, RackDetailDto, RackSummaryDto,
-    RemovePlacementInputDto, RepositorySummaryDto, SaveSummaryDto, ValidationIssueDto,
-    ValidationSummaryDto,
+    AddLocationInputDto, AddRackInputDto, DeviceDto, DeviceModelDto, LocationDto,
+    MovePlacementInputDto, OpenRepositoryResultDto, PlaceDeviceInputDto, PlaceRackObjectInputDto,
+    PlacementDto, RackDetailDto, RackSummaryDto, RemovePlacementInputDto, RepositorySummaryDto,
+    SaveSummaryDto, ValidationIssueDto, ValidationSummaryDto,
 };
 
 pub struct AppState {
@@ -473,6 +473,44 @@ pub fn remove_placement(
         .remove_placement(RemovePlacementInput {
             placement_id: Some(input.placement_id),
             placement_code: None,
+        })
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn add_location_cmd(
+    input: AddLocationInputDto,
+    state: State<AppState>,
+) -> Result<String, String> {
+    let mut guard = lock_session(&state)?;
+    let session = guard.as_mut().ok_or_else(no_session)?;
+    session
+        .add_location(AddLocationInput {
+            id: None,
+            code: input.code,
+            name: input.name,
+            description: input.description,
+            address: input.address,
+            tags: input.tags,
+        })
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn add_rack_cmd(input: AddRackInputDto, state: State<AppState>) -> Result<String, String> {
+    let mut guard = lock_session(&state)?;
+    let session = guard.as_mut().ok_or_else(no_session)?;
+    session
+        .add_rack(AddRackInput {
+            id: None,
+            location_id: input.location_id,
+            location_code: input.location_code,
+            code: input.code,
+            name: input.name,
+            height_u: input.height_u,
+            row: input.row,
+            description: input.description,
+            tags: input.tags,
         })
         .map_err(|e| e.to_string())
 }

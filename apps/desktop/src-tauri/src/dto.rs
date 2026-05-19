@@ -150,6 +150,27 @@ pub struct RemovePlacementInputDto {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct AddLocationInputDto {
+    pub code: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub address: Option<String>,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AddRackInputDto {
+    pub location_id: Option<String>,
+    pub location_code: Option<String>,
+    pub code: String,
+    pub name: String,
+    pub height_u: u32,
+    pub row: Option<String>,
+    pub description: Option<String>,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RackDetailDto {
     pub id: String,
     pub code: String,
