@@ -32,10 +32,16 @@ const EMPTY_FORM = {
 interface Props {
   repoPath: string;
   mutationToken: number;
+  highlightedDeviceModelId?: string | null;
   onRepositoryMutated: () => void;
 }
 
-export function DeviceModelsPanel({ repoPath, mutationToken, onRepositoryMutated }: Props) {
+export function DeviceModelsPanel({
+  repoPath,
+  mutationToken,
+  highlightedDeviceModelId,
+  onRepositoryMutated,
+}: Props) {
   const [models, setModels] = useState<DeviceModelDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -142,7 +148,14 @@ export function DeviceModelsPanel({ repoPath, mutationToken, onRepositoryMutated
           </thead>
           <tbody>
             {models.map((m) => (
-              <tr key={m.id}>
+              <tr
+                key={m.id}
+                style={
+                  m.id === highlightedDeviceModelId
+                    ? { background: "#fff8c5" }
+                    : undefined
+                }
+              >
                 <td style={{ ...common.td, fontFamily: "monospace" }}>
                   {m.code}
                 </td>

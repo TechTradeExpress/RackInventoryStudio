@@ -27,6 +27,7 @@ fn csv_file_issue(code: &str, level: ValidationLevel, message: &str) -> Validati
         object_id: None,
         object_code: None,
         file_path: None,
+        rack_id: None,
         details: None,
     }
 }
@@ -46,6 +47,7 @@ fn csv_row_issue(
         object_id: None,
         object_code: None,
         file_path: None,
+        rack_id: None,
         details: Some(format!("row={row}, column={column}")),
     }
 }

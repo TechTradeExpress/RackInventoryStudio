@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use ris_core::{PlacementRange, ValidationIssue, ValidationLevel};
 use ris_repository::RawRepositoryData;
 
-use crate::helpers::{issue_f, issue_for_f};
+use crate::helpers::{issue_f, issue_for_placement_f};
 
 pub fn validate(raw: &RawRepositoryData) -> Vec<ValidationIssue> {
     let mut issues = Vec::new();
@@ -162,17 +162,17 @@ pub fn validate(raw: &RawRepositoryData) -> Vec<ValidationIssue> {
                 .flatten()
                 .collect();
                 if !missing.is_empty() {
-                    issues.push(issue_for_f(
+                    issues.push(issue_for_placement_f(
                         "VAL-PLC-005",
                         ValidationLevel::Error,
                         &format!(
                             "placement is missing required field(s): {}",
                             missing.join(", ")
                         ),
-                        "placement",
                         id,
                         code,
                         &pf.file_path,
+                        pf.rack_id.as_deref(),
                     ));
                 }
 
@@ -180,14 +180,14 @@ pub fn validate(raw: &RawRepositoryData) -> Vec<ValidationIssue> {
                 let target_kind_valid = match p.target_kind.as_deref() {
                     Some("device") | Some("device_model") => true,
                     Some(tk) => {
-                        issues.push(issue_for_f(
+                        issues.push(issue_for_placement_f(
                             "VAL-PLC-006",
                             ValidationLevel::Error,
                             &format!("placement '{}' has invalid target_kind '{}'", code, tk),
-                            "placement",
                             id,
                             code,
                             &pf.file_path,
+                            pf.rack_id.as_deref(),
                         ));
                         false
                     }
@@ -199,17 +199,17 @@ pub fn validate(raw: &RawRepositoryData) -> Vec<ValidationIssue> {
                     match (p.target_kind.as_deref(), p.target_id.as_deref()) {
                         (Some("device"), Some(tid)) => {
                             if !all_device_ids.contains(tid) {
-                                issues.push(issue_for_f(
+                                issues.push(issue_for_placement_f(
                                     "VAL-PLC-007",
                                     ValidationLevel::Error,
                                     &format!(
                                         "placement '{}' references unknown device '{}'",
                                         code, tid
                                     ),
-                                    "placement",
                                     id,
                                     code,
                                     &pf.file_path,
+                                    pf.rack_id.as_deref(),
                                 ));
                                 false
                             } else {
@@ -218,17 +218,17 @@ pub fn validate(raw: &RawRepositoryData) -> Vec<ValidationIssue> {
                         }
                         (Some("device_model"), Some(tid)) => {
                             if !all_model_ids.contains(tid) {
-                                issues.push(issue_for_f(
+                                issues.push(issue_for_placement_f(
                                     "VAL-PLC-007",
                                     ValidationLevel::Error,
                                     &format!(
                                         "placement '{}' references unknown device_model '{}'",
                                         code, tid
                                     ),
-                                    "placement",
                                     id,
                                     code,
                                     &pf.file_path,
+                                    pf.rack_id.as_deref(),
                                 ));
                                 false
                             } else {
@@ -245,74 +245,74 @@ pub fn validate(raw: &RawRepositoryData) -> Vec<ValidationIssue> {
                 if p.target_kind.as_deref() == Some("device_model") {
                     if let Some(tid) = p.target_id.as_deref() {
                         if all_model_ids.contains(tid) && !rack_object_model_ids.contains(tid) {
-                            issues.push(issue_for_f(
+                            issues.push(issue_for_placement_f(
                                 "VAL-PLC-008",
                                 ValidationLevel::Error,
                                 &format!(
                                     "placement '{}' uses device_model target '{}' which is not a rack_object",
                                     code, tid
                                 ),
-                                "placement",
                                 id,
-                                code,
-                                &pf.file_path,
-                            ));
+                        code,
+                        &pf.file_path,
+                        pf.rack_id.as_deref(),
+                    ));
                         }
                     }
                 }
 
                 // VAL-PLC-009: start_u must be a positive integer
                 if p.start_u_bad {
-                    issues.push(issue_for_f(
+                    issues.push(issue_for_placement_f(
                         "VAL-PLC-009",
                         ValidationLevel::Error,
                         &format!(
                             "placement '{}' has invalid start_u; must be a positive integer",
                             code
                         ),
-                        "placement",
                         id,
                         code,
                         &pf.file_path,
+                        pf.rack_id.as_deref(),
                     ));
                 } else if p.start_u == Some(0) {
-                    issues.push(issue_for_f(
+                    issues.push(issue_for_placement_f(
                         "VAL-PLC-009",
                         ValidationLevel::Error,
                         &format!("placement '{}' has start_u=0; must be >= 1", code),
-                        "placement",
                         id,
                         code,
                         &pf.file_path,
+                        pf.rack_id.as_deref(),
                     ));
                 }
 
                 // VAL-PLC-010: height_u override must be a positive integer if provided
                 if p.height_u_bad {
-                    issues.push(issue_for_f(
+                    issues.push(issue_for_placement_f(
                         "VAL-PLC-010",
                         ValidationLevel::Error,
                         &format!(
                             "placement '{}' has invalid height_u; must be a positive integer",
                             code
                         ),
-                        "placement",
                         id,
                         code,
                         &pf.file_path,
+                        pf.rack_id.as_deref(),
                     ));
                 } else if p.height_u == Some(0) {
-                    issues.push(issue_for_f(
+                    issues.push(issue_for_placement_f(
                         "VAL-PLC-010",
                         ValidationLevel::Error,
                         &format!(
                             "placement '{}' has height_u=0; must be >= 1 if provided",
                             code
                         ),
-                        "placement",
                         id,
                         code,
                         &pf.file_path,
+                        pf.rack_id.as_deref(),
                     ));
                 }
 
@@ -320,14 +320,14 @@ pub fn validate(raw: &RawRepositoryData) -> Vec<ValidationIssue> {
                 if p.target_kind.as_deref() == Some("device") {
                     if let Some(tid) = p.target_id.as_deref() {
                         if multi_placed_device_ids.contains(tid) {
-                            issues.push(issue_for_f(
+                            issues.push(issue_for_placement_f(
                                 "VAL-PLC-014",
                                 ValidationLevel::Error,
                                 &format!("device '{}' is placed in multiple placements", tid),
-                                "placement",
                                 id,
                                 code,
                                 &pf.file_path,
+                                pf.rack_id.as_deref(),
                             ));
                         }
                     }
@@ -349,17 +349,17 @@ pub fn validate(raw: &RawRepositoryData) -> Vec<ValidationIssue> {
                         };
                         if let Some(default) = model_default {
                             if hu != default {
-                                issues.push(issue_for_f(
+                                issues.push(issue_for_placement_f(
                                     "VAL-PLC-015",
                                     ValidationLevel::Warning,
                                     &format!(
                                         "placement '{}' height_u={} differs from model default {}",
                                         code, hu, default
                                     ),
-                                    "placement",
                                     id,
                                     code,
                                     &pf.file_path,
+                                    pf.rack_id.as_deref(),
                                 ));
                             }
                         }
@@ -400,18 +400,18 @@ pub fn validate(raw: &RawRepositoryData) -> Vec<ValidationIssue> {
                     Some(h) => h,
                     None => {
                         // VAL-PLC-011: cannot determine effective height
-                        issues.push(issue_for_f(
+                        issues.push(issue_for_placement_f(
                             "VAL-PLC-011",
                             ValidationLevel::Error,
                             &format!(
                                 "placement '{}': cannot determine effective height (no height_u and no model default)",
                                 code
                             ),
-                            "placement",
                             id,
-                            code,
-                            &pf.file_path,
-                        ));
+                        code,
+                        &pf.file_path,
+                        pf.rack_id.as_deref(),
+                    ));
                         continue;
                     }
                 };
@@ -424,47 +424,47 @@ pub fn validate(raw: &RawRepositoryData) -> Vec<ValidationIssue> {
                 // VAL-PLC-012: placement must fit within rack
                 if let Some(rack_h) = rack_height {
                     if range.end_u > rack_h {
-                        issues.push(issue_for_f(
+                        issues.push(issue_for_placement_f(
                             "VAL-PLC-012",
                             ValidationLevel::Error,
                             &format!(
                                 "placement '{}' ({side_name}) occupies U{}-U{} but rack is only {}U",
                                 code, range.start_u, range.end_u, rack_h
                             ),
-                            "placement",
                             id,
-                            code,
-                            &pf.file_path,
-                        ));
+                        code,
+                        &pf.file_path,
+                        pf.rack_id.as_deref(),
+                    ));
                     }
                 }
 
                 // VAL-PLC-013: collision on same side
                 for (other_range, other_id, other_code) in &ranges {
                     if range.overlaps(other_range) {
-                        issues.push(issue_for_f(
+                        issues.push(issue_for_placement_f(
                             "VAL-PLC-013",
                             ValidationLevel::Error,
                             &format!(
                                 "placement '{}' collides with '{}' on {side_name} side",
                                 code, other_code
                             ),
-                            "placement",
                             id,
                             code,
                             &pf.file_path,
+                            pf.rack_id.as_deref(),
                         ));
-                        issues.push(issue_for_f(
+                        issues.push(issue_for_placement_f(
                             "VAL-PLC-013",
                             ValidationLevel::Error,
                             &format!(
                                 "placement '{other_code}' collides with '{}' on {side_name} side",
                                 code
                             ),
-                            "placement",
                             other_id,
                             other_code,
                             &pf.file_path,
+                            pf.rack_id.as_deref(),
                         ));
                     }
                 }

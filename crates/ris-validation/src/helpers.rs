@@ -9,6 +9,7 @@ pub fn issue(code: &str, level: ValidationLevel, message: &str) -> ValidationIss
         object_id: None,
         object_code: None,
         file_path: None,
+        rack_id: None,
         details: None,
     }
 }
@@ -27,6 +28,7 @@ pub fn issue_f(
         object_id: None,
         object_code: None,
         file_path: Some(file_path.to_string()),
+        rack_id: None,
         details: None,
     }
 }
@@ -48,6 +50,7 @@ pub fn issue_for(
         object_id: Some(object_id.to_string()),
         object_code: Some(object_code.to_string()),
         file_path: None,
+        rack_id: None,
         details: None,
     }
 }
@@ -69,6 +72,29 @@ pub fn issue_for_f(
         object_id: Some(object_id.to_string()),
         object_code: Some(object_code.to_string()),
         file_path: Some(file_path.to_string()),
+        rack_id: None,
+        details: None,
+    }
+}
+
+pub fn issue_for_placement_f(
+    code: &str,
+    level: ValidationLevel,
+    message: &str,
+    object_id: &str,
+    object_code: &str,
+    file_path: &str,
+    rack_id: Option<&str>,
+) -> ValidationIssue {
+    ValidationIssue {
+        code: code.to_string(),
+        level,
+        message: message.to_string(),
+        object_type: Some("placement".to_string()),
+        object_id: Some(object_id.to_string()),
+        object_code: Some(object_code.to_string()),
+        file_path: Some(file_path.to_string()),
+        rack_id: rack_id.map(|s| s.to_string()),
         details: None,
     }
 }

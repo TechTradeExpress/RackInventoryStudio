@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.32.0 — Validation navigation drill-down (milestone 31)
+
+- Added **Navigate** column to the validation issues table; each navigable issue shows a button ("Open Rack", "Open Device", "Open Location", "Open Device Model").
+- Clicking a navigable issue switches the active tab and highlights/selects the relevant object.
+- Rack issues: switch to Racks tab, auto-select the rack and open Rack Detail.
+- Placement issues: switch to Racks tab, auto-select the rack and pass placement ID for highlight in Rack Detail; requires `rack_id` metadata.
+- Device issues: switch to Devices tab, highlight the matching device row (yellow background).
+- Device Model issues: switch to Device Models tab, highlight the matching model row.
+- Location issues: switch to Locations tab, highlight the matching location row.
+- Non-navigable issues (csv_file, csv_row, no object_type): show a dash in the Navigate column.
+- Added `rack_id: Option<String>` to `ValidationIssue` (ris-core) and `ValidationIssueDto` (Tauri DTO).
+- Added `issue_for_placement_f` helper in ris-validation that carries `rack_id`; placement validator updated to use it — all 15 per-placement issue calls now include the parent rack id.
+- Navigation highlights are cleared when a new repository is opened or the current one is closed.
+- New pure helper `apps/desktop/src/features/validation/navigation.ts` with `issueToNavigationTarget` and `navigationTargetLabel`.
+- 14 new Vitest tests for the navigation helper covering all object types, placement with/without rack_id, unknown types, and label formatting.
+- Updated `docs/MVP_SMOKE_TEST_CHECKLIST_EN.md` with step 16: Validation navigation drill-down.
+- Local checks: 242 Rust tests pass, 38 Vitest tests pass (24 existing + 14 new), typecheck/build clean, Clippy clean.
+
 ## v0.31.0 — MVP smoke-test readiness + refresh coordination hardening (milestone 30)
 
 - Introduced `repositoryMutationToken` (integer state) in `App.tsx`; incremented on every repository mutation.
