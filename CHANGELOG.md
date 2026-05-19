@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.21.0 — Cross-rack move navigation UX (milestone 21)
+
+- After a successful cross-rack placement move, the app automatically navigates to the destination rack: the destination rack becomes selected, its detail loads, and the moved placement is selected in the diagram, table, and inspector when found.
+- Success message on destination rack reads: "Moved to rack <CODE> in memory. Use Save to persist changes."
+- If the destination rack is not in the current racks list (not found), navigation does not occur; the previous fallback message ("Moved to another rack in memory…") is shown on the current rack instead.
+- If the destination rack loads but the moved placement is not found in its detail, selection is cleared and a non-blocking message is shown.
+- Same-rack and cross-side same-rack moves are unchanged: current rack detail refreshes, placement stays selected when possible.
+- Callback chain: `PlacementInspectorPanel` passes `destRackId` to `RackDetailPanel`; `RackDetailPanel` calls `onNavigateToRackPlacement` on `RacksPanel`; `RacksPanel` sets `pendingNavigation` (placement ID + message) and calls `onSelectRack(destRack)` on App; the new `RackDetailPanel` for the destination rack consumes `initialNavigation` after its detail loads.
+- Global unsaved changes banner appears immediately after cross-rack move (before navigation render completes).
+- No new Tauri commands; no Rust changes; no CSV import UI; no Git workflow; no drag and drop.
+- Rust checks pass (160 tests, clippy clean, fmt clean, check clean).
+- TypeScript typecheck, Vitest (18 passing), and Vite build pass (177 KB bundle).
+
 ## v0.20.0 — Side/rack move foundation (milestone 20)
 
 - Added `MovePlacementToTargetInput` struct and `move_placement` application method to `RepositorySession`. Supports changing rack, side, start U, and optional height override in a single operation. Keeps the existing `move_placement_within_side` / `MovePlacementInput` unchanged so all existing application tests continue to pass unmodified.
