@@ -83,10 +83,12 @@ pub struct DeviceDto {
     pub name: Option<String>,
     pub serial_number: Option<String>,
     pub asset_tag: Option<String>,
+    pub external_ref: Option<String>,
     pub status: String,
     pub device_model_code: Option<String>,
     pub device_model_id: Option<String>,
     pub is_placed: bool,
+    pub description: Option<String>,
     pub tags: Vec<String>,
 }
 
@@ -99,6 +101,7 @@ pub struct DeviceModelDto {
     pub vendor: Option<String>,
     pub model_number: Option<String>,
     pub default_height_u: u32,
+    pub description: Option<String>,
     pub tags: Vec<String>,
 }
 

@@ -58,9 +58,9 @@ function deviceToForm(dev: DeviceDto) {
     deviceModelId: dev.device_model_id ?? "",
     serialNumber: dev.serial_number ?? "",
     assetTag: dev.asset_tag ?? "",
-    externalRef: "",
+    externalRef: dev.external_ref ?? "",
     status: dev.status,
-    description: "",
+    description: dev.description ?? "",
     tags: joinTags(dev.tags),
   };
 }

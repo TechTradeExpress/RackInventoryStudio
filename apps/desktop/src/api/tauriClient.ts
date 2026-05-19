@@ -80,10 +80,12 @@ export interface DeviceDto {
   name: string | null;
   serial_number: string | null;
   asset_tag: string | null;
+  external_ref: string | null;
   status: string;
   device_model_code: string | null;
   device_model_id: string | null;
   is_placed: boolean;
+  description: string | null;
   tags: string[];
 }
 
@@ -95,6 +97,7 @@ export interface DeviceModelDto {
   vendor: string | null;
   model_number: string | null;
   default_height_u: number;
+  description: string | null;
   tags: string[];
 }
 

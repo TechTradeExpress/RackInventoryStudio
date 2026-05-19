@@ -2819,3 +2819,88 @@ fn delete_device_not_found_fails() {
         ris_application::ApplicationError::NotFound(_)
     ));
 }
+
+// ── field-preservation tests ──────────────────────────────────────────────────
+
+#[test]
+fn update_device_preserves_external_ref_and_description_when_provided() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let id = session
+        .add_device(AddDeviceInput {
+            id: None,
+            device_type: DeviceType::Server,
+            code: "srv-field-test".to_string(),
+            name: Some("Field Test Server".to_string()),
+            device_model_id: None,
+            device_model_code: None,
+            serial_number: None,
+            asset_tag: None,
+            external_ref: Some("EXT-001".to_string()),
+            status: DeviceStatus::InStock,
+            description: Some("original description".to_string()),
+            tags: vec![],
+        })
+        .unwrap();
+
+    // Update name only; pass through the original external_ref and description.
+    session
+        .update_device(UpdateDeviceInput {
+            id: id.clone(),
+            device_type: DeviceType::Server,
+            code: "srv-field-test".to_string(),
+            name: Some("Field Test Server Renamed".to_string()),
+            device_model_id: None,
+            serial_number: None,
+            asset_tag: None,
+            external_ref: Some("EXT-001".to_string()),
+            status: DeviceStatus::InStock,
+            description: Some("original description".to_string()),
+            tags: vec![],
+        })
+        .unwrap();
+
+    let dev = session.index.devices_by_id.get(&id).unwrap();
+    assert_eq!(dev.external_ref.as_deref(), Some("EXT-001"));
+    assert_eq!(dev.description.as_deref(), Some("original description"));
+    assert_eq!(dev.name.as_deref(), Some("Field Test Server Renamed"));
+}
+
+#[test]
+fn update_device_model_preserves_description_when_provided() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let id = session
+        .add_device_model(AddDeviceModelInput {
+            id: None,
+            device_type: DeviceType::Network,
+            code: "sw-desc-test".to_string(),
+            name: "Switch Desc Test".to_string(),
+            vendor: None,
+            model: None,
+            default_height_u: 1,
+            description: Some("original model description".to_string()),
+            tags: vec![],
+        })
+        .unwrap();
+
+    // Update vendor only; pass through the original description.
+    session
+        .update_device_model(UpdateDeviceModelInput {
+            id: id.clone(),
+            device_type: DeviceType::Network,
+            code: "sw-desc-test".to_string(),
+            name: "Switch Desc Test".to_string(),
+            vendor: Some("Cisco".to_string()),
+            model: None,
+            default_height_u: 1,
+            description: Some("original model description".to_string()),
+            tags: vec![],
+        })
+        .unwrap();
+
+    let model = session.index.device_models_by_id.get(&id).unwrap();
+    assert_eq!(
+        model.description.as_deref(),
+        Some("original model description")
+    );
+    assert_eq!(model.vendor.as_deref(), Some("Cisco"));
+}

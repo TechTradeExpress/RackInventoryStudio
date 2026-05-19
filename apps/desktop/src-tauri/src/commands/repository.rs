@@ -256,10 +256,12 @@ pub fn list_devices(state: State<AppState>) -> Result<Vec<DeviceDto>, String> {
                 name: dev.name.clone(),
                 serial_number: dev.serial_number.clone(),
                 asset_tag: dev.asset_tag.clone(),
+                external_ref: dev.external_ref.clone(),
                 status: dev.status.as_str().to_string(),
                 device_model_code,
                 device_model_id: dev.device_model_id.clone(),
                 is_placed,
+                description: dev.description.clone(),
                 tags: dev.tags.clone(),
             }
         })
@@ -283,6 +285,7 @@ pub fn list_device_models(state: State<AppState>) -> Result<Vec<DeviceModelDto>,
             vendor: m.vendor.clone(),
             model_number: m.model.clone(),
             default_height_u: m.default_height_u,
+            description: m.description.clone(),
             tags: m.tags.clone(),
         })
         .collect();

@@ -46,7 +46,7 @@ function modelToForm(m: DeviceModelDto) {
     vendor: m.vendor ?? "",
     model: m.model_number ?? "",
     heightU: String(m.default_height_u),
-    description: "",
+    description: m.description ?? "",
     tags: joinTags(m.tags),
   };
 }
