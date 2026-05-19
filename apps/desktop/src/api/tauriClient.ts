@@ -66,6 +66,8 @@ export interface RackSummaryDto {
   location_code: string;
   height_u: number;
   row: string | null;
+  description: string | null;
+  tags: string[];
   front_placement_count: number;
   rear_placement_count: number;
   placement_count: number;
@@ -80,7 +82,9 @@ export interface DeviceDto {
   asset_tag: string | null;
   status: string;
   device_model_code: string | null;
+  device_model_id: string | null;
   is_placed: boolean;
+  tags: string[];
 }
 
 export interface DeviceModelDto {
@@ -91,6 +95,7 @@ export interface DeviceModelDto {
   vendor: string | null;
   model_number: string | null;
   default_height_u: number;
+  tags: string[];
 }
 
 // ── Session commands ──────────────────────────────────────────────────────────
@@ -270,6 +275,84 @@ export interface AddDeviceInput {
 
 export function addDevice(input: AddDeviceInput): Promise<string> {
   return invoke("add_device_cmd", { input });
+}
+
+export interface UpdateLocationInput {
+  id: string;
+  code: string;
+  name: string;
+  description?: string;
+  address?: string;
+  tags: string[];
+}
+
+export function updateLocation(input: UpdateLocationInput): Promise<void> {
+  return invoke("update_location_cmd", { input });
+}
+
+export function deleteLocation(id: string): Promise<void> {
+  return invoke("delete_location_cmd", { id });
+}
+
+export interface UpdateRackInput {
+  id: string;
+  location_id: string;
+  code: string;
+  name: string;
+  height_u: number;
+  row?: string;
+  description?: string;
+  tags: string[];
+}
+
+export function updateRack(input: UpdateRackInput): Promise<void> {
+  return invoke("update_rack_cmd", { input });
+}
+
+export function deleteRack(id: string): Promise<void> {
+  return invoke("delete_rack_cmd", { id });
+}
+
+export interface UpdateDeviceModelInput {
+  id: string;
+  device_type: string;
+  code: string;
+  name: string;
+  vendor?: string;
+  model?: string;
+  default_height_u: number;
+  description?: string;
+  tags: string[];
+}
+
+export function updateDeviceModel(input: UpdateDeviceModelInput): Promise<void> {
+  return invoke("update_device_model_cmd", { input });
+}
+
+export function deleteDeviceModel(id: string): Promise<void> {
+  return invoke("delete_device_model_cmd", { id });
+}
+
+export interface UpdateDeviceInput {
+  id: string;
+  device_type: string;
+  code: string;
+  name?: string;
+  device_model_id?: string;
+  serial_number?: string;
+  asset_tag?: string;
+  external_ref?: string;
+  status: string;
+  description?: string;
+  tags: string[];
+}
+
+export function updateDevice(input: UpdateDeviceInput): Promise<void> {
+  return invoke("update_device_cmd", { input });
+}
+
+export function deleteDevice(id: string): Promise<void> {
+  return invoke("delete_device_cmd", { id });
 }
 
 // ── CSV import ────────────────────────────────────────────────────────────────

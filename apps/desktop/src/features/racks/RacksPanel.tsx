@@ -1,10 +1,12 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { common } from "../../lib/styles";
-import { parseTags } from "../../lib/tags";
+import { parseTags, joinTags } from "../../lib/tags";
 import {
   addRack,
+  deleteRack,
   listLocations,
   listRacks,
+  updateRack,
   type LocationDto,
   type RackSummaryDto,
 } from "../../api/tauriClient";
@@ -31,6 +33,28 @@ interface PendingNavigation {
   message: string;
 }
 
+const EMPTY_RACK_FORM = {
+  locationId: "",
+  code: "",
+  name: "",
+  heightU: "",
+  row: "",
+  description: "",
+  tags: "",
+};
+
+function rackToForm(rack: RackSummaryDto) {
+  return {
+    locationId: rack.location_id,
+    code: rack.code,
+    name: rack.name,
+    heightU: String(rack.height_u),
+    row: rack.row ?? "",
+    description: rack.description ?? "",
+    tags: joinTags(rack.tags),
+  };
+}
+
 export function RacksPanel({
   repoPath,
   selectedRackId,
@@ -51,22 +75,15 @@ export function RacksPanel({
   const [racksReloadToken, setRacksReloadToken] = useState(0);
   const prevRepoPathRef = useRef<string>("");
 
-  // Locations list — for the Add Rack location selector
   const [locations, setLocations] = useState<LocationDto[]>([]);
 
-  // Add Rack form
-  const [rackForm, setRackForm] = useState({
-    locationId: "",
-    code: "",
-    name: "",
-    heightU: "",
-    row: "",
-    description: "",
-    tags: "",
-  });
+  const [rackForm, setRackForm] = useState(EMPTY_RACK_FORM);
   const [rackFormError, setRackFormError] = useState<string | null>(null);
   const [rackFormSuccess, setRackFormSuccess] = useState<string | null>(null);
   const [rackFormSubmitting, setRackFormSubmitting] = useState(false);
+
+  // null = add mode; string = edit mode (id being edited)
+  const [editingRackId, setEditingRackId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!repoPath) return;
@@ -77,6 +94,8 @@ export function RacksPanel({
       setError(null);
       setRecentlyNavigatedRackId(null);
       setPendingNavigation(null);
+      setEditingRackId(null);
+      setRackForm(EMPTY_RACK_FORM);
     }
     setLoading(true);
     listRacks()
@@ -85,7 +104,6 @@ export function RacksPanel({
       .finally(() => setLoading(false));
   }, [repoPath, racksReloadToken]);
 
-  // Reload locations list whenever the repo changes (used by Add Rack selector).
   useEffect(() => {
     if (!repoPath) return;
     listLocations()
@@ -93,7 +111,6 @@ export function RacksPanel({
       .catch(() => setLocations([]));
   }, [repoPath]);
 
-  // Consume a pending validation-nav target once racks are loaded.
   useEffect(() => {
     if (!pendingRackNavTarget || racks.length === 0) return;
     const rack = racks.find((r) => r.id === pendingRackNavTarget.rackId);
@@ -137,53 +154,57 @@ export function RacksPanel({
     return true;
   }
 
-  async function handleAddRack(e: FormEvent) {
+  function validateForm() {
+    if (!rackForm.locationId) return "Location is required.";
+    if (!rackForm.code.trim()) return "Code is required.";
+    if (!rackForm.name.trim()) return "Name is required.";
+    if (parsePositiveInt(rackForm.heightU) === null) return "Height (U) must be a positive integer.";
+    return null;
+  }
+
+  async function handleSubmitRack(e: FormEvent) {
     e.preventDefault();
     setRackFormError(null);
     setRackFormSuccess(null);
+    const err = validateForm();
+    if (err) { setRackFormError(err); return; }
 
-    if (!rackForm.locationId) {
-      setRackFormError("Location is required.");
-      return;
-    }
     const code = rackForm.code.trim();
     const name = rackForm.name.trim();
-    if (!code) {
-      setRackFormError("Code is required.");
-      return;
-    }
-    if (!name) {
-      setRackFormError("Name is required.");
-      return;
-    }
-    const heightU = parsePositiveInt(rackForm.heightU);
-    if (heightU === null) {
-      setRackFormError("Height (U) must be a positive integer.");
-      return;
-    }
+    const heightU = parsePositiveInt(rackForm.heightU)!;
 
     setRackFormSubmitting(true);
     try {
-      await addRack({
-        location_id: rackForm.locationId,
-        code,
-        name,
-        height_u: heightU,
-        row: rackForm.row.trim() || undefined,
-        description: rackForm.description.trim() || undefined,
-        tags: parseTags(rackForm.tags),
-      });
-      setRackFormSuccess(`Rack "${code}" added.`);
-      // Keep location selected for convenience when adding multiple racks
-      setRackForm((f) => ({
-        locationId: f.locationId,
-        code: "",
-        name: "",
-        heightU: "",
-        row: "",
-        description: "",
-        tags: "",
-      }));
+      if (editingRackId) {
+        await updateRack({
+          id: editingRackId,
+          location_id: rackForm.locationId,
+          code,
+          name,
+          height_u: heightU,
+          row: rackForm.row.trim() || undefined,
+          description: rackForm.description.trim() || undefined,
+          tags: parseTags(rackForm.tags),
+        });
+        setRackFormSuccess(`Rack "${code}" updated.`);
+        setEditingRackId(null);
+        setRackForm(EMPTY_RACK_FORM);
+      } else {
+        await addRack({
+          location_id: rackForm.locationId,
+          code,
+          name,
+          height_u: heightU,
+          row: rackForm.row.trim() || undefined,
+          description: rackForm.description.trim() || undefined,
+          tags: parseTags(rackForm.tags),
+        });
+        setRackFormSuccess(`Rack "${code}" added.`);
+        setRackForm((f) => ({
+          ...EMPTY_RACK_FORM,
+          locationId: f.locationId,
+        }));
+      }
       handleRepositoryMutated();
     } catch (e) {
       setRackFormError(String(e));
@@ -191,6 +212,41 @@ export function RacksPanel({
       setRackFormSubmitting(false);
     }
   }
+
+  function handleEditRack(rack: RackSummaryDto) {
+    setEditingRackId(rack.id);
+    setRackForm(rackToForm(rack));
+    setRackFormError(null);
+    setRackFormSuccess(null);
+  }
+
+  function handleCancelEdit() {
+    setEditingRackId(null);
+    setRackForm(EMPTY_RACK_FORM);
+    setRackFormError(null);
+    setRackFormSuccess(null);
+  }
+
+  async function handleDeleteRack(rack: RackSummaryDto) {
+    if (!confirm(`Delete rack "${rack.name}"? This cannot be undone.`)) return;
+    setRackFormError(null);
+    setRackFormSuccess(null);
+    try {
+      await deleteRack(rack.id);
+      if (editingRackId === rack.id) {
+        setEditingRackId(null);
+        setRackForm(EMPTY_RACK_FORM);
+      }
+      if (selectedRackId === rack.id) {
+        onSelectRack(null);
+      }
+      handleRepositoryMutated();
+    } catch (e) {
+      setRackFormError(String(e));
+    }
+  }
+
+  const isEditing = editingRackId !== null;
 
   return (
     <>
@@ -210,18 +266,10 @@ export function RacksPanel({
             <thead>
               <tr>
                 {[
-                  "Code",
-                  "Name",
-                  "Location",
-                  "Height (U)",
-                  "Row",
-                  "Front",
-                  "Rear",
-                  "Total",
+                  "Code", "Name", "Location", "Height (U)",
+                  "Row", "Front", "Rear", "Total", "Actions",
                 ].map((h) => (
-                  <th key={h} style={common.th}>
-                    {h}
-                  </th>
+                  <th key={h} style={common.th}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -243,18 +291,31 @@ export function RacksPanel({
                             : "inherit",
                     }}
                   >
-                    <td style={{ ...common.td, fontFamily: "monospace" }}>
-                      {rack.code}
-                    </td>
+                    <td style={{ ...common.td, fontFamily: "monospace" }}>{rack.code}</td>
                     <td style={common.td}>{rack.name}</td>
-                    <td style={{ ...common.td, fontFamily: "monospace" }}>
-                      {rack.location_code}
-                    </td>
+                    <td style={{ ...common.td, fontFamily: "monospace" }}>{rack.location_code}</td>
                     <td style={common.td}>{rack.height_u}</td>
                     <td style={common.td}>{rack.row ?? ""}</td>
                     <td style={common.td}>{rack.front_placement_count}</td>
                     <td style={common.td}>{rack.rear_placement_count}</td>
                     <td style={common.td}>{rack.placement_count}</td>
+                    <td
+                      style={{ ...common.td, whiteSpace: "nowrap" }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        style={rackFormStyles.actionBtn}
+                        onClick={() => handleEditRack(rack)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        style={{ ...rackFormStyles.actionBtn, ...rackFormStyles.deleteBtn }}
+                        onClick={() => handleDeleteRack(rack)}
+                      >
+                        Delete
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
@@ -264,8 +325,8 @@ export function RacksPanel({
       </section>
 
       <section style={rackFormStyles.formSection}>
-        <h3 style={common.h3}>Add Rack</h3>
-        <form onSubmit={handleAddRack} style={rackFormStyles.form}>
+        <h3 style={common.h3}>{isEditing ? "Edit Rack" : "Add Rack"}</h3>
+        <form onSubmit={handleSubmitRack} style={rackFormStyles.form}>
           <div style={rackFormStyles.fieldRow}>
             <label style={rackFormStyles.label}>
               Location <span style={rackFormStyles.required}>*</span>
@@ -319,13 +380,26 @@ export function RacksPanel({
             <div style={rackFormStyles.successBox}>{rackFormSuccess}</div>
           )}
 
-          <button
-            type="submit"
-            style={common.btn}
-            disabled={rackFormSubmitting}
-          >
-            {rackFormSubmitting ? "Adding…" : "Add rack"}
-          </button>
+          <div style={rackFormStyles.btnRow}>
+            <button
+              type="submit"
+              style={common.btn}
+              disabled={rackFormSubmitting}
+            >
+              {rackFormSubmitting
+                ? isEditing ? "Saving…" : "Adding…"
+                : isEditing ? "Save changes" : "Add rack"}
+            </button>
+            {isEditing && (
+              <button
+                type="button"
+                style={{ ...common.btn, ...rackFormStyles.cancelBtn }}
+                onClick={handleCancelEdit}
+              >
+                Cancel
+              </button>
+            )}
+          </div>
         </form>
       </section>
 
@@ -374,5 +448,28 @@ const rackFormStyles = {
     color: "#2d6a2d",
     borderRadius: "3px",
     fontSize: "0.85rem",
+  },
+  btnRow: {
+    display: "flex",
+    gap: "0.5rem",
+  },
+  actionBtn: {
+    fontSize: "0.78rem",
+    padding: "0.2rem 0.5rem",
+    marginRight: "0.25rem",
+    cursor: "pointer",
+    border: "1px solid #bbb",
+    borderRadius: "3px",
+    background: "#f5f5f5",
+  },
+  deleteBtn: {
+    borderColor: "#d9534f",
+    color: "#b52b27",
+    background: "#fff5f5",
+  },
+  cancelBtn: {
+    background: "#f5f5f5",
+    color: "#555",
+    border: "1px solid #bbb",
   },
 };

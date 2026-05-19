@@ -68,6 +68,8 @@ pub struct RackSummaryDto {
     pub location_code: String,
     pub height_u: u32,
     pub row: Option<String>,
+    pub description: Option<String>,
+    pub tags: Vec<String>,
     pub front_placement_count: usize,
     pub rear_placement_count: usize,
     pub placement_count: usize,
@@ -83,7 +85,9 @@ pub struct DeviceDto {
     pub asset_tag: Option<String>,
     pub status: String,
     pub device_model_code: Option<String>,
+    pub device_model_id: Option<String>,
     pub is_placed: bool,
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -95,6 +99,7 @@ pub struct DeviceModelDto {
     pub vendor: Option<String>,
     pub model_number: Option<String>,
     pub default_height_u: u32,
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -238,6 +243,56 @@ pub struct CsvImportPreviewDto {
 pub struct CsvImportResultDto {
     pub created_count: usize,
     pub warning_count: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateLocationInputDto {
+    pub id: String,
+    pub code: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub address: Option<String>,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateRackInputDto {
+    pub id: String,
+    pub location_id: String,
+    pub code: String,
+    pub name: String,
+    pub height_u: u32,
+    pub row: Option<String>,
+    pub description: Option<String>,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateDeviceModelInputDto {
+    pub id: String,
+    pub device_type: String,
+    pub code: String,
+    pub name: String,
+    pub vendor: Option<String>,
+    pub model: Option<String>,
+    pub default_height_u: u32,
+    pub description: Option<String>,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateDeviceInputDto {
+    pub id: String,
+    pub device_type: String,
+    pub code: String,
+    pub name: Option<String>,
+    pub device_model_id: Option<String>,
+    pub serial_number: Option<String>,
+    pub asset_tag: Option<String>,
+    pub external_ref: Option<String>,
+    pub status: String,
+    pub description: Option<String>,
+    pub tags: Vec<String>,
 }
 
 // ── Git DTOs ──────────────────────────────────────────────────────────────────
