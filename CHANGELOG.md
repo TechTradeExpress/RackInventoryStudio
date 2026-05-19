@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.26.0 — roadmap realignment after rack workflow milestones
+
+- Roadmap updated to reflect the real state after milestones 15–25: core backend complete, rack placement workflow usable via forms (add, move, remove, cross-rack, cross-side).
+- Drag and drop moved from MVP blocker to post-MVP UX enhancement. Form-based placement operations are sufficient for MVP.
+- Remaining MVP blockers clarified: Add/Edit UI for locations, racks, device models, and devices; CSV import confirm/write flow; validation navigation/drill-down; Git workflow (status, pull, publish, conflict branch); MVP smoke-test readiness.
+- README, IMPLEMENTATION_PLAN_EN, UI_SCREENS_SPEC_EN, USER_WORKFLOWS_EN, and SPEC_EN updated.
+
 ## v0.25.0 — rack placement counts (milestone 25)
 
 - Added `front_placement_count` and `rear_placement_count` to `RackSummaryDto` (Rust + TypeScript) alongside the existing `placement_count` total.

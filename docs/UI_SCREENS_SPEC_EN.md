@@ -17,7 +17,7 @@ The application should use a simple tool-oriented layout:
 └───────────────┴─────────────────────────────┘
 ```
 
-MVP priorities: readability, fast navigation, safe save, validation, rack view, drag and drop, and easy search.
+MVP priorities: readability, fast navigation, safe save, validation, rack view with form-based placement operations, and easy search. Drag and drop is a post-MVP UX enhancement.
 
 ## 3. Main navigation
 
@@ -585,7 +585,18 @@ Target:
   type: rack_object
 ```
 
-### Rack view actions
+### Rack view actions — MVP (form-based)
+
+| Action | Effect |
+|---|---|
+| Add placement (form) | Creates device or rack object placement via form |
+| Move placement (form) | Changes rack, side, start U, height via inspector form; supports same-rack, cross-side, and cross-rack |
+| Remove placement | Removes placement via confirmation button |
+| Switch Front/Rear | Changes active side |
+
+### Rack view actions — post-MVP (drag and drop)
+
+Drag and drop is the target UX but is deferred to post-MVP. When implemented:
 
 | Action | Effect |
 |---|---|
@@ -593,15 +604,11 @@ Target:
 | Drag rack object to U | Creates `target_kind=device_model` placement |
 | Drag placement to another U | Changes `start_u` |
 | Drag device from rack to unplaced panel | Removes placement |
-| Remove placement | Removes placement |
-| Edit placement | Edits `start_u`, `height_u`, `note`, `tags` |
-| Switch Front/Rear | Changes active side |
 
 ### Not included in MVP
 
 ```text
-drag between front/rear
-editing placement side
+drag and drop (post-MVP UX enhancement)
 showing front and rear simultaneously
 device depth modeling
 vertical PDUs
@@ -685,7 +692,7 @@ Inline rule: `Provide at least one of: name, serial_number, asset_tag.`
 
 ### Add placement manually
 
-The main workflow is drag and drop, but manual placement can be useful as fallback.
+Form-based placement is the MVP workflow. Drag and drop is a post-MVP UX enhancement.
 
 ```text
 Add placement
@@ -745,8 +752,7 @@ This location has no racks yet.
 ```text
 This rack side is empty.
 
-Drag a device from unplaced panel
-or add a rack object.
+Use the Add Placement form to place a device or rack object.
 ```
 
 ### No devices
@@ -826,6 +832,7 @@ readability
 simple navigation
 easy validation
 safe save
-rack view with drag and drop
+rack view with form-based placement operations
 fast search
+drag and drop (post-MVP UX enhancement)
 ```

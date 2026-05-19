@@ -1214,3 +1214,103 @@ Initial work order:
 ```
 
 This gives the project a stable foundation and makes it easier to test.
+
+---
+
+## 29. Roadmap adjustment after rack workflow milestones
+
+### Context
+
+After milestones 1–25, the backend is complete and the rack placement workflow is usable through form-based UI. This section records the roadmap adjustment made at that point.
+
+### Completed or substantially complete areas
+
+```text
+- Tauri + React + TypeScript + Rust monorepo structure
+- ris-core: domain models, enums, placement range logic
+- ris-repository: YAML loader, writer, RepositoryIndex
+- ris-validation: 36 VAL-* rules, ValidationEngine
+- ris-import: CSV preview (no write UI yet)
+- ris-application: session, open, save, validate,
+    add location/rack/device model/device,
+    place_device, place_rack_object,
+    move_placement (same-rack, cross-side, cross-rack),
+    remove_placement
+- Tauri commands: open, save, validate, close, list entities,
+    get_rack_detail, add_placement, move_placement, remove_placement
+- Desktop UI: open repo, summary, validation, locations,
+    racks list with Front/Rear/Total counts,
+    rack detail + unit diagram, placement inspector,
+    add/move/remove placement via forms,
+    cross-rack auto-navigation, unsaved changes banner
+- CI: GitHub Actions, Rust workspace tests, frontend checks
+- Toolchain: pnpm 10, Node 22 LTS
+```
+
+### Drag and drop decision
+
+Drag and drop is **post-MVP**.
+
+Rationale:
+
+```text
+- users can already add, move, and remove placements via forms,
+- backend validates placement operations (collisions, rack height),
+- YAML can be saved,
+- rack view is usable without drag and drop.
+
+Form-based placement operations are acceptable for MVP.
+Drag and drop is a UX enhancement, not a correctness requirement.
+```
+
+### Remaining MVP blockers
+
+```text
+1. Add/Edit UI for core entities:
+   - add location, add rack
+   - add device model
+   - add device
+
+2. CSV import confirm/write UI:
+   - preview engine exists (ris-import),
+   - confirmation step and write flow are not built.
+
+3. Validation navigation / problem drill-down:
+   - issues are displayed,
+   - "Go to rack" / "Go to device" navigation is not built.
+
+4. Git workflow:
+   - ris-git is a stub,
+   - status, pull, publish/commit/push, conflict branch are not implemented.
+
+5. MVP smoke-test checklist and documentation alignment.
+```
+
+### Revised milestone order
+
+```text
+M26  Add Location / Rack UI foundation
+M27  Add Device Model UI foundation
+M28  Add Device UI foundation
+M29  CSV import preview UI
+M30  CSV import confirm/write
+M31  Validation navigation / problem drill-down
+M32  Save/dirty state hardening (if still needed)
+M33  Git status foundation
+M34  Git publish MVP
+M35  Pull / conflict branch MVP
+M36  MVP documentation sync
+M37  MVP smoke test / example repository polish
+```
+
+Post-MVP (not blocking):
+
+```text
+- drag and drop in rack view
+- domain-level change diff
+- merge request workflow
+- automatic Git conflict resolution
+- full CMDB/IPAM/NetBox integrations
+- PDF/CSV export
+- physical audit
+```

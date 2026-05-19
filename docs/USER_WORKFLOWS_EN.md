@@ -482,8 +482,8 @@ The user assigns an unplaced device to a specific U on the active rack side.
 
 1. User opens rack view.
 2. User selects `Front` or `Rear`.
-3. User finds device in `Unplaced devices` panel.
-4. User drags device to specific U.
+3. User opens the `Add Placement` form.
+4. User selects target device, side, start U, and optional height override.
 5. Application calculates `effective_height_u`.
 6. Application checks collisions on active side.
 7. Application creates placement in proper section:
@@ -522,8 +522,8 @@ The user adds a descriptive item occupying rack space, for example blank panel, 
 
 1. User opens rack view.
 2. User selects `Front` or `Rear`.
-3. User selects object from `Rack objects` panel.
-4. User drags it to specific U.
+3. User opens the `Add Placement` form and selects a rack object as target.
+4. User enters side and start U.
 5. Application creates placement with:
 
 ```yaml
@@ -542,46 +542,40 @@ Rack object can be reused many times across many racks and placements.
 
 ---
 
-## 15. Workflow: move placement within the same side
+## 15. Workflow: move placement
 
 ### Goal
 
-The user moves an item to another U within the same rack side.
+The user moves an item to another U, another side, or another rack.
 
 ### Steps
 
-1. User opens rack view.
-2. User selects side where placement exists.
-3. User drags placement to another U.
-4. Application updates `start_u`.
+1. User opens rack view and selects a placement.
+2. User opens the move form in the Placement Inspector.
+3. User enters new rack (optional), new side (optional), new start U, and optional height override.
+4. Application updates `start_u`, `side`, and/or `rack_id` as needed.
 5. Application keeps the same `id` and `code`.
-6. Application checks collisions and U range.
+6. Application checks collisions and U range in the destination.
+
+### Supported move types
+
+```text
+- same rack, same side — changes start_u only
+- same rack, cross-side — moves placement between front and rear
+- cross-rack — moves placement to a different rack; app auto-navigates to the destination rack
+```
 
 ### Effects
 
-Placement changes position within the same `front` or `rear` section.
-
-### MVP limitation
-
-Moving placement between `front` and `rear` is not supported.
+Placement is updated in memory. User must save to persist to YAML.
 
 ---
 
 ## 16. Workflow: move item between front and rear
 
-### MVP decision
+Moving a placement from front to rear (or rear to front) is supported via the Move form in the Placement Inspector. The user selects the new side in the form and confirms.
 
-There is no separate operation for moving between sides.
-
-If user wants to move item from front to rear:
-
-1. remove placement from front,
-2. switch view to rear,
-3. place item again.
-
-### Rationale
-
-The other side may already have occupied space. Removing and placing again is simpler and more explicit.
+Alternatively, the user may remove the placement and re-add it on the other side.
 
 ---
 
@@ -594,7 +588,7 @@ The user removes physical placement of a device but does not delete the device f
 ### Steps
 
 1. User selects device placement in rack view.
-2. User selects `Remove placement` or drags item to `Unplaced devices` panel.
+2. User selects `Remove placement` in the Placement Inspector and confirms.
 3. Application removes placement from rack file.
 4. Device remains in device catalog.
 

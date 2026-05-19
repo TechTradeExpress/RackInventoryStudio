@@ -46,7 +46,7 @@ tests/                  Shared test fixtures
 | Placement use cases — place, move, remove device and rack objects | Done |
 | Tauri commands — open, save, validate, close, list entities, move placement, remove placement | Done |
 
-222 workspace tests pass as of v0.16.0.
+236 workspace tests pass as of v0.25.0.
 
 ## Current desktop UI capabilities
 
@@ -63,6 +63,38 @@ tests/                  Shared test fixtures
 - Add a new device or rack object placement to the selected rack via a simple form (side, target, start U, optional height override); unsaved changes must be saved explicitly via the Validation tab
 - Remove an existing placement from the selected rack via a confirmation button in the Placement Inspector; unsaved changes must be saved explicitly via the Validation tab
 - Frontend Vitest unit tests
+
+## Project status
+
+The core backend and the rack placement workflow are complete. The app is usable for inspecting and editing rack placements through forms.
+
+### What is implemented
+
+- Open local inventory repository; view summary, locations, racks, devices, device models
+- Validation panel with per-issue results
+- Rack detail view with graphical rack unit diagram (front and rear)
+- Placement inspector: view all placement fields
+- Add placement — device or rack object — via form
+- Move placement: same rack, cross-side, and cross-rack, via the inspector form; cross-rack auto-navigates to the destination rack
+- Remove placement via confirmation button
+- Rack list shows Front / Rear / Total placement counts, updated live after mutations
+- Unsaved changes banner, save flow, close with confirmation
+- CI: Rust workspace tests and frontend checks pass
+
+### Remaining MVP gaps
+
+| Area | Status |
+|---|---|
+| Add Location / Rack UI | Not yet built |
+| Add Device Model UI | Not yet built |
+| Add Device UI | Not yet built |
+| CSV import confirm/write UI | Not yet built (preview engine exists) |
+| Validation navigation / drill-down | Not yet built |
+| Git workflow (status, pull, publish, conflict branch) | Not yet built (`ris-git` is a stub) |
+
+### Drag and drop
+
+Drag and drop is **not a hard MVP blocker**. Form-based placement operations cover the core use case. Drag and drop remains the target UX but is deferred to post-MVP.
 
 ## Running Rust tests
 
@@ -112,6 +144,6 @@ pnpm --filter @rack-inventory-studio/desktop build
 
 - **No Git workflow** — `ris-git` crate is a stub. Commit, push, pull, and diff are not implemented.
 - **No CSV import UI** — the import engine exists in `ris-import` but the confirmation/write step has no UI.
-- **No drag and drop** — placement positions are changed via the inspector form only.
+- **No drag and drop** — placement positions are changed via inspector forms. Drag and drop is deferred to post-MVP as a UX enhancement.
 - **No full dirty diff tracking** — the app uses a global unsaved-changes flag. It warns that in-memory state may differ from disk, but it does not track exactly which rack or placement changed.
 - **Local desktop, single-user** — no server, no sync, no multi-user conflict resolution.

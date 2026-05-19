@@ -532,13 +532,9 @@ Rack view shows one side at a time:
 Front / Rear
 ```
 
-MVP does not support changing placement side through editing.
+The Move Placement operation supports changing side (front ↔ rear) and rack as well as start U. Cross-side and cross-rack moves are supported in MVP via the inspector form.
 
-If the user wants to move an item to the other side:
-
-1. remove placement,
-2. switch side,
-3. place it again.
+If the user prefers, they can also remove the placement and re-add it on the other side.
 
 ## 18. Collisions
 
@@ -638,7 +634,8 @@ Rack view:
 - logically numbers U bottom-up,
 - has unplaced devices panel,
 - has rack objects panel,
-- supports drag and drop to active side.
+- supports form-based add/move/remove placement operations (MVP),
+- drag and drop to active side is the target UX but is post-MVP.
 
 ## 23. CSV import
 
