@@ -3,7 +3,8 @@ mod dto;
 
 use commands::{
     add_device_cmd, add_device_model_cmd, add_location_cmd, add_rack_cmd, close_repository,
-    get_rack_detail, get_repository_summary, import_device_csv_cmd, list_device_models,
+    commit_repository_changes, get_git_log, get_git_status, get_rack_detail,
+    get_repository_summary, import_device_csv_cmd, init_git_repository, list_device_models,
     list_devices, list_locations, list_racks, move_placement, open_repository_cmd, place_device,
     place_rack_object, preview_device_csv_import_cmd, remove_placement, save_current_repository,
     validate_current_repository, AppState,
@@ -38,6 +39,10 @@ pub fn run() {
             add_device_cmd,
             preview_device_csv_import_cmd,
             import_device_csv_cmd,
+            get_git_status,
+            init_git_repository,
+            get_git_log,
+            commit_repository_changes,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

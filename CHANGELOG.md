@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.34.0 — Git workflow foundation (milestone 33)
+
+- Implemented `ris-git` crate (was a stub): `is_git_repository`, `init_repository`, `status`, `recent_commits`, `commit_all` — all using `std::process::Command::new("git")` with args passed individually (no shell interpolation).
+- `GitError` enum with variants: `GitNotFound`, `NothingToCommit`, `EmptyCommitMessage`, `CommandFailed`, `Io`.
+- `status` parses `git status --porcelain=v1 --branch` output: branch name, staged/unstaged/untracked counts, is_clean flag, "No commits yet" note.
+- `recent_commits` uses `--pretty=tformat:%H%x1f%h%x1f%s%x1f%an%x1f%ai` with `\x1f` field separator; handles empty repo (no commits) gracefully.
+- `commit_all`: rejects blank message; runs `git add -A`; checks `git diff --cached --quiet` to detect nothing-to-commit before committing; returns the created commit.
+- 12 new Rust integration tests in `crates/ris-git/tests/git_tests.rs` using `tempfile::TempDir` and local git identity configured per-repo.
+- New Tauri commands: `get_git_status`, `init_git_repository`, `get_git_log`, `commit_repository_changes` in `commands/git.rs`.
+- New DTOs: `GitStatusDto`, `GitCommitDto` in `dto.rs`.
+- New TypeScript API: `GitStatusDto`, `GitCommitDto`, `getGitStatus()`, `initGitRepository()`, `getGitLog()`, `commitRepositoryChanges()` in `tauriClient.ts`.
+- `RepositoryPanel.tsx` updated with a **Git** section shown when a repository is open:
+  - Not a Git repo: "Not initialized" message + "Initialize Git repository" button.
+  - Is a Git repo: branch, status (clean/dirty + counts), "Refresh Git status" button, recent commits table (max 5), commit message input + "Commit" button.
+  - Commit button is disabled and a warning banner shown when there are unsaved in-memory changes.
+  - Commit rejects blank message (frontend + backend).
+  - After init or commit, status/log refreshes automatically.
+- `App.tsx` passes `hasUnsavedChanges` to `RepositoryPanel`.
+- Updated `docs/MVP_READINESS_REPORT_EN.md`: Git foundation marked as implemented; remaining blocker updated to remote sync.
+- Updated README: test count (245 → 257), Git gap updated, limitations section updated.
+- Local checks: 257 Rust tests pass (245 existing + 12 new), 38 Vitest tests pass, typecheck/build clean, Clippy clean.
+
 ## v0.33.0 — MVP smoke-test automation + readiness report (milestone 32)
 
 - Added automated Rust integration smoke test (`crates/ris-application/tests/mvp_smoke_tests.rs`) covering the full non-Git inventory workflow end-to-end: open repository → add location, rack, device models, device → CSV preview (no mutation) → CSV import (2 devices) → 3 placements (device, CSV device, rack object) → move placement → remove placement → validate (no errors for smoke objects) → save → reload + verify persistence.

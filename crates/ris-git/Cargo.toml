@@ -6,3 +6,6 @@ description = "Git adapter."
 
 [dependencies]
 
+[dev-dependencies]
+tempfile = "3"
+

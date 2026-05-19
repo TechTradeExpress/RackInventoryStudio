@@ -2584,6 +2584,9 @@ version = "0.1.0"
 [[package]]
 name = "ris-git"
 version = "0.1.0"
+dependencies = [
+ "tempfile",
+]
 
 [[package]]
 name = "ris-import"

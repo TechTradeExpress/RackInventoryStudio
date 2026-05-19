@@ -192,6 +192,7 @@ export function App() {
           onClose={handleClose}
           working={working}
           summary={summary}
+          hasUnsavedChanges={hasUnsavedChanges}
         />
       )}
 

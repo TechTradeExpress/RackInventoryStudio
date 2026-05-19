@@ -46,7 +46,7 @@ tests/                  Shared test fixtures
 | Placement use cases — place, move, remove device and rack objects | Done |
 | Tauri commands — open, save, validate, close, list entities, move placement, remove placement | Done |
 
-245 workspace tests pass as of v0.33.0.
+257 workspace tests pass as of v0.34.0.
 
 ## Current desktop UI capabilities
 
@@ -85,7 +85,7 @@ The core backend and the rack placement workflow are complete. The app is usable
 
 | Area | Status |
 |---|---|
-| Git workflow (commit, push, pull, diff, log) | Not yet built (`ris-git` is a stub) |
+| Git remote sync (push, pull, remote config) | Not yet built; local foundation (init/status/commit/log) is implemented |
 | Native CSV file picker | Not implemented; users paste CSV into textarea |
 | Edit / delete UI for all entity types | Add-only; edit requires direct YAML or Remove Placement |
 | Drag-and-drop placement | Deferred post-MVP; form-based operations cover core use case |
@@ -142,7 +142,7 @@ pnpm --filter @rack-inventory-studio/desktop build
 
 ## Current limitations
 
-- **No Git workflow** — `ris-git` crate is a stub. Commit, push, pull, and diff are not implemented.
+- **No Git remote sync** — local Git foundation (init, status, commit, log) is implemented. Push, pull, remote configuration, and auth are not yet available.
 - **No CSV import UI** — the import engine exists in `ris-import` but the confirmation/write step has no UI.
 - **No drag and drop** — placement positions are changed via inspector forms. Drag and drop is deferred to post-MVP as a UX enhancement.
 - **No full dirty diff tracking** — the app uses a global unsaved-changes flag. It warns that in-memory state may differ from disk, but it does not track exactly which rack or placement changed.

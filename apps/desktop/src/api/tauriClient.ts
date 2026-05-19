@@ -324,6 +324,42 @@ export function importDeviceCsv(
   return invoke("import_device_csv_cmd", { csvContent });
 }
 
+// ── Git ───────────────────────────────────────────────────────────────────────
+
+export interface GitStatusDto {
+  is_repository: boolean;
+  branch: string | null;
+  is_clean: boolean;
+  staged_count: number;
+  unstaged_count: number;
+  untracked_count: number;
+  message: string | null;
+}
+
+export interface GitCommitDto {
+  hash: string;
+  short_hash: string;
+  subject: string;
+  author: string | null;
+  date: string | null;
+}
+
+export function getGitStatus(): Promise<GitStatusDto> {
+  return invoke("get_git_status");
+}
+
+export function initGitRepository(): Promise<void> {
+  return invoke("init_git_repository");
+}
+
+export function getGitLog(limit?: number): Promise<GitCommitDto[]> {
+  return invoke("get_git_log", { limit });
+}
+
+export function commitRepositoryChanges(message: string): Promise<GitCommitDto> {
+  return invoke("commit_repository_changes", { message });
+}
+
 // ── Native dialog ─────────────────────────────────────────────────────────────
 
 export async function selectRepositoryFolder(): Promise<string | null> {
