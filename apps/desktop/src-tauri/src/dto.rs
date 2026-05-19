@@ -298,6 +298,16 @@ pub struct UpdateDeviceInputDto {
     pub tags: Vec<String>,
 }
 
+// ── Create repository ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateRepositoryInputDto {
+    pub path: String,
+    pub code: String,
+    pub name: String,
+    pub initialize_git: bool,
+}
+
 // ── Git DTOs ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, Deserialize)]

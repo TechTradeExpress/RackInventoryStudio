@@ -2,10 +2,10 @@ use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
 use ris_application::{
-    open_repository, AddDeviceInput, AddDeviceModelInput, AddLocationInput, AddRackInput,
-    MovePlacementToTargetInput, PlaceDeviceInput, PlaceRackObjectInput, RemovePlacementInput,
-    RepositorySession, UpdateDeviceInput, UpdateDeviceModelInput, UpdateLocationInput,
-    UpdateRackInput,
+    create_repository, open_repository, AddDeviceInput, AddDeviceModelInput, AddLocationInput,
+    AddRackInput, CreateRepositoryInput, MovePlacementToTargetInput, PlaceDeviceInput,
+    PlaceRackObjectInput, RemovePlacementInput, RepositorySession, UpdateDeviceInput,
+    UpdateDeviceModelInput, UpdateLocationInput, UpdateRackInput,
 };
 use ris_core::{DeviceStatus, DeviceType, PlacementSide, PlacementTargetKind, ValidationLevel};
 use ris_import::CsvRowAction;
@@ -13,12 +13,12 @@ use tauri::State;
 
 use crate::dto::{
     AddDeviceInputDto, AddDeviceModelInputDto, AddLocationInputDto, AddRackInputDto,
-    CsvImportIssueDto, CsvImportPreviewDto, CsvImportPreviewRowDto, CsvImportResultDto,
-    CsvImportSummaryDto, DeviceDto, DeviceModelDto, LocationDto, MovePlacementInputDto,
-    OpenRepositoryResultDto, PlaceDeviceInputDto, PlaceRackObjectInputDto, PlacementDto,
-    RackDetailDto, RackSummaryDto, RemovePlacementInputDto, RepositorySummaryDto, SaveSummaryDto,
-    UpdateDeviceInputDto, UpdateDeviceModelInputDto, UpdateLocationInputDto, UpdateRackInputDto,
-    ValidationIssueDto, ValidationSummaryDto,
+    CreateRepositoryInputDto, CsvImportIssueDto, CsvImportPreviewDto, CsvImportPreviewRowDto,
+    CsvImportResultDto, CsvImportSummaryDto, DeviceDto, DeviceModelDto, LocationDto,
+    MovePlacementInputDto, OpenRepositoryResultDto, PlaceDeviceInputDto, PlaceRackObjectInputDto,
+    PlacementDto, RackDetailDto, RackSummaryDto, RemovePlacementInputDto, RepositorySummaryDto,
+    SaveSummaryDto, UpdateDeviceInputDto, UpdateDeviceModelInputDto, UpdateLocationInputDto,
+    UpdateRackInputDto, ValidationIssueDto, ValidationSummaryDto,
 };
 
 pub struct AppState {
@@ -105,6 +105,41 @@ pub fn open_repository_cmd(
 ) -> Result<OpenRepositoryResultDto, String> {
     let session =
         open_repository(Path::new(&path)).map_err(|e| format!("Failed to open repository: {e}"))?;
+
+    let issues = session.validate();
+    let summary = build_summary(&session);
+    let validation_summary = build_validation_summary(&issues);
+
+    let mut guard = lock_session(&state)?;
+    *guard = Some(session);
+
+    Ok(OpenRepositoryResultDto {
+        summary,
+        validation_summary,
+    })
+}
+
+#[tauri::command]
+pub fn create_repository_cmd(
+    input: CreateRepositoryInputDto,
+    state: State<AppState>,
+) -> Result<OpenRepositoryResultDto, String> {
+    let path = input.path.trim().to_string();
+    if path.is_empty() {
+        return Err("Target path cannot be blank".to_string());
+    }
+
+    let session = create_repository(CreateRepositoryInput {
+        path: std::path::PathBuf::from(&path),
+        code: input.code,
+        name: input.name,
+        id: None,
+    })
+    .map_err(|e| e.to_string())?;
+
+    if input.initialize_git {
+        ris_git::init_repository(&session.repo_path).map_err(|e| e.to_string())?;
+    }
 
     let issues = session.validate();
     let summary = build_summary(&session);

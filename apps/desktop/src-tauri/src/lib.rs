@@ -3,10 +3,10 @@ mod dto;
 
 use commands::{
     add_device_cmd, add_device_model_cmd, add_git_remote, add_location_cmd, add_rack_cmd,
-    close_repository, commit_repository_changes, delete_device_cmd, delete_device_model_cmd,
-    delete_location_cmd, delete_rack_cmd, get_git_log, get_git_status, get_rack_detail,
-    get_repository_summary, import_device_csv_cmd, init_git_repository, list_device_models,
-    list_devices, list_git_remotes, list_locations, list_racks, move_placement,
+    close_repository, commit_repository_changes, create_repository_cmd, delete_device_cmd,
+    delete_device_model_cmd, delete_location_cmd, delete_rack_cmd, get_git_log, get_git_status,
+    get_rack_detail, get_repository_summary, import_device_csv_cmd, init_git_repository,
+    list_device_models, list_devices, list_git_remotes, list_locations, list_racks, move_placement,
     open_repository_cmd, place_device, place_rack_object, preview_device_csv_import_cmd,
     pull_git_ff_only, push_git_current_branch, remove_placement, save_current_repository,
     update_device_cmd, update_device_model_cmd, update_location_cmd, update_rack_cmd,
@@ -22,6 +22,7 @@ pub fn run() {
             session: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
+            create_repository_cmd,
             open_repository_cmd,
             get_repository_summary,
             validate_current_repository,
