@@ -209,6 +209,7 @@ function GitSection({
         `Saved — Created: ${result.created}, Updated: ${result.updated}, Unchanged: ${result.unchanged}.`,
       );
       onSaveSuccess();
+      setRefreshKey((k) => k + 1);
     } catch (e) {
       setSaveError(String(e));
     } finally {
@@ -468,8 +469,9 @@ function GitSection({
       <div style={styles.subSection}>
         <h3 style={common.h3}>Publish changes</h3>
         <p style={styles.flowHint}>
-          Safe publish flow: save → validate → commit → push.
-          Publishing is blocked when there are unsaved changes or validation errors.
+          Safe publish preparation: save → validate → commit.
+          Then push from the Remote sync section below.
+          Commit is blocked when there are unsaved changes or validation errors.
         </p>
 
         {/* Step 1 — Save */}
