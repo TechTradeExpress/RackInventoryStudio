@@ -31,6 +31,7 @@ export interface ValidationIssueDto {
   object_id: string | null;
   object_code: string | null;
   file_path: string | null;
+  rack_id: string | null;
 }
 
 export interface SaveSummaryDto {

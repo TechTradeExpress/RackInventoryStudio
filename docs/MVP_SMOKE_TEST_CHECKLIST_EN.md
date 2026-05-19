@@ -171,6 +171,23 @@ SMOKE-DEV03,network,in_stock,Smoke Switch 01
 
 ---
 
+---
+
+## 16. Validation navigation drill-down
+
+- [ ] Navigate to the **Validation** tab and click **Validate**.
+- [ ] In the Issues table, find an issue with a known object (e.g. a rack or device).
+- [ ] A **Navigate** column is shown; navigable issues show a button (e.g. "Open Rack", "Open Device").
+- [ ] Click "Open Rack" on a rack-related issue — app switches to Racks tab and selects/highlights the rack.
+- [ ] Click "Open Device" on a device issue — app switches to Devices tab and the device row is highlighted in yellow.
+- [ ] Click "Open Location" on a location issue — app switches to Locations tab and the location row is highlighted.
+- [ ] Click "Open Device Model" on a device_model issue — app switches to Device Models tab and the model row is highlighted.
+- [ ] Issues without a mapped target show a dash (—) in the Navigate column.
+- [ ] Navigating from a placement issue (e.g. collision) navigates to the Racks tab and opens the relevant rack.
+- [ ] Existing Validate and Save buttons still work after navigation.
+
+---
+
 ## Pass criteria
 
 All checkboxes above are checked with no unexpected errors or crashes.

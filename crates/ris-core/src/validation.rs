@@ -14,5 +14,6 @@ pub struct ValidationIssue {
     pub object_id: Option<String>,
     pub object_code: Option<String>,
     pub file_path: Option<String>,
+    pub rack_id: Option<String>,
     pub details: Option<String>,
 }

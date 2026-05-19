@@ -11,11 +11,18 @@ import {
 import { RackDetailPanel } from "./RackDetailPanel";
 import { parsePositiveInt } from "./positiveInt";
 
+interface RackNavTarget {
+  rackId: string;
+  placementId?: string;
+}
+
 interface Props {
   repoPath: string;
   selectedRackId: string | null;
   onSelectRack: (rack: RackSummaryDto | null) => void;
   mutationToken: number;
+  pendingRackNavTarget?: RackNavTarget | null;
+  onRackNavTargetConsumed?: () => void;
   onRepositoryMutated: () => void;
 }
 
@@ -24,7 +31,15 @@ interface PendingNavigation {
   message: string;
 }
 
-export function RacksPanel({ repoPath, selectedRackId, onSelectRack, mutationToken, onRepositoryMutated }: Props) {
+export function RacksPanel({
+  repoPath,
+  selectedRackId,
+  onSelectRack,
+  mutationToken,
+  pendingRackNavTarget,
+  onRackNavTargetConsumed,
+  onRepositoryMutated,
+}: Props) {
   const [racks, setRacks] = useState<RackSummaryDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -77,6 +92,22 @@ export function RacksPanel({ repoPath, selectedRackId, onSelectRack, mutationTok
       .then(setLocations)
       .catch(() => setLocations([]));
   }, [repoPath]);
+
+  // Consume a pending validation-nav target once racks are loaded.
+  useEffect(() => {
+    if (!pendingRackNavTarget || racks.length === 0) return;
+    const rack = racks.find((r) => r.id === pendingRackNavTarget.rackId);
+    if (rack) {
+      onSelectRack(rack);
+      if (pendingRackNavTarget.placementId) {
+        setPendingNavigation({
+          placementId: pendingRackNavTarget.placementId,
+          message: "Navigated from validation issue.",
+        });
+      }
+    }
+    onRackNavTargetConsumed?.();
+  }, [racks, pendingRackNavTarget]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleRepositoryMutated() {
     setRacksReloadToken((t) => t + 1);

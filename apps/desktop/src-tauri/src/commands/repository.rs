@@ -92,6 +92,7 @@ fn issue_to_dto(issue: &ris_core::ValidationIssue) -> ValidationIssueDto {
         object_id: issue.object_id.clone(),
         object_code: issue.object_code.clone(),
         file_path: issue.file_path.clone(),
+        rack_id: issue.rack_id.clone(),
     }
 }
 

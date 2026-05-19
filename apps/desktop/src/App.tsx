@@ -17,6 +17,7 @@ import { DevicesPanel } from "./features/devices/DevicesPanel";
 import { DeviceModelsPanel } from "./features/deviceModels/DeviceModelsPanel";
 import { CsvImportPanel } from "./features/csvImport/CsvImportPanel";
 import { common } from "./lib/styles";
+import type { ValidationNavigationTarget } from "./features/validation/navigation";
 
 type Tab =
   | "repository"
@@ -37,6 +38,15 @@ export function App() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [repositoryMutationToken, setRepositoryMutationToken] = useState(0);
 
+  // Navigation highlights set from validation drill-down
+  const [highlightedLocationId, setHighlightedLocationId] = useState<string | null>(null);
+  const [highlightedDeviceId, setHighlightedDeviceId] = useState<string | null>(null);
+  const [highlightedDeviceModelId, setHighlightedDeviceModelId] = useState<string | null>(null);
+  const [pendingRackNavTarget, setPendingRackNavTarget] = useState<{
+    rackId: string;
+    placementId?: string;
+  } | null>(null);
+
   const isOpen = summary !== null;
 
   function handleRepositoryMutated() {
@@ -45,6 +55,37 @@ export function App() {
     getRepositorySummary()
       .then(setSummary)
       .catch(() => {});
+  }
+
+  function handleNavigateFromValidation(target: ValidationNavigationTarget) {
+    setHighlightedLocationId(null);
+    setHighlightedDeviceId(null);
+    setHighlightedDeviceModelId(null);
+    setPendingRackNavTarget(null);
+
+    switch (target.tab) {
+      case "locations":
+        setActiveTab("locations");
+        setHighlightedLocationId(target.locationId ?? null);
+        break;
+      case "racks":
+        setActiveTab("racks");
+        if (target.rackId) {
+          setPendingRackNavTarget({
+            rackId: target.rackId,
+            placementId: target.placementId,
+          });
+        }
+        break;
+      case "devices":
+        setActiveTab("devices");
+        setHighlightedDeviceId(target.deviceId ?? null);
+        break;
+      case "device_models":
+        setActiveTab("device_models");
+        setHighlightedDeviceModelId(target.deviceModelId ?? null);
+        break;
+    }
   }
 
   async function handleOpen() {
@@ -58,6 +99,10 @@ export function App() {
       setSummary(result.summary);
       setSelectedRack(null);
       setHasUnsavedChanges(false);
+      setHighlightedLocationId(null);
+      setHighlightedDeviceId(null);
+      setHighlightedDeviceModelId(null);
+      setPendingRackNavTarget(null);
       setActiveTab("repository");
     } catch (e) {
       setError(String(e));
@@ -91,6 +136,10 @@ export function App() {
       setSummary(null);
       setSelectedRack(null);
       setHasUnsavedChanges(false);
+      setHighlightedLocationId(null);
+      setHighlightedDeviceId(null);
+      setHighlightedDeviceModelId(null);
+      setPendingRackNavTarget(null);
       setActiveTab("repository");
     } catch (e) {
       setError(String(e));
@@ -152,12 +201,14 @@ export function App() {
           setWorking={setWorking}
           setError={setError}
           onSaveSuccess={() => setHasUnsavedChanges(false)}
+          onNavigate={handleNavigateFromValidation}
         />
       )}
 
       {activeTab === "locations" && isOpen && (
         <LocationsPanel
           repoPath={summary.repo_path}
+          highlightedLocationId={highlightedLocationId}
           onRepositoryMutated={handleRepositoryMutated}
         />
       )}
@@ -168,6 +219,8 @@ export function App() {
           selectedRackId={selectedRack?.id ?? null}
           onSelectRack={setSelectedRack}
           mutationToken={repositoryMutationToken}
+          pendingRackNavTarget={pendingRackNavTarget}
+          onRackNavTargetConsumed={() => setPendingRackNavTarget(null)}
           onRepositoryMutated={handleRepositoryMutated}
         />
       )}
@@ -176,6 +229,7 @@ export function App() {
         <DevicesPanel
           repoPath={summary.repo_path}
           mutationToken={repositoryMutationToken}
+          highlightedDeviceId={highlightedDeviceId}
           onRepositoryMutated={handleRepositoryMutated}
         />
       )}
@@ -184,6 +238,7 @@ export function App() {
         <DeviceModelsPanel
           repoPath={summary.repo_path}
           mutationToken={repositoryMutationToken}
+          highlightedDeviceModelId={highlightedDeviceModelId}
           onRepositoryMutated={handleRepositoryMutated}
         />
       )}

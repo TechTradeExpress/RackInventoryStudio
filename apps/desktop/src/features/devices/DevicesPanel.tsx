@@ -44,10 +44,16 @@ const EMPTY_FORM = {
 interface Props {
   repoPath: string;
   mutationToken: number;
+  highlightedDeviceId?: string | null;
   onRepositoryMutated: () => void;
 }
 
-export function DevicesPanel({ repoPath, mutationToken, onRepositoryMutated }: Props) {
+export function DevicesPanel({
+  repoPath,
+  mutationToken,
+  highlightedDeviceId,
+  onRepositoryMutated,
+}: Props) {
   const [devices, setDevices] = useState<DeviceDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -197,7 +203,14 @@ export function DevicesPanel({ repoPath, mutationToken, onRepositoryMutated }: P
           </thead>
           <tbody>
             {devices.map((dev) => (
-              <tr key={dev.id}>
+              <tr
+                key={dev.id}
+                style={
+                  dev.id === highlightedDeviceId
+                    ? { background: "#fff8c5" }
+                    : undefined
+                }
+              >
                 <td style={{ ...common.td, fontFamily: "monospace" }}>
                   {dev.code}
                 </td>

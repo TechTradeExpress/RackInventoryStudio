@@ -7,12 +7,18 @@ import {
   type SaveSummaryDto,
   type ValidationSummaryDto,
 } from "../../api/tauriClient";
+import {
+  issueToNavigationTarget,
+  navigationTargetLabel,
+  type ValidationNavigationTarget,
+} from "./navigation";
 
 interface Props {
   working: boolean;
   setWorking: (v: boolean) => void;
   setError: (v: string | null) => void;
   onSaveSuccess: () => void;
+  onNavigate?: (target: ValidationNavigationTarget) => void;
 }
 
 function ValidationSummaryPanel({ vs }: { vs: ValidationSummaryDto }) {
@@ -32,24 +38,52 @@ function ValidationSummaryPanel({ vs }: { vs: ValidationSummaryDto }) {
   );
 }
 
-function IssueRow({ issue }: { issue: ValidationIssueDto }) {
+function IssueRow({
+  issue,
+  onNavigate,
+}: {
+  issue: ValidationIssueDto;
+  onNavigate?: (target: ValidationNavigationTarget) => void;
+}) {
   const bg =
     issue.level === "error"
       ? "#fff0f0"
       : issue.level === "warning"
         ? "#fffbe6"
         : "inherit";
+  const navTarget = issueToNavigationTarget(issue);
+
   return (
     <tr style={{ background: bg }}>
       <td style={common.td}>{issue.level}</td>
       <td style={common.td}>{issue.code}</td>
       <td style={common.td}>{issue.message}</td>
       <td style={common.td}>{issue.object_code ?? issue.object_id ?? ""}</td>
+      <td style={common.td}>
+        {navTarget && onNavigate ? (
+          <button
+            type="button"
+            onClick={() => onNavigate(navTarget)}
+            style={navBtnStyle}
+            title={`Navigate to ${navTarget.tab}`}
+          >
+            {navigationTargetLabel(navTarget)}
+          </button>
+        ) : (
+          <span style={{ color: "#aaa", fontSize: "0.75rem" }}>—</span>
+        )}
+      </td>
     </tr>
   );
 }
 
-export function ValidationPanel({ working, setWorking, setError, onSaveSuccess }: Props) {
+export function ValidationPanel({
+  working,
+  setWorking,
+  setError,
+  onSaveSuccess,
+  onNavigate,
+}: Props) {
   const [validationSummary, setValidationSummary] =
     useState<ValidationSummaryDto | null>(null);
   const [issues, setIssues] = useState<ValidationIssueDto[]>([]);
@@ -119,16 +153,22 @@ export function ValidationPanel({ working, setWorking, setError, onSaveSuccess }
           <table style={{ ...common.table, fontSize: "0.82rem" }}>
             <thead>
               <tr>
-                {["Level", "Code", "Message", "Object"].map((h) => (
-                  <th key={h} style={common.th}>
-                    {h}
-                  </th>
-                ))}
+                {["Level", "Code", "Message", "Object", "Navigate"].map(
+                  (h) => (
+                    <th key={h} style={common.th}>
+                      {h}
+                    </th>
+                  ),
+                )}
               </tr>
             </thead>
             <tbody>
               {issues.slice(0, 50).map((issue, idx) => (
-                <IssueRow key={idx} issue={issue} />
+                <IssueRow
+                  key={idx}
+                  issue={issue}
+                  onNavigate={onNavigate}
+                />
               ))}
             </tbody>
           </table>
@@ -137,3 +177,14 @@ export function ValidationPanel({ working, setWorking, setError, onSaveSuccess }
     </section>
   );
 }
+
+const navBtnStyle: React.CSSProperties = {
+  padding: "0.15rem 0.4rem",
+  fontSize: "0.75rem",
+  cursor: "pointer",
+  background: "#e8f0fe",
+  border: "1px solid #b3c8f5",
+  borderRadius: 3,
+  color: "#1a4da0",
+  whiteSpace: "nowrap",
+};

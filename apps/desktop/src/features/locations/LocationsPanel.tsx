@@ -9,6 +9,7 @@ import {
 
 interface Props {
   repoPath: string;
+  highlightedLocationId?: string | null;
   onRepositoryMutated: () => void;
 }
 
@@ -28,7 +29,11 @@ const EMPTY_FORM: FormState = {
   tags: "",
 };
 
-export function LocationsPanel({ repoPath, onRepositoryMutated }: Props) {
+export function LocationsPanel({
+  repoPath,
+  highlightedLocationId,
+  onRepositoryMutated,
+}: Props) {
   const [locations, setLocations] = useState<LocationDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -143,7 +148,14 @@ export function LocationsPanel({ repoPath, onRepositoryMutated }: Props) {
           </thead>
           <tbody>
             {locations.map((loc) => (
-              <tr key={loc.id}>
+              <tr
+                key={loc.id}
+                style={
+                  loc.id === highlightedLocationId
+                    ? { background: "#fff8c5" }
+                    : undefined
+                }
+              >
                 <td style={{ ...common.td, fontFamily: "monospace" }}>
                   {loc.code}
                 </td>
