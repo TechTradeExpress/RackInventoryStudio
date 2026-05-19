@@ -143,7 +143,6 @@ pnpm --filter @rack-inventory-studio/desktop build
 ## Current limitations
 
 - **No in-app Git auth** — push and pull are implemented but SSH keys and HTTPS credentials must be configured in the OS or git-credential-helper outside the app. Auth errors surface as clear error messages.
-- **No CSV import UI** — the import engine exists in `ris-import` but the confirmation/write step has no UI.
 - **No drag and drop** — placement positions are changed via inspector forms. Drag and drop is deferred to post-MVP as a UX enhancement.
 - **No full dirty diff tracking** — the app uses a global unsaved-changes flag. It warns that in-memory state may differ from disk, but it does not track exactly which rack or placement changed.
 - **Local desktop, single-user** — no server, no sync, no multi-user conflict resolution.

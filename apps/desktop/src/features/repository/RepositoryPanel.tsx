@@ -25,6 +25,7 @@ interface Props {
   summary: RepositorySummaryDto | null;
   hasUnsavedChanges: boolean;
   onPullSuccess: (summary: RepositorySummaryDto) => void;
+  onPullRunning: (running: boolean) => void;
 }
 
 const EXAMPLE_HINT = "examples/example-repository";
@@ -67,9 +68,10 @@ interface GitSectionProps {
   repoPath: string;
   hasUnsavedChanges: boolean;
   onPullSuccess: (summary: RepositorySummaryDto) => void;
+  onPullRunning: (running: boolean) => void;
 }
 
-function GitSection({ repoPath, hasUnsavedChanges, onPullSuccess }: GitSectionProps) {
+function GitSection({ repoPath, hasUnsavedChanges, onPullSuccess, onPullRunning }: GitSectionProps) {
   const [gitStatus, setGitStatus] = useState<GitStatusDto | null>(null);
   const [gitCommits, setGitCommits] = useState<GitCommitDto[]>([]);
   const [remotes, setRemotes] = useState<GitRemoteDto[]>([]);
@@ -228,6 +230,7 @@ function GitSection({ repoPath, hasUnsavedChanges, onPullSuccess }: GitSectionPr
     setPullError(null);
     setPullSuccess(null);
     setPulling(true);
+    onPullRunning(true);
     try {
       const updatedSummary = await pullGitFfOnly(selectedRemote);
       setPullSuccess(`Pulled from "${selectedRemote}".`);
@@ -237,6 +240,7 @@ function GitSection({ repoPath, hasUnsavedChanges, onPullSuccess }: GitSectionPr
       setPullError(String(e));
     } finally {
       setPulling(false);
+      onPullRunning(false);
     }
   }
 
@@ -515,6 +519,7 @@ export function RepositoryPanel({
   summary,
   hasUnsavedChanges,
   onPullSuccess,
+  onPullRunning,
 }: Props) {
   return (
     <>
@@ -561,6 +566,7 @@ export function RepositoryPanel({
           repoPath={summary.repo_path}
           hasUnsavedChanges={hasUnsavedChanges}
           onPullSuccess={onPullSuccess}
+          onPullRunning={onPullRunning}
         />
       )}
     </>

@@ -274,13 +274,3 @@ fn parse_status_with_no_upstream() {
     assert!(s.ahead.is_none());
     assert!(s.behind.is_none());
 }
-
-#[test]
-fn parse_ahead_behind_from_status_line() {
-    // Pure parser test — no git process needed.
-    // Directly exercise internal parsing via status() on a controlled output
-    // by testing the public status() function with an integration scenario.
-    // (Parser internals are private; we test them via the public API above.)
-    // This test documents expected behavior of the parsing logic.
-    assert_eq!(true, true); // placeholder — covered by integration tests above
-}

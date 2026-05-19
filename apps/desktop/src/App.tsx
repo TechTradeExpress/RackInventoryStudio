@@ -194,6 +194,7 @@ export function App() {
           summary={summary}
           hasUnsavedChanges={hasUnsavedChanges}
           onPullSuccess={(s) => setSummary(s)}
+          onPullRunning={(v) => setWorking(v)}
         />
       )}
 

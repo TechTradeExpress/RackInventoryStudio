@@ -109,12 +109,18 @@ pub fn push_git_current_branch(remote: String, state: State<AppState>) -> Result
 /// Pull from `remote` using `--ff-only`, then reload the repository session from disk.
 ///
 /// Returns the updated repository summary so the frontend can refresh counts.
+///
+/// The session lock is released before the slow network operation so other commands remain
+/// responsive. After pull completes we re-acquire the lock and verify that the active
+/// session still points to the same `repo_path` we pulled. If the user closed or opened a
+/// different repository while pull was in flight we return an error and leave the current
+/// session untouched.
 #[tauri::command]
 pub fn pull_git_ff_only(
     remote: String,
     state: State<AppState>,
 ) -> Result<RepositorySummaryDto, String> {
-    // Drop lock before the potentially slow git network operation.
+    // Release lock before the potentially slow git network operation.
     let repo_path = {
         let guard = lock(&state)?;
         let session = guard.as_ref().ok_or_else(no_session)?;
@@ -124,13 +130,25 @@ pub fn pull_git_ff_only(
     ris_git::pull_ff_only(&repo_path, &remote).map_err(|e| e.to_string())?;
 
     // Reload session so in-memory state reflects the newly pulled YAML files.
+    // If reload fails, the old session remains unchanged.
     let new_session = ris_application::open_repository(&repo_path)
         .map_err(|e| format!("Pull succeeded but failed to reload repository: {e}"))?;
     let summary = build_summary(&new_session);
 
+    // Only replace the session if the active session is still the same repository.
+    // The user may have closed or switched repositories while pull was running.
     {
         let mut guard = lock(&state)?;
-        *guard = Some(new_session);
+        let still_same = guard.as_ref().is_some_and(|s| s.repo_path == repo_path);
+        if still_same {
+            *guard = Some(new_session);
+        } else {
+            return Err(
+                "Pull succeeded, but the open repository changed before reload; \
+                 reopen the repository to refresh state."
+                    .to_string(),
+            );
+        }
     }
 
     Ok(summary)
