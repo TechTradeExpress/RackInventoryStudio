@@ -2225,3 +2225,95 @@ fn placement_counts_after_cross_rack_move() {
     assert_eq!(front_b_after, 1);
     assert_eq!(rear_b_after, 0);
 }
+
+// ── import_devices_csv ────────────────────────────────────────────────────────
+
+const VALID_CSV: &str = "code,device_type,status,name,serial_number\n\
+srv-import-01,server,in_stock,Import Server One,SN-IMP-001\n\
+srv-import-02,server,planned,Import Server Two,SN-IMP-002\n";
+
+const INVALID_CSV_MISSING_HEADER: &str = "device_type,status,name\nserver,in_stock,Server\n";
+
+const INVALID_CSV_ERROR_ROW: &str = "code,device_type,status,name\n\
+,server,in_stock,No Code\n";
+
+#[test]
+fn import_devices_csv_valid_creates_devices() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let before = session.data.devices.len();
+    let result = session.import_devices_csv(VALID_CSV).unwrap();
+    assert_eq!(result.created_count, 2);
+    assert_eq!(session.data.devices.len(), before + 2);
+    assert!(session.index.get_device_by_code("srv-import-01").is_some());
+    assert!(session.index.get_device_by_code("srv-import-02").is_some());
+}
+
+#[test]
+fn import_devices_csv_save_reload_persists_devices() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dst = tmp.path().join("repo");
+    copy_dir_all(&fixture("valid-repository"), &dst);
+    let mut session = open_repository(&dst).unwrap();
+    session.import_devices_csv(VALID_CSV).unwrap();
+    session.save().unwrap();
+    let reloaded = open_repository(&dst).unwrap();
+    assert!(reloaded.index.get_device_by_code("srv-import-01").is_some());
+    assert!(reloaded.index.get_device_by_code("srv-import-02").is_some());
+}
+
+#[test]
+fn import_devices_csv_rejects_missing_required_header() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let before = session.data.devices.len();
+    let err = session
+        .import_devices_csv(INVALID_CSV_MISSING_HEADER)
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("errors"),
+        "expected error message, got: {err}"
+    );
+    assert_eq!(
+        session.data.devices.len(),
+        before,
+        "session must not be mutated"
+    );
+}
+
+#[test]
+fn import_devices_csv_rejects_error_row() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let before = session.data.devices.len();
+    let err = session
+        .import_devices_csv(INVALID_CSV_ERROR_ROW)
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("errors"),
+        "expected error message, got: {err}"
+    );
+    assert_eq!(
+        session.data.devices.len(),
+        before,
+        "session must not be mutated"
+    );
+}
+
+#[test]
+fn import_devices_csv_rejects_existing_code() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    // srv-01 already exists in the fixture
+    let csv = "code,device_type,status,name\nsrv-01,server,in_stock,Dup\n";
+    let before = session.data.devices.len();
+    let err = session.import_devices_csv(csv).unwrap_err();
+    assert!(err.to_string().contains("errors"), "{err}");
+    assert_eq!(session.data.devices.len(), before);
+}
+
+#[test]
+fn import_devices_csv_rejects_rack_object_type() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let csv = "code,device_type,status,name\nrobj-new,rack_object,in_stock,Rack Obj\n";
+    let before = session.data.devices.len();
+    let err = session.import_devices_csv(csv).unwrap_err();
+    assert!(err.to_string().contains("errors"), "{err}");
+    assert_eq!(session.data.devices.len(), before);
+}

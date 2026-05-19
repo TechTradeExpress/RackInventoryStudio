@@ -14,6 +14,7 @@ import { LocationsPanel } from "./features/locations/LocationsPanel";
 import { RacksPanel } from "./features/racks/RacksPanel";
 import { DevicesPanel } from "./features/devices/DevicesPanel";
 import { DeviceModelsPanel } from "./features/deviceModels/DeviceModelsPanel";
+import { CsvImportPanel } from "./features/csvImport/CsvImportPanel";
 import { common } from "./lib/styles";
 
 type Tab =
@@ -22,7 +23,8 @@ type Tab =
   | "locations"
   | "racks"
   | "devices"
-  | "device_models";
+  | "device_models"
+  | "csv_import";
 
 export function App() {
   const [repoPath, setRepoPath] = useState("");
@@ -94,6 +96,7 @@ export function App() {
     { id: "racks", label: "Racks", disabled: !isOpen },
     { id: "devices", label: "Devices", disabled: !isOpen },
     { id: "device_models", label: "Device Models", disabled: !isOpen },
+    { id: "csv_import", label: "CSV Import", disabled: !isOpen },
   ];
 
   return (
@@ -168,6 +171,12 @@ export function App() {
       {activeTab === "device_models" && isOpen && (
         <DeviceModelsPanel
           repoPath={summary.repo_path}
+          onRepositoryMutated={() => setHasUnsavedChanges(true)}
+        />
+      )}
+
+      {activeTab === "csv_import" && isOpen && (
+        <CsvImportPanel
           onRepositoryMutated={() => setHasUnsavedChanges(true)}
         />
       )}
