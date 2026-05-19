@@ -10,6 +10,8 @@ ris-repository = { path = "../ris-repository" }
 ris-validation = { path = "../ris-validation" }
 ris-import = { path = "../ris-import" }
 uuid = { version = "1", features = ["v4"] }
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
 thiserror = "1"
 
 [dev-dependencies]

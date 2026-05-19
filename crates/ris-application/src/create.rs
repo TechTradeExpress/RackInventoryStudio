@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use serde::Serialize;
 use uuid::Uuid;
 
 use crate::error::ApplicationError;
@@ -55,14 +56,23 @@ fn code_is_valid(code: &str) -> bool {
     chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '_' || c == '-')
 }
 
-// ── YAML helpers ─────────────────────────────────────────────────────────────
+// ── repo.yaml serialization DTO ───────────────────────────────────────────────
 
-/// Wraps `s` in YAML double-quote scalars, escaping `\` and `"`.
-/// Safe for any user-provided string: `:`, `#`, `{`, `[`, `|`, etc.
-/// are all inert inside a YAML double-quoted scalar.
-fn yaml_quote_string(s: &str) -> String {
-    let escaped = s.replace('\\', "\\\\").replace('"', "\\\"");
-    format!("\"{escaped}\"")
+// Field declaration order controls YAML output order (serde_yaml 0.9 preserves
+// struct field order via indexmap).
+
+#[derive(Serialize)]
+struct RepoYaml {
+    format: String,
+    version: String,
+    repository: RepoMeta,
+}
+
+#[derive(Serialize)]
+struct RepoMeta {
+    id: String,
+    code: String,
+    name: String,
 }
 
 // ── File I/O helpers ──────────────────────────────────────────────────────────
@@ -139,16 +149,20 @@ pub fn create_repository(
     }
 
     let id = input.id.unwrap_or_else(|| Uuid::new_v4().to_string());
-    let name_yaml = yaml_quote_string(&name);
 
-    // repo.yaml — name is double-quoted to safely handle YAML special chars.
-    write_text(
-        &inventory_dir.join("repo.yaml"),
-        &format!(
-            "format: rack-inventory-studio\nversion: \"0.1\"\n\n\
-             repository:\n  id: {id}\n  code: {code}\n  name: {name_yaml}\n"
-        ),
-    )?;
+    // repo.yaml — serialized via serde_yaml so all user-provided values are
+    // correctly escaped regardless of content (colons, hashes, quotes, etc.).
+    let repo_yaml_content = serde_yaml::to_string(&RepoYaml {
+        format: "rack-inventory-studio".into(),
+        version: "0.1".into(),
+        repository: RepoMeta {
+            id: id.clone(),
+            code: code.clone(),
+            name: name.clone(),
+        },
+    })
+    .map_err(|e| ApplicationError::InvalidInput(format!("Cannot serialize repo.yaml: {e}")))?;
+    write_text(&inventory_dir.join("repo.yaml"), &repo_yaml_content)?;
 
     // locations.yaml
     write_text(&inventory_dir.join("locations.yaml"), "locations: []\n")?;

@@ -177,19 +177,37 @@ fn scaffold_contains_device_files_but_not_rack_objects() {
     );
 }
 
-#[test]
-fn name_with_yaml_special_chars_is_preserved_correctly() {
+fn assert_name_round_trips(test_code: &str, name: &str) {
     let tmp = tempfile::tempdir().unwrap();
-    let special_name = "Main DC: Warsaw #1";
-    let result = create_repository(make_input(tmp.path(), "dc-warsaw", special_name));
-    assert!(result.is_ok(), "expected Ok, got: {:?}", result.err());
+    let result = create_repository(make_input(tmp.path(), test_code, name));
+    assert!(
+        result.is_ok(),
+        "expected Ok for name {:?}, got: {:?}",
+        name,
+        result.err()
+    );
     let session = result.unwrap();
     assert_eq!(
-        session.data.metadata.name, special_name,
-        "name with YAML special characters must round-trip correctly"
+        session.data.metadata.name, name,
+        "name must round-trip through repo.yaml without loss"
     );
     let repo_yaml = tmp.path().join("inventory").join("repo.yaml");
-    assert!(repo_yaml.exists(), "repo.yaml must exist");
+    assert!(repo_yaml.exists(), "repo.yaml must exist on disk");
     let contents = std::fs::read_to_string(&repo_yaml).unwrap();
     assert!(!contents.is_empty(), "repo.yaml must not be empty");
+}
+
+#[test]
+fn name_with_colon_and_hash_round_trips() {
+    assert_name_round_trips("dc-warsaw", "Main DC: Warsaw #1");
+}
+
+#[test]
+fn name_with_quotes_and_backslash_round_trips() {
+    assert_name_round_trips("dc-quotes", "Main \"DC\" \\ Warsaw");
+}
+
+#[test]
+fn name_with_newline_round_trips() {
+    assert_name_round_trips("dc-newline", "Main DC\nWarsaw");
 }
