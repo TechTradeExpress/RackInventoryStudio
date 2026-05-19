@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.20.0 — Side/rack move foundation (milestone 20)
+
+- Added `MovePlacementToTargetInput` struct and `move_placement` application method to `RepositorySession`. Supports changing rack, side, start U, and optional height override in a single operation. Keeps the existing `move_placement_within_side` / `MovePlacementInput` unchanged so all existing application tests continue to pass unmodified.
+- The Tauri `move_placement` command now delegates to `session.move_placement(...)` instead of `session.move_placement_within_side(...)`. The `MovePlacementInputDto` gains two optional fields: `new_rack_id` and `new_side`; missing/null values default to the placement's current rack and side (backward-compatible with serde).
+- `PlacementInspectorPanel`: move form extended with a Rack selector (populated via `listRacks()`) and a Side selector. Defaults to the current rack and current side when a placement is selected. The form can now express same-rack same-side, same-rack cross-side, and cross-rack moves without switching racks.
+- `PlacementInspectorPanel` accepts a new `currentRack: RackSummaryDto` prop; `RackDetailPanel` passes `rack` for this prop.
+- `PlacementInspectorPanel` loads the rack list once on mount; shows a loading indicator while loading and an error if the load fails; Move button is disabled while racks are loading.
+- Success message distinguishes same-rack ("Moved in memory…") from cross-rack ("Moved to another rack in memory…") moves.
+- After a successful cross-rack move, `RackDetailPanel.refreshAfterMutation` finds the placement absent from the refreshed rack detail and clears the selection automatically.
+- Stale response protection (`cancelled` flag in `AddPlacementPanel`) is unaffected.
+- `AddPlacementPanel` Retry UX is unaffected.
+- Added 8 new Rust application-layer tests for `move_placement` covering: same-rack/same-side, same-rack front→rear, rack-to-rack, overlap rejection, missing-placement rejection, missing-destination-rack rejection, out-of-bounds rejection, and save/reload persistence.
+- No new Tauri commands; no CSV import UI; no Git workflow; no drag and drop.
+- All Rust checks pass (160 tests, clippy clean, fmt clean, check clean).
+- TypeScript typecheck, Vitest (18 passing), and Vite build pass (176 KB bundle).
+
 ## v0.19.0 — Target-load Retry UX (milestone 19)
 
 - `AddPlacementPanel`: added a `manualRetryToken` state (integer counter); when the user clicks "Retry" on a `targetLoadError`, `manualRetryToken` is incremented and triggers the existing target-load effect.

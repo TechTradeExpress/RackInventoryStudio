@@ -114,6 +114,10 @@ pub struct PlacementDto {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MovePlacementInputDto {
     pub placement_id: String,
+    /// Destination rack ID. Missing/null = keep current rack.
+    pub new_rack_id: Option<String>,
+    /// Destination side ("front" | "rear"). Missing/null = keep current side.
+    pub new_side: Option<String>,
     pub new_start_u: u32,
     pub new_height_u: Option<u32>,
 }

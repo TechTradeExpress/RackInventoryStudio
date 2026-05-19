@@ -99,12 +99,14 @@ export function RackDetailPanel({ rack, onRepositoryMutated }: Props) {
   const [selectedPlacement, setSelectedPlacement] =
     useState<PlacementDto | null>(null);
   const [targetReloadToken, setTargetReloadToken] = useState(0);
+  const [mutationMessage, setMutationMessage] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
     setError(null);
     setDetail(null);
     setSelectedPlacement(null);
+    setMutationMessage(null);
     getRackDetail(rack.id)
       .then(setDetail)
       .catch((e) => setError(String(e)))
@@ -112,6 +114,7 @@ export function RackDetailPanel({ rack, onRepositoryMutated }: Props) {
   }, [rack.id]);
 
   function handleSelectPlacement(p: PlacementDto | null) {
+    setMutationMessage(null);
     setSelectedPlacement((prev) =>
       p === null ? null : prev?.id === p.id ? null : p,
     );
@@ -155,15 +158,27 @@ export function RackDetailPanel({ rack, onRepositoryMutated }: Props) {
       .finally(() => setLoading(false));
   }
 
-  function handleMoveSuccess(movedPlacementId: string) {
+  function handleMoveSuccess(
+    movedPlacementId: string,
+    options?: { movedToAnotherRack?: boolean },
+  ) {
+    if (options?.movedToAnotherRack) {
+      setMutationMessage(
+        "Moved to another rack in memory. Use Save to persist changes.",
+      );
+    } else {
+      setMutationMessage(null);
+    }
     refreshAfterMutation({ selectId: movedPlacementId });
   }
 
   function handleAddSuccess(newPlacementId: string) {
+    setMutationMessage(null);
     refreshAfterMutation({ selectId: newPlacementId, bumpTargets: true });
   }
 
   function handleRemoveSuccess() {
+    setMutationMessage(null);
     refreshAfterMutation({ selectId: null, bumpTargets: true });
   }
 
@@ -223,9 +238,21 @@ export function RackDetailPanel({ rack, onRepositoryMutated }: Props) {
           <h3 style={{ ...common.h3, marginTop: "1.25rem" }}>
             Placement Inspector
           </h3>
+          {mutationMessage && (
+            <p
+              style={{
+                margin: "0 0 0.5rem",
+                fontSize: "0.82rem",
+                color: "#2a7a2a",
+              }}
+            >
+              {mutationMessage}
+            </p>
+          )}
           <PlacementInspectorPanel
             placement={selectedPlacement}
             side={selectedSide}
+            currentRack={rack}
             onMoveSuccess={handleMoveSuccess}
             onRemoveSuccess={handleRemoveSuccess}
           />

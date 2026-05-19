@@ -164,6 +164,10 @@ export function getRackDetail(rackId: string): Promise<RackDetailDto> {
 
 export interface MovePlacementInput {
   placement_id: string;
+  /** Destination rack ID. Omit or null to keep current rack. */
+  new_rack_id?: string | null;
+  /** Destination side. Omit or null to keep current side. */
+  new_side?: "front" | "rear" | null;
   new_start_u: number;
   new_height_u: number | null;
 }

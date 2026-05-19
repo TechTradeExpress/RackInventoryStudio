@@ -483,6 +483,17 @@ pub struct RemovePlacementInput {
     pub placement_code: Option<String>,
 }
 
+pub struct MovePlacementToTargetInput {
+    pub placement_id: Option<String>,
+    pub placement_code: Option<String>,
+    /// Destination rack ID. None = keep current rack.
+    pub new_rack_id: Option<String>,
+    /// Destination side. None = keep current side.
+    pub new_side: Option<PlacementSide>,
+    pub new_start_u: u32,
+    pub new_height_u: Option<u32>,
+}
+
 // ── Placement use cases ───────────────────────────────────────────────────────
 
 impl RepositorySession {
@@ -904,6 +915,126 @@ impl RepositorySession {
             .position(|p| p.id == placement_id)
             .ok_or_else(|| ApplicationError::NotFound(format!("placement id: {placement_id}")))?;
         list.remove(pos);
+
+        self.rebuild_index();
+        Ok(())
+    }
+
+    /// Move a placement to a new rack, side, and/or start U.
+    ///
+    /// `new_rack_id` and `new_side` default to the placement's current rack and side when
+    /// `None`. This generalises `move_placement_within_side` and is the method exposed through
+    /// the Tauri `move_placement` command.
+    pub fn move_placement(
+        &mut self,
+        input: MovePlacementToTargetInput,
+    ) -> Result<(), ApplicationError> {
+        let (placement_id, src_rack_id, src_side, existing_height_u, target_kind, target_id) = {
+            let ip = self.resolve_placement(
+                input.placement_id.as_deref(),
+                input.placement_code.as_deref(),
+            )?;
+            (
+                ip.placement.id.clone(),
+                ip.rack_id.clone(),
+                ip.side.clone(),
+                ip.placement.height_u,
+                ip.placement.target_kind.clone(),
+                ip.placement.target_id.clone(),
+            )
+        };
+
+        let dst_rack_id = input
+            .new_rack_id
+            .clone()
+            .unwrap_or_else(|| src_rack_id.clone());
+        let dst_side = input.new_side.clone().unwrap_or_else(|| src_side.clone());
+
+        let dst_rack_height = self
+            .index
+            .racks_by_id
+            .get(&dst_rack_id)
+            .ok_or_else(|| ApplicationError::NotFound(format!("rack id: {dst_rack_id}")))?
+            .height_u;
+
+        let new_height = input
+            .new_height_u
+            .or(existing_height_u)
+            .or_else(|| match &target_kind {
+                PlacementTargetKind::DeviceModel => self
+                    .index
+                    .device_models_by_id
+                    .get(&target_id)
+                    .map(|m| m.default_height_u),
+                PlacementTargetKind::Device => self
+                    .index
+                    .devices_by_id
+                    .get(&target_id)
+                    .and_then(|d| d.device_model_id.as_deref())
+                    .and_then(|mid| self.index.device_models_by_id.get(mid))
+                    .map(|m| m.default_height_u),
+            })
+            .ok_or_else(|| {
+                ApplicationError::EffectiveHeightMissing(format!(
+                    "placement {placement_id} has no height and no model default"
+                ))
+            })?;
+
+        let range = PlacementRange::try_new(input.new_start_u, new_height).ok_or_else(|| {
+            ApplicationError::OutOfRackBounds(format!(
+                "new_start_u {} is invalid",
+                input.new_start_u
+            ))
+        })?;
+        if range.end_u > dst_rack_height {
+            return Err(ApplicationError::OutOfRackBounds(format!(
+                "new position end_u {} exceeds rack height_u {dst_rack_height}",
+                range.end_u
+            )));
+        }
+
+        // Self-collision only possible when the placement stays in the same rack+side slot.
+        let exclude_id = if dst_rack_id == src_rack_id && dst_side == src_side {
+            Some(placement_id.as_str())
+        } else {
+            None
+        };
+        self.check_collision(&dst_rack_id, &dst_side, &range, exclude_id)?;
+
+        // Extract placement from source list (releases borrow on placement_files).
+        let mut placement = {
+            let src_pf = self
+                .data
+                .placement_files
+                .iter_mut()
+                .find(|pf| pf.rack_id == src_rack_id)
+                .ok_or_else(|| {
+                    ApplicationError::NotFound(format!("placement file for rack {src_rack_id}"))
+                })?;
+            let src_list = match src_side {
+                PlacementSide::Front => &mut src_pf.front,
+                PlacementSide::Rear => &mut src_pf.rear,
+            };
+            let pos = src_list
+                .iter()
+                .position(|p| p.id == placement_id)
+                .ok_or_else(|| {
+                    ApplicationError::NotFound(format!("placement id: {placement_id}"))
+                })?;
+            src_list.remove(pos)
+        };
+
+        placement.start_u = input.new_start_u;
+        if let Some(new_h) = input.new_height_u {
+            placement.height_u = Some(new_h);
+        }
+
+        // Insert into destination (find_or_create_placement_file_idx may push a new entry).
+        let dst_pf_idx = self.find_or_create_placement_file_idx(&dst_rack_id);
+        match dst_side {
+            PlacementSide::Front => self.data.placement_files[dst_pf_idx].front.push(placement),
+            PlacementSide::Rear => self.data.placement_files[dst_pf_idx].rear.push(placement),
+        }
 
         self.rebuild_index();
         Ok(())
