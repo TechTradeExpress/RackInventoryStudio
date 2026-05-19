@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.22.0 — Destination navigation polish (milestone 22)
+
+- `pendingNavigation` in `RacksPanel` is now cleared after `RackDetailPanel` consumes `initialNavigation` — whether the placement was found, missing, or the detail load failed — via a new `onNavigationConsumed` callback. Previously it remained set until the next manual rack row click.
+- Destination rack row in the racks table is highlighted with a soft green tint (`#d5ebd5`) after automatic cross-rack navigation. The highlight is cleared when the user manually clicks any rack row, another cross-rack navigation occurs, or the repository changes.
+- No Rust changes; no new Tauri commands; no CSV import UI; no Git workflow; no drag and drop.
+- Rust checks pass (160 tests, clippy clean, fmt clean).
+- TypeScript typecheck, Vitest (18 passing), and Vite build pass (177 KB bundle).
+
 ## v0.21.0 — Cross-rack move navigation UX (milestone 21)
 
 - After a successful cross-rack placement move, the app automatically navigates to the destination rack: the destination rack becomes selected, its detail loads, and the moved placement is selected in the diagram, table, and inspector when found.

@@ -20,6 +20,7 @@ interface Props {
   onRepositoryMutated: () => void;
   onNavigateToRackPlacement: (rackId: string, placementId: string) => boolean;
   initialNavigation: NavigationRequest | null;
+  onNavigationConsumed?: () => void;
 }
 
 interface PlacementTableProps {
@@ -104,6 +105,7 @@ export function RackDetailPanel({
   onRepositoryMutated,
   onNavigateToRackPlacement,
   initialNavigation,
+  onNavigationConsumed,
 }: Props) {
   const [detail, setDetail] = useState<RackDetailDto | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -142,7 +144,10 @@ export function RackDetailPanel({
         }
       })
       .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        if (initialNavigation) onNavigationConsumed?.();
+      });
   }, [rack.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleSelectPlacement(p: PlacementDto | null) {
