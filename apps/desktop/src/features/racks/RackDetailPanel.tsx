@@ -10,9 +10,16 @@ import { RackUnitDiagram } from "./RackUnitDiagram";
 import { PlacementInspectorPanel } from "./PlacementInspectorPanel";
 import { AddPlacementPanel } from "./AddPlacementPanel";
 
+interface NavigationRequest {
+  placementId: string;
+  message: string;
+}
+
 interface Props {
   rack: RackSummaryDto;
   onRepositoryMutated: () => void;
+  onNavigateToRackPlacement: (rackId: string, placementId: string) => boolean;
+  initialNavigation: NavigationRequest | null;
 }
 
 interface PlacementTableProps {
@@ -92,7 +99,12 @@ function deriveSide(
   return null;
 }
 
-export function RackDetailPanel({ rack, onRepositoryMutated }: Props) {
+export function RackDetailPanel({
+  rack,
+  onRepositoryMutated,
+  onNavigateToRackPlacement,
+  initialNavigation,
+}: Props) {
   const [detail, setDetail] = useState<RackDetailDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -108,10 +120,30 @@ export function RackDetailPanel({ rack, onRepositoryMutated }: Props) {
     setSelectedPlacement(null);
     setMutationMessage(null);
     getRackDetail(rack.id)
-      .then(setDetail)
+      .then((newDetail) => {
+        setDetail(newDetail);
+        if (initialNavigation) {
+          const found =
+            newDetail.front.find(
+              (p) => p.id === initialNavigation.placementId,
+            ) ??
+            newDetail.rear.find(
+              (p) => p.id === initialNavigation.placementId,
+            ) ??
+            null;
+          if (found) {
+            setSelectedPlacement(found);
+            setMutationMessage(initialNavigation.message);
+          } else {
+            setMutationMessage(
+              "Placement not found in destination rack.",
+            );
+          }
+        }
+      })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
-  }, [rack.id]);
+  }, [rack.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleSelectPlacement(p: PlacementDto | null) {
     setMutationMessage(null);
@@ -160,16 +192,25 @@ export function RackDetailPanel({ rack, onRepositoryMutated }: Props) {
 
   function handleMoveSuccess(
     movedPlacementId: string,
-    options?: { movedToAnotherRack?: boolean },
+    options?: { movedToAnotherRack?: boolean; destRackId?: string },
   ) {
-    if (options?.movedToAnotherRack) {
-      setMutationMessage(
-        "Moved to another rack in memory. Use Save to persist changes.",
+    if (options?.movedToAnotherRack && options.destRackId) {
+      const navigated = onNavigateToRackPlacement(
+        options.destRackId,
+        movedPlacementId,
       );
+      if (navigated) {
+        onRepositoryMutated();
+      } else {
+        setMutationMessage(
+          "Moved to another rack in memory. Use Save to persist changes.",
+        );
+        refreshAfterMutation({ selectId: null }); // calls onRepositoryMutated internally
+      }
     } else {
       setMutationMessage(null);
+      refreshAfterMutation({ selectId: movedPlacementId });
     }
-    refreshAfterMutation({ selectId: movedPlacementId });
   }
 
   function handleAddSuccess(newPlacementId: string) {

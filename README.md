@@ -59,7 +59,7 @@ tests/                  Shared test fixtures
 - Tab navigation: Locations list, Racks list, Devices list, Device Models list
 - Rack detail view — metadata table, graphical read-only rack unit diagram (U-position, front and rear sides)
 - Placement inspector — all placement fields visible when a placement is selected
-- Move a placement to a new rack, side, start U, and optional height override via the Placement Inspector form (supports same-rack, cross-side, and rack-to-rack moves)
+- Move a placement to a new rack, side, start U, and optional height override via the Placement Inspector form (supports same-rack, cross-side, and rack-to-rack moves); cross-rack move automatically navigates to the destination rack and selects the moved placement
 - Add a new device or rack object placement to the selected rack via a simple form (side, target, start U, optional height override); unsaved changes must be saved explicitly via the Validation tab
 - Remove an existing placement from the selected rack via a confirmation button in the Placement Inspector; unsaved changes must be saved explicitly via the Validation tab
 - Frontend Vitest unit tests

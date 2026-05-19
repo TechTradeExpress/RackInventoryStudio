@@ -10,10 +10,17 @@ interface Props {
   onRepositoryMutated: () => void;
 }
 
+interface PendingNavigation {
+  placementId: string;
+  message: string;
+}
+
 export function RacksPanel({ repoPath, selectedRackId, onSelectRack, onRepositoryMutated }: Props) {
   const [racks, setRacks] = useState<RackSummaryDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [pendingNavigation, setPendingNavigation] =
+    useState<PendingNavigation | null>(null);
 
   useEffect(() => {
     if (!repoPath) return;
@@ -29,7 +36,22 @@ export function RacksPanel({ repoPath, selectedRackId, onSelectRack, onRepositor
   const selectedRack = racks.find((r) => r.id === selectedRackId) ?? null;
 
   function handleRowClick(rack: RackSummaryDto) {
+    setPendingNavigation(null);
     onSelectRack(selectedRackId === rack.id ? null : rack);
+  }
+
+  function handleNavigateToRackPlacement(
+    rackId: string,
+    placementId: string,
+  ): boolean {
+    const destRack = racks.find((r) => r.id === rackId);
+    if (!destRack) return false;
+    setPendingNavigation({
+      placementId,
+      message: `Moved to rack ${destRack.code} in memory. Use Save to persist changes.`,
+    });
+    onSelectRack(destRack);
+    return true;
   }
 
   return (
@@ -94,7 +116,12 @@ export function RacksPanel({ repoPath, selectedRackId, onSelectRack, onRepositor
       </section>
 
       {selectedRack && (
-        <RackDetailPanel rack={selectedRack} onRepositoryMutated={onRepositoryMutated} />
+        <RackDetailPanel
+          rack={selectedRack}
+          onRepositoryMutated={onRepositoryMutated}
+          onNavigateToRackPlacement={handleNavigateToRackPlacement}
+          initialNavigation={pendingNavigation}
+        />
       )}
     </>
   );

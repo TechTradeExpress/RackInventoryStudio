@@ -11,7 +11,7 @@ interface Props {
   currentRack: RackSummaryDto;
   onMoveSuccess: (
     placementId: string,
-    options?: { movedToAnotherRack?: boolean },
+    options?: { movedToAnotherRack?: boolean; destRackId?: string },
   ) => void;
   onRemoveSuccess: () => void;
 }
@@ -165,7 +165,10 @@ export function PlacementInspectorPanel({
       if (!crossRack) {
         setMoveSuccessMsg("Moved in memory. Use Save to persist changes.");
       }
-      onMoveSuccess(placement.id, { movedToAnotherRack: crossRack });
+      onMoveSuccess(placement.id, {
+        movedToAnotherRack: crossRack,
+        destRackId: crossRack ? newRackId : undefined,
+      });
     } catch (e) {
       setMoveError(String(e));
     } finally {
