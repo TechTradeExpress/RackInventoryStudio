@@ -14,10 +14,12 @@ import {
   type GitCommitDto,
   type GitRemoteDto,
   type GitStatusDto,
+  type OpenRepositoryResultDto,
   type RepositorySummaryDto,
   type ValidationSummaryDto,
 } from "../../api/tauriClient";
 import { computeValidationSummary, isNothingToCommitError } from "./publishHelpers";
+import { CreateRepositoryWizard } from "./CreateRepositoryWizard";
 
 interface Props {
   repoPath: string;
@@ -31,6 +33,7 @@ interface Props {
   onSaveSuccess: () => void;
   onPullSuccess: (summary: RepositorySummaryDto) => void;
   onPullRunning: (running: boolean) => void;
+  onCreateSuccess: (result: OpenRepositoryResultDto) => void;
 }
 
 const EXAMPLE_HINT = "examples/example-repository";
@@ -688,6 +691,7 @@ export function RepositoryPanel({
   onSaveSuccess,
   onPullSuccess,
   onPullRunning,
+  onCreateSuccess,
 }: Props) {
   return (
     <>
@@ -721,6 +725,16 @@ export function RepositoryPanel({
           )}
         </div>
       </section>
+
+      {!summary && (
+        <section style={common.section}>
+          <h2 style={common.h2}>Create New Repository</h2>
+          <p style={common.hint}>
+            Scaffold a new RIS repository on disk. Git initialization is optional and can be done later.
+          </p>
+          <CreateRepositoryWizard onSuccess={onCreateSuccess} />
+        </section>
+      )}
 
       {summary && (
         <section style={common.section}>

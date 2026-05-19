@@ -470,6 +470,21 @@ export function pullGitFfOnly(remote: string): Promise<RepositorySummaryDto> {
   return invoke("pull_git_ff_only", { remote });
 }
 
+// ── Create repository ─────────────────────────────────────────────────────────
+
+export interface CreateRepositoryInput {
+  path: string;
+  code: string;
+  name: string;
+  initialize_git: boolean;
+}
+
+export function createRepository(
+  input: CreateRepositoryInput,
+): Promise<OpenRepositoryResultDto> {
+  return invoke("create_repository_cmd", { input });
+}
+
 // ── Native dialog ─────────────────────────────────────────────────────────────
 
 export async function selectRepositoryFolder(): Promise<string | null> {

@@ -1,12 +1,12 @@
 import { useState } from "react";
 import {
-  openRepository,
   closeRepository,
-  selectRepositoryFolder,
   getRepositorySummary,
+  openRepository,
+  selectRepositoryFolder,
   type OpenRepositoryResultDto,
-  type RepositorySummaryDto,
   type RackSummaryDto,
+  type RepositorySummaryDto,
 } from "./api/tauriClient";
 import { TabBar } from "./components/TabBar";
 import { RepositoryPanel } from "./features/repository/RepositoryPanel";
@@ -120,6 +120,18 @@ export function App() {
     }
   }
 
+  function handleCreateSuccess(result: OpenRepositoryResultDto) {
+    setSummary(result.summary);
+    setRepoPath(result.summary.repo_path);
+    setSelectedRack(null);
+    setHasUnsavedChanges(false);
+    setHighlightedLocationId(null);
+    setHighlightedDeviceId(null);
+    setHighlightedDeviceModelId(null);
+    setPendingRackNavTarget(null);
+    setActiveTab("repository");
+  }
+
   async function handleClose() {
     if (
       hasUnsavedChanges &&
@@ -196,6 +208,7 @@ export function App() {
           onSaveSuccess={() => setHasUnsavedChanges(false)}
           onPullSuccess={(s) => setSummary(s)}
           onPullRunning={(v) => setWorking(v)}
+          onCreateSuccess={handleCreateSuccess}
         />
       )}
 
