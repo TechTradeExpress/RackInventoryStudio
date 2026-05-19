@@ -8,9 +8,9 @@ use commands::{
     get_rack_detail, get_repository_summary, import_device_csv_cmd, init_git_repository,
     list_device_models, list_devices, list_git_remotes, list_locations, list_racks, move_placement,
     open_repository_cmd, place_device, place_rack_object, preview_device_csv_import_cmd,
-    pull_git_ff_only, push_git_current_branch, remove_placement, save_current_repository,
-    update_device_cmd, update_device_model_cmd, update_location_cmd, update_rack_cmd,
-    validate_current_repository, AppState,
+    pull_git_ff_only, push_git_current_branch, read_csv_file, remove_placement,
+    save_current_repository, update_device_cmd, update_device_model_cmd, update_location_cmd,
+    update_rack_cmd, validate_current_repository, AppState,
 };
 use std::sync::Mutex;
 
@@ -59,6 +59,7 @@ pub fn run() {
             add_git_remote,
             push_git_current_branch,
             pull_git_ff_only,
+            read_csv_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

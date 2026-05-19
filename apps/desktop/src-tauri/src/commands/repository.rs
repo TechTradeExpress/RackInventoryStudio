@@ -793,3 +793,85 @@ pub fn delete_device_cmd(id: String, state: State<AppState>) -> Result<(), Strin
     let session = guard.as_mut().ok_or_else(no_session)?;
     session.delete_device(&id).map_err(|e| e.to_string())
 }
+
+// ── CSV file reader ───────────────────────────────────────────────────────────
+
+pub const MAX_CSV_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
+
+/// Reads a file as UTF-8 text, enforcing a size limit.
+/// Extracted as a pure function so it can be unit-tested without Tauri state.
+pub fn read_csv_content(path: &Path, max_bytes: u64) -> Result<String, String> {
+    let meta =
+        std::fs::metadata(path).map_err(|e| format!("Cannot access '{}': {e}", path.display()))?;
+    if !meta.is_file() {
+        return Err(format!("'{}' is not a file", path.display()));
+    }
+    if meta.len() > max_bytes {
+        return Err(format!(
+            "File is too large ({:.1} MB). Maximum allowed size is {} MB.",
+            meta.len() as f64 / (1024.0 * 1024.0),
+            max_bytes / (1024 * 1024)
+        ));
+    }
+    let bytes =
+        std::fs::read(path).map_err(|e| format!("Cannot read '{}': {e}", path.display()))?;
+    String::from_utf8(bytes).map_err(|_| format!("'{}' is not valid UTF-8 text", path.display()))
+}
+
+#[tauri::command]
+pub fn read_csv_file(path: String) -> Result<String, String> {
+    read_csv_content(Path::new(&path), MAX_CSV_BYTES)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{read_csv_content, MAX_CSV_BYTES};
+    use std::io::Write;
+    use std::path::Path;
+
+    #[test]
+    fn reads_valid_utf8_csv() {
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        let content = "code,device_type,status\nsrv-01,server,planned";
+        tmp.write_all(content.as_bytes()).unwrap();
+        assert_eq!(
+            read_csv_content(tmp.path(), MAX_CSV_BYTES).unwrap(),
+            content
+        );
+    }
+
+    #[test]
+    fn rejects_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let err = read_csv_content(tmp.path(), MAX_CSV_BYTES).unwrap_err();
+        assert!(err.contains("not a file"), "got: {err}");
+    }
+
+    #[test]
+    fn rejects_nonexistent_path() {
+        let err = read_csv_content(
+            Path::new("/nonexistent/__ris_no_such_file__.csv"),
+            MAX_CSV_BYTES,
+        )
+        .unwrap_err();
+        assert!(!err.is_empty(), "expected non-empty error");
+    }
+
+    #[test]
+    fn rejects_non_utf8_content() {
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        tmp.write_all(&[0xFF, 0xFE, 0x00, 0x01]).unwrap();
+        let err = read_csv_content(tmp.path(), MAX_CSV_BYTES).unwrap_err();
+        assert!(err.to_lowercase().contains("utf-8"), "got: {err}");
+    }
+
+    #[test]
+    fn rejects_file_exceeding_size_limit() {
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        // Use a small limit so the test doesn't write megabytes to disk.
+        let limit: u64 = 100;
+        tmp.write_all(&vec![b'x'; 101]).unwrap();
+        let err = read_csv_content(tmp.path(), limit).unwrap_err();
+        assert!(err.to_lowercase().contains("too large"), "got: {err}");
+    }
+}

@@ -485,7 +485,25 @@ export function createRepository(
   return invoke("create_repository_cmd", { input });
 }
 
+// ── CSV file I/O ──────────────────────────────────────────────────────────────
+
+export function readCsvFile(path: string): Promise<string> {
+  return invoke("read_csv_file", { path });
+}
+
 // ── Native dialog ─────────────────────────────────────────────────────────────
+
+export async function selectCsvFile(): Promise<string | null> {
+  const result = await open({
+    directory: false,
+    multiple: false,
+    title: "Select CSV File",
+    filters: [{ name: "CSV Files", extensions: ["csv"] }],
+  });
+  if (result === null || result === undefined) return null;
+  if (Array.isArray(result)) return result[0] ?? null;
+  return result;
+}
 
 export async function selectRepositoryFolder(): Promise<string | null> {
   const result = await open({

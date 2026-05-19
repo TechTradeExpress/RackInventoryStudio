@@ -1,11 +1,17 @@
 import { FormEvent, useState } from "react";
 import { common } from "../../lib/styles";
 import {
-  previewDeviceCsvImport,
   importDeviceCsv,
+  previewDeviceCsvImport,
+  readCsvFile,
+  selectCsvFile,
   type CsvImportPreviewDto,
   type CsvImportPreviewRowDto,
 } from "../../api/tauriClient";
+
+function fileName(path: string): string {
+  return path.split(/[\\/]/).pop() ?? path;
+}
 
 interface Props {
   onRepositoryMutated: () => void;
@@ -31,12 +37,39 @@ function issueText(row: CsvImportPreviewRowDto): string {
 
 export function CsvImportPanel({ onRepositoryMutated }: Props) {
   const [csvContent, setCsvContent] = useState("");
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [fileLoading, setFileLoading] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
   const [preview, setPreview] = useState<CsvImportPreviewDto | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [importing, setImporting] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
+
+  async function handleChooseFile() {
+    setFileError(null);
+    setFileLoading(true);
+    try {
+      const path = await selectCsvFile();
+      if (path === null) return; // user cancelled — do nothing
+      const content = await readCsvFile(path);
+      setSelectedFile(path);
+      setCsvContent(content);
+      setPreview(null);
+      setImportSuccess(null);
+      setImportError(null);
+    } catch (e) {
+      setFileError(String(e));
+    } finally {
+      setFileLoading(false);
+    }
+  }
+
+  function handleClearFile() {
+    setSelectedFile(null);
+    setFileError(null);
+  }
 
   async function handlePreview(e: FormEvent) {
     e.preventDefault();
@@ -71,6 +104,7 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
       );
       setPreview(null);
       setCsvContent("");
+      setSelectedFile(null);
     } catch (e) {
       setImportError(String(e));
     } finally {
@@ -85,8 +119,9 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
       <h2 style={common.h2}>CSV Import</h2>
 
       <p style={common.hint}>
-        Import new concrete Device records from CSV. Placements and Device
-        Models are not imported.
+        Import new concrete Device records from CSV. Choose a CSV file using
+        the button below, or paste the CSV content directly into the text area.
+        Placements and Device Models are not imported.
       </p>
       <p style={styles.formatHint}>
         Expected columns:{" "}
@@ -100,6 +135,33 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
       </p>
 
       <form onSubmit={handlePreview} style={styles.form}>
+        <div style={styles.filePickerRow}>
+          <button
+            type="button"
+            style={common.btn}
+            onClick={handleChooseFile}
+            disabled={fileLoading || previewing || importing}
+          >
+            {fileLoading ? "Loading…" : "Choose CSV file…"}
+          </button>
+          {selectedFile && (
+            <>
+              <span style={styles.selectedFile}>{fileName(selectedFile)}</span>
+              <button
+                type="button"
+                style={styles.clearBtn}
+                onClick={handleClearFile}
+                disabled={fileLoading || previewing || importing}
+              >
+                Clear
+              </button>
+            </>
+          )}
+        </div>
+        {fileError && (
+          <div style={common.errorBox}>{fileError}</div>
+        )}
+
         <div style={styles.fieldRow}>
           <label style={styles.label}>CSV Content</label>
           <textarea
@@ -402,5 +464,27 @@ const styles = {
   rowIssueDetails: {
     marginTop: "0.5rem",
     fontSize: "0.82rem",
+  },
+  filePickerRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "0.5rem",
+    flexWrap: "wrap" as const,
+    marginBottom: "0.25rem",
+  },
+  selectedFile: {
+    fontFamily: "monospace",
+    fontSize: "0.85rem",
+    color: "#333",
+  },
+  clearBtn: {
+    padding: "0.25rem 0.5rem",
+    fontFamily: "monospace",
+    fontSize: "0.8rem",
+    border: "1px solid #ccc",
+    borderRadius: "3px",
+    background: "#f4f4f4",
+    cursor: "pointer",
+    color: "#555",
   },
 };
