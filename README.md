@@ -23,7 +23,7 @@ crates/
   ris-repository/       YAML loader, YAML writer, RepositoryIndex
   ris-validation/       ValidationEngine and VAL-* rule validators
   ris-import/           CSV device import (preview only)
-  ris-git/              Git adapter stub (not yet implemented)
+  ris-git/              Git adapter (init, status, commit, log, remotes, push, pull)
   ris-application/      Application use cases and session management
 
 docs/                   Project specification and architecture docs
@@ -46,7 +46,7 @@ tests/                  Shared test fixtures
 | Placement use cases — place, move, remove device and rack objects | Done |
 | Tauri commands — open, save, validate, close, list entities, move placement, remove placement | Done |
 
-257 workspace tests pass as of v0.34.0.
+275 workspace tests pass as of v0.35.0.
 
 ## Current desktop UI capabilities
 
@@ -85,7 +85,7 @@ The core backend and the rack placement workflow are complete. The app is usable
 
 | Area | Status |
 |---|---|
-| Git remote sync (push, pull, remote config) | Not yet built; local foundation (init/status/commit/log) is implemented |
+| Git remote sync — auth configuration | Auth (SSH keys, HTTPS credentials) must be configured in the OS/git-credential-helper outside the app |
 | Native CSV file picker | Not implemented; users paste CSV into textarea |
 | Edit / delete UI for all entity types | Add-only; edit requires direct YAML or Remove Placement |
 | Drag-and-drop placement | Deferred post-MVP; form-based operations cover core use case |
@@ -142,7 +142,7 @@ pnpm --filter @rack-inventory-studio/desktop build
 
 ## Current limitations
 
-- **No Git remote sync** — local Git foundation (init, status, commit, log) is implemented. Push, pull, remote configuration, and auth are not yet available.
+- **No in-app Git auth** — push and pull are implemented but SSH keys and HTTPS credentials must be configured in the OS or git-credential-helper outside the app. Auth errors surface as clear error messages.
 - **No CSV import UI** — the import engine exists in `ris-import` but the confirmation/write step has no UI.
 - **No drag and drop** — placement positions are changed via inspector forms. Drag and drop is deferred to post-MVP as a UX enhancement.
 - **No full dirty diff tracking** — the app uses a global unsaved-changes flag. It warns that in-memory state may differ from disk, but it does not track exactly which rack or placement changed.

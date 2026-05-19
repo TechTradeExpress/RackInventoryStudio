@@ -36,7 +36,7 @@ fn no_session() -> String {
     "No repository is currently open".to_string()
 }
 
-fn build_summary(session: &RepositorySession) -> RepositorySummaryDto {
+pub(crate) fn build_summary(session: &RepositorySession) -> RepositorySummaryDto {
     let data = &session.data;
     let unplaced = session.get_unplaced_devices().len();
     let placements_count: usize = data

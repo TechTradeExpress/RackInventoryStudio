@@ -1,7 +1,7 @@
 # MVP Readiness Report
 
-**Date:** 2026-05-19 (updated Git foundation: 2026-05-19)
-**Scope:** Non-Git MVP inventory workflow (open/add/import/place/validate/save/reload); Git foundation added
+**Date:** 2026-05-19 (updated Git remote sync: 2026-05-19)
+**Scope:** Non-Git MVP inventory workflow (open/add/import/place/validate/save/reload); Git foundation + remote sync added
 
 ---
 
@@ -74,7 +74,8 @@ The following non-Git inventory operations are implemented and tested:
 - **Dirty state**: unsaved changes banner, confirmation on close
 - **Cross-panel refresh**: `repositoryMutationToken` propagates to all panels
 - **Validation navigation**: each validation issue links to its relevant tab/object
-- **Git foundation**: detect whether repo is a Git repository, init, show status (branch / clean / counts), show recent commits, commit saved changes with user-provided message from Repository panel
+- **Git foundation**: detect whether repo is a Git repository, init, show status (branch / upstream / ahead-behind / clean / counts), show recent commits, commit saved changes with user-provided message from Repository panel
+- **Git remote sync**: list configured remotes, add a remote, push current branch (`git push -u`), pull fast-forward (`git pull --ff-only`); push/pull disabled when unsaved changes exist; after pull, session reloads from disk automatically; auth errors (SSH/HTTPS) surface as clear error messages
 
 ---
 
@@ -82,10 +83,9 @@ The following non-Git inventory operations are implemented and tested:
 
 ### Critical (blocks full Git-backed MVP)
 
-1. **Git remote sync not implemented** — `git push`, `git pull`, conflict branch
-   handling, remote configuration, and authentication are not available.
-   The local offline workflow (init / commit / log) is implemented.
-   Pushing to a shared remote remains the next blocker for team collaboration.
+None — the local Git workflow (init / commit / log) and remote sync (remote add / push / pull) are now implemented. The core offline-first team collaboration workflow is demonstrable end-to-end.
+
+**Remaining auth note:** SSH keys and HTTPS credentials must be configured in the OS or a git-credential-helper before using push/pull. The app delegates auth entirely to the system git. This is intentional and documented.
 
 ### Usability gaps (acceptable for MVP, documented)
 
@@ -114,15 +114,7 @@ The following non-Git inventory operations are implemented and tested:
 
 ## Recommended next step
 
-**M34 — Git remote sync foundation**: Implement remote sync operations:
-- `git remote add` / list remotes,
-- `git push` to the configured remote,
-- basic `git pull --ff-only` for clean fast-forward syncs,
-- surface remote status (ahead/behind) in the Repository panel Git section.
-
-The local Git workflow (init / commit / log) is fully implemented.
-Remote sync is the remaining step to make the full offline-first team
-collaboration workflow demonstrable.
+**M35 — Edit/delete UI for entity types**: Add edit and delete operations for locations, racks, device models, and devices. Currently the app is add-only (except Remove Placement). This is the most impactful remaining usability gap for real-world use.
 
 ---
 
@@ -132,6 +124,6 @@ collaboration workflow demonstrable.
   devices imported via CSV without a `device_model_code` column require an
   explicit `height_u` override at placement time (no model to derive height from).
   This is expected behavior and is documented as a known limitation.
-- All 245 Rust tests pass (242 existing + 3 new smoke tests).
+- All 275 Rust tests pass (245 existing + 30 new ris-git tests: 7 parser unit + 11 remote integration + 12 git workflow).
 - All 38 Vitest tests pass.
 - Typecheck, build, and Clippy are clean.

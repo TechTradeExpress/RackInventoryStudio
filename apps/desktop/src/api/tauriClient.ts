@@ -329,6 +329,9 @@ export function importDeviceCsv(
 export interface GitStatusDto {
   is_repository: boolean;
   branch: string | null;
+  upstream: string | null;
+  ahead: number | null;
+  behind: number | null;
   is_clean: boolean;
   staged_count: number;
   unstaged_count: number;
@@ -342,6 +345,11 @@ export interface GitCommitDto {
   subject: string;
   author: string | null;
   date: string | null;
+}
+
+export interface GitRemoteDto {
+  name: string;
+  url: string;
 }
 
 export function getGitStatus(): Promise<GitStatusDto> {
@@ -358,6 +366,22 @@ export function getGitLog(limit?: number): Promise<GitCommitDto[]> {
 
 export function commitRepositoryChanges(message: string): Promise<GitCommitDto> {
   return invoke("commit_repository_changes", { message });
+}
+
+export function listGitRemotes(): Promise<GitRemoteDto[]> {
+  return invoke("list_git_remotes");
+}
+
+export function addGitRemote(name: string, url: string): Promise<void> {
+  return invoke("add_git_remote", { name, url });
+}
+
+export function pushGitCurrentBranch(remote: string): Promise<void> {
+  return invoke("push_git_current_branch", { remote });
+}
+
+export function pullGitFfOnly(remote: string): Promise<RepositorySummaryDto> {
+  return invoke("pull_git_ff_only", { remote });
 }
 
 // ── Native dialog ─────────────────────────────────────────────────────────────

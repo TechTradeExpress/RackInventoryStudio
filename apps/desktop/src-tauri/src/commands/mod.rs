@@ -1,7 +1,10 @@
 pub mod git;
 pub mod repository;
 
-pub use git::{commit_repository_changes, get_git_log, get_git_status, init_git_repository};
+pub use git::{
+    add_git_remote, commit_repository_changes, get_git_log, get_git_status, init_git_repository,
+    list_git_remotes, pull_git_ff_only, push_git_current_branch,
+};
 pub use repository::{
     add_device_cmd, add_device_model_cmd, add_location_cmd, add_rack_cmd, close_repository,
     get_rack_detail, get_repository_summary, import_device_csv_cmd, list_device_models,

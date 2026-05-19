@@ -1,11 +1,16 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { type CSSProperties, FormEvent, useEffect, useRef, useState } from "react";
 import { common } from "../../lib/styles";
 import {
+  addGitRemote,
   commitRepositoryChanges,
   getGitLog,
   getGitStatus,
   initGitRepository,
+  listGitRemotes,
+  pullGitFfOnly,
+  pushGitCurrentBranch,
   type GitCommitDto,
+  type GitRemoteDto,
   type GitStatusDto,
   type RepositorySummaryDto,
 } from "../../api/tauriClient";
@@ -19,6 +24,7 @@ interface Props {
   working: boolean;
   summary: RepositorySummaryDto | null;
   hasUnsavedChanges: boolean;
+  onPullSuccess: (summary: RepositorySummaryDto) => void;
 }
 
 const EXAMPLE_HINT = "examples/example-repository";
@@ -50,14 +56,23 @@ function SummaryTable({ summary }: { summary: RepositorySummaryDto }) {
   );
 }
 
+function buildSyncLabel(ahead: number | null, behind: number | null): string {
+  const parts: string[] = [];
+  if (ahead !== null && ahead > 0) parts.push(`↑ ${ahead} ahead`);
+  if (behind !== null && behind > 0) parts.push(`↓ ${behind} behind`);
+  return parts.length > 0 ? parts.join(", ") : "Up to date";
+}
+
 interface GitSectionProps {
   repoPath: string;
   hasUnsavedChanges: boolean;
+  onPullSuccess: (summary: RepositorySummaryDto) => void;
 }
 
-function GitSection({ repoPath, hasUnsavedChanges }: GitSectionProps) {
+function GitSection({ repoPath, hasUnsavedChanges, onPullSuccess }: GitSectionProps) {
   const [gitStatus, setGitStatus] = useState<GitStatusDto | null>(null);
   const [gitCommits, setGitCommits] = useState<GitCommitDto[]>([]);
+  const [remotes, setRemotes] = useState<GitRemoteDto[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -70,6 +85,21 @@ function GitSection({ repoPath, hasUnsavedChanges }: GitSectionProps) {
   const [initing, setIniting] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
 
+  const [selectedRemote, setSelectedRemote] = useState("");
+  const [newRemoteName, setNewRemoteName] = useState("origin");
+  const [newRemoteUrl, setNewRemoteUrl] = useState("");
+  const [addingRemote, setAddingRemote] = useState(false);
+  const [addRemoteError, setAddRemoteError] = useState<string | null>(null);
+  const [addRemoteSuccess, setAddRemoteSuccess] = useState<string | null>(null);
+
+  const [pushing, setPushing] = useState(false);
+  const [pushError, setPushError] = useState<string | null>(null);
+  const [pushSuccess, setPushSuccess] = useState<string | null>(null);
+
+  const [pulling, setPulling] = useState(false);
+  const [pullError, setPullError] = useState<string | null>(null);
+  const [pullSuccess, setPullSuccess] = useState<string | null>(null);
+
   const prevRepoPathRef = useRef("");
 
   useEffect(() => {
@@ -78,18 +108,38 @@ function GitSection({ repoPath, hasUnsavedChanges }: GitSectionProps) {
     if (isRepoSwitch) {
       setGitStatus(null);
       setGitCommits([]);
+      setRemotes([]);
       setCommitMessage("");
       setCommitError(null);
       setCommitSuccess(null);
       setInitError(null);
       setError(null);
+      setSelectedRemote("");
+      setNewRemoteName("origin");
+      setNewRemoteUrl("");
+      setAddRemoteError(null);
+      setAddRemoteSuccess(null);
+      setPushError(null);
+      setPushSuccess(null);
+      setPullError(null);
+      setPullSuccess(null);
     }
 
     setLoading(true);
-    Promise.all([getGitStatus(), getGitLog(5)])
-      .then(([status, commits]) => {
+    Promise.all([
+      getGitStatus(),
+      getGitLog(5),
+      listGitRemotes().catch(() => [] as GitRemoteDto[]),
+    ])
+      .then(([status, commits, remoteList]) => {
         setGitStatus(status);
         setGitCommits(commits);
+        setRemotes(remoteList);
+        setSelectedRemote((prev) => {
+          if (remoteList.length === 0) return "";
+          if (remoteList.find((r) => r.name === prev)) return prev;
+          return remoteList[0].name;
+        });
         setError(null);
       })
       .catch((e) => setError(String(e)))
@@ -128,6 +178,65 @@ function GitSection({ repoPath, hasUnsavedChanges }: GitSectionProps) {
       setCommitError(String(e));
     } finally {
       setCommitting(false);
+    }
+  }
+
+  async function handleAddRemote(e: FormEvent) {
+    e.preventDefault();
+    setAddRemoteError(null);
+    setAddRemoteSuccess(null);
+    const name = newRemoteName.trim();
+    const url = newRemoteUrl.trim();
+    if (!name) {
+      setAddRemoteError("Remote name cannot be empty.");
+      return;
+    }
+    if (!url) {
+      setAddRemoteError("Remote URL cannot be empty.");
+      return;
+    }
+    setAddingRemote(true);
+    try {
+      await addGitRemote(name, url);
+      setAddRemoteSuccess(`Remote "${name}" added.`);
+      setNewRemoteName("origin");
+      setNewRemoteUrl("");
+      setRefreshKey((k) => k + 1);
+    } catch (e) {
+      setAddRemoteError(String(e));
+    } finally {
+      setAddingRemote(false);
+    }
+  }
+
+  async function handlePush() {
+    setPushError(null);
+    setPushSuccess(null);
+    setPushing(true);
+    try {
+      await pushGitCurrentBranch(selectedRemote);
+      setPushSuccess(`Pushed to "${selectedRemote}".`);
+      setRefreshKey((k) => k + 1);
+    } catch (e) {
+      setPushError(String(e));
+    } finally {
+      setPushing(false);
+    }
+  }
+
+  async function handlePull() {
+    setPullError(null);
+    setPullSuccess(null);
+    setPulling(true);
+    try {
+      const updatedSummary = await pullGitFfOnly(selectedRemote);
+      setPullSuccess(`Pulled from "${selectedRemote}".`);
+      onPullSuccess(updatedSummary);
+      setRefreshKey((k) => k + 1);
+    } catch (e) {
+      setPullError(String(e));
+    } finally {
+      setPulling(false);
     }
   }
 
@@ -181,6 +290,8 @@ function GitSection({ repoPath, hasUnsavedChanges }: GitSectionProps) {
     hasUnsavedChanges ||
     !commitMessage.trim();
 
+  const syncDisabled = pushing || pulling || hasUnsavedChanges || !selectedRemote;
+
   return (
     <section style={common.section}>
       <h2 style={common.h2}>Git</h2>
@@ -191,6 +302,20 @@ function GitSection({ repoPath, hasUnsavedChanges }: GitSectionProps) {
             <td style={common.th}>Branch</td>
             <td style={common.td}>{gitStatus.branch ?? "—"}</td>
           </tr>
+          {gitStatus.upstream && (
+            <tr>
+              <td style={common.th}>Upstream</td>
+              <td style={common.td}>{gitStatus.upstream}</td>
+            </tr>
+          )}
+          {gitStatus.upstream && (
+            <tr>
+              <td style={common.th}>Sync</td>
+              <td style={common.td}>
+                {buildSyncLabel(gitStatus.ahead, gitStatus.behind)}
+              </td>
+            </tr>
+          )}
           <tr>
             <td style={common.th}>Status</td>
             <td style={{ ...common.td, color: gitStatus.is_clean ? "#2d6a2d" : "#7a3800" }}>
@@ -250,7 +375,7 @@ function GitSection({ repoPath, hasUnsavedChanges }: GitSectionProps) {
         <p style={common.hint}>No commits yet.</p>
       )}
 
-      <div style={styles.commitSection}>
+      <div style={styles.subSection}>
         <h3 style={common.h3}>Commit saved changes</h3>
         {hasUnsavedChanges && (
           <div style={styles.warningBox}>
@@ -276,6 +401,106 @@ function GitSection({ repoPath, hasUnsavedChanges }: GitSectionProps) {
         {commitError && <div style={common.errorBox}>{commitError}</div>}
         {commitSuccess && <div style={styles.successBox}>{commitSuccess}</div>}
       </div>
+
+      <div style={styles.subSection}>
+        <h3 style={common.h3}>Remote sync</h3>
+
+        {remotes.length > 0 ? (
+          <table style={{ ...common.table, marginBottom: "0.75rem" }}>
+            <thead>
+              <tr>
+                <th style={common.th}>Name</th>
+                <th style={common.th}>URL</th>
+              </tr>
+            </thead>
+            <tbody>
+              {remotes.map((r) => (
+                <tr key={r.name}>
+                  <td style={{ ...common.td, fontFamily: "monospace" }}>{r.name}</td>
+                  <td style={{ ...common.td, fontFamily: "monospace", wordBreak: "break-all" }}>
+                    {r.url}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p style={common.hint}>No remotes configured.</p>
+        )}
+
+        <div style={{ marginBottom: "0.75rem" }}>
+          <h4 style={styles.h4}>Add remote</h4>
+          <form onSubmit={handleAddRemote} style={styles.addRemoteForm}>
+            <input
+              style={{ ...common.input, flex: "none", width: "8rem" }}
+              value={newRemoteName}
+              onChange={(e) => setNewRemoteName(e.target.value)}
+              placeholder="Name"
+              disabled={addingRemote}
+            />
+            <input
+              style={common.input}
+              value={newRemoteUrl}
+              onChange={(e) => setNewRemoteUrl(e.target.value)}
+              placeholder="URL (e.g. git@github.com:org/repo.git)"
+              disabled={addingRemote}
+            />
+            <button type="submit" style={common.btn} disabled={addingRemote}>
+              {addingRemote ? "Adding…" : "Add remote"}
+            </button>
+          </form>
+          {addRemoteError && <div style={common.errorBox}>{addRemoteError}</div>}
+          {addRemoteSuccess && <div style={styles.successBox}>{addRemoteSuccess}</div>}
+        </div>
+
+        <div>
+          <h4 style={styles.h4}>Push / Pull</h4>
+          {hasUnsavedChanges && (
+            <div style={styles.warningBox}>
+              Save and commit local changes before syncing.
+            </div>
+          )}
+          {remotes.length === 0 ? (
+            <p style={common.hint}>Add a remote above to enable push and pull.</p>
+          ) : (
+            <>
+              <div style={styles.remoteSelectRow}>
+                <span style={styles.remoteSelectLabel}>Remote:</span>
+                <select
+                  value={selectedRemote}
+                  onChange={(e) => setSelectedRemote(e.target.value)}
+                  disabled={pushing || pulling || hasUnsavedChanges}
+                  style={{ ...common.input, flex: "none" }}
+                >
+                  {remotes.map((r) => (
+                    <option key={r.name} value={r.name}>{r.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                <button
+                  style={common.btn}
+                  onClick={handlePush}
+                  disabled={syncDisabled}
+                >
+                  {pushing ? "Pushing…" : "Push current branch"}
+                </button>
+                <button
+                  style={common.btn}
+                  onClick={handlePull}
+                  disabled={syncDisabled}
+                >
+                  {pulling ? "Pulling…" : "Pull --ff-only"}
+                </button>
+              </div>
+              {pushError && <div style={{ ...common.errorBox, marginTop: "0.4rem" }}>{pushError}</div>}
+              {pushSuccess && <div style={{ ...styles.successBox, marginTop: "0.4rem" }}>{pushSuccess}</div>}
+              {pullError && <div style={{ ...common.errorBox, marginTop: "0.4rem" }}>{pullError}</div>}
+              {pullSuccess && <div style={{ ...styles.successBox, marginTop: "0.4rem" }}>{pullSuccess}</div>}
+            </>
+          )}
+        </div>
+      </div>
     </section>
   );
 }
@@ -289,6 +514,7 @@ export function RepositoryPanel({
   working,
   summary,
   hasUnsavedChanges,
+  onPullSuccess,
 }: Props) {
   return (
     <>
@@ -334,6 +560,7 @@ export function RepositoryPanel({
         <GitSection
           repoPath={summary.repo_path}
           hasUnsavedChanges={hasUnsavedChanges}
+          onPullSuccess={onPullSuccess}
         />
       )}
     </>
@@ -341,7 +568,7 @@ export function RepositoryPanel({
 }
 
 const styles = {
-  commitSection: {
+  subSection: {
     marginTop: "0.75rem",
     paddingTop: "0.5rem",
     borderTop: "1px solid #eee",
@@ -350,6 +577,28 @@ const styles = {
     display: "flex",
     gap: "0.5rem",
     marginTop: "0.4rem",
+  },
+  addRemoteForm: {
+    display: "flex",
+    gap: "0.5rem",
+    marginTop: "0.4rem",
+    flexWrap: "wrap" as const,
+  },
+  h4: {
+    fontSize: "0.9rem",
+    fontWeight: 600,
+    margin: "0 0 0.35rem",
+    color: "#444",
+  } as CSSProperties,
+  remoteSelectRow: {
+    display: "flex",
+    gap: "0.5rem",
+    alignItems: "center",
+    marginBottom: "0.5rem",
+  },
+  remoteSelectLabel: {
+    fontSize: "0.85rem",
+    whiteSpace: "nowrap" as const,
   },
   warningBox: {
     marginBottom: "0.4rem",

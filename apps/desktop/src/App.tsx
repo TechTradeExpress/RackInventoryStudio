@@ -193,6 +193,7 @@ export function App() {
           working={working}
           summary={summary}
           hasUnsavedChanges={hasUnsavedChanges}
+          onPullSuccess={(s) => setSummary(s)}
         />
       )}
 

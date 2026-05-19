@@ -1,7 +1,7 @@
 use tauri::State;
 
-use crate::commands::repository::AppState;
-use crate::dto::{GitCommitDto, GitStatusDto};
+use crate::commands::repository::{build_summary, AppState};
+use crate::dto::{GitCommitDto, GitRemoteDto, GitStatusDto, RepositorySummaryDto};
 
 fn no_session() -> String {
     "No repository is currently open".to_string()
@@ -34,6 +34,9 @@ pub fn get_git_status(state: State<AppState>) -> Result<GitStatusDto, String> {
     Ok(GitStatusDto {
         is_repository: s.is_repository,
         branch: s.branch,
+        upstream: s.upstream,
+        ahead: s.ahead,
+        behind: s.behind,
         is_clean: s.is_clean,
         staged_count: s.staged_count,
         unstaged_count: s.unstaged_count,
@@ -70,4 +73,65 @@ pub fn commit_repository_changes(
     let session = guard.as_ref().ok_or_else(no_session)?;
     let commit = ris_git::commit_all(&session.repo_path, &message).map_err(|e| e.to_string())?;
     Ok(commit_to_dto(commit))
+}
+
+#[tauri::command]
+pub fn list_git_remotes(state: State<AppState>) -> Result<Vec<GitRemoteDto>, String> {
+    let guard = lock(&state)?;
+    let session = guard.as_ref().ok_or_else(no_session)?;
+    let remotes = ris_git::list_remotes(&session.repo_path).map_err(|e| e.to_string())?;
+    Ok(remotes
+        .into_iter()
+        .map(|r| GitRemoteDto {
+            name: r.name,
+            url: r.url,
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub fn add_git_remote(name: String, url: String, state: State<AppState>) -> Result<(), String> {
+    let guard = lock(&state)?;
+    let session = guard.as_ref().ok_or_else(no_session)?;
+    ris_git::add_remote(&session.repo_path, &name, &url).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn push_git_current_branch(remote: String, state: State<AppState>) -> Result<(), String> {
+    let repo_path = {
+        let guard = lock(&state)?;
+        let session = guard.as_ref().ok_or_else(no_session)?;
+        session.repo_path.clone()
+    };
+    ris_git::push_current_branch(&repo_path, &remote).map_err(|e| e.to_string())
+}
+
+/// Pull from `remote` using `--ff-only`, then reload the repository session from disk.
+///
+/// Returns the updated repository summary so the frontend can refresh counts.
+#[tauri::command]
+pub fn pull_git_ff_only(
+    remote: String,
+    state: State<AppState>,
+) -> Result<RepositorySummaryDto, String> {
+    // Drop lock before the potentially slow git network operation.
+    let repo_path = {
+        let guard = lock(&state)?;
+        let session = guard.as_ref().ok_or_else(no_session)?;
+        session.repo_path.clone()
+    };
+
+    ris_git::pull_ff_only(&repo_path, &remote).map_err(|e| e.to_string())?;
+
+    // Reload session so in-memory state reflects the newly pulled YAML files.
+    let new_session = ris_application::open_repository(&repo_path)
+        .map_err(|e| format!("Pull succeeded but failed to reload repository: {e}"))?;
+    let summary = build_summary(&new_session);
+
+    {
+        let mut guard = lock(&state)?;
+        *guard = Some(new_session);
+    }
+
+    Ok(summary)
 }
