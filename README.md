@@ -66,9 +66,11 @@ tests/                  Shared test fixtures
 
 ## Project status
 
-The core backend and the rack placement workflow are complete. The app is usable for inspecting and editing rack placements through forms.
+**MVP Core is functionally complete.** The core backend, inventory workflow, and Git integration are done. The app is usable end-to-end: open a repository, manage catalog entities, import devices via CSV, place them in racks, validate, save, and publish changes via Git.
 
-### What is implemented
+The project is now in the **MVP+ / Beta** phase, targeting a user-facing **v1.0.0** release. The focus shifts from correctness to usability, safety, and polish.
+
+### What is implemented (MVP Core)
 
 - Open local inventory repository; view summary, locations, racks, devices, device models
 - Validation panel with per-issue results
@@ -80,21 +82,50 @@ The core backend and the rack placement workflow are complete. The app is usable
 - Rack list shows Front / Rear / Total placement counts, updated live after mutations
 - Unsaved changes banner, save flow, close with confirmation
 - Edit and delete for all catalog entity types (locations, racks, device models, devices) with referential integrity guards
+- Git: init, status, commit, log, remotes, push (`git push -u`), pull fast-forward
 - CI: Rust workspace tests and frontend checks pass
 
-### Remaining MVP gaps
+### Roadmap to v1.0.0
 
-| Area | Status |
+v1.0.0 is the first user-facing release. It is not just a technical MVP — it must be an application that a new user can pick up and use without requiring developer guidance.
+
+| Area | Target |
 |---|---|
-| Git remote sync — auth configuration | Auth (SSH keys, HTTPS credentials) must be configured in the OS/git-credential-helper outside the app |
-| Native CSV file picker | Not implemented; users paste CSV into textarea |
-| Drag-and-drop placement | Deferred post-MVP; form-based operations cover core use case |
+| Safe publish workflow / better Git UX | MVP+ / Beta |
+| Create new repository wizard | MVP+ / Beta |
+| Native CSV file picker | MVP+ / Beta |
+| Minimal global search | MVP+ / Beta |
+| Claude Design / UX audit and design direction | MVP+ / Beta |
+| Drag-and-drop placement | MVP+ / Beta |
+| UI polish based on design direction | MVP+ / Beta |
+| UI automation / Playwright smoke tests | MVP+ / Beta |
+| Release hardening | v1.0.0 Candidate |
+| Packaging and user-facing release documentation | v1.0.0 Release |
 
-See [`docs/MVP_READINESS_REPORT_EN.md`](docs/MVP_READINESS_REPORT_EN.md) for the full readiness assessment and [`docs/MVP_SMOKE_TEST_CHECKLIST_EN.md`](docs/MVP_SMOKE_TEST_CHECKLIST_EN.md) for the manual smoke-test checklist.
+Items planned after v1.0.0: plugin system, CMDB / NetBox / Nautobot / Zabbix integrations, advanced Git conflict resolution UI, advanced reports / PDF export, advanced import/export formats, application-level permissions, large enterprise workflows.
 
-### Drag and drop
+See [`docs/MVP_READINESS_REPORT_EN.md`](docs/MVP_READINESS_REPORT_EN.md) for the detailed readiness assessment and [`docs/MVP_SMOKE_TEST_CHECKLIST_EN.md`](docs/MVP_SMOKE_TEST_CHECKLIST_EN.md) for the manual smoke-test checklist.
 
-Drag and drop is **not a hard MVP blocker**. Form-based placement operations cover the core use case. Drag and drop remains the target UX but is deferred to post-MVP.
+### v1.0.0 release gate
+
+Before tagging v1.0.0, all of the following must pass:
+
+- `cargo test --workspace` — all Rust tests
+- `pnpm typecheck` + `pnpm test` + `pnpm build` — frontend checks
+- Playwright smoke tests (to be added during MVP+ phase)
+- Manual smoke checklist (`docs/MVP_SMOKE_TEST_CHECKLIST_EN.md`)
+- Packaging check (app bundles and launches from a clean install)
+
+### Claude Design / UX Direction
+
+The Claude Design phase is a planned UX audit before v1.0.0. It is not a chaotic redesign. The approach:
+
+1. Audit the current UI against the documented user workflows.
+2. Collect screenshots and identify friction points.
+3. Design the app shell, rack detail, validation/publish flow, CSV import, and catalog panels.
+4. Translate the design into small, testable implementation milestones.
+5. Keep redesign changes separate from backend changes — no mixing of UI overhaul with major logic changes.
+6. Maintain test suite stability throughout.
 
 ## Running Rust tests
 
@@ -143,6 +174,8 @@ pnpm --filter @rack-inventory-studio/desktop build
 ## Current limitations
 
 - **No in-app Git auth** — push and pull are implemented but SSH keys and HTTPS credentials must be configured in the OS or git-credential-helper outside the app. Auth errors surface as clear error messages.
-- **No drag and drop** — placement positions are changed via inspector forms. Drag and drop is deferred to post-MVP as a UX enhancement.
+- **No drag and drop** — placement positions are changed via inspector forms. Drag and drop is planned for the MVP+ phase before v1.0.0.
+- **No native CSV file picker** — users paste CSV content into a textarea. A native file picker is planned for MVP+.
+- **No global search** — entity lookup requires navigating to the relevant tab. Minimal global search is planned for MVP+.
 - **No full dirty diff tracking** — the app uses a global unsaved-changes flag. It warns that in-memory state may differ from disk, but it does not track exactly which rack or placement changed.
 - **Local desktop, single-user** — no server, no sync, no multi-user conflict resolution.

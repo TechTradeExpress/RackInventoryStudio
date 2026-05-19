@@ -1174,9 +1174,28 @@ MVP is complete when:
 
 ---
 
-## 27. Out of MVP
+## 27. Scope boundaries
 
-Not implemented in MVP:
+### Before v1.0.0 (MVP+ / Beta phase)
+
+Items planned for the MVP+ phase, required before the v1.0.0 release:
+
+```text
+- safe publish workflow / better Git UX,
+- create new repository wizard,
+- native CSV file picker,
+- minimal global search,
+- Claude Design / UX audit and design direction,
+- drag-and-drop placement,
+- UI polish based on design direction,
+- UI automation / Playwright smoke tests,
+- release hardening,
+- packaging and user-facing release documentation.
+```
+
+### After v1.0.0
+
+Not planned before v1.0.0:
 
 ```text
 - full plugin system,
@@ -1187,9 +1206,12 @@ Not implemented in MVP:
 - device model import,
 - PDF export,
 - domain-level change diff,
+- advanced Git conflict resolution UI,
 - merge request workflow,
 - automatic Git conflict resolution,
-- application permissions independent from Git.
+- advanced reports / export formats,
+- application permissions independent from Git,
+- large enterprise workflows.
 ```
 
 ---
@@ -1249,7 +1271,7 @@ After milestones 1–25, the backend is complete and the rack placement workflow
 
 ### Drag and drop decision
 
-Drag and drop is **post-MVP**.
+Drag and drop is **not required for MVP Core** but is **planned for MVP+ / Beta before v1.0.0**.
 
 Rationale:
 
@@ -1259,8 +1281,9 @@ Rationale:
 - YAML can be saved,
 - rack view is usable without drag and drop.
 
-Form-based placement operations are acceptable for MVP.
-Drag and drop is a UX enhancement, not a correctness requirement.
+Form-based placement operations satisfy MVP Core correctness requirements.
+Drag and drop is a UX enhancement planned for the MVP+ phase as part of the
+Claude Design / UX direction milestone, before the v1.0.0 user-facing release.
 ```
 
 ### Remaining MVP blockers
@@ -1303,14 +1326,141 @@ M36  MVP documentation sync
 M37  MVP smoke test / example repository polish
 ```
 
-Post-MVP (not blocking):
+MVP+ / Beta (before v1.0.0):
 
 ```text
+- safe publish workflow / better Git UX
+- create new repository wizard
+- native CSV file picker
+- minimal global search
+- Claude Design / UX audit and design direction
 - drag and drop in rack view
+- UI polish based on design direction
+- UI automation / Playwright smoke tests
+- release hardening
+- packaging and user-facing release documentation
+```
+
+After v1.0.0:
+
+```text
 - domain-level change diff
 - merge request workflow
-- automatic Git conflict resolution
+- advanced Git conflict resolution UI
 - full CMDB/IPAM/NetBox integrations
 - PDF/CSV export
 - physical audit
+- plugin system
+- application-level permissions
+- large enterprise workflows
+```
+
+---
+
+## 30. Revised roadmap: MVP Core → v1.0.0
+
+### Context
+
+As of milestone M35, MVP Core is functionally complete. The application covers the full inventory workflow end-to-end. This section records the roadmap revision toward a user-facing v1.0.0 release.
+
+### Roadmap stages
+
+#### Stage 1 — MVP Core (complete)
+
+```text
+Milestones M0–M35.
+
+Backend:
+  ris-core, ris-repository, ris-validation, ris-import, ris-git, ris-application
+  275 Rust tests passing.
+
+Desktop UI:
+  Open/close repository, summary, validation, locations, racks, devices,
+  device models, CSV import (textarea-based), rack detail with unit diagram,
+  placement inspector (add/move/remove), edit/delete for all entity types,
+  Git workflow (init, status, commit, log, remotes, push, pull).
+
+CI:
+  GitHub Actions, Rust workspace tests, frontend typecheck/test/build.
+```
+
+#### Stage 2 — MVP+ / Beta (current — before v1.0.0)
+
+Goal: bring the app to a quality level suitable for a user-facing release.
+No single blocker — this is a set of parallel improvements.
+
+```text
+M38  Safe publish workflow / better Git UX
+       - clearer publish/pull state, credential error guidance,
+       - explicit "publish requires clean validation" confirmation.
+
+M39  Create new repository wizard
+       - guided flow to init a Git repository and create the YAML directory
+         structure inside the app.
+
+M40  Native CSV file picker
+       - replace the textarea with a native OS file picker.
+
+M41  Minimal global search
+       - single search input covering devices, racks, locations, device models.
+
+M42  Claude Design / UX audit
+       - UX audit of current screens against documented workflows,
+       - screenshot and friction-point collection,
+       - design direction for: app shell, rack detail, validation/publish flow,
+         CSV import, catalog panels,
+       - output: a set of small, testable implementation milestones.
+       - Constraint: design changes must not mix with backend logic changes.
+         Redesign milestones are isolated from correctness milestones.
+
+M43  Drag-and-drop placement
+       - drag device from unplaced panel to a U row in the rack diagram,
+       - drag rack object similarly,
+       - backend collision validation unchanged.
+
+M44  UI polish (based on M42 design direction)
+       - apply design decisions from M42 incrementally.
+
+M45  UI automation / Playwright smoke tests
+       - automate the manual smoke checklist from docs/MVP_SMOKE_TEST_CHECKLIST_EN.md,
+       - cover the golden path: open → add → import → place → validate → save → reload.
+```
+
+#### Stage 3 — v1.0.0 Candidate
+
+```text
+- All MVP+ milestones (M38–M45) complete.
+- Release hardening: dependency audit, error message review, known-limitation docs.
+- Packaging check: app bundles and launches from a clean install on target OS.
+- All test gates pass (Rust, frontend, Playwright, manual checklist).
+```
+
+#### Stage 4 — v1.0.0 Release
+
+```text
+- User-facing release documentation:
+    - basic workflow guide,
+    - Git auth assumptions (SSH keys / HTTPS credential helper),
+    - CSV import instructions,
+    - create new repository walkthrough,
+    - placement workflow,
+    - known limitations.
+- Version tag and changelog entry.
+```
+
+### v1.0.0 definition
+
+v1.0.0 is the first release a new user can install and use without developer guidance. It is not just a technical milestone — it requires polished UX, a guided repository creation flow, a usable Git publish experience, and documented limitations.
+
+### Claude Design principles
+
+The Claude Design / UX audit phase (M42) is not a chaotic redesign. Rules:
+
+```text
+1. Audit before designing — identify real friction from real workflows.
+2. Design is output of the audit — do not design without data.
+3. Small milestones — no "redesign everything in one PR".
+4. Keep the test suite green — every design milestone ships with passing tests.
+5. No backend mixing — redesign PRs do not touch Rust logic.
+6. Known limitations documented — not hidden behind cosmetic polish.
 ```

@@ -191,3 +191,40 @@ SMOKE-DEV03,network,in_stock,Smoke Switch 01
 ## Pass criteria
 
 All checkboxes above are checked with no unexpected errors or crashes.
+
+---
+
+## v1.0.0 release gate
+
+Before tagging v1.0.0, all of the following must pass in addition to this manual checklist:
+
+### Automated test suite
+
+- [ ] `cargo test --workspace` — all Rust tests pass with no failures or ignored panics.
+- [ ] `pnpm --filter @rack-inventory-studio/desktop typecheck` — TypeScript type check clean.
+- [ ] `pnpm --filter @rack-inventory-studio/desktop test` — all Vitest unit tests pass.
+- [ ] `pnpm --filter @rack-inventory-studio/desktop build` — Vite production build succeeds.
+
+### UI automation (Playwright)
+
+- [ ] Playwright smoke test suite covers the golden path: open → add location → add rack → add device model → add device → CSV import → place device → validate → save → reload.
+- [ ] All Playwright tests pass against a production build.
+
+*(Playwright tests are not yet implemented. They are targeted for MVP+ milestone M45.)*
+
+### Packaging check
+
+- [ ] Application bundles successfully for the target OS (`.dmg`, `.msi`, or `.AppImage` as applicable).
+- [ ] Bundled application launches from a clean install (no pre-installed dependencies required).
+- [ ] Example repository can be opened from the bundled app without errors.
+
+### Release documentation
+
+- [ ] `README.md` reflects the released feature set (no "planned" items in the current-status section).
+- [ ] User-facing documentation covers: basic workflow, Git auth assumptions, CSV import, create new repository, placement workflow, known limitations.
+- [ ] `CHANGELOG.md` entry for v1.0.0 is written and reviewed.
+
+### Release tag
+
+- [ ] Git tag `v1.0.0` is created on `master` after all gates pass.
+- [ ] Tag commit message includes a short release summary.

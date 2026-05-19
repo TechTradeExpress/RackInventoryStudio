@@ -1,7 +1,7 @@
 # MVP Readiness Report
 
-**Date:** 2026-05-19 (updated Git remote sync: 2026-05-19)
-**Scope:** Non-Git MVP inventory workflow (open/add/import/place/validate/save/reload); Git foundation + remote sync added
+**Date:** 2026-05-19 (updated Git remote sync: 2026-05-19; roadmap updated to MVP+ / v1.0.0: 2026-05-19)
+**Scope:** MVP Core complete — full inventory workflow including Git remote sync. Project is now in MVP+ / Beta phase targeting v1.0.0.
 
 ---
 
@@ -79,28 +79,46 @@ The following non-Git inventory operations are implemented and tested:
 
 ---
 
-## Remaining MVP blockers
+## MVP Core status
 
-### Critical (blocks full Git-backed MVP)
+### Critical blockers — None
 
-None — the local Git workflow (init / commit / log) and remote sync (remote add / push / pull) are now implemented. The core offline-first team collaboration workflow is demonstrable end-to-end.
+MVP Core is complete. The local Git workflow (init / commit / log) and remote sync (remote add / push / pull) are implemented. The full offline-first inventory workflow is demonstrable end-to-end.
 
-**Remaining auth note:** SSH keys and HTTPS credentials must be configured in the OS or a git-credential-helper before using push/pull. The app delegates auth entirely to the system git. This is intentional and documented.
+**Auth assumption:** SSH keys and HTTPS credentials must be configured in the OS or a git-credential-helper before using push/pull. The app delegates auth entirely to the system git. This is intentional and documented.
 
-### Usability gaps (acceptable for MVP, documented)
+---
 
-2. **No native CSV file picker** — users must paste CSV content into a textarea.
-3. ~~**No edit/delete UI**~~ **Implemented (M35)** — edit and delete for locations, racks, device models, and devices. Placements are managed via the Placement Inspector (Move / Remove Placement).
-4. **No drag-and-drop** for rack unit placement.
-5. **No scrollIntoView** for validation-highlighted rows — rows may need manual
-   scrolling to become visible.
-6. **No UI automation tests** — the manual checklist requires human execution.
-7. **Devices tab does not auto-scroll** to a newly highlighted device after
-   validation navigation (highlighted row visible only if user scrolls to it).
-8. **Repository summary placement counts** reflect all placement files; no
-   per-location breakdown.
+## MVP+ / v1.0.0 scope
 
-### Not planned for this MVP
+The following items are planned for the MVP+ / Beta phase before v1.0.0. They are not MVP Core blockers — the core workflow is complete — but they are required for a user-facing release.
+
+### Planned MVP+ items
+
+| Area | Status |
+|---|---|
+| Safe publish workflow / better Git UX | Planned (M38) |
+| Create new repository wizard | Planned (M39) |
+| Native CSV file picker | Planned (M40) |
+| Minimal global search | Planned (M41) |
+| Claude Design / UX audit and design direction | Planned (M42) |
+| Drag-and-drop placement | Planned (M43) |
+| UI polish based on design direction | Planned (M44) |
+| UI automation / Playwright smoke tests | Planned (M45) |
+| Release hardening + packaging check | v1.0.0 Candidate |
+| User-facing release documentation | v1.0.0 Release |
+
+### Known usability gaps (tracked, not blocking MVP Core)
+
+- **No native CSV file picker** — users must paste CSV content into a textarea. Targeted: M40.
+- **No drag-and-drop** for rack unit placement. Form-based operations cover core use case. Targeted: M43.
+- **No global search** — entity lookup requires navigating to the correct tab. Targeted: M41.
+- **No scrollIntoView** for validation-highlighted rows — rows may need manual scrolling to become visible.
+- **No UI automation tests** — the manual checklist requires human execution. Targeted: M45.
+- **Devices tab does not auto-scroll** to a newly highlighted device after validation navigation.
+- **Repository summary placement counts** reflect all placement files; no per-location breakdown.
+
+### Not planned before v1.0.0
 
 - Update-existing-devices CSV import
 - Placement import
@@ -112,7 +130,9 @@ None — the local Git workflow (init / commit / log) and remote sync (remote ad
 
 ## Recommended next step
 
-**M35 — Edit/delete UI for entity types**: Completed. Edit and delete are now available for all four catalog entity types with referential integrity guards.
+**MVP+ / Beta phase (M38–M45):** Start with safe publish workflow (M38) and create new repository wizard (M39) as the highest-impact usability improvements. Native CSV file picker (M40) and minimal global search (M41) can follow. Claude Design / UX audit (M42) should be scheduled early enough to inform the UI polish milestone (M44).
+
+See `docs/IMPLEMENTATION_PLAN_EN.md` section 30 for the full revised roadmap.
 
 ---
 
