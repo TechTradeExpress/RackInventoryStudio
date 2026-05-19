@@ -271,6 +271,58 @@ export function addDevice(input: AddDeviceInput): Promise<string> {
   return invoke("add_device_cmd", { input });
 }
 
+// ── CSV import ────────────────────────────────────────────────────────────────
+
+export interface CsvImportIssueDto {
+  code: string;
+  level: string;
+  message: string;
+  details: string | null;
+}
+
+export interface CsvImportSummaryDto {
+  total_rows: number;
+  valid_rows: number;
+  error_rows: number;
+  warning_count: number;
+}
+
+export interface CsvImportPreviewRowDto {
+  row_number: number;
+  code: string | null;
+  device_type: string | null;
+  name: string | null;
+  device_model_code: string | null;
+  serial_number: string | null;
+  asset_tag: string | null;
+  status: string | null;
+  action: "create" | "skip_due_to_error";
+  issues: CsvImportIssueDto[];
+}
+
+export interface CsvImportPreviewDto {
+  summary: CsvImportSummaryDto;
+  file_issues: CsvImportIssueDto[];
+  rows: CsvImportPreviewRowDto[];
+}
+
+export interface CsvImportResultDto {
+  created_count: number;
+  warning_count: number;
+}
+
+export function previewDeviceCsvImport(
+  csvContent: string,
+): Promise<CsvImportPreviewDto> {
+  return invoke("preview_device_csv_import_cmd", { csvContent });
+}
+
+export function importDeviceCsv(
+  csvContent: string,
+): Promise<CsvImportResultDto> {
+  return invoke("import_device_csv_cmd", { csvContent });
+}
+
 // ── Native dialog ─────────────────────────────────────────────────────────────
 
 export async function selectRepositoryFolder(): Promise<string | null> {

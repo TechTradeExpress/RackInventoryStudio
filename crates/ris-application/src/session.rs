@@ -4,7 +4,7 @@ use ris_core::{
     Device, DeviceModel, DeviceStatus, DeviceType, Location, Placement, PlacementFile,
     PlacementRange, PlacementSide, PlacementTargetKind, Rack, ValidationIssue,
 };
-use ris_import::{preview_csv_import, CsvDeviceImportPreview, CsvImportContext};
+use ris_import::{preview_csv_import, CsvDeviceImportPreview, CsvImportContext, CsvRowAction};
 use ris_repository::{IndexedPlacement, RepositoryData, RepositoryIndex, WriteReport};
 use ris_validation::ValidationEngine;
 
@@ -70,6 +70,12 @@ pub struct AddDeviceInput {
     pub status: DeviceStatus,
     pub description: Option<String>,
     pub tags: Vec<String>,
+}
+
+#[derive(Debug)]
+pub struct DeviceCsvImportResult {
+    pub created_count: usize,
+    pub warning_count: usize,
 }
 
 // ── Validation helpers ────────────────────────────────────────────────────────
@@ -423,6 +429,75 @@ impl RepositorySession {
     pub fn preview_devices_csv(&self, csv_content: &str) -> CsvDeviceImportPreview {
         let ctx = CsvImportContext::from_index(&self.index);
         preview_csv_import(csv_content, &ctx)
+    }
+
+    // ── CSV import/write ──────────────────────────────────────────────────────
+
+    /// Re-validate CSV and write all `Create` rows as new Device records.
+    ///
+    /// Returns `Err` without mutating the session if any ERROR exists in the preview.
+    pub fn import_devices_csv(
+        &mut self,
+        csv_content: &str,
+    ) -> Result<DeviceCsvImportResult, ApplicationError> {
+        let preview = self.preview_devices_csv(csv_content);
+
+        let has_file_errors = preview
+            .issues
+            .iter()
+            .any(|i| i.level == ris_core::ValidationLevel::Error);
+        let has_row_errors = preview
+            .rows
+            .iter()
+            .any(|r| r.action == CsvRowAction::SkipDueToError);
+
+        if has_file_errors || has_row_errors {
+            return Err(ApplicationError::InvalidInput(
+                "CSV contains validation errors; import rejected. Fix errors and retry.".into(),
+            ));
+        }
+
+        let warning_count = preview.summary.warning_count;
+        let mut created_count = 0usize;
+
+        for row in &preview.rows {
+            if row.action != CsvRowAction::Create {
+                continue;
+            }
+            let device_type: DeviceType = row
+                .device_type
+                .as_deref()
+                .unwrap_or("")
+                .parse()
+                .map_err(|e: String| ApplicationError::InvalidInput(e))?;
+            let status: DeviceStatus = row
+                .status
+                .as_deref()
+                .unwrap_or("")
+                .parse()
+                .map_err(|e: String| ApplicationError::InvalidInput(e))?;
+
+            self.add_device(AddDeviceInput {
+                id: None,
+                device_type,
+                code: row.code.clone().unwrap_or_default(),
+                name: row.name.clone(),
+                device_model_id: row.resolved_device_model_id.clone(),
+                device_model_code: None,
+                serial_number: row.serial_number.clone(),
+                asset_tag: row.asset_tag.clone(),
+                external_ref: row.external_ref.clone(),
+                status,
+                description: None,
+                tags: row.tags.clone(),
+            })?;
+            created_count += 1;
+        }
+
+        Ok(DeviceCsvImportResult {
+            created_count,
+            warning_count,
+        })
     }
 
     // ── Placement read helpers ────────────────────────────────────────────────

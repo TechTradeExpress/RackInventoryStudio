@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.30.0 — CSV import preview + confirm/write flow (milestone 29)
+
+- Added **CSV Import** tab with textarea paste, Preview, and Import buttons.
+- Preview runs full server-side validation via `preview_devices_csv` (backed by existing `ris-import` crate) and returns per-row actions (create / skip_due_to_error).
+- Preview shows summary (total, valid, error rows, warnings), file-level issues, row table with action/issues columns, and expandable row issue details.
+- Import is blocked and button is disabled when preview has any ERROR; blocked banner shown.
+- Confirm/write (`import_devices_csv`) re-runs full validation server-side before writing; refuses if any ERROR remains.
+- Valid `Create` rows are written as new Device records via the existing `add_device` path; index is rebuilt.
+- Import does not create placements, device models, rack_object devices, or update existing devices.
+- `device_model_code` is resolved to `device_model_id` in the preview; import uses the resolved ID.
+- New application-layer method `RepositorySession::import_devices_csv` with `DeviceCsvImportResult`.
+- New Tauri commands `preview_device_csv_import_cmd` and `import_device_csv_cmd`.
+- New TypeScript interfaces and wrappers: `previewDeviceCsvImport`, `importDeviceCsv`.
+- CSV columns: code, device_type, name, device_model_code, serial_number, asset_tag, external_ref, status, tags (semicolon-separated).
+- Required CSV columns: code, device_type, status.
+- Successful import sets global dirty state; existing Save flow persists imported devices.
+- 6 new Rust tests for `import_devices_csv`: valid create, save+reload persistence, missing header rejection, error row rejection, existing code rejection, rack_object rejection.
+- Local checks: 242 Rust tests pass (236 existing + 6 new), 24 Vitest tests pass, typecheck/build clean, Clippy clean.
+
 ## v0.29.0 — Add Device UI foundation (milestone 28)
 
 - Added **Add Device** form to the Devices tab (device_type, code, name, device model selector, serial number, asset tag, external ref, status, description, tags).

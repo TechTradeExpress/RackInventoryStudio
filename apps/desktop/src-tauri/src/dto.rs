@@ -197,6 +197,49 @@ pub struct AddDeviceInputDto {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct CsvImportIssueDto {
+    pub code: String,
+    pub level: String,
+    pub message: String,
+    pub details: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CsvImportSummaryDto {
+    pub total_rows: usize,
+    pub valid_rows: usize,
+    pub error_rows: usize,
+    pub warning_count: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CsvImportPreviewRowDto {
+    pub row_number: usize,
+    pub code: Option<String>,
+    pub device_type: Option<String>,
+    pub name: Option<String>,
+    pub device_model_code: Option<String>,
+    pub serial_number: Option<String>,
+    pub asset_tag: Option<String>,
+    pub status: Option<String>,
+    pub action: String,
+    pub issues: Vec<CsvImportIssueDto>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CsvImportPreviewDto {
+    pub summary: CsvImportSummaryDto,
+    pub file_issues: Vec<CsvImportIssueDto>,
+    pub rows: Vec<CsvImportPreviewRowDto>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CsvImportResultDto {
+    pub created_count: usize,
+    pub warning_count: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RackDetailDto {
     pub id: String,
     pub code: String,

@@ -7,14 +7,16 @@ use ris_application::{
     RepositorySession,
 };
 use ris_core::{DeviceStatus, DeviceType, PlacementSide, PlacementTargetKind, ValidationLevel};
+use ris_import::CsvRowAction;
 use tauri::State;
 
 use crate::dto::{
-    AddDeviceInputDto, AddDeviceModelInputDto, AddLocationInputDto, AddRackInputDto, DeviceDto,
-    DeviceModelDto, LocationDto, MovePlacementInputDto, OpenRepositoryResultDto,
-    PlaceDeviceInputDto, PlaceRackObjectInputDto, PlacementDto, RackDetailDto, RackSummaryDto,
-    RemovePlacementInputDto, RepositorySummaryDto, SaveSummaryDto, ValidationIssueDto,
-    ValidationSummaryDto,
+    AddDeviceInputDto, AddDeviceModelInputDto, AddLocationInputDto, AddRackInputDto,
+    CsvImportIssueDto, CsvImportPreviewDto, CsvImportPreviewRowDto, CsvImportResultDto,
+    CsvImportSummaryDto, DeviceDto, DeviceModelDto, LocationDto, MovePlacementInputDto,
+    OpenRepositoryResultDto, PlaceDeviceInputDto, PlaceRackObjectInputDto, PlacementDto,
+    RackDetailDto, RackSummaryDto, RemovePlacementInputDto, RepositorySummaryDto, SaveSummaryDto,
+    ValidationIssueDto, ValidationSummaryDto,
 };
 
 pub struct AppState {
@@ -560,6 +562,74 @@ pub fn add_device_cmd(input: AddDeviceInputDto, state: State<AppState>) -> Resul
             status,
             description: input.description,
             tags: input.tags,
+        })
+        .map_err(|e| e.to_string())
+}
+
+fn issue_to_csv_dto(issue: &ris_core::ValidationIssue) -> CsvImportIssueDto {
+    CsvImportIssueDto {
+        code: issue.code.clone(),
+        level: match issue.level {
+            ValidationLevel::Error => "error".to_string(),
+            ValidationLevel::Warning => "warning".to_string(),
+            ValidationLevel::Info => "info".to_string(),
+        },
+        message: issue.message.clone(),
+        details: issue.details.clone(),
+    }
+}
+
+#[tauri::command]
+pub fn preview_device_csv_import_cmd(
+    csv_content: String,
+    state: State<AppState>,
+) -> Result<CsvImportPreviewDto, String> {
+    let guard = lock_session(&state)?;
+    let session = guard.as_ref().ok_or_else(no_session)?;
+    let preview = session.preview_devices_csv(&csv_content);
+    let rows = preview
+        .rows
+        .iter()
+        .map(|r| CsvImportPreviewRowDto {
+            row_number: r.row_number,
+            code: r.code.clone(),
+            device_type: r.device_type.clone(),
+            name: r.name.clone(),
+            device_model_code: r.device_model_code.clone(),
+            serial_number: r.serial_number.clone(),
+            asset_tag: r.asset_tag.clone(),
+            status: r.status.clone(),
+            action: match r.action {
+                CsvRowAction::Create => "create".to_string(),
+                CsvRowAction::SkipDueToError => "skip_due_to_error".to_string(),
+            },
+            issues: r.issues.iter().map(issue_to_csv_dto).collect(),
+        })
+        .collect();
+    Ok(CsvImportPreviewDto {
+        summary: CsvImportSummaryDto {
+            total_rows: preview.summary.total_rows,
+            valid_rows: preview.summary.valid_rows,
+            error_rows: preview.summary.error_rows,
+            warning_count: preview.summary.warning_count,
+        },
+        file_issues: preview.issues.iter().map(issue_to_csv_dto).collect(),
+        rows,
+    })
+}
+
+#[tauri::command]
+pub fn import_device_csv_cmd(
+    csv_content: String,
+    state: State<AppState>,
+) -> Result<CsvImportResultDto, String> {
+    let mut guard = lock_session(&state)?;
+    let session = guard.as_mut().ok_or_else(no_session)?;
+    session
+        .import_devices_csv(&csv_content)
+        .map(|r| CsvImportResultDto {
+            created_count: r.created_count,
+            warning_count: r.warning_count,
         })
         .map_err(|e| e.to_string())
 }
