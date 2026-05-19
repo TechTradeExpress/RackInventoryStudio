@@ -22,3 +22,6 @@ ris-validation = { path = "../../../crates/ris-validation" }
 ris-import = { path = "../../../crates/ris-import" }
 ris-git = { path = "../../../crates/ris-git" }
 ris-application = { path = "../../../crates/ris-application" }
+
+[dev-dependencies]
+tempfile = "3"
