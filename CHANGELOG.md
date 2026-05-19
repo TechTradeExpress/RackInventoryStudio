@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.27.0 — Add Location/Rack UI foundation (milestone 26)
+
+- Added **Add Location** form to the Locations tab (code, name, description, address, tags).
+- Added **Add Rack** form to the Racks tab (location selector, code, name, height U, row, description, tags).
+- New Tauri commands `add_location_cmd` and `add_rack_cmd` expose the existing application-layer `add_location` / `add_rack` methods.
+- New TypeScript API wrappers `addLocation` / `addRack` in `tauriClient.ts`.
+- Added `parseTags` helper in `src/lib/tags.ts` with 6 Vitest tests.
+- Successful add sets global unsaved-changes dirty state and shows the unsaved changes banner.
+- New location appears immediately in the Locations list; new rack appears immediately in the Racks list with 0/0/0 counts.
+- Existing save flow persists new locations and racks.
+- Local checks: 236 Rust tests pass (no new tests needed — application-layer add_location/add_rack already have good coverage), 24 Vitest tests pass (18 existing + 6 new), typecheck/build clean, Clippy clean.
+
 ## v0.26.0 — roadmap realignment after rack workflow milestones
 
 - Roadmap updated to reflect the real state after milestones 15–25: core backend complete, rack placement workflow usable via forms (add, move, remove, cross-rack, cross-side).

@@ -210,6 +210,35 @@ export function removePlacement(input: RemovePlacementInput): Promise<void> {
   return invoke("remove_placement", { input });
 }
 
+// ── Mutation commands ─────────────────────────────────────────────────────────
+
+export interface AddLocationInput {
+  code: string;
+  name: string;
+  description?: string;
+  address?: string;
+  tags: string[];
+}
+
+export function addLocation(input: AddLocationInput): Promise<string> {
+  return invoke("add_location_cmd", { input });
+}
+
+export interface AddRackInput {
+  location_id?: string;
+  location_code?: string;
+  code: string;
+  name: string;
+  height_u: number;
+  row?: string;
+  description?: string;
+  tags: string[];
+}
+
+export function addRack(input: AddRackInput): Promise<string> {
+  return invoke("add_rack_cmd", { input });
+}
+
 // ── Native dialog ─────────────────────────────────────────────────────────────
 
 export async function selectRepositoryFolder(): Promise<string | null> {
