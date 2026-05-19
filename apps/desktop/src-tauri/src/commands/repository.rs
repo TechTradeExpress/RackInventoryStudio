@@ -195,13 +195,14 @@ pub fn list_racks(state: State<AppState>) -> Result<Vec<RackSummaryDto>, String>
                 .get(&rack.location_id)
                 .map(|l| l.code.clone())
                 .unwrap_or_default();
-            let placement_count = session
+            let (front_placement_count, rear_placement_count) = session
                 .data
                 .placement_files
                 .iter()
                 .find(|pf| pf.rack_id == rack.id)
-                .map(|pf| pf.front.len() + pf.rear.len())
-                .unwrap_or(0);
+                .map(|pf| (pf.front.len(), pf.rear.len()))
+                .unwrap_or((0, 0));
+            let placement_count = front_placement_count + rear_placement_count;
             RackSummaryDto {
                 id: rack.id.clone(),
                 code: rack.code.clone(),
@@ -210,6 +211,8 @@ pub fn list_racks(state: State<AppState>) -> Result<Vec<RackSummaryDto>, String>
                 location_code,
                 height_u: rack.height_u,
                 row: rack.row.clone(),
+                front_placement_count,
+                rear_placement_count,
                 placement_count,
             }
         })

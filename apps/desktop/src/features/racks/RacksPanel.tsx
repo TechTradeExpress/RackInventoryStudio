@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { common } from "../../lib/styles";
 import { listRacks, type RackSummaryDto } from "../../api/tauriClient";
 import { RackDetailPanel } from "./RackDetailPanel";
@@ -24,18 +24,30 @@ export function RacksPanel({ repoPath, selectedRackId, onSelectRack, onRepositor
   const [recentlyNavigatedRackId, setRecentlyNavigatedRackId] = useState<
     string | null
   >(null);
+  const [racksReloadToken, setRacksReloadToken] = useState(0);
+  const prevRepoPathRef = useRef<string>("");
 
   useEffect(() => {
     if (!repoPath) return;
+    const isRepoSwitch = prevRepoPathRef.current !== repoPath;
+    prevRepoPathRef.current = repoPath;
+    if (isRepoSwitch) {
+      setRacks([]);
+      setError(null);
+      setRecentlyNavigatedRackId(null);
+      setPendingNavigation(null);
+    }
     setLoading(true);
-    setError(null);
-    setRacks([]);
-    setRecentlyNavigatedRackId(null);
     listRacks()
       .then(setRacks)
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
-  }, [repoPath]);
+  }, [repoPath, racksReloadToken]);
+
+  function handleRepositoryMutated() {
+    setRacksReloadToken((t) => t + 1);
+    onRepositoryMutated();
+  }
 
   const selectedRack = racks.find((r) => r.id === selectedRackId) ?? null;
 
@@ -83,7 +95,9 @@ export function RacksPanel({ repoPath, selectedRackId, onSelectRack, onRepositor
                   "Location",
                   "Height (U)",
                   "Row",
-                  "Placements",
+                  "Front",
+                  "Rear",
+                  "Total",
                 ].map((h) => (
                   <th key={h} style={common.th}>
                     {h}
@@ -118,6 +132,8 @@ export function RacksPanel({ repoPath, selectedRackId, onSelectRack, onRepositor
                     </td>
                     <td style={common.td}>{rack.height_u}</td>
                     <td style={common.td}>{rack.row ?? ""}</td>
+                    <td style={common.td}>{rack.front_placement_count}</td>
+                    <td style={common.td}>{rack.rear_placement_count}</td>
                     <td style={common.td}>{rack.placement_count}</td>
                   </tr>
                 );
@@ -130,7 +146,7 @@ export function RacksPanel({ repoPath, selectedRackId, onSelectRack, onRepositor
       {selectedRack && (
         <RackDetailPanel
           rack={selectedRack}
-          onRepositoryMutated={onRepositoryMutated}
+          onRepositoryMutated={handleRepositoryMutated}
           onNavigateToRackPlacement={handleNavigateToRackPlacement}
           initialNavigation={pendingNavigation}
           onNavigationConsumed={() => setPendingNavigation(null)}

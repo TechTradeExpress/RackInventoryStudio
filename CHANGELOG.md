@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.25.0 — rack placement counts (milestone 25)
+
+- Added `front_placement_count` and `rear_placement_count` to `RackSummaryDto` (Rust + TypeScript) alongside the existing `placement_count` total.
+- Updated `list_racks` Tauri command to compute per-side counts from `placement_files`.
+- Updated `RacksPanel` table: "Placements" column replaced by three columns — Front, Rear, Total.
+- `RacksPanel` now reloads the rack list after every mutation (add/move/remove) so counts stay current without a page refresh.
+- Added 6 Rust tests covering count behavior: initial fixture, place front, remove, same-side move (unchanged), cross-side move, cross-rack move.
+- Local checks: 236 Rust tests pass, 18 Vitest tests pass, typecheck/build clean, Clippy clean.
+
 ## v0.24.0 — pnpm toolchain refresh (milestone 24)
 
 - Updated root `package.json` `packageManager` from `pnpm@9.0.0` to `pnpm@10.33.4` (current stable pnpm 10 series, compatible with Node 22 LTS).
