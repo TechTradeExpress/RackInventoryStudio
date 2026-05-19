@@ -3,6 +3,7 @@ import {
   openRepository,
   closeRepository,
   selectRepositoryFolder,
+  getRepositorySummary,
   type OpenRepositoryResultDto,
   type RepositorySummaryDto,
   type RackSummaryDto,
@@ -34,8 +35,17 @@ export function App() {
   const [activeTab, setActiveTab] = useState<Tab>("repository");
   const [selectedRack, setSelectedRack] = useState<RackSummaryDto | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [repositoryMutationToken, setRepositoryMutationToken] = useState(0);
 
   const isOpen = summary !== null;
+
+  function handleRepositoryMutated() {
+    setHasUnsavedChanges(true);
+    setRepositoryMutationToken((t) => t + 1);
+    getRepositorySummary()
+      .then(setSummary)
+      .catch(() => {});
+  }
 
   async function handleOpen() {
     if (!repoPath.trim()) return;
@@ -148,7 +158,7 @@ export function App() {
       {activeTab === "locations" && isOpen && (
         <LocationsPanel
           repoPath={summary.repo_path}
-          onRepositoryMutated={() => setHasUnsavedChanges(true)}
+          onRepositoryMutated={handleRepositoryMutated}
         />
       )}
 
@@ -157,27 +167,30 @@ export function App() {
           repoPath={summary.repo_path}
           selectedRackId={selectedRack?.id ?? null}
           onSelectRack={setSelectedRack}
-          onRepositoryMutated={() => setHasUnsavedChanges(true)}
+          mutationToken={repositoryMutationToken}
+          onRepositoryMutated={handleRepositoryMutated}
         />
       )}
 
       {activeTab === "devices" && isOpen && (
         <DevicesPanel
           repoPath={summary.repo_path}
-          onRepositoryMutated={() => setHasUnsavedChanges(true)}
+          mutationToken={repositoryMutationToken}
+          onRepositoryMutated={handleRepositoryMutated}
         />
       )}
 
       {activeTab === "device_models" && isOpen && (
         <DeviceModelsPanel
           repoPath={summary.repo_path}
-          onRepositoryMutated={() => setHasUnsavedChanges(true)}
+          mutationToken={repositoryMutationToken}
+          onRepositoryMutated={handleRepositoryMutated}
         />
       )}
 
       {activeTab === "csv_import" && isOpen && (
         <CsvImportPanel
-          onRepositoryMutated={() => setHasUnsavedChanges(true)}
+          onRepositoryMutated={handleRepositoryMutated}
         />
       )}
     </main>

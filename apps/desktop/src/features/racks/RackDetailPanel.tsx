@@ -17,6 +17,7 @@ interface NavigationRequest {
 
 interface Props {
   rack: RackSummaryDto;
+  mutationToken: number;
   onRepositoryMutated: () => void;
   onNavigateToRackPlacement: (rackId: string, placementId: string) => boolean;
   initialNavigation: NavigationRequest | null;
@@ -102,6 +103,7 @@ function deriveSide(
 
 export function RackDetailPanel({
   rack,
+  mutationToken,
   onRepositoryMutated,
   onNavigateToRackPlacement,
   initialNavigation,
@@ -279,6 +281,7 @@ export function RackDetailPanel({
             rack={rack}
             onAddSuccess={handleAddSuccess}
             reloadToken={targetReloadToken}
+            mutationToken={mutationToken}
           />
 
           <h3 style={{ ...common.h3, marginTop: "1.25rem" }}>
