@@ -20,43 +20,84 @@ export interface SearchNavigationEvent {
 
 interface Props {
   onNavigate: (event: SearchNavigationEvent) => void;
+  /** Increment this token whenever repository data mutates to trigger a re-search. */
+  refreshKey?: number;
 }
 
-export function GlobalSearch({ onNavigate }: Props) {
+export function GlobalSearch({ onNavigate, refreshKey }: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResultDto[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [activeIndex, setActiveIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Monotonically increasing counter guards against stale async results.
+  const seqRef = useRef(0);
+  // Always-current query value readable inside effects without adding query to deps.
+  const queryRef = useRef(query);
+  queryRef.current = query;
 
+  // Re-run search when query changes (debounced).
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     const trimmed = query.trim();
     if (trimmed.length < 2) {
       setResults([]);
       setOpen(false);
+      setError(null);
       return;
     }
+    const seq = ++seqRef.current;
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
+      setError(null);
       try {
         const res = await searchRepository(trimmed);
+        if (seq !== seqRef.current) return;
         setResults(res);
         setOpen(true);
         setActiveIndex(-1);
-      } catch {
+      } catch (e) {
+        if (seq !== seqRef.current) return;
         setResults([]);
+        setError(String(e));
+        setOpen(true);
       } finally {
-        setLoading(false);
+        if (seq === seqRef.current) setLoading(false);
       }
     }, 200);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [query]);
+
+  // Re-run immediately (no debounce) when repository data mutates.
+  // Does not clear query; does not show stale results while the request is in flight.
+  useEffect(() => {
+    if (refreshKey === undefined) return;
+    const trimmed = queryRef.current.trim();
+    if (trimmed.length < 2) return;
+    const seq = ++seqRef.current;
+    setLoading(true);
+    searchRepository(trimmed)
+      .then((res) => {
+        if (seq !== seqRef.current) return;
+        setResults(res);
+        setActiveIndex(-1);
+        setError(null);
+      })
+      .catch((e) => {
+        if (seq !== seqRef.current) return;
+        setError(String(e));
+      })
+      .finally(() => {
+        if (seq === seqRef.current) setLoading(false);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey]); // intentionally excludes query — we read it via queryRef
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -72,6 +113,7 @@ export function GlobalSearch({ onNavigate }: Props) {
     setQuery("");
     setOpen(false);
     setResults([]);
+    setError(null);
     const nav = result.navigation;
     switch (result.kind) {
       case "location":
@@ -122,7 +164,7 @@ export function GlobalSearch({ onNavigate }: Props) {
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
           onFocus={() => {
-            if (results.length > 0) setOpen(true);
+            if (results.length > 0 || error) setOpen(true);
           }}
           placeholder="Search… (min 2 chars)"
           style={styles.input}
@@ -141,6 +183,7 @@ export function GlobalSearch({ onNavigate }: Props) {
               setQuery("");
               setResults([]);
               setOpen(false);
+              setError(null);
               inputRef.current?.focus();
             }}
             aria-label="Clear search"
@@ -150,7 +193,11 @@ export function GlobalSearch({ onNavigate }: Props) {
         )}
       </div>
 
-      {open && results.length > 0 && (
+      {open && error && (
+        <div style={styles.errorBox}>{error}</div>
+      )}
+
+      {open && !error && results.length > 0 && (
         <ul style={styles.dropdown} role="listbox">
           {results.map((r, idx) => (
             <li
@@ -176,7 +223,7 @@ export function GlobalSearch({ onNavigate }: Props) {
         </ul>
       )}
 
-      {open && query.trim().length >= 2 && !loading && results.length === 0 && (
+      {open && !error && query.trim().length >= 2 && !loading && results.length === 0 && (
         <div style={styles.noResults}>No results</div>
       )}
     </div>
@@ -271,6 +318,19 @@ const styles = {
     color: "#888",
     fontSize: "0.75rem",
     flexShrink: 0,
+  },
+  errorBox: {
+    position: "absolute" as const,
+    top: "calc(100% + 2px)",
+    left: 0,
+    right: 0,
+    background: "#fff0f0",
+    border: "1px solid #f88",
+    borderRadius: "4px",
+    padding: "0.4rem 0.6rem",
+    fontSize: "0.82rem",
+    color: "#b00",
+    zIndex: 1000,
   },
   noResults: {
     position: "absolute" as const,

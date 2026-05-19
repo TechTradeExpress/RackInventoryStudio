@@ -226,7 +226,10 @@ export function App() {
 
       {isOpen && (
         <div style={styles.searchBar}>
-          <GlobalSearch onNavigate={handleNavigateFromSearch} />
+          <GlobalSearch
+            onNavigate={handleNavigateFromSearch}
+            refreshKey={repositoryMutationToken}
+          />
         </div>
       )}
 

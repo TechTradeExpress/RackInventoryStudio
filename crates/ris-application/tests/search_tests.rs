@@ -2,9 +2,9 @@ use std::path::Path;
 
 use ris_application::{
     open_repository, AddDeviceInput, AddDeviceModelInput, AddLocationInput, AddRackInput,
-    SearchResultKind,
+    PlaceDeviceInput, PlaceRackObjectInput, SearchResultKind,
 };
-use ris_core::{DeviceStatus, DeviceType};
+use ris_core::{DeviceStatus, DeviceType, PlacementSide};
 
 fn fixture(name: &str) -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -59,6 +59,20 @@ fn make_session() -> ris_application::RepositorySession {
         })
         .unwrap();
 
+    let dm_id2 = session
+        .add_device_model(AddDeviceModelInput {
+            id: Some("search-dm-2".into()),
+            device_type: DeviceType::RackObject,
+            code: "search-rackobj-model".into(),
+            name: "Search RackObj Model".into(),
+            vendor: Some("PanelVendor".into()),
+            model: Some("PP-48".into()),
+            default_height_u: 1,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap();
+
     session
         .add_device(AddDeviceInput {
             id: Some("search-dev-1".into()),
@@ -72,6 +86,40 @@ fn make_session() -> ris_application::RepositorySession {
             external_ref: None,
             status: DeviceStatus::Installed,
             description: None,
+            tags: vec![],
+        })
+        .unwrap();
+
+    // Place the device in search-rack-1 at U1, front.
+    session
+        .place_device(PlaceDeviceInput {
+            id: Some("search-pl-dev-1".into()),
+            code: Some("search-pl-dev".into()),
+            rack_id: Some("search-rack-1".into()),
+            rack_code: None,
+            side: PlacementSide::Front,
+            device_id: Some("search-dev-1".into()),
+            device_code: None,
+            start_u: 1,
+            height_u: None,
+            note: None,
+            tags: vec![],
+        })
+        .unwrap();
+
+    // Place a rack object (device model) in search-rack-1 at U10, rear.
+    session
+        .place_rack_object(PlaceRackObjectInput {
+            id: Some("search-pl-ro-1".into()),
+            code: Some("search-pl-rackobj".into()),
+            rack_id: Some("search-rack-1".into()),
+            rack_code: None,
+            side: PlacementSide::Rear,
+            device_model_id: Some(dm_id2),
+            device_model_code: None,
+            start_u: 10,
+            height_u: None,
+            note: None,
             tags: vec![],
         })
         .unwrap();
@@ -214,4 +262,140 @@ fn case_insensitive_match() {
     assert!(upper.iter().any(|r| r.id == "search-loc-1"));
     let lower = session.search("search-loc");
     assert!(lower.iter().any(|r| r.id == "search-loc-1"));
+}
+
+// ── placement hits (enriched search) ─────────────────────────────────────────
+
+#[test]
+fn placement_found_by_target_device_code() {
+    let session = make_session();
+    let results = session.search("search-dev");
+    // Should find both the device itself AND the placement that contains it
+    let placement_hit = results
+        .iter()
+        .find(|r| r.kind == SearchResultKind::Placement && r.id == "search-pl-dev-1");
+    assert!(
+        placement_hit.is_some(),
+        "expected placement by target device code; got: {:?}",
+        results.iter().map(|r| (&r.kind, &r.id)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn placement_found_by_target_device_name() {
+    let session = make_session();
+    // "Delta" is the device name; the placement should surface too
+    let results = session.search("Delta");
+    let placement_hit = results
+        .iter()
+        .find(|r| r.kind == SearchResultKind::Placement && r.id == "search-pl-dev-1");
+    assert!(
+        placement_hit.is_some(),
+        "expected placement by target device name; got: {:?}",
+        results.iter().map(|r| (&r.kind, &r.id)).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn placement_found_by_target_device_serial_number() {
+    let session = make_session();
+    let results = session.search("SN-UNIQUE-9999");
+    let placement_hit = results
+        .iter()
+        .find(|r| r.kind == SearchResultKind::Placement && r.id == "search-pl-dev-1");
+    assert!(
+        placement_hit.is_some(),
+        "expected placement by device serial number"
+    );
+}
+
+#[test]
+fn placement_found_by_target_device_asset_tag() {
+    let session = make_session();
+    let results = session.search("AT-0001");
+    let placement_hit = results
+        .iter()
+        .find(|r| r.kind == SearchResultKind::Placement && r.id == "search-pl-dev-1");
+    assert!(
+        placement_hit.is_some(),
+        "expected placement by device asset tag"
+    );
+}
+
+#[test]
+fn placement_found_by_rack_code() {
+    let session = make_session();
+    let results = session.search("search-rack");
+    let placement_hits: Vec<_> = results
+        .iter()
+        .filter(|r| r.kind == SearchResultKind::Placement)
+        .collect();
+    assert!(
+        !placement_hits.is_empty(),
+        "expected at least one placement hit for rack code"
+    );
+}
+
+#[test]
+fn placement_found_by_rack_name() {
+    let session = make_session();
+    let results = session.search("Beta");
+    let placement_hits: Vec<_> = results
+        .iter()
+        .filter(|r| r.kind == SearchResultKind::Placement)
+        .collect();
+    assert!(
+        !placement_hits.is_empty(),
+        "expected at least one placement hit for rack name"
+    );
+}
+
+#[test]
+fn rack_object_placement_found_by_model_code() {
+    let session = make_session();
+    let results = session.search("search-rackobj-model");
+    let placement_hit = results
+        .iter()
+        .find(|r| r.kind == SearchResultKind::Placement && r.id == "search-pl-ro-1");
+    assert!(
+        placement_hit.is_some(),
+        "expected rack-object placement found by model code"
+    );
+}
+
+#[test]
+fn rack_object_placement_found_by_model_vendor() {
+    let session = make_session();
+    let results = session.search("PanelVendor");
+    let placement_hit = results
+        .iter()
+        .find(|r| r.kind == SearchResultKind::Placement && r.id == "search-pl-ro-1");
+    assert!(
+        placement_hit.is_some(),
+        "expected rack-object placement found by model vendor"
+    );
+}
+
+#[test]
+fn placement_detail_contains_rack_code_and_side_and_start_u() {
+    let session = make_session();
+    let results = session.search("search-pl-dev");
+    let hit = results.iter().find(|r| r.id == "search-pl-dev-1").unwrap();
+    let detail = hit.detail.as_deref().unwrap_or("");
+    assert!(
+        detail.contains("search-rack") && detail.contains("front") && detail.contains("U1"),
+        "detail should contain rack code, side, and start_u; got: {detail:?}"
+    );
+}
+
+#[test]
+fn placement_navigation_contains_rack_id_and_placement_id() {
+    let session = make_session();
+    let results = session.search("search-pl-dev");
+    let hit = results.iter().find(|r| r.id == "search-pl-dev-1").unwrap();
+    assert_eq!(hit.navigation.rack_id.as_deref(), Some("search-rack-1"));
+    assert_eq!(
+        hit.navigation.placement_id.as_deref(),
+        Some("search-pl-dev-1")
+    );
 }

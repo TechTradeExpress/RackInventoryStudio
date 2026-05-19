@@ -1,3 +1,5 @@
+use ris_core::{PlacementSide, PlacementTargetKind};
+
 use crate::session::RepositorySession;
 
 const MAX_RESULTS: usize = 50;
@@ -222,7 +224,7 @@ impl RepositorySession {
             }
         }
 
-        // Placements (search code, note, tags)
+        // Placements — code, note, tags + rack fields + target device/model fields
         for indexed in self.index.placements_by_id.values() {
             let p = &indexed.placement;
             let mut sc = score_field(&p.code, needle, 0);
@@ -232,13 +234,68 @@ impl RepositorySession {
             for t in &p.tags {
                 sc = best(sc, score_field(t, needle, 6));
             }
+
+            // Rack fields
+            if let Some(rack) = self.index.get_rack_by_id(&indexed.rack_id) {
+                sc = best(sc, score_field(&rack.code, needle, 6));
+                sc = best(sc, score_field(&rack.name, needle, 6));
+            }
+
+            // Target entity fields
+            match p.target_kind {
+                PlacementTargetKind::Device => {
+                    if let Some(dev) = self.index.get_device_by_id(&p.target_id) {
+                        sc = best(sc, score_field(&dev.code, needle, 6));
+                        if let Some(n) = &dev.name {
+                            sc = best(sc, score_field(n, needle, 6));
+                        }
+                        if let Some(sn) = &dev.serial_number {
+                            sc = best(sc, score_field(sn, needle, 6));
+                        }
+                        if let Some(at) = &dev.asset_tag {
+                            sc = best(sc, score_field(at, needle, 6));
+                        }
+                        if let Some(er) = &dev.external_ref {
+                            sc = best(sc, score_field(er, needle, 6));
+                        }
+                        for t in &dev.tags {
+                            sc = best(sc, score_field(t, needle, 6));
+                        }
+                    }
+                }
+                PlacementTargetKind::DeviceModel => {
+                    if let Some(dm) = self.index.get_device_model_by_id(&p.target_id) {
+                        sc = best(sc, score_field(&dm.code, needle, 6));
+                        sc = best(sc, score_field(&dm.name, needle, 6));
+                        if let Some(v) = &dm.vendor {
+                            sc = best(sc, score_field(v, needle, 6));
+                        }
+                        if let Some(m) = &dm.model {
+                            sc = best(sc, score_field(m, needle, 6));
+                        }
+                        for t in &dm.tags {
+                            sc = best(sc, score_field(t, needle, 6));
+                        }
+                    }
+                }
+            }
+
             if let Some(score) = sc {
+                let side_str = match indexed.side {
+                    PlacementSide::Front => "front",
+                    PlacementSide::Rear => "rear",
+                };
+                let rack_code = self
+                    .index
+                    .get_rack_by_id(&indexed.rack_id)
+                    .map(|r| r.code.as_str())
+                    .unwrap_or("?");
                 results.push(SearchResult {
                     kind: SearchResultKind::Placement,
                     id: p.id.clone(),
                     code: p.code.clone(),
                     label: p.code.clone(),
-                    detail: Some(format!("U{}", p.start_u)),
+                    detail: Some(format!("{}, {}, U{}", rack_code, side_str, p.start_u)),
                     score,
                     navigation: SearchNavigation {
                         location_id: None,
