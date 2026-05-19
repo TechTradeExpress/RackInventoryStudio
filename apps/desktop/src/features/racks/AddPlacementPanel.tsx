@@ -29,6 +29,7 @@ export function AddPlacementPanel({ rack, onAddSuccess, reloadToken }: Props) {
   const [devices, setDevices] = useState<DeviceDto[]>([]);
   const [deviceModels, setDeviceModels] = useState<DeviceModelDto[]>([]);
   const [targetsLoading, setTargetsLoading] = useState(false);
+  const [manualRetryToken, setManualRetryToken] = useState(0);
   const [working, setWorking] = useState(false);
   const [targetLoadError, setTargetLoadError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -72,7 +73,7 @@ export function AddPlacementPanel({ rack, onAddSuccess, reloadToken }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [rack.id, reloadToken]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [rack.id, reloadToken, manualRetryToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function resetInputs() {
     setDeviceId("");
@@ -346,9 +347,19 @@ export function AddPlacementPanel({ rack, onAddSuccess, reloadToken }: Props) {
               color: "#b00",
               borderRadius: 3,
               fontSize: "0.78rem",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
             }}
           >
-            Failed to load targets: {targetLoadError}
+            <span style={{ flex: 1 }}>Failed to load targets: {targetLoadError}</span>
+            <button
+              type="button"
+              onClick={() => setManualRetryToken((t) => t + 1)}
+              style={{ ...common.btn, flexShrink: 0 }}
+            >
+              Retry
+            </button>
           </div>
         )}
         {submitError && (
