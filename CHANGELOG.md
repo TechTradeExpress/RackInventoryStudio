@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.35.0 — Git remote sync foundation (milestone 34)
+
+- Extended `ris-git` crate with remote sync: `list_remotes`, `add_remote`, `push_current_branch`, `pull_ff_only`.
+- New `GitError` variants: `InvalidInput(String)` (name/URL validation), `DirtyWorkingTree` (pull blocked on dirty tree).
+- `GitStatusSummary` extended: `upstream: Option<String>`, `ahead: Option<u32>`, `behind: Option<u32>`.
+- `parse_branch_line` helper parses `## branch...upstream [ahead N, behind M]` format from `git status --porcelain=v1 --branch`.
+- Remote name validation allows only ASCII letters, digits, `.`, `_`, `-` (defense-in-depth).
+- `pull_ff_only` checks for dirty working tree before pulling; rejects with `DirtyWorkingTree` error.
+- `push_current_branch` uses `-u` flag to set upstream tracking, calls `git push -u <remote> <branch>`.
+- 11 new Rust integration tests in `crates/ris-git/tests/git_remote_tests.rs` using local bare repos (no network required).
+- New Tauri commands: `list_git_remotes`, `add_git_remote`, `push_git_current_branch`, `pull_git_ff_only`.
+- `pull_git_ff_only` drops session lock before the slow network operation; reloads `RepositorySession` from disk after success; returns updated `RepositorySummaryDto`.
+- `build_summary` in `commands/repository.rs` changed to `pub(crate)` visibility for reuse from `commands/git.rs`.
+- New DTOs: `GitRemoteDto`; `GitStatusDto` extended with `upstream`, `ahead`, `behind`.
+- New TypeScript API: `GitRemoteDto`, `listGitRemotes()`, `addGitRemote()`, `pushGitCurrentBranch()`, `pullGitFfOnly()`.
+- `RepositoryPanel.tsx` Git section extended:
+  - Status table now shows Upstream and Sync (ahead/behind) rows when upstream is set.
+  - **Configured remotes** table lists all remotes with name and URL.
+  - **Add remote** form with name (default "origin") and URL inputs; validates blank fields; shows error/success.
+  - **Push / Pull** section with remote selector, "Push current branch" and "Pull --ff-only" buttons.
+  - Push and pull are disabled when `hasUnsavedChanges` is true; warning shown: "Save and commit local changes before syncing."
+  - After add remote / push / pull: status, log, and remotes refresh automatically.
+  - After successful pull: `onPullSuccess` callback fires to update `App.tsx` summary state.
+- `App.tsx` passes `onPullSuccess={(s) => setSummary(s)}` to `RepositoryPanel`.
+- Local checks: 30 ris-git tests pass (7 parser unit + 11 remote integration + 12 original), all 186 Rust tests pass, 38 Vitest tests pass, typecheck/clippy/build clean.
+- Limitations (intentionally out of scope): no SSH/HTTPS auth configuration, no OAuth/token storage, no merge/rebase UI, no conflict resolution, no auto-commit/auto-push/auto-pull.
+
 ## v0.34.0 — Git workflow foundation (milestone 33)
 
 - Implemented `ris-git` crate (was a stub): `is_git_repository`, `init_repository`, `status`, `recent_commits`, `commit_all` — all using `std::process::Command::new("git")` with args passed individually (no shell interpolation).

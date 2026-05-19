@@ -2,11 +2,12 @@ mod commands;
 mod dto;
 
 use commands::{
-    add_device_cmd, add_device_model_cmd, add_location_cmd, add_rack_cmd, close_repository,
-    commit_repository_changes, get_git_log, get_git_status, get_rack_detail,
+    add_device_cmd, add_device_model_cmd, add_git_remote, add_location_cmd, add_rack_cmd,
+    close_repository, commit_repository_changes, get_git_log, get_git_status, get_rack_detail,
     get_repository_summary, import_device_csv_cmd, init_git_repository, list_device_models,
-    list_devices, list_locations, list_racks, move_placement, open_repository_cmd, place_device,
-    place_rack_object, preview_device_csv_import_cmd, remove_placement, save_current_repository,
+    list_devices, list_git_remotes, list_locations, list_racks, move_placement,
+    open_repository_cmd, place_device, place_rack_object, preview_device_csv_import_cmd,
+    pull_git_ff_only, push_git_current_branch, remove_placement, save_current_repository,
     validate_current_repository, AppState,
 };
 use std::sync::Mutex;
@@ -43,6 +44,10 @@ pub fn run() {
             init_git_repository,
             get_git_log,
             commit_repository_changes,
+            list_git_remotes,
+            add_git_remote,
+            push_git_current_branch,
+            pull_git_ff_only,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

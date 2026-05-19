@@ -246,6 +246,9 @@ pub struct CsvImportResultDto {
 pub struct GitStatusDto {
     pub is_repository: bool,
     pub branch: Option<String>,
+    pub upstream: Option<String>,
+    pub ahead: Option<u32>,
+    pub behind: Option<u32>,
     pub is_clean: bool,
     pub staged_count: usize,
     pub unstaged_count: usize,
@@ -260,6 +263,12 @@ pub struct GitCommitDto {
     pub subject: String,
     pub author: Option<String>,
     pub date: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GitRemoteDto {
+    pub name: String,
+    pub url: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
