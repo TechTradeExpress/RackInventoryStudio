@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.24.0 — pnpm toolchain refresh (milestone 24)
+
+- Updated root `package.json` `packageManager` from `pnpm@9.0.0` to `pnpm@10.33.4` (current stable pnpm 10 series, compatible with Node 22 LTS).
+- `pnpm-lock.yaml` unchanged: pnpm 10 uses the same `lockfileVersion: '9.0'` schema; running `pnpm install` with the new version reported "Lockfile is up to date" with zero diff.
+- CI unchanged: `pnpm/action-setup@v6` reads `packageManager` from `package.json` automatically; no explicit version input needed in the workflow.
+- No dependency upgrades; no application code, Rust logic, or frontend behavior changed.
+- Local checks: 160 Rust tests pass, 18 Vitest tests pass, typecheck/build clean, `pnpm install --frozen-lockfile` passes.
+
 ## v0.23.0 — CI Node 22 compatibility cleanup (milestone 23)
 
 - Updated GitHub Actions CI workflow: `node-version: 20` → `node-version: 22` (Node.js 22 LTS, current stable LTS since October 2024). Project/frontend commands run on Node 22 LTS.
