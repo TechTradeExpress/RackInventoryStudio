@@ -254,6 +254,23 @@ export function addDeviceModel(input: AddDeviceModelInput): Promise<string> {
   return invoke("add_device_model_cmd", { input });
 }
 
+export interface AddDeviceInput {
+  device_type: string;
+  code: string;
+  name?: string;
+  device_model_id?: string;
+  serial_number?: string;
+  asset_tag?: string;
+  external_ref?: string;
+  status: string;
+  description?: string;
+  tags: string[];
+}
+
+export function addDevice(input: AddDeviceInput): Promise<string> {
+  return invoke("add_device_cmd", { input });
+}
+
 // ── Native dialog ─────────────────────────────────────────────────────────────
 
 export async function selectRepositoryFolder(): Promise<string | null> {

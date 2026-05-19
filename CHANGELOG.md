@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.29.0 — Add Device UI foundation (milestone 28)
+
+- Added **Add Device** form to the Devices tab (device_type, code, name, device model selector, serial number, asset tag, external ref, status, description, tags).
+- Device type select includes only concrete device types: server, network, storage, ups, appliance, other. `rack_object` is excluded.
+- Device model selector loads from `list_device_models`, excludes `rack_object` models, and filters to the selected device_type; clearing device_type resets the selector.
+- If user changes device_type after selecting a model, the model is cleared if it no longer matches.
+- Status select includes all allowed values: planned, in_stock, installed, to_remove, removed, disposed, unknown. Default is `planned`.
+- Inline validation: device_type required, code required, status required, at least one of name/serial_number/asset_tag required.
+- New Tauri command `add_device_cmd` wraps the existing application-layer `add_device` method. `device_type` and `status` strings are parsed via `from_str` in the command layer; backend handles all domain validation (duplicate code, model type mismatch, rack_object rejection, etc.).
+- New TypeScript API wrapper `addDevice` / `AddDeviceInput` in `tauriClient.ts`.
+- Successful add refreshes devices list, sets global dirty state, shows unsaved changes banner.
+- After successful add, selected device_type and status are kept for batch-entry convenience.
+- `DevicesPanel` adopts `prevRepoPathRef` cleanup pattern for repository switch (consistent with other panels).
+- Existing save flow persists newly added devices.
+- Local checks: 236 Rust tests pass (application-layer `add_device` already has comprehensive tests), 24 Vitest tests pass, typecheck/build clean, Clippy clean.
+
 ## v0.28.0 — Add Device Model UI foundation (milestone 27)
 
 - Added **Add Device Model** form to the Device Models tab (device_type, code, name, vendor, model number, height U, description, tags).

@@ -159,7 +159,10 @@ export function App() {
       )}
 
       {activeTab === "devices" && isOpen && (
-        <DevicesPanel repoPath={summary.repo_path} />
+        <DevicesPanel
+          repoPath={summary.repo_path}
+          onRepositoryMutated={() => setHasUnsavedChanges(true)}
+        />
       )}
 
       {activeTab === "device_models" && isOpen && (

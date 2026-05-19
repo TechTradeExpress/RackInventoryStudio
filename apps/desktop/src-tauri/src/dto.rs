@@ -183,6 +183,20 @@ pub struct AddDeviceModelInputDto {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct AddDeviceInputDto {
+    pub device_type: String,
+    pub code: String,
+    pub name: Option<String>,
+    pub device_model_id: Option<String>,
+    pub serial_number: Option<String>,
+    pub asset_tag: Option<String>,
+    pub external_ref: Option<String>,
+    pub status: String,
+    pub description: Option<String>,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RackDetailDto {
     pub id: String,
     pub code: String,

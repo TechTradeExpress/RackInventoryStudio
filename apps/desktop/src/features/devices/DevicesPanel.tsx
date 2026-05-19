@@ -1,26 +1,167 @@
-import { useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { common } from "../../lib/styles";
-import { listDevices, type DeviceDto } from "../../api/tauriClient";
+import {
+  listDevices,
+  listDeviceModels,
+  addDevice,
+  type DeviceDto,
+  type DeviceModelDto,
+} from "../../api/tauriClient";
+import { parseTags } from "../../lib/tags";
+
+const DEVICE_TYPES = [
+  "server",
+  "network",
+  "storage",
+  "ups",
+  "appliance",
+  "other",
+] as const;
+
+const DEVICE_STATUSES = [
+  "planned",
+  "in_stock",
+  "installed",
+  "to_remove",
+  "removed",
+  "disposed",
+  "unknown",
+] as const;
+
+const EMPTY_FORM = {
+  deviceType: "",
+  code: "",
+  name: "",
+  deviceModelId: "",
+  serialNumber: "",
+  assetTag: "",
+  externalRef: "",
+  status: "planned",
+  description: "",
+  tags: "",
+};
 
 interface Props {
   repoPath: string;
+  onRepositoryMutated: () => void;
 }
 
-export function DevicesPanel({ repoPath }: Props) {
+export function DevicesPanel({ repoPath, onRepositoryMutated }: Props) {
   const [devices, setDevices] = useState<DeviceDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const [models, setModels] = useState<DeviceModelDto[]>([]);
+
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [formSuccess, setFormSuccess] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const prevRepoPathRef = useRef<string>("");
+
   useEffect(() => {
     if (!repoPath) return;
+    const isRepoSwitch = prevRepoPathRef.current !== repoPath;
+    prevRepoPathRef.current = repoPath;
+    if (isRepoSwitch) {
+      setDevices([]);
+      setModels([]);
+      setError(null);
+      setForm(EMPTY_FORM);
+      setFormError(null);
+      setFormSuccess(null);
+    }
     setLoading(true);
-    setError(null);
-    setDevices([]);
-    listDevices()
-      .then(setDevices)
+    Promise.all([listDevices(), listDeviceModels()])
+      .then(([devs, mods]) => {
+        setDevices(devs);
+        setModels(mods.filter((m) => m.device_type !== "rack_object"));
+      })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
   }, [repoPath]);
+
+  function set(field: keyof typeof EMPTY_FORM, value: string) {
+    setForm((f) => {
+      const next = { ...f, [field]: value };
+      // clear model selection if device_type changes and model no longer matches
+      if (field === "deviceType" && next.deviceModelId) {
+        const selected = models.find((m) => m.id === next.deviceModelId);
+        if (selected && selected.device_type !== value) {
+          next.deviceModelId = "";
+        }
+      }
+      return next;
+    });
+  }
+
+  const filteredModels =
+    form.deviceType
+      ? models.filter((m) => m.device_type === form.deviceType)
+      : models;
+
+  async function handleAdd(e: FormEvent) {
+    e.preventDefault();
+    setFormError(null);
+    setFormSuccess(null);
+
+    if (!form.deviceType) {
+      setFormError("Device type is required.");
+      return;
+    }
+    if (!form.code.trim()) {
+      setFormError("Code is required.");
+      return;
+    }
+    if (!form.status) {
+      setFormError("Status is required.");
+      return;
+    }
+    if (
+      !form.name.trim() &&
+      !form.serialNumber.trim() &&
+      !form.assetTag.trim()
+    ) {
+      setFormError(
+        "At least one of Name, Serial Number, or Asset Tag is required.",
+      );
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await addDevice({
+        device_type: form.deviceType,
+        code: form.code.trim(),
+        name: form.name.trim() || undefined,
+        device_model_id: form.deviceModelId || undefined,
+        serial_number: form.serialNumber.trim() || undefined,
+        asset_tag: form.assetTag.trim() || undefined,
+        external_ref: form.externalRef.trim() || undefined,
+        status: form.status,
+        description: form.description.trim() || undefined,
+        tags: parseTags(form.tags),
+      });
+      const [updatedDevices, updatedModels] = await Promise.all([
+        listDevices(),
+        listDeviceModels(),
+      ]);
+      setDevices(updatedDevices);
+      setModels(updatedModels.filter((m) => m.device_type !== "rack_object"));
+      onRepositoryMutated();
+      setFormSuccess(`Device "${form.code.trim()}" added.`);
+      setForm({
+        ...EMPTY_FORM,
+        deviceType: form.deviceType,
+        status: form.status,
+      });
+    } catch (e) {
+      setFormError(String(e));
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   return (
     <section style={common.section}>
@@ -77,6 +218,188 @@ export function DevicesPanel({ repoPath }: Props) {
           </tbody>
         </table>
       )}
+
+      <section style={styles.formSection}>
+        <h3 style={common.h3}>Add Device</h3>
+
+        <form onSubmit={handleAdd} style={styles.form}>
+          <div style={styles.fieldRow}>
+            <label style={styles.label}>
+              Device Type<span style={styles.required}> *</span>
+            </label>
+            <select
+              value={form.deviceType}
+              onChange={(e) => set("deviceType", e.target.value)}
+              style={common.input}
+              disabled={submitting}
+            >
+              <option value="">— select —</option>
+              {DEVICE_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div style={styles.fieldRow}>
+            <label style={styles.label}>
+              Code<span style={styles.required}> *</span>
+            </label>
+            <input
+              value={form.code}
+              onChange={(e) => set("code", e.target.value)}
+              style={common.input}
+              disabled={submitting}
+            />
+          </div>
+
+          <div style={styles.fieldRow}>
+            <label style={styles.label}>Name</label>
+            <input
+              value={form.name}
+              onChange={(e) => set("name", e.target.value)}
+              style={common.input}
+              disabled={submitting}
+            />
+          </div>
+
+          <div style={styles.fieldRow}>
+            <label style={styles.label}>Device Model</label>
+            <select
+              value={form.deviceModelId}
+              onChange={(e) => set("deviceModelId", e.target.value)}
+              style={common.input}
+              disabled={submitting}
+            >
+              <option value="">— none —</option>
+              {filteredModels.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.code} — {m.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div style={styles.fieldRow}>
+            <label style={styles.label}>Serial Number</label>
+            <input
+              value={form.serialNumber}
+              onChange={(e) => set("serialNumber", e.target.value)}
+              style={common.input}
+              disabled={submitting}
+            />
+          </div>
+
+          <div style={styles.fieldRow}>
+            <label style={styles.label}>Asset Tag</label>
+            <input
+              value={form.assetTag}
+              onChange={(e) => set("assetTag", e.target.value)}
+              style={common.input}
+              disabled={submitting}
+            />
+          </div>
+
+          <div style={styles.fieldRow}>
+            <label style={styles.label}>External Ref</label>
+            <input
+              value={form.externalRef}
+              onChange={(e) => set("externalRef", e.target.value)}
+              style={common.input}
+              disabled={submitting}
+            />
+          </div>
+
+          <div style={styles.fieldRow}>
+            <label style={styles.label}>
+              Status<span style={styles.required}> *</span>
+            </label>
+            <select
+              value={form.status}
+              onChange={(e) => set("status", e.target.value)}
+              style={common.input}
+              disabled={submitting}
+            >
+              {DEVICE_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div style={styles.fieldRow}>
+            <label style={styles.label}>Description</label>
+            <input
+              value={form.description}
+              onChange={(e) => set("description", e.target.value)}
+              style={common.input}
+              disabled={submitting}
+            />
+          </div>
+
+          <div style={styles.fieldRow}>
+            <label style={styles.label}>Tags (comma-separated)</label>
+            <input
+              value={form.tags}
+              onChange={(e) => set("tags", e.target.value)}
+              style={common.input}
+              disabled={submitting}
+            />
+          </div>
+
+          <p style={styles.requiredNote}>
+            * At least one of Name, Serial Number, or Asset Tag is required.
+          </p>
+
+          {formError && <div style={common.errorBox}>{formError}</div>}
+          {formSuccess && <div style={styles.successBox}>{formSuccess}</div>}
+
+          <div>
+            <button type="submit" disabled={submitting} style={common.btn}>
+              {submitting ? "Adding…" : "Add device"}
+            </button>
+          </div>
+        </form>
+      </section>
     </section>
   );
 }
+
+const styles = {
+  formSection: {
+    marginTop: "1.5rem",
+  },
+  form: {
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: "0.5rem",
+    maxWidth: "400px",
+  },
+  fieldRow: {
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: "0.2rem",
+  },
+  label: {
+    fontSize: "0.82rem",
+    color: "#555",
+  },
+  required: {
+    color: "#b00",
+  },
+  requiredNote: {
+    margin: "0",
+    fontSize: "0.78rem",
+    color: "#666",
+  },
+  successBox: {
+    padding: "0.4rem 0.75rem",
+    background: "#f0fff4",
+    border: "1px solid #5cb85c",
+    color: "#2d6a2d",
+    borderRadius: "3px",
+    fontSize: "0.85rem",
+  },
+};
