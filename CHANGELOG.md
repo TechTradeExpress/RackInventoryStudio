@@ -2,8 +2,9 @@
 
 ## v0.23.0 — CI Node 22 compatibility cleanup (milestone 23)
 
-- Updated GitHub Actions CI workflow: `node-version: 20` → `node-version: 22` (Node.js 22 LTS, current stable LTS since October 2024). Removes the Node.js 20 runner warning from PR checks.
-- `actions/checkout@v5`, `pnpm/action-setup@v4`, and `actions/setup-node@v4` are kept at their current floating major-version tags; `@v4`/`@v5` tags auto-track the latest minor release which includes Node.js 24 action-runner support from their respective maintainers.
+- Updated GitHub Actions CI workflow: `node-version: 20` → `node-version: 22` (Node.js 22 LTS, current stable LTS since October 2024). Project/frontend commands run on Node 22; Node 22 vs 24 for project use is intentionally kept conservative.
+- Added `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` at workflow `env:` level. This is the GitHub-documented opt-in that forces all JavaScript action runners in the workflow (including `pnpm/action-setup@v4` and `actions/setup-node@v4`, whose `action.yml` still declares `runs: using: node20`) to use the Node.js 24 runtime. Addresses the "Node.js 20 Actions are deprecated" warning that appeared on PR checks even after updating the project Node version.
+- `actions/checkout@v5`, `pnpm/action-setup@v4`, and `actions/setup-node@v4` remain at their current floating major-version tags; no upstream action upgrade was needed because the env var override handles the runtime switch without depending on individual action releases.
 - No application code, Rust logic, or frontend behavior changed.
 - Local checks: 160 Rust tests pass, 18 Vitest tests pass, typecheck/build clean.
 
