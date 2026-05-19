@@ -2076,3 +2076,152 @@ fn move_placement_rack_to_rack_save_reload_persists() {
     assert_eq!(ip.side, PlacementSide::Front);
     assert_eq!(ip.placement.start_u, 5);
 }
+
+// ── placement counts (front / rear / total) ───────────────────────────────────
+
+fn get_counts(session: &ris_application::RepositorySession, rack_id: &str) -> (usize, usize) {
+    session
+        .data
+        .placement_files
+        .iter()
+        .find(|pf| pf.rack_id == rack_id)
+        .map(|pf| (pf.front.len(), pf.rear.len()))
+        .unwrap_or((0, 0))
+}
+
+#[test]
+fn placement_counts_initial_fixture() {
+    // valid-repository: rack-main has 2 front, 1 rear in the fixture
+    let session = open_repository(&fixture("valid-repository")).unwrap();
+    let rack_id = session.list_racks()[0].id.clone();
+    let (front, rear) = get_counts(&session, &rack_id);
+    assert_eq!(front, 2);
+    assert_eq!(rear, 1);
+}
+
+#[test]
+fn placement_counts_after_place_device_front() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let rack_id = session.list_racks()[0].id.clone();
+    let (front_before, rear_before) = get_counts(&session, &rack_id);
+
+    let dev_id = session.add_device(new_server("srv-new-count")).unwrap();
+    session
+        .place_device(PlaceDeviceInput {
+            id: None,
+            code: None,
+            rack_id: Some(rack_id.clone()),
+            rack_code: None,
+            side: PlacementSide::Front,
+            device_id: Some(dev_id),
+            device_code: None,
+            start_u: 30,
+            height_u: Some(1),
+            note: None,
+            tags: vec![],
+        })
+        .unwrap();
+
+    let (front_after, rear_after) = get_counts(&session, &rack_id);
+    assert_eq!(front_after, front_before + 1);
+    assert_eq!(rear_after, rear_before);
+}
+
+#[test]
+fn placement_counts_after_remove_placement() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let rack_id = session.list_racks()[0].id.clone();
+    let (front_before, rear_before) = get_counts(&session, &rack_id);
+
+    let ip = session
+        .index
+        .get_placement_by_code("plc-blank-front")
+        .unwrap();
+    let pid = ip.placement.id.clone();
+    session
+        .remove_placement(RemovePlacementInput {
+            placement_id: Some(pid),
+            placement_code: None,
+        })
+        .unwrap();
+
+    let (front_after, rear_after) = get_counts(&session, &rack_id);
+    assert_eq!(front_after, front_before - 1);
+    assert_eq!(rear_after, rear_before);
+}
+
+#[test]
+fn placement_counts_after_move_same_side_unchanged() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let rack_id = session.list_racks()[0].id.clone();
+    let (front_before, rear_before) = get_counts(&session, &rack_id);
+
+    // move plc-blank-front to a different slot on the same side
+    session
+        .move_placement(MovePlacementToTargetInput {
+            placement_id: None,
+            placement_code: Some("plc-blank-front".into()),
+            new_rack_id: None,
+            new_side: None,
+            new_start_u: 5,
+            new_height_u: None,
+        })
+        .unwrap();
+
+    let (front_after, rear_after) = get_counts(&session, &rack_id);
+    assert_eq!(front_after, front_before);
+    assert_eq!(rear_after, rear_before);
+}
+
+#[test]
+fn placement_counts_after_move_front_to_rear() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let rack_id = session.list_racks()[0].id.clone();
+    let (front_before, rear_before) = get_counts(&session, &rack_id);
+
+    session
+        .move_placement(MovePlacementToTargetInput {
+            placement_id: None,
+            placement_code: Some("plc-blank-front".into()),
+            new_rack_id: None,
+            new_side: Some(PlacementSide::Rear),
+            new_start_u: 5,
+            new_height_u: None,
+        })
+        .unwrap();
+
+    let (front_after, rear_after) = get_counts(&session, &rack_id);
+    assert_eq!(front_after, front_before - 1);
+    assert_eq!(rear_after, rear_before + 1);
+}
+
+#[test]
+fn placement_counts_after_cross_rack_move() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let rack_a_id = session.list_racks()[0].id.clone();
+    let rack_b_id = add_rack_b(&mut session);
+
+    let (front_a_before, rear_a_before) = get_counts(&session, &rack_a_id);
+
+    // move plc-blank-rear from rack-a to rack-b front
+    session
+        .move_placement(MovePlacementToTargetInput {
+            placement_id: None,
+            placement_code: Some("plc-blank-rear".into()),
+            new_rack_id: Some(rack_b_id.clone()),
+            new_side: Some(PlacementSide::Front),
+            new_start_u: 1,
+            new_height_u: None,
+        })
+        .unwrap();
+
+    let (front_a_after, rear_a_after) = get_counts(&session, &rack_a_id);
+    let (front_b_after, rear_b_after) = get_counts(&session, &rack_b_id);
+
+    // rack-a rear loses one
+    assert_eq!(front_a_after, front_a_before);
+    assert_eq!(rear_a_after, rear_a_before - 1);
+    // rack-b front gains one
+    assert_eq!(front_b_after, 1);
+    assert_eq!(rear_b_after, 0);
+}

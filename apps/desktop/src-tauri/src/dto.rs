@@ -67,6 +67,8 @@ pub struct RackSummaryDto {
     pub location_code: String,
     pub height_u: u32,
     pub row: Option<String>,
+    pub front_placement_count: usize,
+    pub rear_placement_count: usize,
     pub placement_count: usize,
 }
 

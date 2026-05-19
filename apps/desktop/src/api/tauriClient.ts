@@ -65,6 +65,8 @@ export interface RackSummaryDto {
   location_code: string;
   height_u: number;
   row: string | null;
+  front_placement_count: number;
+  rear_placement_count: number;
   placement_count: number;
 }
 
