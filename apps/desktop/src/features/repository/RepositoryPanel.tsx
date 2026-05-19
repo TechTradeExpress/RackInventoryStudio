@@ -9,11 +9,15 @@ import {
   listGitRemotes,
   pullGitFfOnly,
   pushGitCurrentBranch,
+  saveCurrentRepository,
+  validateCurrentRepository,
   type GitCommitDto,
   type GitRemoteDto,
   type GitStatusDto,
   type RepositorySummaryDto,
+  type ValidationSummaryDto,
 } from "../../api/tauriClient";
+import { computeValidationSummary, isNothingToCommitError } from "./publishHelpers";
 
 interface Props {
   repoPath: string;
@@ -24,6 +28,7 @@ interface Props {
   working: boolean;
   summary: RepositorySummaryDto | null;
   hasUnsavedChanges: boolean;
+  onSaveSuccess: () => void;
   onPullSuccess: (summary: RepositorySummaryDto) => void;
   onPullRunning: (running: boolean) => void;
 }
@@ -64,20 +69,39 @@ function buildSyncLabel(ahead: number | null, behind: number | null): string {
   return parts.length > 0 ? parts.join(", ") : "Up to date";
 }
 
+type PublishValidation =
+  | { kind: "idle" }
+  | { kind: "validating" }
+  | { kind: "done"; summary: ValidationSummaryDto };
+
 interface GitSectionProps {
   repoPath: string;
   hasUnsavedChanges: boolean;
+  onSaveSuccess: () => void;
   onPullSuccess: (summary: RepositorySummaryDto) => void;
   onPullRunning: (running: boolean) => void;
 }
 
-function GitSection({ repoPath, hasUnsavedChanges, onPullSuccess, onPullRunning }: GitSectionProps) {
+function GitSection({
+  repoPath,
+  hasUnsavedChanges,
+  onSaveSuccess,
+  onPullSuccess,
+  onPullRunning,
+}: GitSectionProps) {
   const [gitStatus, setGitStatus] = useState<GitStatusDto | null>(null);
   const [gitCommits, setGitCommits] = useState<GitCommitDto[]>([]);
   const [remotes, setRemotes] = useState<GitRemoteDto[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // Publish flow state
+  const [publishValidation, setPublishValidation] = useState<PublishValidation>({ kind: "idle" });
+  const [validateError, setValidateError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
 
   const [commitMessage, setCommitMessage] = useState("");
   const [committing, setCommitting] = useState(false);
@@ -125,6 +149,10 @@ function GitSection({ repoPath, hasUnsavedChanges, onPullSuccess, onPullRunning 
       setPushSuccess(null);
       setPullError(null);
       setPullSuccess(null);
+      setPublishValidation({ kind: "idle" });
+      setValidateError(null);
+      setSaveError(null);
+      setSaveSuccess(null);
     }
 
     setLoading(true);
@@ -148,6 +176,16 @@ function GitSection({ repoPath, hasUnsavedChanges, onPullSuccess, onPullRunning 
       .finally(() => setLoading(false));
   }, [repoPath, refreshKey]);
 
+  // Reset publish validation whenever unsaved in-memory changes appear —
+  // the repository state has changed and previous validation is stale.
+  useEffect(() => {
+    if (hasUnsavedChanges) {
+      setPublishValidation({ kind: "idle" });
+      setSaveSuccess(null);
+      setSaveError(null);
+    }
+  }, [hasUnsavedChanges]);
+
   async function handleInit() {
     setIniting(true);
     setInitError(null);
@@ -158,6 +196,36 @@ function GitSection({ repoPath, hasUnsavedChanges, onPullSuccess, onPullRunning 
       setInitError(String(e));
     } finally {
       setIniting(false);
+    }
+  }
+
+  async function handleSaveFromGit() {
+    setSaveError(null);
+    setSaveSuccess(null);
+    setSaving(true);
+    try {
+      const result = await saveCurrentRepository();
+      setSaveSuccess(
+        `Saved — Created: ${result.created}, Updated: ${result.updated}, Unchanged: ${result.unchanged}.`,
+      );
+      onSaveSuccess();
+      setRefreshKey((k) => k + 1);
+    } catch (e) {
+      setSaveError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleValidateForPublish() {
+    setValidateError(null);
+    setPublishValidation({ kind: "validating" });
+    try {
+      const issues = await validateCurrentRepository();
+      setPublishValidation({ kind: "done", summary: computeValidationSummary(issues) });
+    } catch (e) {
+      setValidateError(String(e));
+      setPublishValidation({ kind: "idle" });
     }
   }
 
@@ -175,9 +243,16 @@ function GitSection({ repoPath, hasUnsavedChanges, onPullSuccess, onPullRunning 
       const commit = await commitRepositoryChanges(msg);
       setCommitSuccess(`Committed: ${commit.short_hash} — ${commit.subject}`);
       setCommitMessage("");
+      // After commit, repository state changed — reset publish validation.
+      setPublishValidation({ kind: "idle" });
       setRefreshKey((k) => k + 1);
     } catch (e) {
-      setCommitError(String(e));
+      const errStr = String(e);
+      if (isNothingToCommitError(errStr)) {
+        setCommitError("Nothing to commit — the working tree is already clean.");
+      } else {
+        setCommitError(errStr);
+      }
     } finally {
       setCommitting(false);
     }
@@ -289,10 +364,21 @@ function GitSection({ repoPath, hasUnsavedChanges, onPullSuccess, onPullRunning 
     ? "Clean"
     : `Dirty — ${gitStatus.staged_count} staged, ${gitStatus.unstaged_count} unstaged, ${gitStatus.untracked_count} untracked`;
 
+  // Determine publish readiness
+  const nothingToCommit = gitStatus.is_clean;
+  const validationPassed =
+    publishValidation.kind === "done" && publishValidation.summary.errors === 0;
+  const validationBlocked =
+    publishValidation.kind === "idle" ||
+    publishValidation.kind === "validating" ||
+    (publishValidation.kind === "done" && publishValidation.summary.errors > 0);
+
   const commitDisabled =
     committing ||
     hasUnsavedChanges ||
-    !commitMessage.trim();
+    !commitMessage.trim() ||
+    nothingToCommit ||
+    validationBlocked;
 
   const syncDisabled = pushing || pulling || hasUnsavedChanges || !selectedRemote;
 
@@ -379,33 +465,114 @@ function GitSection({ repoPath, hasUnsavedChanges, onPullSuccess, onPullRunning 
         <p style={common.hint}>No commits yet.</p>
       )}
 
+      {/* ── Publish changes ──────────────────────────────────── */}
       <div style={styles.subSection}>
-        <h3 style={common.h3}>Commit saved changes</h3>
-        {hasUnsavedChanges && (
-          <div style={styles.warningBox}>
-            Save repository changes before creating a Git commit.
+        <h3 style={common.h3}>Publish changes</h3>
+        <p style={styles.flowHint}>
+          Safe publish preparation: save → validate → commit.
+          Then push from the Remote sync section below.
+          Commit is blocked when there are unsaved changes or validation errors.
+        </p>
+
+        {/* Step 1 — Save */}
+        <div style={styles.step}>
+          <span style={styles.stepLabel}>1. Save</span>
+          {hasUnsavedChanges ? (
+            <>
+              <div style={styles.warningBox}>
+                Unsaved in-memory changes — save to disk before committing.
+              </div>
+              <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.4rem" }}>
+                <button style={common.btn} onClick={handleSaveFromGit} disabled={saving}>
+                  {saving ? "Saving…" : "Save repository"}
+                </button>
+              </div>
+              {saveError && <div style={common.errorBox}>{saveError}</div>}
+            </>
+          ) : (
+            <>
+              <div style={styles.okBox}>Changes are saved to disk.</div>
+              {saveSuccess && <div style={{ ...styles.successBox, marginTop: "0.25rem" }}>{saveSuccess}</div>}
+            </>
+          )}
+        </div>
+
+        {/* Step 2 — Validate */}
+        <div style={styles.step}>
+          <span style={styles.stepLabel}>2. Validate</span>
+          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.4rem" }}>
+            <button
+              style={common.btn}
+              onClick={handleValidateForPublish}
+              disabled={hasUnsavedChanges || publishValidation.kind === "validating"}
+            >
+              {publishValidation.kind === "validating" ? "Validating…" : "Validate"}
+            </button>
           </div>
-        )}
-        <form onSubmit={handleCommit} style={styles.commitForm}>
-          <input
-            style={common.input}
-            value={commitMessage}
-            onChange={(e) => setCommitMessage(e.target.value)}
-            placeholder="Commit message…"
-            disabled={committing || hasUnsavedChanges}
-          />
-          <button
-            type="submit"
-            style={common.btn}
-            disabled={commitDisabled}
-          >
-            {committing ? "Committing…" : "Commit"}
-          </button>
-        </form>
-        {commitError && <div style={common.errorBox}>{commitError}</div>}
-        {commitSuccess && <div style={styles.successBox}>{commitSuccess}</div>}
+          {validateError && <div style={common.errorBox}>{validateError}</div>}
+          {publishValidation.kind === "idle" && !hasUnsavedChanges && (
+            <p style={styles.idleHint}>
+              Run validation before committing to ensure no errors are published.
+            </p>
+          )}
+          {publishValidation.kind === "done" && publishValidation.summary.errors > 0 && (
+            <div style={styles.blockedBox}>
+              Publish blocked — {publishValidation.summary.errors} error(s).
+              Fix validation errors and re-validate before committing.
+              {publishValidation.summary.warnings > 0 && (
+                <span> ({publishValidation.summary.warnings} warning(s) do not block publish.)</span>
+              )}
+            </div>
+          )}
+          {publishValidation.kind === "done" && publishValidation.summary.errors === 0 && (
+            <div style={styles.okBox}>
+              Validation passed — {publishValidation.summary.warnings} warning(s),{" "}
+              {publishValidation.summary.infos} info(s). Ready to commit.
+            </div>
+          )}
+        </div>
+
+        {/* Step 3 — Commit */}
+        <div style={styles.step}>
+          <span style={styles.stepLabel}>3. Commit</span>
+          {nothingToCommit && (
+            <p style={styles.idleHint}>
+              Working tree is clean — nothing to commit. Save new changes first.
+            </p>
+          )}
+          {!nothingToCommit && (
+            <form onSubmit={handleCommit} style={{ ...styles.commitForm, marginTop: "0.4rem" }}>
+              <input
+                style={common.input}
+                value={commitMessage}
+                onChange={(e) => setCommitMessage(e.target.value)}
+                placeholder="Commit message…"
+                disabled={committing || hasUnsavedChanges || !validationPassed}
+              />
+              <button
+                type="submit"
+                style={common.btn}
+                disabled={commitDisabled}
+                title={
+                  hasUnsavedChanges
+                    ? "Save changes first"
+                    : !validationPassed
+                      ? "Validate without errors first"
+                      : !commitMessage.trim()
+                        ? "Enter a commit message"
+                        : undefined
+                }
+              >
+                {committing ? "Committing…" : "Commit"}
+              </button>
+            </form>
+          )}
+          {commitError && <div style={common.errorBox}>{commitError}</div>}
+          {commitSuccess && <div style={styles.successBox}>{commitSuccess}</div>}
+        </div>
       </div>
 
+      {/* ── Remote sync ──────────────────────────────────────── */}
       <div style={styles.subSection}>
         <h3 style={common.h3}>Remote sync</h3>
 
@@ -518,6 +685,7 @@ export function RepositoryPanel({
   working,
   summary,
   hasUnsavedChanges,
+  onSaveSuccess,
   onPullSuccess,
   onPullRunning,
 }: Props) {
@@ -565,6 +733,7 @@ export function RepositoryPanel({
         <GitSection
           repoPath={summary.repo_path}
           hasUnsavedChanges={hasUnsavedChanges}
+          onSaveSuccess={onSaveSuccess}
           onPullSuccess={onPullSuccess}
           onPullRunning={onPullRunning}
         />
@@ -579,10 +748,29 @@ const styles = {
     paddingTop: "0.5rem",
     borderTop: "1px solid #eee",
   },
+  step: {
+    marginTop: "0.6rem",
+  },
+  stepLabel: {
+    display: "block",
+    fontWeight: 600,
+    fontSize: "0.85rem",
+    color: "#333",
+    marginBottom: "0.2rem",
+  } as CSSProperties,
+  flowHint: {
+    margin: "0.2rem 0 0.4rem",
+    fontSize: "0.8rem",
+    color: "#666",
+  } as CSSProperties,
+  idleHint: {
+    margin: "0.25rem 0 0",
+    fontSize: "0.82rem",
+    color: "#888",
+  } as CSSProperties,
   commitForm: {
     display: "flex",
     gap: "0.5rem",
-    marginTop: "0.4rem",
   },
   addRemoteForm: {
     display: "flex",
@@ -614,6 +802,24 @@ const styles = {
     borderRadius: 3,
     fontSize: "0.82rem",
     color: "#7a5800",
+  },
+  blockedBox: {
+    marginTop: "0.4rem",
+    padding: "0.35rem 0.75rem",
+    background: "#fff0f0",
+    border: "1px solid #e57373",
+    borderRadius: 3,
+    fontSize: "0.82rem",
+    color: "#b00020",
+  },
+  okBox: {
+    marginTop: "0.25rem",
+    padding: "0.35rem 0.75rem",
+    background: "#f0fff4",
+    border: "1px solid #81c784",
+    borderRadius: 3,
+    fontSize: "0.82rem",
+    color: "#2d6a2d",
   },
   successBox: {
     marginTop: "0.4rem",
