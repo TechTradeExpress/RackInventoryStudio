@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
-import type { PlacementDto } from "../../api/tauriClient";
-import { movePlacement, removePlacement } from "../../api/tauriClient";
+import type { PlacementDto, RackSummaryDto } from "../../api/tauriClient";
+import { listRacks, movePlacement, removePlacement } from "../../api/tauriClient";
 import { common } from "../../lib/styles";
 import { parsePositiveInt } from "./positiveInt";
 
 interface Props {
   placement: PlacementDto | null;
   side: "Front" | "Rear" | null;
+  currentRack: RackSummaryDto;
   onMoveSuccess: (placementId: string) => void;
   onRemoveSuccess: () => void;
 }
@@ -35,30 +36,53 @@ function display(value: string | number | null | undefined): string {
   return String(value);
 }
 
-export function PlacementInspectorPanel({ placement, side, onMoveSuccess, onRemoveSuccess }: Props) {
+export function PlacementInspectorPanel({
+  placement,
+  side,
+  currentRack,
+  onMoveSuccess,
+  onRemoveSuccess,
+}: Props) {
+  const [newRackId, setNewRackId] = useState(currentRack.id);
+  const [newSide, setNewSide] = useState<"front" | "rear">("front");
   const [newStartU, setNewStartU] = useState("");
   const [newHeightU, setNewHeightU] = useState("");
   const [working, setWorking] = useState(false);
   const [moveError, setMoveError] = useState<string | null>(null);
-  const [moveSuccess, setMoveSuccess] = useState(false);
+  const [moveSuccessMsg, setMoveSuccessMsg] = useState<string | null>(null);
   const [removeWorking, setRemoveWorking] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
+  const [racks, setRacks] = useState<RackSummaryDto[]>([]);
+  const [racksLoading, setRacksLoading] = useState(false);
+  const [racksError, setRacksError] = useState<string | null>(null);
 
-  // Reset form when the selected placement changes
+  // Load rack list once when the component mounts.
+  useEffect(() => {
+    setRacksLoading(true);
+    setRacksError(null);
+    listRacks()
+      .then(setRacks)
+      .catch((e) => setRacksError(String(e)))
+      .finally(() => setRacksLoading(false));
+  }, []);
+
+  // Reset move form when the selected placement changes.
   useEffect(() => {
     if (placement) {
       setNewStartU(String(placement.start_u));
       setNewHeightU(
         placement.height_u !== null ? String(placement.height_u) : "",
       );
+      setNewRackId(currentRack.id);
+      setNewSide((side?.toLowerCase() as "front" | "rear") ?? "front");
     } else {
       setNewStartU("");
       setNewHeightU("");
     }
     setMoveError(null);
-    setMoveSuccess(false);
+    setMoveSuccessMsg(null);
     setRemoveError(null);
-  }, [placement?.id]);
+  }, [placement?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!placement) {
     return (
@@ -105,6 +129,9 @@ export function PlacementInspectorPanel({ placement, side, onMoveSuccess, onRemo
     if (newHeightU.trim() !== "" && parsePositiveInt(newHeightU) === null) {
       return "Height U override must be a positive integer if provided.";
     }
+    if (!newRackId) {
+      return "Destination rack is required.";
+    }
     return null;
   }
 
@@ -122,14 +149,21 @@ export function PlacementInspectorPanel({ placement, side, onMoveSuccess, onRemo
 
     setWorking(true);
     setMoveError(null);
-    setMoveSuccess(false);
+    setMoveSuccessMsg(null);
     try {
       await movePlacement({
         placement_id: placement.id,
+        new_rack_id: newRackId,
+        new_side: newSide,
         new_start_u: startU,
         new_height_u: heightU,
       });
-      setMoveSuccess(true);
+      const crossRack = newRackId !== currentRack.id;
+      setMoveSuccessMsg(
+        crossRack
+          ? "Moved to another rack in memory. Use Save to persist changes."
+          : "Moved in memory. Use Save to persist changes.",
+      );
       onMoveSuccess(placement.id);
     } catch (e) {
       setMoveError(String(e));
@@ -155,6 +189,8 @@ export function PlacementInspectorPanel({ placement, side, onMoveSuccess, onRemo
       setRemoveWorking(false);
     }
   }
+
+  const moveDisabled = working || racksLoading;
 
   return (
     <div
@@ -206,12 +242,63 @@ export function PlacementInspectorPanel({ placement, side, onMoveSuccess, onRemo
             fontSize: "0.8rem",
           }}
         >
-          Move placement (same side)
+          Move placement
         </p>
+        {racksError && (
+          <div
+            style={{
+              marginBottom: "0.4rem",
+              padding: "0.25rem 0.5rem",
+              background: "#fff0f0",
+              border: "1px solid #f88",
+              color: "#b00",
+              borderRadius: 3,
+              fontSize: "0.78rem",
+            }}
+          >
+            Failed to load racks: {racksError}
+          </div>
+        )}
         <form onSubmit={handleSubmit}>
           <div
             style={{ display: "flex", gap: "0.5rem", alignItems: "flex-end", flexWrap: "wrap" }}
           >
+            <label style={{ display: "flex", flexDirection: "column", gap: "0.2rem", flex: 1, minWidth: "160px" }}>
+              <span style={{ fontSize: "0.75rem", color: "#555" }}>Rack</span>
+              <select
+                value={newRackId}
+                onChange={(e) => {
+                  setNewRackId(e.target.value);
+                  setMoveError(null);
+                  setMoveSuccessMsg(null);
+                }}
+                disabled={moveDisabled}
+                style={{ ...common.input, width: "100%" }}
+              >
+                {racksLoading && <option value="">Loading…</option>}
+                {racks.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.code}{r.name ? ` — ${r.name}` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label style={{ display: "flex", flexDirection: "column", gap: "0.2rem" }}>
+              <span style={{ fontSize: "0.75rem", color: "#555" }}>Side</span>
+              <select
+                value={newSide}
+                onChange={(e) => {
+                  setNewSide(e.target.value as "front" | "rear");
+                  setMoveError(null);
+                  setMoveSuccessMsg(null);
+                }}
+                disabled={moveDisabled}
+                style={{ ...common.input, width: "80px" }}
+              >
+                <option value="front">Front</option>
+                <option value="rear">Rear</option>
+              </select>
+            </label>
             <label style={{ display: "flex", flexDirection: "column", gap: "0.2rem" }}>
               <span style={{ fontSize: "0.75rem", color: "#555" }}>
                 New start U
@@ -224,7 +311,7 @@ export function PlacementInspectorPanel({ placement, side, onMoveSuccess, onRemo
                 onChange={(e) => {
                   setNewStartU(e.target.value);
                   setMoveError(null);
-                  setMoveSuccess(false);
+                  setMoveSuccessMsg(null);
                 }}
                 disabled={working}
                 style={{
@@ -248,7 +335,7 @@ export function PlacementInspectorPanel({ placement, side, onMoveSuccess, onRemo
                 onChange={(e) => {
                   setNewHeightU(e.target.value);
                   setMoveError(null);
-                  setMoveSuccess(false);
+                  setMoveSuccessMsg(null);
                 }}
                 disabled={working}
                 style={{
@@ -260,7 +347,7 @@ export function PlacementInspectorPanel({ placement, side, onMoveSuccess, onRemo
             </label>
             <button
               type="submit"
-              disabled={working}
+              disabled={moveDisabled}
               style={{ ...common.btn, alignSelf: "flex-end" }}
             >
               {working ? "Moving…" : "Move"}
@@ -283,7 +370,7 @@ export function PlacementInspectorPanel({ placement, side, onMoveSuccess, onRemo
             {moveError}
           </div>
         )}
-        {moveSuccess && (
+        {moveSuccessMsg && (
           <p
             style={{
               marginTop: "0.4rem",
@@ -291,7 +378,7 @@ export function PlacementInspectorPanel({ placement, side, onMoveSuccess, onRemo
               color: "#2a7a2a",
             }}
           >
-            Moved in memory. Use Save to persist changes.
+            {moveSuccessMsg}
           </p>
         )}
       </div>

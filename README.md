@@ -59,7 +59,7 @@ tests/                  Shared test fixtures
 - Tab navigation: Locations list, Racks list, Devices list, Device Models list
 - Rack detail view — metadata table, graphical read-only rack unit diagram (U-position, front and rear sides)
 - Placement inspector — all placement fields visible when a placement is selected
-- Move a placement within the same rack side via a simple form (new start U, optional height override)
+- Move a placement to a new rack, side, start U, and optional height override via the Placement Inspector form (supports same-rack, cross-side, and rack-to-rack moves)
 - Add a new device or rack object placement to the selected rack via a simple form (side, target, start U, optional height override); unsaved changes must be saved explicitly via the Validation tab
 - Remove an existing placement from the selected rack via a confirmation button in the Placement Inspector; unsaved changes must be saved explicitly via the Validation tab
 - Frontend Vitest unit tests
@@ -113,6 +113,5 @@ pnpm --filter @rack-inventory-studio/desktop build
 - **No Git workflow** — `ris-git` crate is a stub. Commit, push, pull, and diff are not implemented.
 - **No CSV import UI** — the import engine exists in `ris-import` but the confirmation/write step has no UI.
 - **No drag and drop** — placement positions are changed via the inspector form only.
-- **No side/rack change move** — the move form only moves within the same rack side; changing side or rack is not yet supported.
 - **No full dirty diff tracking** — the app uses a global unsaved-changes flag. It warns that in-memory state may differ from disk, but it does not track exactly which rack or placement changed.
 - **Local desktop, single-user** — no server, no sync, no multi-user conflict resolution.

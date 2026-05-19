@@ -2,7 +2,8 @@ use std::path::Path;
 
 use ris_application::{
     open_repository, validate_repository, AddDeviceInput, AddDeviceModelInput, AddLocationInput,
-    AddRackInput, MovePlacementInput, PlaceDeviceInput, PlaceRackObjectInput, RemovePlacementInput,
+    AddRackInput, MovePlacementInput, MovePlacementToTargetInput, PlaceDeviceInput,
+    PlaceRackObjectInput, RemovePlacementInput,
 };
 use ris_core::{DeviceStatus, DeviceType, PlacementSide, ValidationLevel};
 use ris_import::CsvRowAction;
@@ -1859,4 +1860,219 @@ fn place_into_rack_without_placement_file_save_reload_works() {
         .expect("placement not found after save/reload");
     assert_eq!(ip.placement.start_u, 1);
     assert_eq!(ip.rack_id, rack_id);
+}
+
+// ── move_placement (full: same rack, cross-side, cross-rack) ──────────────────
+
+fn add_rack_b(session: &mut ris_application::RepositorySession) -> String {
+    session
+        .add_rack(AddRackInput {
+            id: None,
+            location_id: None,
+            location_code: Some("server-room-a".to_string()),
+            code: "rack-b".to_string(),
+            name: "Rack B".to_string(),
+            height_u: 42,
+            row: None,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap()
+}
+
+#[test]
+fn move_placement_same_rack_same_side() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    // plc-blank-rear is on rack-main rear at U10 — move it to U1
+    session
+        .move_placement(MovePlacementToTargetInput {
+            placement_id: None,
+            placement_code: Some("plc-blank-rear".into()),
+            new_rack_id: None,
+            new_side: None,
+            new_start_u: 1,
+            new_height_u: None,
+        })
+        .unwrap();
+
+    let ip = session
+        .index
+        .get_placement_by_code("plc-blank-rear")
+        .unwrap();
+    assert_eq!(ip.placement.start_u, 1);
+    assert_eq!(ip.side, PlacementSide::Rear);
+    let rack_id = session.list_racks()[0].id.clone();
+    assert_eq!(ip.rack_id, rack_id);
+}
+
+#[test]
+fn move_placement_same_rack_front_to_rear() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    // plc-blank-front is on rack-main front U20 — move it to rear U1
+    session
+        .move_placement(MovePlacementToTargetInput {
+            placement_id: None,
+            placement_code: Some("plc-blank-front".into()),
+            new_rack_id: None,
+            new_side: Some(PlacementSide::Rear),
+            new_start_u: 1,
+            new_height_u: None,
+        })
+        .unwrap();
+
+    let ip = session
+        .index
+        .get_placement_by_code("plc-blank-front")
+        .unwrap();
+    assert_eq!(ip.placement.start_u, 1);
+    assert_eq!(ip.side, PlacementSide::Rear);
+}
+
+#[test]
+fn move_placement_rack_to_rack() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let rack_b_id = add_rack_b(&mut session);
+
+    // plc-blank-rear is on rack-main rear — move it to rack-b front U1
+    session
+        .move_placement(MovePlacementToTargetInput {
+            placement_id: None,
+            placement_code: Some("plc-blank-rear".into()),
+            new_rack_id: Some(rack_b_id.clone()),
+            new_side: Some(PlacementSide::Front),
+            new_start_u: 1,
+            new_height_u: None,
+        })
+        .unwrap();
+
+    let ip = session
+        .index
+        .get_placement_by_code("plc-blank-rear")
+        .unwrap();
+    assert_eq!(ip.rack_id, rack_b_id);
+    assert_eq!(ip.side, PlacementSide::Front);
+    assert_eq!(ip.placement.start_u, 1);
+
+    // placement no longer in rack-main
+    let rack_main_id = session
+        .index
+        .get_rack_by_code("rack-main")
+        .unwrap()
+        .id
+        .clone();
+    let rack_main_placements = session.get_placements_for_rack(&rack_main_id);
+    assert!(
+        !rack_main_placements
+            .iter()
+            .any(|ip| ip.placement.code == "plc-blank-rear"),
+        "placement should not remain in rack-main after cross-rack move"
+    );
+}
+
+#[test]
+fn move_placement_overlap_on_destination_rejected() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    // Move plc-blank-front (front U20) to front U10 where plc-srv-01 already is
+    let err = session
+        .move_placement(MovePlacementToTargetInput {
+            placement_id: None,
+            placement_code: Some("plc-blank-front".into()),
+            new_rack_id: None,
+            new_side: None,
+            new_start_u: 10,
+            new_height_u: None,
+        })
+        .unwrap_err();
+    assert!(
+        matches!(err, ris_application::ApplicationError::Collision(_)),
+        "expected Collision, got {err:?}"
+    );
+}
+
+#[test]
+fn move_placement_missing_placement_rejected() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let err = session
+        .move_placement(MovePlacementToTargetInput {
+            placement_id: Some("nonexistent".into()),
+            placement_code: None,
+            new_rack_id: None,
+            new_side: None,
+            new_start_u: 1,
+            new_height_u: Some(1),
+        })
+        .unwrap_err();
+    assert!(
+        matches!(err, ris_application::ApplicationError::NotFound(_)),
+        "expected NotFound, got {err:?}"
+    );
+}
+
+#[test]
+fn move_placement_missing_destination_rack_rejected() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let err = session
+        .move_placement(MovePlacementToTargetInput {
+            placement_id: None,
+            placement_code: Some("plc-blank-rear".into()),
+            new_rack_id: Some("nonexistent-rack".into()),
+            new_side: None,
+            new_start_u: 1,
+            new_height_u: None,
+        })
+        .unwrap_err();
+    assert!(
+        matches!(err, ris_application::ApplicationError::NotFound(_)),
+        "expected NotFound, got {err:?}"
+    );
+}
+
+#[test]
+fn move_placement_out_of_bounds_on_destination_rejected() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    // rack-main is 42U; start_u=42, height=2 → end_u=43 > 42
+    let err = session
+        .move_placement(MovePlacementToTargetInput {
+            placement_id: None,
+            placement_code: Some("plc-blank-rear".into()),
+            new_rack_id: None,
+            new_side: None,
+            new_start_u: 42,
+            new_height_u: Some(2),
+        })
+        .unwrap_err();
+    assert!(
+        matches!(err, ris_application::ApplicationError::OutOfRackBounds(_)),
+        "expected OutOfRackBounds, got {err:?}"
+    );
+}
+
+#[test]
+fn move_placement_rack_to_rack_save_reload_persists() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    copy_dir_all(&fixture("valid-repository"), tmp.path());
+
+    let mut session = open_repository(tmp.path()).unwrap();
+    let rack_b_id = add_rack_b(&mut session);
+
+    session
+        .move_placement(MovePlacementToTargetInput {
+            placement_id: None,
+            placement_code: Some("plc-blank-rear".into()),
+            new_rack_id: Some(rack_b_id.clone()),
+            new_side: Some(PlacementSide::Front),
+            new_start_u: 5,
+            new_height_u: None,
+        })
+        .unwrap();
+    session.save().unwrap();
+
+    let s2 = open_repository(tmp.path()).unwrap();
+    let ip = s2
+        .index
+        .get_placement_by_code("plc-blank-rear")
+        .expect("placement not found after reload");
+    assert_eq!(ip.rack_id, rack_b_id);
+    assert_eq!(ip.side, PlacementSide::Front);
+    assert_eq!(ip.placement.start_u, 5);
 }

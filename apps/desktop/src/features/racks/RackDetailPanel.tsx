@@ -226,6 +226,7 @@ export function RackDetailPanel({ rack, onRepositoryMutated }: Props) {
           <PlacementInspectorPanel
             placement={selectedPlacement}
             side={selectedSide}
+            currentRack={rack}
             onMoveSuccess={handleMoveSuccess}
             onRemoveSuccess={handleRemoveSuccess}
           />

@@ -4,6 +4,6 @@ pub mod session;
 pub use error::ApplicationError;
 pub use session::{
     open_repository, validate_repository, AddDeviceInput, AddDeviceModelInput, AddLocationInput,
-    AddRackInput, MovePlacementInput, PlaceDeviceInput, PlaceRackObjectInput, RemovePlacementInput,
-    RepositorySession,
+    AddRackInput, MovePlacementInput, MovePlacementToTargetInput, PlaceDeviceInput,
+    PlaceRackObjectInput, RemovePlacementInput, RepositorySession,
 };

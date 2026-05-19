@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
 use ris_application::{
-    open_repository, MovePlacementInput, PlaceDeviceInput, PlaceRackObjectInput,
+    open_repository, MovePlacementToTargetInput, PlaceDeviceInput, PlaceRackObjectInput,
     RemovePlacementInput, RepositorySession,
 };
 use ris_core::{PlacementSide, PlacementTargetKind, ValidationLevel};
@@ -441,12 +441,18 @@ pub fn place_rack_object(
 
 #[tauri::command]
 pub fn move_placement(input: MovePlacementInputDto, state: State<AppState>) -> Result<(), String> {
+    let new_side = match input.new_side.as_deref() {
+        Some(s) => Some(parse_side(s)?),
+        None => None,
+    };
     let mut guard = lock_session(&state)?;
     let session = guard.as_mut().ok_or_else(no_session)?;
     session
-        .move_placement_within_side(MovePlacementInput {
+        .move_placement(MovePlacementToTargetInput {
             placement_id: Some(input.placement_id),
             placement_code: None,
+            new_rack_id: input.new_rack_id,
+            new_side,
             new_start_u: input.new_start_u,
             new_height_u: input.new_height_u,
         })
