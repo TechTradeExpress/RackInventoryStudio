@@ -410,6 +410,30 @@ export function importDeviceCsv(
   return invoke("import_device_csv_cmd", { csvContent });
 }
 
+// ── Search ────────────────────────────────────────────────────────────────────
+
+export interface SearchNavigationDto {
+  location_id: string | null;
+  rack_id: string | null;
+  device_id: string | null;
+  device_model_id: string | null;
+  placement_id: string | null;
+}
+
+export interface SearchResultDto {
+  kind: "location" | "rack" | "device" | "device_model" | "placement";
+  id: string;
+  code: string;
+  label: string;
+  detail: string | null;
+  score: number;
+  navigation: SearchNavigationDto;
+}
+
+export function searchRepository(query: string): Promise<SearchResultDto[]> {
+  return invoke("search_repository_cmd", { query });
+}
+
 // ── Git ───────────────────────────────────────────────────────────────────────
 
 export interface GitStatusDto {

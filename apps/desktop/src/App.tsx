@@ -16,6 +16,10 @@ import { RacksPanel } from "./features/racks/RacksPanel";
 import { DevicesPanel } from "./features/devices/DevicesPanel";
 import { DeviceModelsPanel } from "./features/deviceModels/DeviceModelsPanel";
 import { CsvImportPanel } from "./features/csvImport/CsvImportPanel";
+import {
+  GlobalSearch,
+  type SearchNavigationEvent,
+} from "./features/search/GlobalSearch";
 import { common } from "./lib/styles";
 import type { ValidationNavigationTarget } from "./features/validation/navigation";
 
@@ -84,6 +88,37 @@ export function App() {
       case "device_models":
         setActiveTab("device_models");
         setHighlightedDeviceModelId(target.deviceModelId ?? null);
+        break;
+    }
+  }
+
+  function handleNavigateFromSearch(event: SearchNavigationEvent) {
+    setHighlightedLocationId(null);
+    setHighlightedDeviceId(null);
+    setHighlightedDeviceModelId(null);
+    setPendingRackNavTarget(null);
+
+    switch (event.tab) {
+      case "locations":
+        setActiveTab("locations");
+        setHighlightedLocationId(event.locationId ?? null);
+        break;
+      case "racks":
+        setActiveTab("racks");
+        if (event.rackId) {
+          setPendingRackNavTarget({
+            rackId: event.rackId,
+            placementId: event.placementId,
+          });
+        }
+        break;
+      case "devices":
+        setActiveTab("devices");
+        setHighlightedDeviceId(event.deviceId ?? null);
+        break;
+      case "device_models":
+        setActiveTab("device_models");
+        setHighlightedDeviceModelId(event.deviceModelId ?? null);
         break;
     }
   }
@@ -189,6 +224,12 @@ export function App() {
         </div>
       )}
 
+      {isOpen && (
+        <div style={styles.searchBar}>
+          <GlobalSearch onNavigate={handleNavigateFromSearch} />
+        </div>
+      )}
+
       <TabBar
         tabs={tabs}
         active={activeTab}
@@ -284,5 +325,10 @@ const styles = {
     borderRadius: 3,
     fontSize: "0.82rem",
     color: "#7a5800",
+  },
+  searchBar: {
+    marginBottom: "0.5rem",
+    display: "flex",
+    justifyContent: "flex-end",
   },
 };

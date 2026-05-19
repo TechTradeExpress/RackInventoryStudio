@@ -4,8 +4,8 @@ use std::sync::{Mutex, MutexGuard};
 use ris_application::{
     create_repository, open_repository, AddDeviceInput, AddDeviceModelInput, AddLocationInput,
     AddRackInput, CreateRepositoryInput, MovePlacementToTargetInput, PlaceDeviceInput,
-    PlaceRackObjectInput, RemovePlacementInput, RepositorySession, UpdateDeviceInput,
-    UpdateDeviceModelInput, UpdateLocationInput, UpdateRackInput,
+    PlaceRackObjectInput, RemovePlacementInput, RepositorySession, SearchResultKind,
+    UpdateDeviceInput, UpdateDeviceModelInput, UpdateLocationInput, UpdateRackInput,
 };
 use ris_core::{DeviceStatus, DeviceType, PlacementSide, PlacementTargetKind, ValidationLevel};
 use ris_import::CsvRowAction;
@@ -17,8 +17,9 @@ use crate::dto::{
     CsvImportResultDto, CsvImportSummaryDto, DeviceDto, DeviceModelDto, LocationDto,
     MovePlacementInputDto, OpenRepositoryResultDto, PlaceDeviceInputDto, PlaceRackObjectInputDto,
     PlacementDto, RackDetailDto, RackSummaryDto, RemovePlacementInputDto, RepositorySummaryDto,
-    SaveSummaryDto, UpdateDeviceInputDto, UpdateDeviceModelInputDto, UpdateLocationInputDto,
-    UpdateRackInputDto, ValidationIssueDto, ValidationSummaryDto,
+    SaveSummaryDto, SearchNavigationDto, SearchResultDto, UpdateDeviceInputDto,
+    UpdateDeviceModelInputDto, UpdateLocationInputDto, UpdateRackInputDto, ValidationIssueDto,
+    ValidationSummaryDto,
 };
 
 pub struct AppState {
@@ -821,6 +822,43 @@ pub fn read_csv_content(path: &Path, max_bytes: u64) -> Result<String, String> {
 #[tauri::command]
 pub fn read_csv_file(path: String) -> Result<String, String> {
     read_csv_content(Path::new(&path), MAX_CSV_BYTES)
+}
+
+// ── Search ────────────────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn search_repository_cmd(
+    query: String,
+    state: State<AppState>,
+) -> Result<Vec<SearchResultDto>, String> {
+    let guard = lock_session(&state)?;
+    let session = guard.as_ref().ok_or_else(no_session)?;
+    let results = session.search(&query);
+    Ok(results
+        .into_iter()
+        .map(|r| SearchResultDto {
+            kind: match r.kind {
+                SearchResultKind::Location => "location",
+                SearchResultKind::Rack => "rack",
+                SearchResultKind::Device => "device",
+                SearchResultKind::DeviceModel => "device_model",
+                SearchResultKind::Placement => "placement",
+            }
+            .to_string(),
+            id: r.id,
+            code: r.code,
+            label: r.label,
+            detail: r.detail,
+            score: r.score,
+            navigation: SearchNavigationDto {
+                location_id: r.navigation.location_id,
+                rack_id: r.navigation.rack_id,
+                device_id: r.navigation.device_id,
+                device_model_id: r.navigation.device_model_id,
+                placement_id: r.navigation.placement_id,
+            },
+        })
+        .collect())
 }
 
 #[cfg(test)]
