@@ -10,14 +10,6 @@ on:
 permissions:
   contents: read
 
-# Force all JavaScript actions to run on the Node.js 24 runtime.
-# Suppresses the "Node.js 20 Actions are deprecated" warning emitted by
-# pnpm/action-setup@v4 and actions/setup-node@v4, whose action.yml still
-# declares runs: using: node20.  GitHub documents this env var as the
-# supported opt-in for the node20→node24 runtime migration.
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   rust:
     name: Rust workspace
@@ -63,10 +55,10 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
