@@ -1,7 +1,7 @@
 # MVP Readiness Report
 
-**Date:** 2026-05-19
-**Scope:** Non-Git MVP inventory workflow (open/add/import/place/validate/save/reload)
+**Date:** 2026-05-19 (updated Git foundation: 2026-05-19)
+**Scope:** Non-Git MVP inventory workflow (open/add/import/place/validate/save/reload); Git foundation added
 
 ---
 
@@ -74,16 +74,18 @@ The following non-Git inventory operations are implemented and tested:
 - **Dirty state**: unsaved changes banner, confirmation on close
 - **Cross-panel refresh**: `repositoryMutationToken` propagates to all panels
 - **Validation navigation**: each validation issue links to its relevant tab/object
+- **Git foundation**: detect whether repo is a Git repository, init, show status (branch / clean / counts), show recent commits, commit saved changes with user-provided message from Repository panel
 
 ---
 
 ## Remaining MVP blockers
 
-### Critical (blocks Git workflow MVP)
+### Critical (blocks full Git-backed MVP)
 
-1. **Git workflow not implemented** (`ris-git` crate is a stub).
-   `git init`, `git commit`, `git diff`, `git log`, `git push/pull` are not
-   available. This is the primary remaining MVP blocker.
+1. **Git remote sync not implemented** — `git push`, `git pull`, conflict branch
+   handling, remote configuration, and authentication are not available.
+   The local offline workflow (init / commit / log) is implemented.
+   Pushing to a shared remote remains the next blocker for team collaboration.
 
 ### Usability gaps (acceptable for MVP, documented)
 
@@ -112,14 +114,15 @@ The following non-Git inventory operations are implemented and tested:
 
 ## Recommended next step
 
-**M33 — Git workflow foundation**: Implement `ris-git` adapter:
-- `git init` for a new repository directory,
-- `git status` to detect uncommitted changes,
-- `git commit` with a structured message after save,
-- basic `git log` summary in the Repository panel.
+**M34 — Git remote sync foundation**: Implement remote sync operations:
+- `git remote add` / list remotes,
+- `git push` to the configured remote,
+- basic `git pull --ff-only` for clean fast-forward syncs,
+- surface remote status (ahead/behind) in the Repository panel Git section.
 
-This is the single remaining critical blocker before the full MVP (Git-backed
-offline-first inventory workflow) is demonstrable.
+The local Git workflow (init / commit / log) is fully implemented.
+Remote sync is the remaining step to make the full offline-first team
+collaboration workflow demonstrable.
 
 ---
 

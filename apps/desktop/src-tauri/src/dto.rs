@@ -240,6 +240,28 @@ pub struct CsvImportResultDto {
     pub warning_count: usize,
 }
 
+// ── Git DTOs ──────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GitStatusDto {
+    pub is_repository: bool,
+    pub branch: Option<String>,
+    pub is_clean: bool,
+    pub staged_count: usize,
+    pub unstaged_count: usize,
+    pub untracked_count: usize,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GitCommitDto {
+    pub hash: String,
+    pub short_hash: String,
+    pub subject: String,
+    pub author: Option<String>,
+    pub date: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RackDetailDto {
     pub id: String,
