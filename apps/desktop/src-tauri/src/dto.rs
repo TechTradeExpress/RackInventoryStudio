@@ -308,6 +308,28 @@ pub struct CreateRepositoryInputDto {
     pub initialize_git: bool,
 }
 
+// ── Search DTOs ───────────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SearchNavigationDto {
+    pub location_id: Option<String>,
+    pub rack_id: Option<String>,
+    pub device_id: Option<String>,
+    pub device_model_id: Option<String>,
+    pub placement_id: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SearchResultDto {
+    pub kind: String,
+    pub id: String,
+    pub code: String,
+    pub label: String,
+    pub detail: Option<String>,
+    pub score: u8,
+    pub navigation: SearchNavigationDto,
+}
+
 // ── Git DTOs ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, Deserialize)]
