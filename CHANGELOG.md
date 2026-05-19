@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.23.0 — CI Node 22 compatibility cleanup (milestone 23)
+
+- Updated GitHub Actions CI workflow: `node-version: 20` → `node-version: 22` (Node.js 22 LTS, current stable LTS since October 2024). Removes the Node.js 20 runner warning from PR checks.
+- `actions/checkout@v5`, `pnpm/action-setup@v4`, and `actions/setup-node@v4` are kept at their current floating major-version tags; `@v4`/`@v5` tags auto-track the latest minor release which includes Node.js 24 action-runner support from their respective maintainers.
+- No application code, Rust logic, or frontend behavior changed.
+- Local checks: 160 Rust tests pass, 18 Vitest tests pass, typecheck/build clean.
+
 ## v0.22.0 — Destination navigation polish (milestone 22)
 
 - `pendingNavigation` in `RacksPanel` is now cleared after `RackDetailPanel` consumes `initialNavigation` — whether the placement was found, missing, or the detail load failed — via a new `onNavigationConsumed` callback. Previously it remained set until the next manual rack row click.
