@@ -9,7 +9,10 @@ interface Props {
   placement: PlacementDto | null;
   side: "Front" | "Rear" | null;
   currentRack: RackSummaryDto;
-  onMoveSuccess: (placementId: string) => void;
+  onMoveSuccess: (
+    placementId: string,
+    options?: { movedToAnotherRack?: boolean },
+  ) => void;
   onRemoveSuccess: () => void;
 }
 
@@ -159,12 +162,10 @@ export function PlacementInspectorPanel({
         new_height_u: heightU,
       });
       const crossRack = newRackId !== currentRack.id;
-      setMoveSuccessMsg(
-        crossRack
-          ? "Moved to another rack in memory. Use Save to persist changes."
-          : "Moved in memory. Use Save to persist changes.",
-      );
-      onMoveSuccess(placement.id);
+      if (!crossRack) {
+        setMoveSuccessMsg("Moved in memory. Use Save to persist changes.");
+      }
+      onMoveSuccess(placement.id, { movedToAnotherRack: crossRack });
     } catch (e) {
       setMoveError(String(e));
     } finally {
