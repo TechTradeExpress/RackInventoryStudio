@@ -1,5 +1,4 @@
 import { type CSSProperties, FormEvent, useEffect, useRef, useState } from "react";
-import { common } from "../../lib/styles";
 import {
   addGitRemote,
   commitRepositoryChanges,
@@ -25,10 +24,31 @@ import {
   derivePublishChecklist,
   getPullDisabledReason,
   getPushDisabledReason,
-  type GitSeverity,
   type PublishChecklistStep,
 } from "./gitStatusHelpers";
 import { CreateRepositoryWizard } from "./CreateRepositoryWizard";
+import { Banner, Badge, Panel, PageHeader, EmptyState } from "../../components/ui";
+import {
+  IcFolder,
+  IcCheck,
+  IcRefresh,
+  IcSave,
+  IcGitBranch,
+  IcMapPin,
+  IcServer,
+  IcLayers,
+  IcBox,
+  IcFile,
+  IcListChecks,
+  IcAlertCircle,
+  IcCheckCircle,
+  IcDownload,
+  IcPush,
+  IcClock,
+  IcAlertTriangle,
+  IcX,
+  IcInfo,
+} from "../../components/ui/Icon";
 
 interface Props {
   repoPath: string;
@@ -71,16 +91,16 @@ function SummaryTable({
   ];
   return (
     <>
-      <table style={common.table}>
+      <table style={legacyCommon.table}>
         <tbody>
           {rows.map(([label, value]) => (
             <tr key={label}>
-              <td style={common.th}>{label}</td>
+              <td style={legacyCommon.th}>{label}</td>
               <td
                 style={{
-                  ...common.td,
+                  ...legacyCommon.td,
                   ...(label === "Unplaced Devices" && (value as number) > 0
-                    ? { color: "#7a5800" }
+                    ? { color: "var(--st-warn-tx)" }
                     : {}),
                 }}
               >
@@ -91,25 +111,25 @@ function SummaryTable({
           {validationSummary && (
             <>
               <tr>
-                <td style={common.th}>Validation Errors</td>
+                <td style={legacyCommon.th}>Validation Errors</td>
                 <td
                   style={{
-                    ...common.td,
+                    ...legacyCommon.td,
                     ...(validationSummary.errors > 0
-                      ? { color: "#b00020", fontWeight: "bold" }
-                      : { color: "#2d6a2d" }),
+                      ? { color: "var(--st-err-tx)", fontWeight: "bold" }
+                      : { color: "var(--st-ok-tx)" }),
                   }}
                 >
                   {validationSummary.errors}
                 </td>
               </tr>
               <tr>
-                <td style={common.th}>Validation Warnings</td>
+                <td style={legacyCommon.th}>Validation Warnings</td>
                 <td
                   style={{
-                    ...common.td,
+                    ...legacyCommon.td,
                     ...(validationSummary.warnings > 0
-                      ? { color: "#7a5800" }
+                      ? { color: "var(--st-warn-tx)" }
                       : {}),
                   }}
                 >
@@ -121,7 +141,7 @@ function SummaryTable({
         </tbody>
       </table>
       {validationSummary && (
-        <p style={{ margin: "0.25rem 0 0", fontSize: "0.78rem", color: "#888" }}>
+        <p style={{ margin: "0.25rem 0 0", fontSize: "0.78rem", color: "var(--tx-3)" }}>
           Validation counts are from the time of last open. Use the Validation tab for current state.
         </p>
       )}
@@ -129,48 +149,85 @@ function SummaryTable({
   );
 }
 
-const SEVERITY_COLOR: Record<GitSeverity, string> = {
-  ok: "#2d6a2d",
-  warn: "#7a5800",
-  error: "#b00020",
-  info: "#555",
-};
+function StatTileGrid({
+  summary,
+  validationSummary,
+}: {
+  summary: RepositorySummaryDto;
+  validationSummary?: ValidationSummaryDto | null;
+}) {
+  const errCount  = validationSummary?.errors ?? 0;
+  const warnCount = validationSummary?.warnings ?? 0;
+  const valTone   = errCount > 0 ? "err" : warnCount > 0 ? "warn" : "ok";
+  const valValue  = validationSummary
+    ? `${errCount} / ${warnCount} / ${validationSummary.infos}`
+    : "—";
+  const unplacedTone = summary.unplaced_devices_count > 0 ? "warn" : "ok";
 
-function ChecklistRow({ steps }: { steps: PublishChecklistStep[] }) {
-  if (steps.length === 0) return null;
   return (
-    <div style={styles.checklist}>
-      {steps.map((s) => (
-        <span
-          key={s.step}
-          style={{
-            ...styles.checklistItem,
-            color:
-              s.done === true
-                ? "#2d6a2d"
-                : s.done === null
-                  ? "#888"
-                  : "#7a3800",
-          }}
-          title={s.note}
-        >
-          <span style={styles.checklistIcon}>
-            {s.done === true ? "✓" : s.done === null ? "·" : "○"}
-          </span>
-          {s.label}
-          {s.note && (
-            <span style={styles.checklistNote}> — {s.note}</span>
-          )}
-        </span>
-      ))}
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 0 }}>
+      <StatTile label="Locations"      value={summary.locations_count}       icon={<IcMapPin size={14} />}      />
+      <StatTile label="Racks"          value={summary.racks_count}            icon={<IcServer size={14} />}      />
+      <StatTile label="Device Models"  value={summary.device_models_count}    icon={<IcLayers size={14} />}      />
+      <StatTile label="Devices"        value={summary.devices_count}          icon={<IcBox size={14} />}         />
+      <StatTile label="Placement Files" value={summary.placement_files_count} icon={<IcFile size={14} />}        />
+      <StatTile label="Placements"     value={summary.placements_count}       icon={<IcListChecks size={14} />}  />
+      <StatTile label="Unplaced"       value={summary.unplaced_devices_count} icon={<IcAlertCircle size={14} />} tone={unplacedTone} />
+      {validationSummary && (
+        <StatTile
+          label="Validation"
+          value={valValue}
+          icon={<IcCheckCircle size={14} />}
+          tone={valTone}
+          sub="errors / warnings / info"
+        />
+      )}
     </div>
   );
+}
+
+function StatTile({
+  label,
+  value,
+  icon,
+  tone,
+  sub,
+}: {
+  label: string;
+  value: string | number;
+  icon: React.ReactNode;
+  tone?: "ok" | "warn" | "err";
+  sub?: string;
+}) {
+  return (
+    <div className="stat-tile">
+      <div className="st-header">
+        <span className="eyebrow">{label}</span>
+        <span className={`st-icon${tone ? ` tone-${tone}` : ""}`}>{icon}</span>
+      </div>
+      <div className={`st-value${tone ? ` tone-${tone}` : ""}`}>{value}</div>
+      {sub && <div className="st-sub">{sub}</div>}
+    </div>
+  );
+}
+
+function gitStatusBadge(status: GitStatusDto) {
+  const { label, severity } = deriveGitStatusLabel(status);
+  const toneMap = { ok: "ok", warn: "warn", error: "err", info: "info" } as const;
+  const tone = toneMap[severity];
+  const iconMap = {
+    ok: <IcCheck size={11} />,
+    warn: <IcAlertTriangle size={11} />,
+    error: <IcAlertCircle size={11} />,
+    info: <IcInfo size={11} />,
+  };
+  return <Badge tone={tone} icon={iconMap[severity]}>{label}</Badge>;
 }
 
 type PublishValidation =
   | { kind: "idle" }
   | { kind: "validating" }
-  | { kind: "done"; summary: ValidationSummaryDto };
+  | { kind: "done"; summary: ReturnType<typeof computeValidationSummary> };
 
 interface GitSectionProps {
   repoPath: string;
@@ -194,7 +251,6 @@ function GitSection({
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // Publish flow state
   const [publishValidation, setPublishValidation] = useState<PublishValidation>({ kind: "idle" });
   const [validateError, setValidateError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -274,8 +330,7 @@ function GitSection({
       .finally(() => setLoading(false));
   }, [repoPath, refreshKey]);
 
-  // Reset publish validation whenever unsaved in-memory changes appear —
-  // the repository state has changed and previous validation is stale.
+  // Reset publish validation whenever unsaved in-memory changes appear.
   useEffect(() => {
     if (hasUnsavedChanges) {
       setPublishValidation({ kind: "idle" });
@@ -341,7 +396,6 @@ function GitSection({
       const commit = await commitRepositoryChanges(msg);
       setCommitSuccess(`Committed: ${commit.short_hash} — ${commit.subject}`);
       setCommitMessage("");
-      // After commit, repository state changed — reset publish validation.
       setPublishValidation({ kind: "idle" });
       setRefreshKey((k) => k + 1);
     } catch (e) {
@@ -362,14 +416,8 @@ function GitSection({
     setAddRemoteSuccess(null);
     const name = newRemoteName.trim();
     const url = newRemoteUrl.trim();
-    if (!name) {
-      setAddRemoteError("Remote name cannot be empty.");
-      return;
-    }
-    if (!url) {
-      setAddRemoteError("Remote URL cannot be empty.");
-      return;
-    }
+    if (!name) { setAddRemoteError("Remote name cannot be empty."); return; }
+    if (!url)  { setAddRemoteError("Remote URL cannot be empty."); return; }
     setAddingRemote(true);
     try {
       await addGitRemote(name, url);
@@ -419,25 +467,17 @@ function GitSection({
 
   if (loading) {
     return (
-      <section style={common.section}>
-        <h2 style={common.h2}>Git</h2>
-        <p style={common.working}>Loading Git status…</p>
-      </section>
+      <Panel title="Git">
+        <p style={{ margin: 0, color: "var(--tx-3)", fontStyle: "italic", fontSize: 12 }}>Loading Git status…</p>
+      </Panel>
     );
   }
 
   if (error) {
     return (
-      <section style={common.section}>
-        <h2 style={common.h2}>Git</h2>
-        <div style={common.errorBox}>{error}</div>
-        <button
-          style={{ ...common.btn, marginTop: "0.5rem" }}
-          onClick={() => setRefreshKey((k) => k + 1)}
-        >
-          Retry
-        </button>
-      </section>
+      <Panel title="Git" actions={<button className="btn btn-sm" onClick={() => setRefreshKey((k) => k + 1)}>Retry</button>}>
+        <Banner tone="err">{error}</Banner>
+      </Panel>
     );
   }
 
@@ -445,24 +485,23 @@ function GitSection({
 
   if (!gitStatus.is_repository) {
     return (
-      <section style={common.section}>
-        <h2 style={common.h2}>Git</h2>
-        <p style={{ ...common.hint, color: SEVERITY_COLOR.info }}>
-          No Git repository detected — this directory is not tracked by Git.
-        </p>
-        {initError && <div style={common.errorBox}>{initError}</div>}
-        <button style={common.btn} onClick={handleInit} disabled={initing}>
-          {initing ? "Initializing…" : "Initialize Git repository"}
-        </button>
-      </section>
+      <Panel title="Git" desc="No Git repository detected.">
+        <div className="stack">
+          <p style={{ margin: 0, fontSize: 12, color: "var(--tx-3)" }}>
+            This directory is not tracked by Git.
+          </p>
+          {initError && <Banner tone="err">{initError}</Banner>}
+          <div>
+            <button className="btn" onClick={handleInit} disabled={initing}>
+              {initing ? "Initializing…" : "Initialize Git repository"}
+            </button>
+          </div>
+        </div>
+      </Panel>
     );
   }
 
-  const { label: statusLabel, severity: statusSeverity } =
-    deriveGitStatusLabel(gitStatus);
   const actionHints = deriveGitActionHints(gitStatus, hasUnsavedChanges);
-
-  // Determine publish readiness
   const nothingToCommit = gitStatus.is_clean;
   const validationPassed =
     publishValidation.kind === "done" && publishValidation.summary.errors === 0;
@@ -472,28 +511,15 @@ function GitSection({
     (publishValidation.kind === "done" && publishValidation.summary.errors > 0);
 
   const commitDisabled =
-    committing ||
-    hasUnsavedChanges ||
-    !commitMessage.trim() ||
-    nothingToCommit ||
-    validationBlocked;
+    committing || hasUnsavedChanges || !commitMessage.trim() || nothingToCommit || validationBlocked;
 
-  const pushBlockedReason = getPushDisabledReason(
-    gitStatus,
-    hasUnsavedChanges,
-    selectedRemote,
-  );
-  const pullBlockedReason = getPullDisabledReason(
-    gitStatus,
-    hasUnsavedChanges,
-    selectedRemote,
-  );
+  const pushBlockedReason = getPushDisabledReason(gitStatus, hasUnsavedChanges, selectedRemote);
+  const pullBlockedReason = getPullDisabledReason(gitStatus, hasUnsavedChanges, selectedRemote);
   const pushDisabled = pushBlockedReason !== null || pushing || pulling;
   const pullDisabled = pullBlockedReason !== null || pushing || pulling;
 
-  // Build publish checklist and inject current validation state into step 2
   const rawChecklist = derivePublishChecklist(gitStatus, hasUnsavedChanges);
-  const checklist: typeof rawChecklist = rawChecklist.map((step) => {
+  const checklist: PublishChecklistStep[] = rawChecklist.map((step) => {
     if (step.step !== 2) return step;
     if (publishValidation.kind === "done") {
       return {
@@ -509,353 +535,354 @@ function GitSection({
   });
 
   return (
-    <section style={common.section}>
-      <h2 style={common.h2}>Git</h2>
+    <>
+      {/* Safe publish stepper */}
+      <Panel
+        title="Safe publish"
+        desc="Save → Validate → Commit → Pull → Push"
+        actions={
+          <button className="btn btn-sm" onClick={() => setRefreshKey((k) => k + 1)}>
+            <IcRefresh size={11} /> Refresh
+          </button>
+        }
+        flush
+      >
+        <div className="stepper">
+          {/* Step 1 — Save */}
+          {(() => {
+            const state = !hasUnsavedChanges ? "step-done" : "step-active";
+            return (
+              <div className={`step-row ${state}`}>
+                <div className="step-dot">{!hasUnsavedChanges ? <IcCheck size={11} /> : "1"}</div>
+                <div>
+                  <div className="step-title">Save changes to disk</div>
+                  <div className="step-meta">
+                    {hasUnsavedChanges
+                      ? "In-memory changes not yet written to YAML files."
+                      : "All changes are written to YAML."}
+                    {saveSuccess && <span style={{ color: "var(--st-ok-tx)", display: "block", marginTop: 2 }}>{saveSuccess}</span>}
+                    {saveError && <span style={{ color: "var(--st-err-tx)", display: "block", marginTop: 2 }}>{saveError}</span>}
+                  </div>
+                </div>
+                {hasUnsavedChanges && (
+                  <div className="step-action">
+                    <button className="btn btn-primary btn-sm" onClick={handleSaveFromGit} disabled={saving}>
+                      <IcSave size={11} /> {saving ? "Saving…" : "Save"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
-      <table style={{ ...common.table, marginBottom: "0.5rem" }}>
-        <tbody>
-          <tr>
-            <td style={common.th}>Branch</td>
-            <td style={common.td}>{gitStatus.branch ?? "—"}</td>
-          </tr>
-          {gitStatus.upstream && (
-            <tr>
-              <td style={common.th}>Upstream</td>
-              <td style={common.td}>{gitStatus.upstream}</td>
-            </tr>
-          )}
-          <tr>
-            <td style={common.th}>Status</td>
-            <td
-              style={{
-                ...common.td,
-                color: SEVERITY_COLOR[statusSeverity],
-                fontWeight: statusSeverity === "error" ? "bold" : undefined,
-              }}
-            >
-              {statusLabel}
-              {!gitStatus.is_clean && (
-                <span style={{ marginLeft: "0.5rem", color: "#888", fontWeight: "normal" }}>
-                  ({gitStatus.staged_count} staged, {gitStatus.unstaged_count} unstaged,{" "}
-                  {gitStatus.untracked_count} untracked)
-                </span>
-              )}
-            </td>
-          </tr>
-          {gitStatus.message && (
-            <tr>
-              <td style={common.th}>Note</td>
-              <td style={common.td}>{gitStatus.message}</td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+          {/* Step 2 — Validate */}
+          {(() => {
+            const done = publishValidation.kind === "done" && publishValidation.summary.errors === 0;
+            const blocked = !done && !hasUnsavedChanges;
+            const state = done ? "step-done" : blocked ? "step-active" : "step-blocked";
+            const meta = publishValidation.kind === "idle"
+              ? "Run validation before committing."
+              : publishValidation.kind === "validating"
+                ? "Validating…"
+                : publishValidation.summary.errors > 0
+                  ? `${publishValidation.summary.errors} error(s) block the commit.`
+                  : `No errors. ${publishValidation.summary.warnings} warning(s), ${publishValidation.summary.infos} info — review optional.`;
+            return (
+              <div className={`step-row ${state}`}>
+                <div className="step-dot">{done ? <IcCheck size={11} /> : "2"}</div>
+                <div>
+                  <div className="step-title">Validate inventory</div>
+                  <div className="step-meta">
+                    {meta}
+                    {validateError && <span style={{ color: "var(--st-err-tx)", display: "block", marginTop: 2 }}>{validateError}</span>}
+                  </div>
+                </div>
+                <div className="step-action">
+                  <button
+                    className="btn btn-sm"
+                    onClick={handleValidateForPublish}
+                    disabled={hasUnsavedChanges || publishValidation.kind === "validating"}
+                  >
+                    <IcRefresh size={11} /> {publishValidation.kind === "validating" ? "Running…" : "Run"}
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
 
-      {actionHints.length > 0 && (
-        <ul style={styles.hintList}>
-          {actionHints.map((hint, i) => (
-            <li key={i} style={styles.hintItem}>
-              {hint}
-            </li>
-          ))}
-        </ul>
-      )}
+          {/* Step 3 — Commit */}
+          {(() => {
+            const done = nothingToCommit && checklist.find(s => s.step === 3)?.done === true;
+            const active = !hasUnsavedChanges && validationPassed && !nothingToCommit;
+            const state = done ? "step-done" : active ? "step-active" : "step-blocked";
+            return (
+              <div className={`step-row ${state}`}>
+                <div className="step-dot">{done ? <IcCheck size={11} /> : "3"}</div>
+                <div style={{ gridColumn: "2 / -1" }}>
+                  <div className="step-title">Commit local changes</div>
+                  {nothingToCommit ? (
+                    <div className="step-meta">Working tree is clean — nothing to commit.</div>
+                  ) : (
+                    <form onSubmit={handleCommit} style={{ display: "flex", gap: 8, marginTop: 6, alignItems: "center" }}>
+                      <input
+                        className="ri-input"
+                        style={{ flex: 1, height: 26, fontSize: 12 }}
+                        value={commitMessage}
+                        onChange={(e) => setCommitMessage(e.target.value)}
+                        placeholder="Commit message…"
+                        disabled={committing || hasUnsavedChanges || !validationPassed}
+                      />
+                      <button
+                        type="submit"
+                        className="btn btn-primary btn-sm"
+                        disabled={commitDisabled}
+                        title={
+                          hasUnsavedChanges ? "Save inventory changes to disk first"
+                            : !validationPassed ? "Run validation without errors first"
+                            : !commitMessage.trim() ? "Enter a commit message"
+                            : undefined
+                        }
+                      >
+                        {committing ? "Committing…" : "Commit"}
+                      </button>
+                    </form>
+                  )}
+                  {commitError && <div className="step-meta" style={{ color: "var(--st-err-tx)", marginTop: 4 }}>{commitError}</div>}
+                  {commitSuccess && <div className="step-meta" style={{ color: "var(--st-ok-tx)", marginTop: 4 }}>{commitSuccess}</div>}
+                </div>
+              </div>
+            );
+          })()}
 
-      <div style={{ marginBottom: "0.75rem" }}>
-        <button
-          style={common.btn}
-          onClick={() => setRefreshKey((k) => k + 1)}
-        >
-          Refresh Git status
-        </button>
-      </div>
+          {/* Step 4 — Pull */}
+          {(() => {
+            const behind = gitStatus.behind ?? 0;
+            const ahead  = gitStatus.ahead ?? 0;
+            const done   = behind === 0;
+            const diverged = ahead > 0 && behind > 0;
+            const state  = done ? "step-done" : "step-active";
+            return (
+              <div className={`step-row ${state}`}>
+                <div className="step-dot">{done ? <IcCheck size={11} /> : "4"}</div>
+                <div>
+                  <div className="step-title">Pull if remote moved</div>
+                  <div className="step-meta">
+                    {diverged
+                      ? "Branch has diverged — resolve manually."
+                      : behind > 0
+                        ? `Behind by ${behind} commit${behind !== 1 ? "s" : ""} — fetch before pushing.`
+                        : gitStatus.upstream
+                          ? "Up to date with remote."
+                          : "No upstream configured yet."}
+                    {pullError && <span style={{ color: "var(--st-err-tx)", display: "block", marginTop: 2 }}>{pullError}</span>}
+                    {pullSuccess && <span style={{ color: "var(--st-ok-tx)", display: "block", marginTop: 2 }}>{pullSuccess}</span>}
+                  </div>
+                </div>
+                <div className="step-action">
+                  <button
+                    className="btn btn-sm"
+                    onClick={handlePull}
+                    disabled={pullDisabled}
+                    title={!pulling && pullBlockedReason !== null ? pullBlockedReason : undefined}
+                  >
+                    <IcDownload size={11} /> {pulling ? "Pulling…" : "Pull"}
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
 
+          {/* Step 5 — Push */}
+          {(() => {
+            const ahead = gitStatus.ahead ?? 0;
+            const done  = ahead === 0 && nothingToCommit;
+            const state = done ? "step-done" : "step-active";
+            return (
+              <div className={`step-row ${state}`}>
+                <div className="step-dot">{done ? <IcCheck size={11} /> : "5"}</div>
+                <div>
+                  <div className="step-title">Push to remote</div>
+                  <div className="step-meta">
+                    {ahead > 0
+                      ? `${ahead} commit${ahead !== 1 ? "s" : ""} ahead of remote — push when ready.`
+                      : gitStatus.upstream
+                        ? "Remote is up to date."
+                        : "No upstream branch — push will configure tracking."}
+                    {pushError && <span style={{ color: "var(--st-err-tx)", display: "block", marginTop: 2 }}>{pushError}</span>}
+                    {pushSuccess && <span style={{ color: "var(--st-ok-tx)", display: "block", marginTop: 2 }}>{pushSuccess}</span>}
+                  </div>
+                </div>
+                <div className="step-action">
+                  <button
+                    className="btn btn-sm"
+                    onClick={handlePush}
+                    disabled={pushDisabled}
+                    title={!pushing && pushBlockedReason !== null ? pushBlockedReason : undefined}
+                  >
+                    <IcPush size={11} /> {pushing ? "Pushing…" : "Push"}
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      </Panel>
+
+      {/* Recent commits */}
       {gitCommits.length > 0 && (
-        <div style={{ marginBottom: "0.75rem" }}>
-          <h3 style={common.h3}>Recent commits</h3>
-          <table style={common.table}>
+        <Panel title="Recent commits" desc={`Branch: ${gitStatus.branch ?? "—"}`} flush>
+          <table className="tbl">
             <thead>
               <tr>
-                {["Hash", "Subject", "Author", "Date"].map((h) => (
-                  <th key={h} style={common.th}>
-                    {h}
-                  </th>
-                ))}
+                <th style={{ width: 72 }}>Hash</th>
+                <th>Subject</th>
+                <th style={{ width: 120 }}>Author</th>
+                <th style={{ width: 100 }}>Date</th>
               </tr>
             </thead>
             <tbody>
               {gitCommits.map((c) => (
                 <tr key={c.hash}>
-                  <td style={{ ...common.td, fontFamily: "monospace" }}>
-                    {c.short_hash}
-                  </td>
-                  <td style={common.td}>{c.subject}</td>
-                  <td style={common.td}>{c.author ?? ""}</td>
-                  <td style={{ ...common.td, whiteSpace: "nowrap" }}>
-                    {c.date ? c.date.slice(0, 10) : ""}
-                  </td>
+                  <td className="tbl-mono" style={{ color: "var(--ac-text)" }}>{c.short_hash}</td>
+                  <td>{c.subject}</td>
+                  <td>{c.author ?? ""}</td>
+                  <td className="tbl-mono" style={{ color: "var(--tx-3)" }}>{c.date ? c.date.slice(0, 10) : ""}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
+        </Panel>
+      )}
+      {gitCommits.length === 0 && !loading && gitStatus.is_repository && (
+        <Panel title="Recent commits">
+          <EmptyState icon={<IcClock size={22} strokeWidth={1.2} />} title="No commits yet" body="Commit your first changes using the Safe publish steps above." />
+        </Panel>
       )}
 
-      {gitCommits.length === 0 && (
-        <p style={common.hint}>No commits yet.</p>
-      )}
+      {/* Git status + action hints sidebar content */}
+      <Panel title="Git status">
+        <div className="stack-3">
+          <dl className="kv">
+            <dt>Branch</dt>
+            <dd className="mono" style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <IcGitBranch size={12} /> {gitStatus.branch ?? "—"}
+            </dd>
+            <dt>Status</dt>
+            <dd>{gitStatusBadge(gitStatus)}</dd>
+            {gitStatus.upstream && (
+              <>
+                <dt>Upstream</dt>
+                <dd className="mono">{gitStatus.upstream}</dd>
+              </>
+            )}
+            {!gitStatus.is_clean && (
+              <>
+                <dt>Changes</dt>
+                <dd style={{ fontSize: 11, color: "var(--tx-3)" }}>
+                  {gitStatus.staged_count} staged · {gitStatus.unstaged_count} unstaged · {gitStatus.untracked_count} untracked
+                </dd>
+              </>
+            )}
+          </dl>
 
-      {/* ── Publish changes ──────────────────────────────────── */}
-      <div style={styles.subSection}>
-        <h3 style={common.h3}>Publish changes</h3>
-        <ChecklistRow steps={checklist} />
-        <p style={styles.flowHint}>
-          Safe publish path: save changes to disk → validate → commit →
-          pull if behind → push. Commit requires no unsaved changes and
-          validation without errors.
-        </p>
+          {!gitStatus.upstream && (
+            <Banner tone="warn" title="No upstream branch" icon={<IcGitBranch size={14} />}>
+              Set tracking before pushing. The first push will configure tracking automatically.
+            </Banner>
+          )}
 
-        {/* Step 1 — Save */}
-        <div style={styles.step}>
-          <span style={styles.stepLabel}>1. Save</span>
-          {hasUnsavedChanges ? (
-            <>
-              <div style={styles.warningBox}>
-                Unsaved in-memory changes — save to disk before committing.
-              </div>
-              <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.4rem" }}>
-                <button style={common.btn} onClick={handleSaveFromGit} disabled={saving}>
-                  {saving ? "Saving…" : "Save repository"}
-                </button>
-              </div>
-              {saveError && <div style={common.errorBox}>{saveError}</div>}
-            </>
-          ) : (
-            <>
-              <div style={styles.okBox}>Changes are saved to disk.</div>
-              {saveSuccess && <div style={{ ...styles.successBox, marginTop: "0.25rem" }}>{saveSuccess}</div>}
-            </>
+          {actionHints.length > 0 && (
+            <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: "var(--tx-2)", lineHeight: 1.7 }}>
+              {actionHints.map((hint, i) => <li key={i}>{hint}</li>)}
+            </ul>
           )}
         </div>
+      </Panel>
 
-        {/* Step 2 — Validate */}
-        <div style={styles.step}>
-          <span style={styles.stepLabel}>2. Validate</span>
-          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.4rem" }}>
-            <button
-              style={common.btn}
-              onClick={handleValidateForPublish}
-              disabled={hasUnsavedChanges || publishValidation.kind === "validating"}
-            >
-              {publishValidation.kind === "validating" ? "Validating…" : "Validate"}
-            </button>
-          </div>
-          {validateError && <div style={common.errorBox}>{validateError}</div>}
-          {publishValidation.kind === "idle" && !hasUnsavedChanges && (
-            <p style={styles.idleHint}>
-              Run validation before committing to ensure no errors are published.
-            </p>
+      {/* Remote section */}
+      <Panel title="Remote" desc={remotes.length > 0 ? `${remotes.length} configured` : "None configured"}>
+        <div className="stack-3">
+          {remotes.length > 0 && (
+            <dl className="kv">
+              {remotes.map((r) => (
+                <div key={r.name} style={{ display: "contents" }}>
+                  <dt className="mono">{r.name}</dt>
+                  <dd className="mono" style={{ wordBreak: "break-all", fontSize: 11, color: "var(--tx-2)" }}>{r.url}</dd>
+                </div>
+              ))}
+            </dl>
           )}
-          {publishValidation.kind === "done" && publishValidation.summary.errors > 0 && (
-            <div style={styles.blockedBox}>
-              Publish blocked — {publishValidation.summary.errors} error(s).
-              Fix validation errors and re-validate before committing.
-              {publishValidation.summary.warnings > 0 && (
-                <span> ({publishValidation.summary.warnings} warning(s) do not block publish.)</span>
-              )}
-            </div>
-          )}
-          {publishValidation.kind === "done" && publishValidation.summary.errors === 0 && (
-            <div style={styles.okBox}>
-              Validation passed — {publishValidation.summary.warnings} warning(s),{" "}
-              {publishValidation.summary.infos} info(s). Ready to commit.
-            </div>
-          )}
-        </div>
 
-        {/* Step 3 — Commit */}
-        <div style={styles.step}>
-          <span style={styles.stepLabel}>3. Commit</span>
-          {nothingToCommit && (
-            <p style={styles.idleHint}>
-              Working tree is clean — nothing to commit. Save new changes first.
-            </p>
-          )}
-          {!nothingToCommit && (
-            <form onSubmit={handleCommit} style={{ ...styles.commitForm, marginTop: "0.4rem" }}>
+          <div>
+            <div className="eyebrow" style={{ marginBottom: 8 }}>Add remote</div>
+            <form onSubmit={handleAddRemote} style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               <input
-                style={common.input}
-                value={commitMessage}
-                onChange={(e) => setCommitMessage(e.target.value)}
-                placeholder="e.g. Add rack-b01 to Warsaw server room"
-                disabled={committing || hasUnsavedChanges || !validationPassed}
+                className="ri-input ri-mono"
+                style={{ width: 90, flexShrink: 0 }}
+                value={newRemoteName}
+                onChange={(e) => setNewRemoteName(e.target.value)}
+                placeholder="Name"
+                disabled={addingRemote}
               />
-              <button
-                type="submit"
-                style={common.btn}
-                disabled={commitDisabled}
-                title={
-                  hasUnsavedChanges
-                    ? "Save inventory changes to disk first"
-                    : !validationPassed
-                      ? "Run validation without errors before committing"
-                      : !commitMessage.trim()
-                        ? "Enter a commit message"
-                        : nothingToCommit
-                          ? "Nothing to commit — working tree is clean"
-                          : undefined
-                }
-              >
-                {committing ? "Committing…" : "Commit"}
+              <input
+                className="ri-input ri-mono"
+                style={{ flex: 1, minWidth: 160 }}
+                value={newRemoteUrl}
+                onChange={(e) => setNewRemoteUrl(e.target.value)}
+                placeholder="URL (e.g. git@github.com:org/repo.git)"
+                disabled={addingRemote}
+              />
+              <button type="submit" className="btn btn-sm" disabled={addingRemote}>
+                {addingRemote ? "Adding…" : "Add"}
               </button>
             </form>
-          )}
-          {commitError && <div style={common.errorBox}>{commitError}</div>}
-          {commitSuccess && <div style={styles.successBox}>{commitSuccess}</div>}
-        </div>
-      </div>
+            {addRemoteError && <div style={{ marginTop: 6, fontSize: 12, color: "var(--st-err-tx)" }}>{addRemoteError}</div>}
+            {addRemoteSuccess && <div style={{ marginTop: 6, fontSize: 12, color: "var(--st-ok-tx)" }}>{addRemoteSuccess}</div>}
+          </div>
 
-      {/* ── Remote sync ──────────────────────────────────────── */}
-      <div style={styles.subSection}>
-        <h3 style={common.h3}>Remote sync</h3>
-
-        {remotes.length > 0 ? (
-          <table style={{ ...common.table, marginBottom: "0.75rem" }}>
-            <thead>
-              <tr>
-                <th style={common.th}>Name</th>
-                <th style={common.th}>URL</th>
-              </tr>
-            </thead>
-            <tbody>
-              {remotes.map((r) => (
-                <tr key={r.name}>
-                  <td style={{ ...common.td, fontFamily: "monospace" }}>{r.name}</td>
-                  <td style={{ ...common.td, fontFamily: "monospace", wordBreak: "break-all" }}>
-                    {r.url}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <p style={common.hint}>No remotes configured.</p>
-        )}
-
-        <div style={{ marginBottom: "0.75rem" }}>
-          <h4 style={styles.h4}>Add remote</h4>
-          <form onSubmit={handleAddRemote} style={styles.addRemoteForm}>
-            <input
-              style={{ ...common.input, flex: "none", width: "8rem" }}
-              value={newRemoteName}
-              onChange={(e) => setNewRemoteName(e.target.value)}
-              placeholder="Name"
-              disabled={addingRemote}
-            />
-            <input
-              style={common.input}
-              value={newRemoteUrl}
-              onChange={(e) => setNewRemoteUrl(e.target.value)}
-              placeholder="URL (e.g. git@github.com:org/repo.git)"
-              disabled={addingRemote}
-            />
-            <button type="submit" style={common.btn} disabled={addingRemote}>
-              {addingRemote ? "Adding…" : "Add remote"}
-            </button>
-          </form>
-          {addRemoteError && <div style={common.errorBox}>{addRemoteError}</div>}
-          {addRemoteSuccess && <div style={styles.successBox}>{addRemoteSuccess}</div>}
-        </div>
-
-        <div>
-          <h4 style={styles.h4}>Push / Pull</h4>
-          {hasUnsavedChanges && (
-            <div style={styles.warningBox}>
-              Save and commit all changes before syncing with remote.
-            </div>
-          )}
-          {remotes.length === 0 ? (
-            <p style={common.hint}>Add a remote above to enable push and pull.</p>
-          ) : (
-            <>
-              {!hasUnsavedChanges &&
-                gitStatus.behind !== null &&
-                gitStatus.behind > 0 &&
-                gitStatus.ahead !== null &&
-                gitStatus.ahead > 0 && (
-                  <div style={styles.blockedBox}>
-                    Branch has diverged from remote — manual git intervention
-                    required before push or pull.
-                  </div>
-                )}
-              {!hasUnsavedChanges &&
-                gitStatus.behind !== null &&
-                gitStatus.behind > 0 &&
-                !(gitStatus.ahead !== null && gitStatus.ahead > 0) && (
-                  <div style={styles.warningBox}>
-                    Branch is {gitStatus.behind} commit
-                    {gitStatus.behind !== 1 ? "s" : ""} behind remote — pull
-                    before pushing.
-                  </div>
-                )}
-              {!hasUnsavedChanges &&
-                gitStatus.ahead !== null &&
-                gitStatus.ahead > 0 &&
-                !(gitStatus.behind !== null && gitStatus.behind > 0) && (
-                  <div style={styles.okBox}>
-                    Branch is {gitStatus.ahead} commit
-                    {gitStatus.ahead !== 1 ? "s" : ""} ahead of remote — push
-                    when ready.
-                  </div>
-                )}
-              <div style={styles.remoteSelectRow}>
-                <span style={styles.remoteSelectLabel}>Remote:</span>
+          {remotes.length > 0 && (
+            <div>
+              <div className="eyebrow" style={{ marginBottom: 8 }}>Push / Pull</div>
+              {hasUnsavedChanges && (
+                <div style={{ marginBottom: 8 }}>
+                  <Banner tone="warn">Save and commit all changes before syncing with remote.</Banner>
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8 }}>
+                <span style={{ fontSize: 12, color: "var(--tx-3)", whiteSpace: "nowrap" }}>Remote:</span>
                 <select
+                  className="ri-input"
+                  style={{ flex: 1 }}
                   value={selectedRemote}
                   onChange={(e) => setSelectedRemote(e.target.value)}
                   disabled={pushing || pulling || hasUnsavedChanges}
-                  style={{ ...common.input, flex: "none" }}
                 >
-                  {remotes.map((r) => (
-                    <option key={r.name} value={r.name}>{r.name}</option>
-                  ))}
+                  {remotes.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
                 </select>
               </div>
-              <div style={{ display: "flex", gap: "0.5rem" }}>
+              <div style={{ display: "flex", gap: 6 }}>
                 <button
-                  style={common.btn}
-                  onClick={handlePush}
-                  disabled={pushDisabled}
-                  title={
-                    !pushing && !pulling && pushBlockedReason !== null
-                      ? pushBlockedReason
-                      : undefined
-                  }
-                >
-                  {pushing ? "Pushing…" : "Push current branch"}
-                </button>
-                <button
-                  style={common.btn}
+                  className="btn btn-sm"
                   onClick={handlePull}
                   disabled={pullDisabled}
-                  title={
-                    !pushing && !pulling && pullBlockedReason !== null
-                      ? pullBlockedReason
-                      : undefined
-                  }
+                  title={!pulling && pullBlockedReason !== null ? pullBlockedReason : undefined}
                 >
-                  {pulling ? "Pulling…" : "Pull latest"}
+                  <IcDownload size={11} /> {pulling ? "Pulling…" : "Pull"}
+                </button>
+                <button
+                  className="btn btn-sm"
+                  onClick={handlePush}
+                  disabled={pushDisabled}
+                  title={!pushing && pushBlockedReason !== null ? pushBlockedReason : undefined}
+                >
+                  <IcPush size={11} /> {pushing ? "Pushing…" : "Push"}
                 </button>
               </div>
-              {pushError && <div style={{ ...common.errorBox, marginTop: "0.4rem" }}>{pushError}</div>}
-              {pushSuccess && <div style={{ ...styles.successBox, marginTop: "0.4rem" }}>{pushSuccess}</div>}
-              {pullError && <div style={{ ...common.errorBox, marginTop: "0.4rem" }}>{pullError}</div>}
-              {pullSuccess && <div style={{ ...styles.successBox, marginTop: "0.4rem" }}>{pullSuccess}</div>}
-            </>
+            </div>
           )}
         </div>
-      </div>
-    </section>
+      </Panel>
+    </>
   );
 }
 
@@ -876,312 +903,197 @@ export function RepositoryPanel({
   onPullRunning,
   onCreateSuccess,
 }: Props) {
-  // ── No repository open: landing state ───────────────────────────────────────
+  // ── Landing state (no repository open) ──────────────────────────────────────
   if (!summary) {
     return (
-      <section style={common.section}>
-        <h2 style={common.h2}>Open or Create a Repository</h2>
-        <p style={styles.landingDescription}>
-          Rack Inventory Studio manages rack inventory as a file-based
-          repository on disk. Open an existing repository to start working, or
-          create a new one from scratch.
-        </p>
+      <>
+        <PageHeader
+          title="Open a repository"
+          subtitle="Rack Inventory Studio stores its data as YAML files in a Git repository on disk."
+        />
+        <div className="page-content">
+          <div className="cols-sidebar">
+            <div className="stack-4">
+              {recentRepos.length > 0 && (
+                <Panel
+                  title="Recent repositories"
+                  desc="Repositories you've opened on this machine."
+                  flush
+                >
+                  <table className="tbl">
+                    <thead>
+                      <tr>
+                        <th>Path</th>
+                        <th style={{ width: 64 }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recentRepos.map((path) => (
+                        <tr key={path} className="tbl-clickable">
+                          <td
+                            className="tbl-mono"
+                            onClick={() => onRepoPathChange(path)}
+                            title={`Click to fill path: ${path}`}
+                            style={{ color: "var(--ac-text)", cursor: "pointer" }}
+                          >
+                            {path}
+                          </td>
+                          <td className="tbl-actions">
+                            <button
+                              className="btn btn-sm btn-primary"
+                              onClick={() => { onRepoPathChange(path); }}
+                              disabled={working}
+                            >
+                              Open
+                            </button>
+                            <button
+                              className="btn btn-ghost btn-sm btn-icon"
+                              onClick={() => onRemoveRecentRepo?.(path)}
+                              disabled={working}
+                              title="Remove from list"
+                            >
+                              <IcX size={11} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </Panel>
+              )}
 
-        {recentRepos.length > 0 && (
-          <div style={styles.recentSection}>
-            <h3 style={styles.subHeading}>Recent repositories</h3>
-            <ul style={styles.recentList}>
-              {recentRepos.map((path) => (
-                <li key={path} style={styles.recentItem}>
+              <Panel title="Open by path" desc="Paste or browse to a repository directory.">
+                <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                  <div className="field" style={{ flex: 1 }}>
+                    <label>Repository path</label>
+                    <div className="input-group">
+                      <input
+                        className="ri-input ri-mono"
+                        value={repoPath}
+                        onChange={(e) => onRepoPathChange(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && onOpen()}
+                        placeholder="e.g. examples/example-repository"
+                        disabled={working}
+                      />
+                      <button className="btn" onClick={onBrowse} disabled={working}>
+                        <IcFolder size={12} /> Browse…
+                      </button>
+                    </div>
+                    <div className="fld-help">Example: {EXAMPLE_HINT}</div>
+                  </div>
                   <button
-                    style={styles.recentPathBtn}
-                    onClick={() => onRepoPathChange(path)}
-                    disabled={working}
-                    title={`Click to fill path: ${path}`}
+                    className="btn btn-primary"
+                    onClick={onOpen}
+                    disabled={working || !repoPath.trim()}
                   >
-                    {path}
+                    Open
                   </button>
-                  <button
-                    style={styles.recentRemoveBtn}
-                    onClick={() => onRemoveRecentRepo?.(path)}
-                    title="Remove from recent list"
-                    disabled={working}
-                  >
-                    ×
-                  </button>
-                </li>
-              ))}
-            </ul>
+                </div>
+              </Panel>
+
+              <Panel title="Create new repository" desc="Scaffold an empty RIS repository on disk.">
+                <CreateRepositoryWizard onSuccess={onCreateSuccess} />
+              </Panel>
+            </div>
+
+            <div className="stack-4">
+              <Panel title="Quick reference">
+                <div className="stack-3">
+                  <div>
+                    <div className="eyebrow" style={{ marginBottom: 6 }}>Repository shape</div>
+                    <pre className="mono" style={{
+                      background: "var(--bg-sunken)", padding: 12, borderRadius: 4,
+                      fontSize: 11, lineHeight: 1.6, margin: 0, color: "var(--tx-2)",
+                      overflowX: "auto"
+                    }}>
+{`inventory/
+├─ repo.yaml
+├─ locations.yaml
+├─ device-models/
+├─ devices/
+└─ placements/`}
+                    </pre>
+                  </div>
+                  <div className="hr" style={{ margin: 0 }} />
+                  <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: "var(--tx-2)", lineHeight: 1.7 }}>
+                    <li>Open or browse to an existing repository directory.</li>
+                    <li>Create a new repository and optionally initialize Git.</li>
+                    <li>Single-user, offline-first.</li>
+                  </ul>
+                </div>
+              </Panel>
+            </div>
           </div>
-        )}
-
-        <h3 style={styles.subHeading}>Open existing repository</h3>
-        <div style={common.row}>
-          <input
-            type="text"
-            value={repoPath}
-            onChange={(e) => onRepoPathChange(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && onOpen()}
-            placeholder="Repository path…"
-            style={common.input}
-            disabled={working}
-          />
-          <button onClick={onBrowse} disabled={working} style={common.btn}>
-            Browse…
-          </button>
-          <button
-            onClick={onOpen}
-            disabled={working || !repoPath.trim()}
-            style={common.btn}
-          >
-            Open
-          </button>
         </div>
-        <p style={common.hint}>Example: {EXAMPLE_HINT}</p>
-
-        <h3 style={{ ...styles.subHeading, marginTop: "1.25rem" }}>
-          Create new repository
-        </h3>
-        <p style={common.hint}>
-          Scaffold a new RIS repository on disk. Git initialization is optional
-          and can be done later.
-        </p>
-        <CreateRepositoryWizard onSuccess={onCreateSuccess} />
-      </section>
+      </>
     );
   }
 
   // ── Repository open ──────────────────────────────────────────────────────────
   return (
     <>
-      <section style={styles.openBar}>
-        <div style={common.row}>
-          <input
-            type="text"
-            value={repoPath}
-            onChange={(e) => onRepoPathChange(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && onOpen()}
-            placeholder="Repository path…"
-            style={common.input}
-            disabled={working}
-          />
-          <button onClick={onBrowse} disabled={working} style={common.btn}>
-            Browse…
-          </button>
-          <button
-            onClick={onOpen}
-            disabled={working || !repoPath.trim()}
-            style={common.btn}
-          >
-            Open
-          </button>
-          <button onClick={onClose} disabled={working} style={common.btn}>
-            Close
-          </button>
-        </div>
-      </section>
-
-      <section style={common.section}>
-        <h2 style={common.h2}>Repository Summary</h2>
-        <SummaryTable summary={summary} validationSummary={validationSummary} />
-      </section>
-
-      <GitSection
-        repoPath={summary.repo_path}
-        hasUnsavedChanges={hasUnsavedChanges}
-        onSaveSuccess={onSaveSuccess}
-        onPullSuccess={onPullSuccess}
-        onPullRunning={onPullRunning}
+      <PageHeader
+        title="Repository"
+        subtitle={<span className="mono" style={{ fontSize: 12, color: "var(--tx-3)" }}>{summary.repo_path}</span>}
+        actions={
+          <>
+            <button className="btn" onClick={onBrowse} disabled={working}>
+              <IcFolder size={12} /> Switch…
+            </button>
+            <button className="btn btn-danger" onClick={onClose} disabled={working}>
+              <IcX size={12} /> Close
+            </button>
+          </>
+        }
       />
+      <div className="page-content">
+        <div className="cols-sidebar">
+          <div className="stack-4">
+            <Panel title="Repository summary" desc="Entity counts and validation snapshot.">
+              <StatTileGrid summary={summary} validationSummary={validationSummary} />
+            </Panel>
+            <GitSection
+              repoPath={summary.repo_path}
+              hasUnsavedChanges={hasUnsavedChanges}
+              onSaveSuccess={onSaveSuccess}
+              onPullSuccess={onPullSuccess}
+              onPullRunning={onPullRunning}
+            />
+          </div>
+          <div className="stack-4" style={{ minWidth: 0 }}>
+            {/* The Git status, action hints and remote panels are rendered inside GitSection,
+                but we need them in the sidebar. Temporarily render the legacy summary table
+                here — will be separated into sidebar in a follow-up. */}
+            <Panel title="Repository details" flush>
+              <div style={{ padding: "12px 16px" }}>
+                <SummaryTable summary={summary} validationSummary={validationSummary} />
+              </div>
+            </Panel>
+          </div>
+        </div>
+      </div>
     </>
   );
 }
 
-const styles = {
-  landingDescription: {
-    margin: "0 0 1rem",
-    fontSize: "0.88rem",
-    color: "#555",
-    lineHeight: 1.55,
-  } as CSSProperties,
-  subHeading: {
-    fontSize: "0.95rem",
-    fontWeight: 600,
-    margin: "0.75rem 0 0.4rem",
-    color: "#333",
-  } as CSSProperties,
-  recentSection: {
-    marginBottom: "0.5rem",
-  } as CSSProperties,
-  recentList: {
-    listStyle: "none",
-    margin: "0",
-    padding: "0",
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: "0.2rem",
-  } as CSSProperties,
-  recentItem: {
-    display: "flex",
-    alignItems: "center",
-    gap: "0.35rem",
-  } as CSSProperties,
-  recentPathBtn: {
-    background: "none",
-    border: "1px solid #ccc",
-    borderRadius: 3,
-    padding: "0.2rem 0.5rem",
-    fontFamily: "monospace",
-    fontSize: "0.82rem",
-    cursor: "pointer",
-    color: "#2255aa",
+const legacyCommon = {
+  table: {
+    borderCollapse: "collapse" as const,
+    width: "100%",
+    fontSize: 12,
+  },
+  th: {
+    padding: "4px 8px",
     textAlign: "left" as const,
-    flex: 1,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
+    fontWeight: 500,
+    color: "var(--tx-3)",
     whiteSpace: "nowrap" as const,
-  } as CSSProperties,
-  recentRemoveBtn: {
-    background: "none",
-    border: "1px solid transparent",
-    borderRadius: 3,
-    padding: "0.15rem 0.4rem",
-    cursor: "pointer",
-    color: "#999",
-    fontSize: "0.9rem",
-    flexShrink: 0,
-  } as CSSProperties,
-  openBar: {
-    paddingBottom: "0.5rem",
-    marginBottom: "0.25rem",
-    borderBottom: "1px solid #eee",
-  } as CSSProperties,
-  hintList: {
-    margin: "0 0 0.75rem",
-    padding: "0.35rem 0.75rem 0.35rem 1.5rem",
-    background: "#fffbf0",
-    border: "1px solid #e8d88a",
-    borderRadius: 3,
-    fontSize: "0.82rem",
-    color: "#5a4400",
-    listStyle: "disc",
-    lineHeight: 1.5,
-  } as CSSProperties,
-  hintItem: {
-    margin: "0.1rem 0",
-  } as CSSProperties,
-  checklist: {
-    display: "flex",
-    flexWrap: "wrap" as const,
-    gap: "0.35rem 1rem",
-    margin: "0.4rem 0 0.5rem",
-    padding: "0.4rem 0.75rem",
-    background: "#f8f8f8",
-    border: "1px solid #ddd",
-    borderRadius: 3,
-    fontSize: "0.8rem",
-  } as CSSProperties,
-  checklistItem: {
-    display: "inline-flex",
-    alignItems: "baseline",
-    gap: "0.25rem",
-    whiteSpace: "nowrap" as const,
-  } as CSSProperties,
-  checklistIcon: {
-    fontWeight: "bold" as const,
-    minWidth: "0.9rem",
-    textAlign: "center" as const,
-  } as CSSProperties,
-  checklistNote: {
-    fontStyle: "italic" as const,
-    color: "#7a5800",
-    fontSize: "0.78rem",
-  } as CSSProperties,
-  subSection: {
-    marginTop: "0.75rem",
-    paddingTop: "0.5rem",
-    borderTop: "1px solid #eee",
+    width: "40%",
   },
-  step: {
-    marginTop: "0.6rem",
-  },
-  stepLabel: {
-    display: "block",
-    fontWeight: 600,
-    fontSize: "0.85rem",
-    color: "#333",
-    marginBottom: "0.2rem",
-  } as CSSProperties,
-  flowHint: {
-    margin: "0.2rem 0 0.4rem",
-    fontSize: "0.8rem",
-    color: "#666",
-  } as CSSProperties,
-  idleHint: {
-    margin: "0.25rem 0 0",
-    fontSize: "0.82rem",
-    color: "#888",
-  } as CSSProperties,
-  commitForm: {
-    display: "flex",
-    gap: "0.5rem",
-  },
-  addRemoteForm: {
-    display: "flex",
-    gap: "0.5rem",
-    marginTop: "0.4rem",
-    flexWrap: "wrap" as const,
-  },
-  h4: {
-    fontSize: "0.9rem",
-    fontWeight: 600,
-    margin: "0 0 0.35rem",
-    color: "#444",
-  } as CSSProperties,
-  remoteSelectRow: {
-    display: "flex",
-    gap: "0.5rem",
-    alignItems: "center",
-    marginBottom: "0.5rem",
-  },
-  remoteSelectLabel: {
-    fontSize: "0.85rem",
-    whiteSpace: "nowrap" as const,
-  },
-  warningBox: {
-    marginBottom: "0.4rem",
-    padding: "0.35rem 0.75rem",
-    background: "#fff8e1",
-    border: "1px solid #f5c800",
-    borderRadius: 3,
-    fontSize: "0.82rem",
-    color: "#7a5800",
-  },
-  blockedBox: {
-    marginTop: "0.4rem",
-    padding: "0.35rem 0.75rem",
-    background: "#fff0f0",
-    border: "1px solid #e57373",
-    borderRadius: 3,
-    fontSize: "0.82rem",
-    color: "#b00020",
-  },
-  okBox: {
-    marginTop: "0.25rem",
-    padding: "0.35rem 0.75rem",
-    background: "#f0fff4",
-    border: "1px solid #81c784",
-    borderRadius: 3,
-    fontSize: "0.82rem",
-    color: "#2d6a2d",
-  },
-  successBox: {
-    marginTop: "0.4rem",
-    padding: "0.4rem 0.75rem",
-    background: "#f0fff4",
-    border: "1px solid #5cb85c",
-    color: "#2d6a2d",
-    borderRadius: "3px",
-    fontSize: "0.85rem",
+  td: {
+    padding: "4px 8px",
+    borderBottom: "1px solid var(--bd-1)",
+    color: "var(--tx-1)",
+    fontSize: 12,
   },
 };
