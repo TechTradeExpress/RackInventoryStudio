@@ -4,7 +4,7 @@
 
 `milestone/repository-flow-polish`
 
-**PR:** (to be added after creation)
+**PR:** https://github.com/TechTradeExpress/RackInventoryStudio/pull/38
 
 ---
 
