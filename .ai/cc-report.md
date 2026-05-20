@@ -127,6 +127,14 @@ Verified points:
 
 ---
 
+## Repair (post-review)
+
+Corrected `docs/MVP_READINESS_REPORT_EN.md`: the "Safe publish workflow / better Git UX" row was incorrectly marked as "Done (PR #33)". The basic Git workflow foundation (commit, push, pull) was done in earlier milestones; the UX polish of that flow is a distinct planned milestone. Status changed to **Planned next**.
+
+No functional code changes.
+
+---
+
 ## Not Done
 
 - Git UX polish (intentionally deferred to its own milestone)

@@ -97,7 +97,7 @@ The following items are planned for the MVP+ / Beta phase before v1.0.0. They ar
 
 | Area | Status |
 |---|---|
-| Safe publish workflow / better Git UX | Done (PR #33) |
+| Safe publish workflow / better Git UX | Planned next |
 | Create new repository wizard | Done (PR #33) |
 | Native CSV file picker | Done (PR #33) |
 | Minimal global search | Done (PR #35) |
