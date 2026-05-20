@@ -392,16 +392,9 @@ export function AddPlacementPanel({ rack, onAddSuccess, reloadToken, mutationTok
 
       {/* Drag palette */}
       {!targetsLoading && !targetLoadError && (unplacedDevices.length > 0 || rackObjectModels.length > 0) && (
-        <div
-          style={{
-            borderTop: "1px solid #b8d0a8",
-            padding: "0.4rem 0.6rem",
-          }}
-        >
-          <div style={{ fontSize: "0.75rem", color: "#555", marginBottom: "0.3rem" }}>
-            Drag to place:
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem" }}>
+        <div style={{ borderTop: "1px solid var(--bd-1)", padding: "8px 12px" }}>
+          <div className="eyebrow" style={{ marginBottom: 6 }}>Drag to place</div>
+          <div className="palette">
             {unplacedDevices.map((d) => {
               const modelHeight =
                 allDeviceModels.find((m) => m.id === d.device_model_id)
@@ -417,25 +410,22 @@ export function AddPlacementPanel({ rack, onAddSuccess, reloadToken, mutationTok
                   key={d.id}
                   draggable
                   data-testid={`dnd-device-${d.id}`}
+                  className="palette-card"
                   onDragStart={(e) => {
                     e.dataTransfer.effectAllowed = "copy";
                     e.dataTransfer.setData(DND_DATA_TYPE, encodeDndPayload(payload));
                     setActiveDragPayload(payload);
                   }}
                   onDragEnd={() => setActiveDragPayload(null)}
-                  style={{
-                    padding: "0.2rem 0.45rem",
-                    background: "#dce8fc",
-                    border: "1px solid #9bbde8",
-                    borderRadius: 3,
-                    fontSize: "0.75rem",
-                    fontFamily: "monospace",
-                    cursor: "grab",
-                    userSelect: "none",
-                  }}
                   title={`Drag to place ${d.code}${modelHeight ? ` (${modelHeight}U)` : ""}`}
                 >
-                  {d.code}
+                  <span className="pc-drag">⠿</span>
+                  <span className="pc-name">{d.code}</span>
+                  {modelHeight ? (
+                    <span className="pc-meta">{modelHeight}U</span>
+                  ) : (
+                    <span className="pc-meta" style={{ color: "var(--st-warn-tx)" }}>no model</span>
+                  )}
                 </div>
               );
             })}
@@ -451,25 +441,18 @@ export function AddPlacementPanel({ rack, onAddSuccess, reloadToken, mutationTok
                   key={m.id}
                   draggable
                   data-testid={`dnd-model-${m.id}`}
+                  className="palette-card"
                   onDragStart={(e) => {
                     e.dataTransfer.effectAllowed = "copy";
                     e.dataTransfer.setData(DND_DATA_TYPE, encodeDndPayload(payload));
                     setActiveDragPayload(payload);
                   }}
                   onDragEnd={() => setActiveDragPayload(null)}
-                  style={{
-                    padding: "0.2rem 0.45rem",
-                    background: "#f0e8fc",
-                    border: "1px solid #c0a0e0",
-                    borderRadius: 3,
-                    fontSize: "0.75rem",
-                    fontFamily: "monospace",
-                    cursor: "grab",
-                    userSelect: "none",
-                  }}
                   title={`Drag to place ${m.code} (${m.default_height_u}U)`}
                 >
-                  {m.code}
+                  <span className="pc-drag">⠿</span>
+                  <span className="pc-name">{m.code}</span>
+                  <span className="pc-meta">{m.default_height_u}U</span>
                 </div>
               );
             })}

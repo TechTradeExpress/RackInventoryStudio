@@ -1,5 +1,4 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { common } from "../../lib/styles";
 import { parseTags, joinTags } from "../../lib/tags";
 import {
   addRack,
@@ -12,6 +11,12 @@ import {
 } from "../../api/tauriClient";
 import { RackDetailPanel } from "./RackDetailPanel";
 import { parsePositiveInt } from "./positiveInt";
+import { PageHeader } from "../../components/ui/PageHeader";
+import { Panel } from "../../components/ui/Panel";
+import { EmptyState } from "../../components/ui/EmptyState";
+import { Banner } from "../../components/ui/Banner";
+import { Badge } from "../../components/ui/Badge";
+import { IcPlus, IcEdit, IcTrash, IcServer } from "../../components/ui/Icon";
 
 interface RackNavTarget {
   rackId: string;
@@ -55,6 +60,19 @@ function rackToForm(rack: RackSummaryDto) {
   };
 }
 
+function UtilBar({ value }: { value: number }) {
+  const pct = Math.min(Math.round(value * 100), 100);
+  const tone = pct >= 90 ? "var(--st-err-tx)" : pct >= 70 ? "var(--st-warn-tx)" : "var(--ac)";
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 140 }}>
+      <div style={{ flex: 1, height: 5, background: "var(--bg-sunken)", borderRadius: 3, overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${pct}%`, background: pct ? tone : "transparent", transition: "width 0.2s" }} />
+      </div>
+      <span className="mono" style={{ minWidth: 32, textAlign: "right", color: "var(--tx-3)", fontSize: 11 }}>{pct}%</span>
+    </div>
+  );
+}
+
 export function RacksPanel({
   repoPath,
   selectedRackId,
@@ -67,11 +85,8 @@ export function RacksPanel({
   const [racks, setRacks] = useState<RackSummaryDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [pendingNavigation, setPendingNavigation] =
-    useState<PendingNavigation | null>(null);
-  const [recentlyNavigatedRackId, setRecentlyNavigatedRackId] = useState<
-    string | null
-  >(null);
+  const [pendingNavigation, setPendingNavigation] = useState<PendingNavigation | null>(null);
+  const [recentlyNavigatedRackId, setRecentlyNavigatedRackId] = useState<string | null>(null);
   const [racksReloadToken, setRacksReloadToken] = useState(0);
   const prevRepoPathRef = useRef<string>("");
 
@@ -81,6 +96,7 @@ export function RacksPanel({
   const [rackFormError, setRackFormError] = useState<string | null>(null);
   const [rackFormSuccess, setRackFormSuccess] = useState<string | null>(null);
   const [rackFormSubmitting, setRackFormSubmitting] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(false);
 
   // null = add mode; string = edit mode (id being edited)
   const [editingRackId, setEditingRackId] = useState<string | null>(null);
@@ -96,6 +112,7 @@ export function RacksPanel({
       setPendingNavigation(null);
       setEditingRackId(null);
       setRackForm(EMPTY_RACK_FORM);
+      setShowAddForm(false);
     }
     setLoading(true);
     listRacks()
@@ -140,10 +157,7 @@ export function RacksPanel({
     onSelectRack(selectedRackId === rack.id ? null : rack);
   }
 
-  function handleNavigateToRackPlacement(
-    rackId: string,
-    placementId: string,
-  ): boolean {
+  function handleNavigateToRackPlacement(rackId: string, placementId: string): boolean {
     const destRack = racks.find((r) => r.id === rackId);
     if (!destRack) return false;
     setPendingNavigation({
@@ -190,6 +204,7 @@ export function RacksPanel({
         setRackFormSuccess(`Rack "${code}" updated.`);
         setEditingRackId(null);
         setRackForm(EMPTY_RACK_FORM);
+        setShowAddForm(false);
       } else {
         await addRack({
           location_id: rackForm.locationId,
@@ -201,10 +216,7 @@ export function RacksPanel({
           tags: parseTags(rackForm.tags),
         });
         setRackFormSuccess(`Rack "${code}" added.`);
-        setRackForm((f) => ({
-          ...EMPTY_RACK_FORM,
-          locationId: f.locationId,
-        }));
+        setRackForm((f) => ({ ...EMPTY_RACK_FORM, locationId: f.locationId }));
       }
       handleRepositoryMutated();
     } catch (e) {
@@ -219,6 +231,7 @@ export function RacksPanel({
     setRackForm(rackToForm(rack));
     setRackFormError(null);
     setRackFormSuccess(null);
+    setShowAddForm(true);
   }
 
   function handleCancelEdit() {
@@ -226,6 +239,7 @@ export function RacksPanel({
     setRackForm(EMPTY_RACK_FORM);
     setRackFormError(null);
     setRackFormSuccess(null);
+    setShowAddForm(false);
   }
 
   async function handleDeleteRack(rack: RackSummaryDto) {
@@ -237,10 +251,9 @@ export function RacksPanel({
       if (editingRackId === rack.id) {
         setEditingRackId(null);
         setRackForm(EMPTY_RACK_FORM);
+        setShowAddForm(false);
       }
-      if (selectedRackId === rack.id) {
-        onSelectRack(null);
-      }
+      if (selectedRackId === rack.id) onSelectRack(null);
       handleRepositoryMutated();
     } catch (e) {
       setRackFormError(String(e));
@@ -249,228 +262,195 @@ export function RacksPanel({
 
   const isEditing = editingRackId !== null;
 
+  // Detail view — when a rack is selected, show only the detail
+  if (selectedRack) {
+    return (
+      <RackDetailPanel
+        rack={selectedRack}
+        mutationToken={mutationToken}
+        onRepositoryMutated={handleRepositoryMutated}
+        onNavigateToRackPlacement={handleNavigateToRackPlacement}
+        initialNavigation={pendingNavigation}
+        onNavigationConsumed={() => setPendingNavigation(null)}
+        onBack={() => {
+          setPendingNavigation(null);
+          setRecentlyNavigatedRackId(null);
+          onSelectRack(null);
+        }}
+      />
+    );
+  }
+
+  // List view
   return (
     <>
-      <section style={common.section}>
-        <h2 style={common.h2}>Racks</h2>
-        <p style={common.hint}>Click a row to view rack detail.</p>
-
-        {loading && <p style={common.working}>Loading…</p>}
-        {error && <div style={common.errorBox}>{error}</div>}
+      <PageHeader
+        title="Racks"
+        subtitle="Physical rack cabinets, grouped by location."
+        actions={
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              setEditingRackId(null);
+              setRackForm(EMPTY_RACK_FORM);
+              setRackFormError(null);
+              setRackFormSuccess(null);
+              setShowAddForm(true);
+            }}
+          >
+            <IcPlus size={12} /> Add rack
+          </button>
+        }
+      />
+      <div className="page-content stack-4">
+        {loading && (
+          <p style={{ fontSize: 12, color: "var(--tx-3)", fontStyle: "italic" }}>Loading…</p>
+        )}
+        {error && <Banner tone="err">{error}</Banner>}
 
         {!loading && !error && racks.length === 0 && (
-          <p style={common.hint}>No racks found.</p>
+          <EmptyState
+            icon={<IcServer size={32} />}
+            title="No racks yet"
+            body="Add a rack cabinet to start building your inventory."
+          />
         )}
 
         {racks.length > 0 && (
-          <table style={common.table}>
-            <thead>
-              <tr>
-                {[
-                  "Code", "Name", "Location", "Height (U)",
-                  "Row", "Front", "Rear", "Total", "Actions",
-                ].map((h) => (
-                  <th key={h} style={common.th}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {racks.map((rack) => {
-                const isSelected = rack.id === selectedRackId;
-                const isRecentNav = rack.id === recentlyNavigatedRackId;
-                return (
-                  <tr
-                    key={rack.id}
-                    onClick={() => handleRowClick(rack)}
-                    style={{
-                      cursor: "pointer",
-                      background:
-                        isSelected && isRecentNav
-                          ? "#d5ebd5"
-                          : isSelected
-                            ? "#e8f0fe"
-                            : "inherit",
-                    }}
-                  >
-                    <td style={{ ...common.td, fontFamily: "monospace" }}>{rack.code}</td>
-                    <td style={common.td}>{rack.name}</td>
-                    <td style={{ ...common.td, fontFamily: "monospace" }}>{rack.location_code}</td>
-                    <td style={common.td}>{rack.height_u}</td>
-                    <td style={common.td}>{rack.row ?? ""}</td>
-                    <td style={common.td}>{rack.front_placement_count}</td>
-                    <td style={common.td}>{rack.rear_placement_count}</td>
-                    <td style={common.td}>{rack.placement_count}</td>
-                    <td
-                      style={{ ...common.td, whiteSpace: "nowrap" }}
-                      onClick={(e) => e.stopPropagation()}
+          <Panel flush>
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th className="tbl-mono">Code</th>
+                  <th>Name</th>
+                  <th className="tbl-mono">Location</th>
+                  <th className="tbl-mono">Row</th>
+                  <th className="tbl-num">Height</th>
+                  <th>Front</th>
+                  <th>Rear</th>
+                  <th>Utilization</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {racks.map((rack) => {
+                  const isNavHighlight = rack.id === recentlyNavigatedRackId;
+                  const util = rack.height_u > 0 ? rack.placement_count / (rack.height_u * 2) : 0;
+                  return (
+                    <tr
+                      key={rack.id}
+                      className={`tbl-clickable${isNavHighlight ? " tbl-selected" : ""}`}
+                      onClick={() => handleRowClick(rack)}
                     >
-                      <button
-                        style={rackFormStyles.actionBtn}
-                        onClick={() => handleEditRack(rack)}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        style={{ ...rackFormStyles.actionBtn, ...rackFormStyles.deleteBtn }}
-                        onClick={() => handleDeleteRack(rack)}
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      <td className="tbl-mono"><strong>{rack.code}</strong></td>
+                      <td>{rack.name}</td>
+                      <td className="tbl-mono">{rack.location_code}</td>
+                      <td className="tbl-mono">{rack.row ?? "—"}</td>
+                      <td className="tbl-num tbl-mono">{rack.height_u}U</td>
+                      <td>
+                        <Badge tone={rack.front_placement_count === 0 ? "muted" : "info"}>
+                          {rack.front_placement_count} placed
+                        </Badge>
+                      </td>
+                      <td>
+                        <Badge tone={rack.rear_placement_count === 0 ? "muted" : "info"}>
+                          {rack.rear_placement_count} placed
+                        </Badge>
+                      </td>
+                      <td><UtilBar value={util} /></td>
+                      <td className="tbl-actions" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          className="btn btn-ghost btn-sm btn-icon"
+                          title="Edit"
+                          onClick={() => handleEditRack(rack)}
+                        >
+                          <IcEdit size={12} />
+                        </button>
+                        <button
+                          className="btn btn-ghost btn-sm btn-icon"
+                          title="Delete"
+                          onClick={() => handleDeleteRack(rack)}
+                          style={{ color: "var(--st-err-tx)" }}
+                        >
+                          <IcTrash size={12} />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </Panel>
         )}
-      </section>
 
-      <section style={rackFormStyles.formSection}>
-        <h3 style={common.h3}>{isEditing ? "Edit Rack" : "Add Rack"}</h3>
-        <form onSubmit={handleSubmitRack} style={rackFormStyles.form}>
-          <div style={rackFormStyles.fieldRow}>
-            <label style={rackFormStyles.label}>
-              Location <span style={rackFormStyles.required}>*</span>
-            </label>
-            <select
-              style={{ ...common.input, background: "#fff" }}
-              value={rackForm.locationId}
-              onChange={(e) =>
-                setRackForm((f) => ({ ...f, locationId: e.target.value }))
-              }
-            >
-              <option value="">— select location —</option>
-              {locations.map((loc) => (
-                <option key={loc.id} value={loc.id}>
-                  {loc.code} — {loc.name}
-                </option>
+        {rackFormError && !showAddForm && <Banner tone="err">{rackFormError}</Banner>}
+
+        {showAddForm && (
+          <Panel
+            title={isEditing ? "Edit Rack" : "Add Rack"}
+            desc={isEditing ? `Editing ${editingRackId}` : undefined}
+          >
+            <form onSubmit={handleSubmitRack} className="stack-3" style={{ maxWidth: 480 }}>
+              <div>
+                <label className="eyebrow" style={{ marginBottom: 4, display: "block" }}>
+                  Location <span style={{ color: "var(--st-err-tx)" }}>*</span>
+                </label>
+                <select
+                  className="ri-input"
+                  style={{ width: "100%", background: "var(--bg-surface)" }}
+                  value={rackForm.locationId}
+                  onChange={(e) => setRackForm((f) => ({ ...f, locationId: e.target.value }))}
+                >
+                  <option value="">— select location —</option>
+                  {locations.map((loc) => (
+                    <option key={loc.id} value={loc.id}>
+                      {loc.code} — {loc.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {(
+                [
+                  ["Code", "code", "e.g. rack-a01", true],
+                  ["Name", "name", "e.g. Rack A01", true],
+                  ["Height (U)", "heightU", "e.g. 42", true],
+                  ["Row", "row", "optional"],
+                  ["Description", "description", "optional"],
+                  ["Tags", "tags", "comma-separated"],
+                ] as [string, string, string, boolean?][]
+              ).map(([label, key, placeholder, req]) => (
+                <div key={key}>
+                  <label className="eyebrow" style={{ marginBottom: 4, display: "block" }}>
+                    {label}{req && <span style={{ color: "var(--st-err-tx)" }}> *</span>}
+                  </label>
+                  <input
+                    className="ri-input"
+                    style={{ width: "100%" }}
+                    value={rackForm[key as keyof typeof rackForm]}
+                    placeholder={placeholder}
+                    onChange={(e) => setRackForm((f) => ({ ...f, [key]: e.target.value }))}
+                  />
+                </div>
               ))}
-            </select>
-          </div>
 
-          {(
-            [
-              ["Code", "code", "e.g. rack-a01", true],
-              ["Name", "name", "e.g. Rack A01", true],
-              ["Height (U)", "heightU", "e.g. 42", true],
-              ["Row", "row", "optional"],
-              ["Description", "description", "optional"],
-              ["Tags", "tags", "comma-separated, e.g. production, core"],
-            ] as [string, string, string, boolean?][]
-          ).map(([label, key, placeholder, req]) => (
-            <div key={key} style={rackFormStyles.fieldRow}>
-              <label style={rackFormStyles.label}>
-                {label}
-                {req && <span style={rackFormStyles.required}> *</span>}
-              </label>
-              <input
-                style={common.input}
-                value={rackForm[key as keyof typeof rackForm]}
-                placeholder={placeholder}
-                onChange={(e) =>
-                  setRackForm((f) => ({ ...f, [key]: e.target.value }))
-                }
-              />
-            </div>
-          ))}
+              {rackFormError && <Banner tone="err">{rackFormError}</Banner>}
+              {rackFormSuccess && <Banner tone="ok">{rackFormSuccess}</Banner>}
 
-          {rackFormError && (
-            <div style={common.errorBox}>{rackFormError}</div>
-          )}
-          {rackFormSuccess && (
-            <div style={rackFormStyles.successBox}>{rackFormSuccess}</div>
-          )}
-
-          <div style={rackFormStyles.btnRow}>
-            <button
-              type="submit"
-              style={common.btn}
-              disabled={rackFormSubmitting}
-            >
-              {rackFormSubmitting
-                ? isEditing ? "Saving…" : "Adding…"
-                : isEditing ? "Save changes" : "Add rack"}
-            </button>
-            {isEditing && (
-              <button
-                type="button"
-                style={{ ...common.btn, ...rackFormStyles.cancelBtn }}
-                onClick={handleCancelEdit}
-              >
-                Cancel
-              </button>
-            )}
-          </div>
-        </form>
-      </section>
-
-      {selectedRack && (
-        <RackDetailPanel
-          rack={selectedRack}
-          mutationToken={mutationToken}
-          onRepositoryMutated={handleRepositoryMutated}
-          onNavigateToRackPlacement={handleNavigateToRackPlacement}
-          initialNavigation={pendingNavigation}
-          onNavigationConsumed={() => setPendingNavigation(null)}
-        />
-      )}
+              <div className="row">
+                <button type="submit" className="btn btn-primary" disabled={rackFormSubmitting}>
+                  {rackFormSubmitting
+                    ? isEditing ? "Saving…" : "Adding…"
+                    : isEditing ? "Save changes" : "Add rack"}
+                </button>
+                <button type="button" className="btn" onClick={handleCancelEdit}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </Panel>
+        )}
+      </div>
     </>
   );
 }
-
-const rackFormStyles = {
-  formSection: {
-    marginTop: "1.25rem",
-    paddingTop: "0.75rem",
-    borderTop: "1px solid #eee",
-  },
-  form: {
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: "0.5rem",
-    maxWidth: "480px",
-  },
-  fieldRow: {
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: "0.2rem",
-  },
-  label: {
-    fontSize: "0.82rem",
-    color: "#555",
-  },
-  required: {
-    color: "#b00",
-  },
-  successBox: {
-    padding: "0.4rem 0.75rem",
-    background: "#f0fff4",
-    border: "1px solid #5cb85c",
-    color: "#2d6a2d",
-    borderRadius: "3px",
-    fontSize: "0.85rem",
-  },
-  btnRow: {
-    display: "flex",
-    gap: "0.5rem",
-  },
-  actionBtn: {
-    fontSize: "0.78rem",
-    padding: "0.2rem 0.5rem",
-    marginRight: "0.25rem",
-    cursor: "pointer",
-    border: "1px solid #bbb",
-    borderRadius: "3px",
-    background: "#f5f5f5",
-  },
-  deleteBtn: {
-    borderColor: "#d9534f",
-    color: "#b52b27",
-    background: "#fff5f5",
-  },
-  cancelBtn: {
-    background: "#f5f5f5",
-    color: "#555",
-    border: "1px solid #bbb",
-  },
-};
