@@ -210,7 +210,33 @@ Before tagging v1.0.0, all of the following must pass in addition to this manual
 - [ ] Playwright smoke test suite covers the golden path: open → add location → add rack → add device model → add device → CSV import → place device → validate → save → reload.
 - [ ] All Playwright tests pass against a production build.
 
-*(Playwright tests are not yet implemented. They are targeted for MVP+ milestone M45.)*
+**Playwright smoke tests are implemented as a Vite/web smoke layer.**
+
+Run command:
+
+```bash
+pnpm --filter @rack-inventory-studio/desktop test:e2e
+```
+
+**How they work:**
+- Tests run against a Vite dev server (port 1421) with `vite.config.e2e.ts`.
+- Tauri IPC (`@tauri-apps/api/core`) and native file dialogs (`@tauri-apps/plugin-dialog`) are replaced with static fixture mocks via Vite `resolve.alias`.
+- This is **not** a full Tauri E2E run — the Rust backend is not involved.
+- Browser: Firefox (Chromium requires system libs unavailable in WSL2 dev environment).
+
+**Covered smoke tests (7):**
+1. App shell loads without console errors.
+2. Open repository enables all tabs + search bar visible.
+3. Global search shows results and navigates to Locations tab.
+4. Validation panel shows issues and navigates to Devices tab on click.
+5. CSV import preview and import flow (textarea → preview table → import result).
+6. Rack detail and placement table visible after clicking a rack row.
+7. Global search: short query suppresses dropdown; non-matching query shows "No results".
+
+**Out of scope for this smoke layer:**
+- Native file dialogs (mocked to return fixture path or null).
+- Real Git remote operations.
+- Full Tauri E2E with live Rust backend.
 
 ### Packaging check
 

@@ -13,5 +13,9 @@ export default defineConfig({
     target: "es2021",
     minify: !process.env.TAURI_DEBUG ? "esbuild" : false,
     sourcemap: !!process.env.TAURI_DEBUG
-  }
+  },
+  test: {
+    // Keep Vitest focused on unit tests; Playwright handles e2e/
+    exclude: ["node_modules/**", "e2e/**"],
+  },
 });
