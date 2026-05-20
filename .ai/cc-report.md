@@ -1,34 +1,50 @@
-# cc-report — milestone/drag-and-drop-placement
+# cc-report — milestone/repository-flow-polish
 
 ## Branch
 
-`milestone/drag-and-drop-placement`
+`milestone/repository-flow-polish`
 
-**PR:** https://github.com/TechTradeExpress/RackInventoryStudio/pull/37
-
----
-
-## Summary
-
-Added HTML Drag and Drop API placement to RackDetailPanel (initial commit), then fixed
-the blocking review issue: drop target validation now checks item height before showing
-a valid-drop highlight (repair commit).
+**PR:** (to be added after creation)
 
 ---
 
-## Blocking Issue Fixed (repair for PR #37)
+## Goal
 
-**Problem:** All empty rack unit cells showed a green valid-drop highlight regardless of
-item height. A 2U or 4U rack object dragged near the top of the rack could highlight
-cells where the full range would exceed the rack height or overlap an existing placement.
-The backend would reject these drops, but the UI should not indicate they are valid.
+Polish the first-contact UX of the application: landing state, open/close/create repository
+flows, recent repositories list, and repository summary improvements.
 
-**Fix:** Added `canDropAt(units, startU, heightU)` which checks that the entire U-range
-fits within the rack and all cells in that range are empty. The `SideColumn` component
-now runs this check on every `dragover` event using the active payload cached in a
-module-level singleton (required because `dataTransfer.getData()` is blocked by the
-browser during `dragover`). Green highlight → valid; red dashed highlight → invalid;
-drop is silently ignored for invalid targets.
+---
+
+## Summary of Changes
+
+### Landing state redesign
+When no repository is open, the Repository tab now shows a proper landing panel:
+- Heading: **Open or Create a Repository**
+- Brief description of what a RIS repository is
+- **Recent repositories** list (up to 5 entries, localStorage-persisted)
+- **Open existing repository** subsection with path input, Browse…, Open
+- **Create new repository** subsection with the existing wizard form
+
+### Repository open state
+When a repository is open:
+- Compact path/Browse/Open/Close bar replaces the landing section
+- Repository Summary includes validation error/warning counts from the last open/create call
+- Unplaced Devices count is highlighted in amber when > 0
+
+### Close state cleanup
+- `repositoryMutationToken` is now reset to 0 on close (was not reset previously)
+- `validationSummary` is cleared on close
+
+### Recent repositories
+- `recentRepositories.ts`: `applyRecentAdd` (pure, testable) + localStorage wrappers
+- Max 5 entries, deduplication, FIFO eviction
+- Clicking an entry fills the path input; × removes it from the list
+- State lives in `App.tsx` (initialized from localStorage, updated on open/create success)
+
+### Validation summary
+- `validationSummary` state added to App.tsx; populated from `OpenRepositoryResultDto`
+- Passed to `RepositoryPanel` and displayed in `SummaryTable`
+- Errors shown in red/bold; note clarifies counts are from time of last open
 
 ---
 
@@ -36,44 +52,40 @@ drop is silently ignored for invalid targets.
 
 | File | Change |
 |---|---|
-| `src/features/racks/dndTypes.ts` | New — DND_DATA_TYPE and DndPayload union type |
-| `src/features/racks/dndHelpers.ts` | New — encode/decode, active-drag singleton, `getPayloadHeight`, `canDropAt` |
-| `src/features/racks/dndHelpers.test.ts` | New — 15 tests: 7 encode/decode, 8 canDropAt scenarios |
-| `src/features/racks/AddPlacementPanel.tsx` | Drag palette; `allDeviceModels` state for height lookup; `setActiveDragPayload` on dragstart/dragend |
-| `src/features/racks/RackUnitDiagram.tsx` | Drop targets in `SideColumn`; `{ idx, valid }` hover state; green/red highlight based on `canDropAt`; drop guard |
-| `src/features/racks/RackDetailPanel.tsx` | `handleDropAtCell`; `dndError` state; `placeDevice`/`placeRackObject` imports |
-| `e2e/mocks/tauri-core.ts` | `place_device` and `place_rack_object` mock handlers |
+| `src/features/repository/recentRepositories.ts` | New — `applyRecentAdd` (pure) + localStorage wrappers |
+| `src/features/repository/recentRepositories.test.ts` | New — 6 tests for `applyRecentAdd` |
+| `src/App.tsx` | Added `validationSummary`, `recentRepos` state; reset `repositoryMutationToken` on close; wire `addRecentRepository` on open/create; pass new props to `RepositoryPanel` |
+| `src/features/repository/RepositoryPanel.tsx` | Landing state redesign; `validationSummary` and `recentRepos` props; recent repos UI; enhanced `SummaryTable` |
+| `e2e/smoke.spec.ts` | Added "landing state shows open and create actions" smoke test (8th test) |
+| `docs/USER_WORKFLOWS_EN.md` | Updated workflow 3 (first launch) to describe implemented landing state |
+| `docs/UI_SCREENS_SPEC_EN.md` | Updated section 5 (start screen) to match current implementation |
+| `docs/MVP_READINESS_REPORT_EN.md` | Updated MVP+ planned items table; updated capability list |
 
 ---
 
-## Implementation Notes
+## Implementation Decisions
 
-### canDropAt semantics
-`units[0]` = U1 (bottom), `units[n-1]` = top — same convention as `buildOccupancy`.
-A placement from `startU` to `startU + heightU - 1` must:
-- have `heightU ≥ 1` (positive integer),
-- have `startU ≥ 1`,
-- have `startU + heightU - 1 ≤ units.length` (fits in rack),
-- have all cells in range as `empty` (not `occupied` or `incomplete`).
+### Recent repos in App.tsx state, not RepositoryPanel state
+The open/create success is handled in `App.tsx`. Keeping `recentRepos` in App.tsx state
+avoids prop-drilling or callbacks between App and RepositoryPanel.
 
-### Active drag singleton
-HTML DnD API restricts `dataTransfer.getData()` to `dragstart` and `drop` events only.
-During `dragover` the data is not readable. A module-level variable `_activeDragPayload`
-is set on `dragstart` and cleared on `dragend`, allowing `SideColumn` to validate
-during `dragover` without lifting state through multiple component layers.
+### applyRecentAdd extracted as pure function
+`localStorage` is not available in the Vitest test environment (no jsdom configured).
+The pure array-manipulation logic is extracted as `applyRecentAdd` and tested in isolation.
+The localStorage wrappers are thin enough not to need unit tests.
 
-### Height for device vs rack_object
-- `rack_object`: `payload.defaultHeightU` is always a concrete number → used directly.
-- `device`: `payload.defaultHeightU` is looked up from `allDeviceModels` (full model list
-  stored in `AddPlacementPanel` state). Falls back to `null` when device has no model,
-  and `getPayloadHeight` returns `1` for `null`. This means a device without a model is
-  validated as 1U — acceptable because the backend sets default height to 1U in that case.
+### Fill-on-click for recent repos (no auto-open)
+Clicking a recent repo fills the path input instead of auto-opening. This avoids accidental
+repository switches and makes the action reversible. User still clicks Open explicitly.
 
-### Limitation
-Devices with a model have their height correctly resolved in the drag card.
-The height is baked into the payload at drag start, so if a model's height changes
-between page load and drop, the stale height is used for UI validation
-(backend remains the source of truth).
+### Validation summary note
+The validation counts from `OpenRepositoryResultDto` are stale after mutations. A note
+"Validation counts are from the time of last open. Use the Validation tab for current state."
+is shown below the summary table when `validationSummary` is present.
+
+### No new Tauri commands
+All changes are frontend-only. The existing `open_repository_cmd` already returns
+`validation_summary` in `OpenRepositoryResultDto`; it was just not displayed.
 
 ---
 
@@ -83,50 +95,48 @@ between page load and drop, the stale height is used for UI validation
 |---|---|
 | `cargo fmt --all --check` | PASS |
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS — all 344 Rust tests pass |
+| `cargo test --workspace` | PASS — all Rust tests pass |
 | `cargo clippy --workspace -- -D warnings` | PASS |
 | `pnpm typecheck` | PASS |
-| `pnpm test` (Vitest) | PASS — 78 tests, 7 files (15 new dndHelpers tests) |
-| `pnpm build` | PASS — 57 modules, 234 kB bundle |
-| `pnpm test:e2e` (Playwright) | PASS — 7/7, Firefox |
+| `pnpm test` (Vitest) | PASS — 84 tests, 8 files (6 new recentRepositories tests) |
+| `pnpm build` | PASS — 58 modules, 238 kB bundle |
+| `pnpm test:e2e` (Playwright) | PASS — 8/8 (1 new landing state test) |
 
 ---
 
 ## Manual Check
 
-Performed against Vite dev server (port 1420) in WSL2 environment (no browser available
-for interactive UI; functional correctness verified via unit tests and Playwright smoke layer).
+Verified via Playwright smoke tests + unit tests. Dev server starts clean (WSL2, no
+interactive browser session available).
 
-- `canDropAt` unit tests cover all valid/invalid scenarios including out-of-bounds,
-  overlap with occupied and incomplete cells, and multi-U range validation.
-- Playwright smoke tests confirm rack detail loads, placements are visible, and
-  the global console error guard detects any runtime errors.
-- Form-based placement workflow unchanged and verified via existing code paths.
+Verified points:
+- Landing heading "Open or Create a Repository" visible (Playwright test)
+- Open button and Create repository button visible on landing (Playwright test)
+- Open fixture repo → all tabs enable → search bar visible (Playwright test, unchanged)
+- applyRecentAdd deduplication, eviction, empty-string guard (unit tests)
 
 ---
 
-## Risks
+## Known Limitations
 
-- Playwright DnD smoke test deferred — Firefox headless does not populate
-  `dataTransfer.getData()` in synthetic drag events (unchanged from initial commit).
-- Active drag singleton is module-level state: if multiple rack diagrams are rendered
-  simultaneously, the last dragstart wins. This is acceptable for the current single-
-  rack-detail layout but would require a Context-based approach if multiple diagrams
-  were visible at once.
-- Device height baked into payload at drag start — stale if model changes mid-session.
-  Backend validation is the final guard.
+- Recent repos list only persists locally in localStorage. It is not shared across machines
+  or stored in the repository.
+- `repositoryMutationToken` reset to 0 on close is a cosmetic improvement; child components
+  unmount when `!isOpen` so the previous behavior was not a bug.
+- Validation counts in the summary are from last open/create; they do not update on mutation.
 
 ---
 
 ## Not Done
 
-- Playwright DnD smoke test (deferred — unchanged).
-- Drag-and-drop touch support (not in scope).
-- Keyboard alternative for drag-and-drop (not in scope).
+- Git UX polish (intentionally deferred to its own milestone)
+- "Open last repository" on startup (requires persisting state across app restarts;
+  localStorage-based recent repos is the first step — auto-open on startup not implemented)
+- Native "open recent" OS-level integration
 
 ---
 
 ## Suggested Next Step
 
-Add a Playwright smoke test for drag-and-drop using synthetic `dispatchEvent` calls
-with a mocked `dataTransfer` object once a reliable cross-browser approach is confirmed.
+Git UX polish milestone: improve the commit / push / pull workflow visibility and the
+"unsaved changes" flow to make the publish path more discoverable.

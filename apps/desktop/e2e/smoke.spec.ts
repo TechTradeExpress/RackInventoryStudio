@@ -47,6 +47,24 @@ test("app shell loads without console errors", async ({ page }) => {
   // Console errors are asserted by the page fixture after every test
 });
 
+test("landing state shows open and create actions", async ({ page }) => {
+  await page.goto("/");
+
+  // Landing heading is visible
+  await expect(
+    page.getByRole("heading", { name: /Open or Create/i }),
+  ).toBeVisible();
+  // Open path input and Open button are present
+  await expect(page.locator('input[type="text"]').first()).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Open", exact: true }),
+  ).toBeVisible();
+  // Create repository button (from wizard) is visible on landing
+  await expect(
+    page.getByRole("button", { name: "Create repository", exact: true }),
+  ).toBeVisible();
+});
+
 test("open repository enables all tabs", async ({ page }) => {
   await page.goto("/");
   await openFixtureRepo(page);

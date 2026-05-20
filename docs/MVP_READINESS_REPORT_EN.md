@@ -60,8 +60,8 @@ execution before release candidates.
 
 The following non-Git inventory operations are implemented and tested:
 
-- **Open repository** from a local YAML directory
-- **Repository summary** live-refreshes after every mutation
+- **Open repository** from a local YAML directory (path input, native folder picker, recent repositories list stored in localStorage)
+- **Repository summary** live-refreshes after every mutation; includes validation error/warning counts from last open
 - **Location management**: list, add
 - **Rack management**: list, add (with location selector), rack detail view
 - **Device model management**: list, add (server, network, storage, ups, appliance, other, rack_object)
@@ -97,14 +97,15 @@ The following items are planned for the MVP+ / Beta phase before v1.0.0. They ar
 
 | Area | Status |
 |---|---|
-| Safe publish workflow / better Git UX | Planned (M38) |
-| Create new repository wizard | Planned (M39) |
-| Native CSV file picker | Planned (M40) |
-| Minimal global search | Planned (M41) |
-| Claude Design / UX audit and design direction | Planned (M42) |
-| Drag-and-drop placement | Planned (M43) |
-| UI polish based on design direction | Planned (M44) |
-| UI automation / Playwright smoke tests | Planned (M45) |
+| Safe publish workflow / better Git UX | Done (PR #33) |
+| Create new repository wizard | Done (PR #33) |
+| Native CSV file picker | Done (PR #33) |
+| Minimal global search | Done (PR #35) |
+| Playwright smoke foundation | Done (PR #36) |
+| Drag-and-drop placement | Done (PR #37) |
+| Repository flow polish (landing/open/close/recent repos) | Done (PR #38) |
+| Claude Design / UX audit and design direction | Planned |
+| UI polish based on design direction | Planned |
 | Release hardening + packaging check | v1.0.0 Candidate |
 | User-facing release documentation | v1.0.0 Release |
 
