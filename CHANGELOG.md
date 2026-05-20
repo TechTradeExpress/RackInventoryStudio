@@ -1,5 +1,79 @@
 # Changelog
 
+## v0.45.0 — Safe publish / Git UX polish (PR #39)
+
+- `gitStatusHelpers.ts`: pure helpers `deriveGitStatusLabel`, `deriveGitActionHints`, `derivePublishChecklist`, `getPushDisabledReason`, `getPullDisabledReason`.
+- Semantic status label (colour-coded by severity) replaces raw "Clean"/"Dirty — X/Y/Z" in RepositoryPanel.
+- Contextual action hints panel; 5-step publish checklist (Save → Validate → Commit → Pull → Push).
+- Push/Pull gating split: behind-only blocks Push (Pull stays enabled); diverged blocks both.
+- Button `title` attribute carries specific disabled reason.
+- "Pull --ff-only" label → "Pull latest" (underlying command unchanged).
+- Unsaved changes banner notes app-vs-Git distinction explicitly.
+- E2E mock updated: `is_repository: true`, `branch: "main"`, `upstream: "origin/main"`, `ahead: 1`.
+- Playwright test 8: Git UX smoke — semantic label, action hint, branch cell, Push/Pull state.
+- 44 Vitest tests in `gitStatusHelpers.test.ts`; 128 total Vitest tests.
+- Docs: `UI_SCREENS_SPEC_EN.md` Push/Pull gating table; `USER_WORKFLOWS_EN.md` workflow 22 expanded.
+
+## v0.44.0 — Repository flow polish (PR #38)
+
+- Landing page redesigned: hero section, prominent Open and Create repository actions, recent repositories list.
+- Recent repositories stored in localStorage; clicking an entry fills the path input.
+- `CreateRepositoryWizard` integrated into landing state (no separate tab).
+- Global search bar always visible in app header when repository is open.
+- Tab bar disabled state styling and tooltips for tabs unavailable without open repo.
+- Playwright test 2: landing state shows open and create actions (9 total smoke tests).
+
+## v0.43.0 — Drag-and-drop placement (PR #37)
+
+- `AddPlacementPanel` exposes draggable device and rack-object cards.
+- `RackUnitDiagram` handles `dragover`/`drop` events on U-row cells.
+- Module-level `_activeDragPayload` singleton avoids `dataTransfer.getData()` restriction during `dragover`.
+- Backend height validation unchanged; collision detection unchanged.
+- DnD target validation: device height checked against available U-range at drop time.
+- DnD-placed items immediately appear in the rack diagram without page reload.
+
+## v0.42.0 — Playwright smoke test foundation (PR #36)
+
+- Playwright configured with `vite.config.e2e.ts`; tests run against Vite dev server (port 1421).
+- `@tauri-apps/api/core` and `@tauri-apps/plugin-dialog` replaced with static fixture mocks via Vite alias.
+- 7 initial smoke tests covering: app shell, open repository, global search navigation, validation navigation, CSV import flow, rack detail, search edge cases.
+- Browser: Firefox (Chromium requires system libs unavailable in WSL2 dev environment).
+- `scripts/ai/build-review-context.sh` helper for generating review context files.
+
+## v0.41.0 — Search navigation polish (PR #35)
+
+- Search result clicks navigate to the target entity and apply row-level highlight.
+- Highlight CSS selector escaping fixed for codes containing special characters.
+- All four entity types highlight correctly after navigation from search.
+
+## v0.40.0 — Minimal global search (PR #34)
+
+- `GlobalSearch` component: text input covering devices, racks, locations, device models.
+- Dropdown shows matching results with entity type badges; short queries (< 2 chars) suppressed.
+- Clicking a result fires `SearchNavigationEvent` and switches to the relevant tab.
+- Unplaced device placements included in search results.
+- "No results" state shown when query matches nothing.
+
+## v0.39.0 — Native CSV file picker (PR #33)
+
+- CSV Import panel: "Browse…" button opens native OS file picker (`@tauri-apps/plugin-dialog`).
+- Selected file is read from disk and loaded into the preview pipeline; textarea removed.
+- Error shown if file cannot be read.
+
+## v0.38.0 — Create new repository wizard (PR #32)
+
+- `CreateRepositoryWizard` component: directory path, code, name, optional Git init.
+- Backend: `create_repository_cmd` scaffolds YAML directory structure and optionally runs `git init`.
+- Repository metadata serialised to `repository.yaml` on creation.
+- Error feedback on name/code validation failure; success opens the new repository automatically.
+
+## v0.37.0 — Safe publish flow foundation (PR #31)
+
+- RepositoryPanel: safe publish section with Save, Validate, Commit steps.
+- Commit requires: no unsaved app changes + validation passed without errors + non-empty message.
+- Git status auto-refreshes after Save in publish flow.
+- Push/pull button disabled when unsaved changes exist (later extended in PR #39).
+
 ## v0.36.0 — Edit/delete UI for entity types (milestone 35)
 
 - Added `update_location`, `delete_location`, `update_rack`, `delete_rack`, `update_device_model`, `delete_device_model`, `update_device`, `delete_device` to `ris-application::RepositorySession`.

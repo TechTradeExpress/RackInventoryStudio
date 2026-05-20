@@ -1384,10 +1384,13 @@ CI:
   GitHub Actions, Rust workspace tests, frontend typecheck/test/build.
 ```
 
-#### Stage 2 — MVP+ / Beta (current — before v1.0.0)
+#### Stage 2 — MVP+ / Beta (feature milestones complete — entering UX audit phase)
 
 Goal: bring the app to a quality level suitable for a user-facing release.
 No single blocker — this is a set of parallel improvements.
+
+Status as of 2026-05-20: all feature milestones (M38–M41, M43, M45) are done.
+Remaining: M42 (UX audit, next) and M44 (UI polish, planned after M42).
 
 ```text
 M38  Safe publish workflow / better Git UX                    [Done — PR #39]
