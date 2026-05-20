@@ -107,54 +107,93 @@ Cancelling the folder picker does not produce an error and does not change the c
 
 When a repository is open, the landing section is replaced by a compact path/Open/Close bar above the Repository Summary table. All tabs become enabled. The search bar appears in the header.
 
-## 6. Screen: Repository / synchronization
+## 6. Screen: Repository / synchronization (implemented)
 
 ### Purpose
 
-Main technical state screen for the repository.
+Main technical state screen for the repository. Shows repository summary,
+Git status, and the safe publish workflow (Save → Validate → Commit → Pull → Push).
 
-### Layout
+### Layout (current implementation)
 
 ```text
-Repository / synchronization
+Repository tab (when open)
 
-Repository:
-  Name: example-rack-inventory
-  Local path: C:/...
-  Branch: main
-  Remote: origin
-  Last sync: 2026-05-03 12:30
+── Open bar ──────────────────────────────────────────────────────────
+[ path input ] [ Browse… ] [ Open ] [ Close ]
 
-Status:
-  Local changes: yes
-  Changed files: 4
-  Validation errors: 0
-  Warnings: 3
+── Repository Summary ────────────────────────────────────────────────
+Path, Code, Name, Locations, Racks, Devices, Placements, Unplaced...
+Validation Errors / Warnings (from last open, stale note shown)
 
-[ Pull latest data ]
-[ Save locally ]
-[ Publish changes ]
-[ Go to validation ]
-[ Show change history ]
+── Git ───────────────────────────────────────────────────────────────
+Branch:   main
+Upstream: origin/main
+Status:   Ahead of remote by 1 commit     ← semantic label, colour-coded
+          (staged / unstaged / untracked shown when dirty)
 
-Changed files:
-- inventory/placements/rack-a01.yaml
-- inventory/devices/servers.yaml
+Action hints (shown when relevant):
+  • Save in-memory changes to disk before committing to Git.
+  • Branch is 2 commits behind remote — pull before pushing.
+  • No upstream branch — push requires a configured remote.
+
+[ Refresh Git status ]
+
+Recent commits table (hash, subject, author, date)
+
+── Publish changes ───────────────────────────────────────────────────
+Safe publish checklist (live status):
+  ✓ Save changes to disk
+  · Validate — no errors
+  ✓ Commit local changes
+  ✓ Pull if behind
+  ○ Push to remote — 1 commit ready to push.
+
+Step 1 — Save:    warning box if unsaved, ok box if saved
+Step 2 — Validate: [ Validate ] button; blocked box on errors
+Step 3 — Commit:   commit message input + [ Commit ] button
+                   Input blocked until save+validate pass
+                   Empty message blocks commit
+
+── Remote sync ───────────────────────────────────────────────────────
+Remotes table + [ Add remote ] form
+Remote selector + [ Push current branch ] [ Pull latest ]
+Push/Pull blocked (with tooltip) when unsaved changes exist
+Behind/ahead guidance shown above push/pull buttons
 ```
 
-### Actions
+### Git status semantic labels
 
-| Action | Effect |
-|---|---|
-| Pull latest data | Performs pull |
-| Save locally | Writes YAML |
-| Publish changes | Validation, commit, push |
-| Go to validation | Opens problems screen |
-| Show change history | Opens Git history |
+| Label | Colour | Meaning |
+|---|---|---|
+| `No Git repository detected` | grey | Not a git repo |
+| `Clean working tree` | green | All committed and up to date |
+| `Local changes not committed` | amber | Files changed since last commit |
+| `Ahead of remote by N commits` | green | Push available |
+| `Behind remote by N commits` | amber | Pull recommended before push |
+| `Diverged from remote` | red | Manual intervention required |
 
-With `ERROR` validation issues: `Publish changes — unavailable. Reason: repository contains blocking validation errors.`
+### Important distinction: app changes vs Git changes
 
-On Git conflict, the app proposes a conflict branch, for example `conflict/jplucinski/rack-a01/2026-05-03-1230`.
+- **Unsaved app changes** = inventory modified in memory, not yet written to YAML. App-level banner visible across all tabs.
+- **Uncommitted Git changes** = YAML files differ from last Git commit. Shown in Git status row.
+- These are independent states. Saving to disk clears the app banner but does NOT create a Git commit.
+
+### Commit flow
+
+Commit button requires: no unsaved app changes + validation run without errors + non-empty message + dirty working tree.
+
+### Push / Pull
+
+- Disabled when unsaved app changes exist (tooltip explains why).
+- Pull uses `git pull --ff-only`. On conflict, shows error — no automatic resolution.
+- After pull: repository summary refreshes automatically.
+- Auth (SSH/HTTPS) must be pre-configured at OS level.
+
+### Conflict resolution
+
+Not implemented. On conflict errors, the application shows a clear error message.
+Manual git intervention is required outside the application.
 
 ## 7. Screen: Validation / problems
 

@@ -706,15 +706,58 @@ Changes are saved on disk but are not yet a Git commit.
 
 The user publishes changes to shared repository.
 
+### Safe publish path (implemented)
+
+The Repository panel provides a step-by-step publish path with live status indicators:
+
+1. **Save changes to disk** — write in-memory inventory changes to YAML files.
+   - Shown as done (✓) when no unsaved app changes exist.
+2. **Validate — no errors** — run validation and confirm zero errors.
+   - Shown as unknown (·) until validation is run; done (✓) after clean validation.
+3. **Commit local Git changes** — enter a commit message and commit.
+   - Commit requires step 1 done and step 2 passed (no validation errors).
+   - Shown as done (✓) when working tree is clean.
+4. **Pull if behind remote** — pull latest if branch is behind upstream.
+   - Shown as done (✓) when not behind.
+5. **Push to remote** — push committed changes to the configured remote.
+   - Shown as pending (○) when ahead of remote.
+
+### Key distinction: app changes vs Git changes
+
+- **Unsaved app changes** = inventory data modified in memory, not yet written to YAML files.
+  Shown as a banner across all tabs. Use `Save repository` in the Repository tab to persist.
+- **Uncommitted Git changes** = YAML files differ from the last Git commit.
+  Shown in the Git status row (`Local changes not committed`). Use Validate → Commit.
+
+These are two separate states. Saving to disk clears the app banner but does not create a Git commit.
+
+### Git status labels
+
+| Label | Meaning |
+|---|---|
+| `Clean working tree` | All YAML files match the last Git commit. |
+| `Local changes not committed` | YAML files have been modified but not committed to Git. |
+| `Ahead of remote by N commits` | Commits exist locally that are not yet pushed. |
+| `Behind remote by N commits` | Remote has commits not yet pulled. |
+| `Diverged from remote` | Local and remote have diverged — manual intervention required. |
+| `No Git repository detected` | Directory is not tracked by Git. |
+
+### Conflict resolution and auth
+
+Conflict resolution and Git authentication are out of scope. If a pull fails due to conflict,
+the application shows a clear error. Auth must be pre-configured at the OS level (SSH keys,
+git-credential-helper).
+
 ### Steps
 
-1. User opens `Repository / synchronization`.
-2. User selects `Publish changes`.
-3. Application runs validation.
-4. If there are `ERROR` messages, publishing is blocked.
-5. If there are no errors, user enters change description.
-6. Application creates commit.
-7. Application pushes changes.
+1. User opens `Repository` tab.
+2. User uses the publish checklist in the Git section:
+   - Saves changes to disk (if banner shows unsaved changes).
+   - Runs validation and confirms no errors.
+   - Enters a commit message and clicks `Commit`.
+   - If behind remote, clicks `Pull latest`.
+   - Clicks `Push current branch`.
+3. Application shows success or a clear error for each step.
 
 ### Effects
 

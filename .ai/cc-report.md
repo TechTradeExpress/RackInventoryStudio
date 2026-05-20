@@ -1,50 +1,97 @@
-# cc-report — milestone/repository-flow-polish
+# cc-report — milestone/git-ux-polish
 
 ## Branch
 
-`milestone/repository-flow-polish`
+`milestone/git-ux-polish`
 
-**PR:** https://github.com/TechTradeExpress/RackInventoryStudio/pull/38
+**PR:** (to be added after PR creation)
 
 ---
 
 ## Goal
 
-Polish the first-contact UX of the application: landing state, open/close/create repository
-flows, recent repositories list, and repository summary improvements.
+Polish the Git workflow UX in the Repository panel so that users clearly understand:
+1. Whether the directory is a Git repository.
+2. The current branch and upstream.
+3. Whether the working tree is clean or dirty (uncommitted Git changes).
+4. Whether the branch is ahead / behind / diverged from remote.
+5. What they should do next to safely publish changes.
+6. The distinction between unsaved app changes (in-memory) and uncommitted Git changes (on disk, not yet committed).
 
 ---
 
 ## Summary of Changes
 
-### Landing state redesign
-When no repository is open, the Repository tab now shows a proper landing panel:
-- Heading: **Open or Create a Repository**
-- Brief description of what a RIS repository is
-- **Recent repositories** list (up to 5 entries, localStorage-persisted)
-- **Open existing repository** subsection with path input, Browse…, Open
-- **Create new repository** subsection with the existing wizard form
+### New helper module: `gitStatusHelpers.ts`
 
-### Repository open state
-When a repository is open:
-- Compact path/Browse/Open/Close bar replaces the landing section
-- Repository Summary includes validation error/warning counts from the last open/create call
-- Unplaced Devices count is highlighted in amber when > 0
+Pure functions for deriving semantic labels, action hints, and a publish checklist from `GitStatusDto` and `hasUnsavedChanges`. Extracted as pure functions for testability.
 
-### Close state cleanup
-- `repositoryMutationToken` is now reset to 0 on close (was not reset previously)
-- `validationSummary` is cleared on close
+- `deriveGitStatusLabel(status)` — returns a human-readable label and severity:
+  - `"No Git repository detected"` (info)
+  - `"Clean working tree"` (ok)
+  - `"Local changes not committed"` (warn)
+  - `"Ahead of remote by N commits"` (ok)
+  - `"Behind remote by N commits"` (warn)
+  - `"Diverged from remote (↑N ↓M)"` (error)
 
-### Recent repositories
-- `recentRepositories.ts`: `applyRecentAdd` (pure, testable) + localStorage wrappers
-- Max 5 entries, deduplication, FIFO eviction
-- Clicking an entry fills the path input; × removes it from the list
-- State lives in `App.tsx` (initialized from localStorage, updated on open/create success)
+- `deriveGitActionHints(status, hasUnsavedChanges)` — contextual action hints array:
+  - "Save in-memory changes to disk before committing to Git."
+  - "Working tree has uncommitted changes — validate, then commit."
+  - "No upstream branch — push requires a configured remote and tracking branch."
+  - "Branch is N commits behind remote — pull before pushing."
+  - "Branch is N commits ahead of remote — push when ready."
+  - "Branch has diverged from remote — manual git intervention required."
 
-### Validation summary
-- `validationSummary` state added to App.tsx; populated from `OpenRepositoryResultDto`
-- Passed to `RepositoryPanel` and displayed in `SummaryTable`
-- Errors shown in red/bold; note clarifies counts are from time of last open
+- `derivePublishChecklist(status, hasUnsavedChanges)` — 5-step checklist with live done/pending/unknown state:
+  1. Save changes to disk
+  2. Validate — no errors (unknown until run)
+  3. Commit local changes
+  4. Pull if behind
+  5. Push to remote
+
+### RepositoryPanel.tsx improvements
+
+- **Semantic status label** — replaced raw "Clean" / "Dirty — X staged, Y unstaged, Z untracked" with `deriveGitStatusLabel`; color-coded by severity (green/amber/red/grey).
+- **Detail counts** — staged/unstaged/untracked shown inline (smaller, grey) when dirty, not as the primary label.
+- **"No Git repository detected"** — explicit colour-coded message replaces plain hint text.
+- **Action hints panel** — `<ul>` list of hints below the status table; only rendered when hints exist.
+- **Publish checklist** — compact ✓/·/○ row at the top of the Publish section; step 2 state is injected from local `publishValidation` state.
+- **Commit input placeholder** — improved to `"e.g. Add rack-b01 to Warsaw server room"`.
+- **Commit button title** — comprehensive `title` attribute covering all disabled reasons.
+- **"Pull --ff-only" → "Pull latest"** — more user-friendly label.
+- **Remote sync guidance** — contextual behind/ahead/diverged boxes above the push/pull buttons.
+- **Push/Pull button tooltips** — `title` attribute when disabled due to unsaved changes.
+
+### App.tsx
+
+- **Unsaved changes banner** — improved text: "Unsaved inventory changes — data modified in memory, not yet written to YAML files." Adds explicit note that this is separate from Git.
+
+### E2E mock (`tauri-core.ts`)
+
+Changed `get_git_status` from `is_repository: false` to a realistic state:
+- `is_repository: true`, `branch: "main"`, `upstream: "origin/main"`, `ahead: 1`, `is_clean: true`
+
+Added `get_git_log` with one fixture commit. Added `list_git_remotes` with `origin`.
+
+Added mock responses for previously unhandled commands:
+- `init_git_repository`, `push_git_current_branch`, `pull_git_ff_only`, `commit_repository_changes`
+
+### Playwright smoke tests
+
+Added test 8: **"git section shows status label and publish guidance"**
+- Verifies Git section heading is visible after repo open.
+- Verifies semantic status label "Ahead of remote by 1 commit" from mock.
+- Verifies action hint list item about being ahead.
+- Verifies branch cell "main" in Git status table.
+- Verifies "nothing to commit" message (clean tree).
+- Verifies "Push current branch" button enabled.
+- Verifies "Pull latest" label (not "Pull --ff-only").
+
+### Documentation
+
+- `docs/USER_WORKFLOWS_EN.md` — expanded workflow 22 with safe publish path steps, status labels table, key distinction between app changes and Git changes, conflict/auth scope note.
+- `docs/UI_SCREENS_SPEC_EN.md` — replaced section 6 with current implementation layout, status label table, distinction note, commit/push/pull behavior.
+- `docs/MVP_READINESS_REPORT_EN.md` — marked "Safe publish workflow / better Git UX" as Done (PR #39).
 
 ---
 
@@ -52,40 +99,45 @@ When a repository is open:
 
 | File | Change |
 |---|---|
-| `src/features/repository/recentRepositories.ts` | New — `applyRecentAdd` (pure) + localStorage wrappers |
-| `src/features/repository/recentRepositories.test.ts` | New — 6 tests for `applyRecentAdd` |
-| `src/App.tsx` | Added `validationSummary`, `recentRepos` state; reset `repositoryMutationToken` on close; wire `addRecentRepository` on open/create; pass new props to `RepositoryPanel` |
-| `src/features/repository/RepositoryPanel.tsx` | Landing state redesign; `validationSummary` and `recentRepos` props; recent repos UI; enhanced `SummaryTable` |
-| `e2e/smoke.spec.ts` | Added "landing state shows open and create actions" smoke test (8th test) |
-| `docs/USER_WORKFLOWS_EN.md` | Updated workflow 3 (first launch) to describe implemented landing state |
-| `docs/UI_SCREENS_SPEC_EN.md` | Updated section 5 (start screen) to match current implementation |
-| `docs/MVP_READINESS_REPORT_EN.md` | Updated MVP+ planned items table; updated capability list |
+| `src/features/repository/gitStatusHelpers.ts` | New — `deriveGitStatusLabel`, `deriveGitActionHints`, `derivePublishChecklist` |
+| `src/features/repository/gitStatusHelpers.test.ts` | New — 30 tests covering all helpers |
+| `src/features/repository/RepositoryPanel.tsx` | Semantic labels, action hints, checklist, Pull Latest label, remote guidance |
+| `src/App.tsx` | Improved unsaved changes banner text with app-vs-Git distinction |
+| `e2e/mocks/tauri-core.ts` | Realistic Git mock state; added missing command handlers |
+| `e2e/smoke.spec.ts` | Added test 8: Git UX smoke test |
+| `docs/USER_WORKFLOWS_EN.md` | Expanded workflow 22 with safe publish path and status labels |
+| `docs/UI_SCREENS_SPEC_EN.md` | Updated section 6 to match current implementation |
+| `docs/MVP_READINESS_REPORT_EN.md` | Marked milestone Done (PR #39) |
 
 ---
 
 ## Implementation Decisions
 
-### Recent repos in App.tsx state, not RepositoryPanel state
-The open/create success is handled in `App.tsx`. Keeping `recentRepos` in App.tsx state
-avoids prop-drilling or callbacks between App and RepositoryPanel.
+### Pure helper functions for testability
+`gitStatusHelpers.ts` has no side effects. The publish checklist step 2 (validate) always returns `null` (unknown) from the helper; callers inject the local `publishValidation` state in the render function. This keeps the helpers fully unit-testable without mocking component state.
 
-### applyRecentAdd extracted as pure function
-`localStorage` is not available in the Vitest test environment (no jsdom configured).
-The pure array-manipulation logic is extracted as `applyRecentAdd` and tested in isolation.
-The localStorage wrappers are thin enough not to need unit tests.
+### Severity-based color coding
+All Git status colors derive from a `SEVERITY_COLOR` map keyed on `GitSeverity`. This makes the color scheme consistent and easy to maintain.
 
-### Fill-on-click for recent repos (no auto-open)
-Clicking a recent repo fills the path input instead of auto-opening. This avoids accidental
-repository switches and makes the action reversible. User still clicks Open explicitly.
+### Commit constraint unchanged
+The existing "validate first" requirement for commit is preserved. This is the safe publish philosophy: commit requires save + validate without errors + non-empty message. The improvement is in the guidance UI (hints, checklist, button title attributes).
 
-### Validation summary note
-The validation counts from `OpenRepositoryResultDto` are stale after mutations. A note
-"Validation counts are from the time of last open. Use the Validation tab for current state."
-is shown below the summary table when `validationSummary` is present.
+### Mock change: is_repository=true
+Changed the E2E mock from `is_repository: false` to a realistic clean-repo-with-ahead state. This does not break existing tests (none interact with the Git section) and enables a meaningful Git UX smoke test.
 
-### No new Tauri commands
-All changes are frontend-only. The existing `open_repository_cmd` already returns
-`validation_summary` in `OpenRepositoryResultDto`; it was just not displayed.
+### "Pull --ff-only" → "Pull latest"
+The underlying command remains `git pull --ff-only`. The button label is user-friendly. Technical detail is in docs.
+
+---
+
+## App changes vs Git changes distinction
+
+| State | Source | Banner/indicator | How to resolve |
+|---|---|---|---|
+| Unsaved app changes | In-memory mutations not saved | Global amber banner | "Save repository" in Repository tab |
+| Uncommitted Git changes | YAML files differ from last commit | Git status row (amber) | Validate → Commit in Git section |
+
+These are independent. Saving to disk clears the app banner but does not create a Git commit.
 
 ---
 
@@ -98,53 +150,52 @@ All changes are frontend-only. The existing `open_repository_cmd` already return
 | `cargo test --workspace` | PASS — all Rust tests pass |
 | `cargo clippy --workspace -- -D warnings` | PASS |
 | `pnpm typecheck` | PASS |
-| `pnpm test` (Vitest) | PASS — 84 tests, 8 files (6 new recentRepositories tests) |
-| `pnpm build` | PASS — 58 modules, 238 kB bundle |
-| `pnpm test:e2e` (Playwright) | PASS — 8/8 (1 new landing state test) |
+| `pnpm test` (Vitest) | PASS — 114 tests, 9 files (30 new gitStatusHelpers tests) |
+| `pnpm build` | PASS — 59 modules, 242 kB bundle |
+| `pnpm test:e2e` (Playwright) | PASS — 9/9 (1 new Git UX test) |
 
 ---
 
 ## Manual Check
 
-Verified via Playwright smoke tests + unit tests. Dev server starts clean (WSL2, no
-interactive browser session available).
+Verified via Playwright smoke tests + unit tests. WSL2 environment — no interactive browser.
 
 Verified points:
-- Landing heading "Open or Create a Repository" visible (Playwright test)
-- Open button and Create repository button visible on landing (Playwright test)
-- Open fixture repo → all tabs enable → search bar visible (Playwright test, unchanged)
-- applyRecentAdd deduplication, eviction, empty-string guard (unit tests)
+- Semantic status label "Ahead of remote by 1 commit" visible (Playwright test)
+- Action hint list item about being ahead visible (Playwright test)
+- Branch "main" visible in Git status table (Playwright test)
+- "Nothing to commit" when tree is clean (Playwright test)
+- Push/Pull buttons enabled with remote in mock (Playwright test)
+- "Pull latest" label (not "Pull --ff-only") confirmed (Playwright test)
+- PR #38 regression: all 8 prior smoke tests still pass
+- DnD placement, CSV import, global search smoke flows unchanged
 
 ---
 
 ## Known Limitations
 
-- Recent repos list only persists locally in localStorage. It is not shared across machines
-  or stored in the repository.
-- `repositoryMutationToken` reset to 0 on close is a cosmetic improvement; child components
-  unmount when `!isOpen` so the previous behavior was not a bug.
-- Validation counts in the summary are from last open/create; they do not update on mutation.
+- Publish checklist step 2 (validate) shows "·" (unknown) by default until the user runs validation in the Git section. The Validation tab's result is not surfaced to the checklist.
+- Action hints and checklist do not auto-refresh — user must click "Refresh Git status" to update after external git operations.
+- Ahead/behind counters are only available when upstream is configured. Without upstream, push/pull buttons still appear disabled with explanation.
 
 ---
 
-## Repair (post-review)
+## Risks
 
-Corrected `docs/MVP_READINESS_REPORT_EN.md`: the "Safe publish workflow / better Git UX" row was incorrectly marked as "Done (PR #33)". The basic Git workflow foundation (commit, push, pull) was done in earlier milestones; the UX polish of that flow is a distinct planned milestone. Status changed to **Planned next**.
-
-No functional code changes.
+- Changing `get_git_status` mock from `is_repository: false` to `true` affects all e2e tests that open the repo. Verified all 8 prior tests still pass.
 
 ---
 
 ## Not Done
 
-- Git UX polish (intentionally deferred to its own milestone)
-- "Open last repository" on startup (requires persisting state across app restarts;
-  localStorage-based recent repos is the first step — auto-open on startup not implemented)
-- Native "open recent" OS-level integration
+- Conflict resolution (intentionally deferred).
+- Git authentication prompts (intentionally deferred).
+- Auto-refresh Git status on external operations.
+- Surfacing Validation tab results into the Publish checklist step 2.
+- "Open last repository" on startup.
 
 ---
 
 ## Suggested Next Step
 
-Git UX polish milestone: improve the commit / push / pull workflow visibility and the
-"unsaved changes" flow to make the publish path more discoverable.
+Claude Design / UX audit milestone: schedule a design direction audit to inform UI polish decisions (typography, spacing, color palette) before v1.0.0 release.

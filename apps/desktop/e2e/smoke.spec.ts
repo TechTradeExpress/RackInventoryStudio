@@ -170,6 +170,40 @@ test("rack detail and placement table visible", async ({ page }) => {
   await expect(page.getByText("plc-srv-01")).toBeVisible();
 });
 
+test("git section shows status label and publish guidance", async ({ page }) => {
+  await page.goto("/");
+  await openFixtureRepo(page);
+
+  // Repository tab is active after open — Git section should be visible
+  await expect(page.getByRole("heading", { name: "Git", exact: true })).toBeVisible();
+
+  // Semantic status label from mock (is_repository=true, clean, ahead=1)
+  await expect(page.getByText(/Ahead of remote by 1 commit/)).toBeVisible();
+
+  // Action hint list item about being ahead is shown
+  await expect(
+    page.getByRole("listitem").filter({ hasText: /ahead of remote.*push when ready/i }),
+  ).toBeVisible();
+
+  // Branch info is visible in the Git status table
+  await expect(page.getByRole("cell", { name: "main", exact: true })).toBeVisible();
+
+  // Commit step shows "nothing to commit" since tree is clean
+  await expect(
+    page.getByText(/Working tree is clean — nothing to commit/i),
+  ).toBeVisible();
+
+  // Push button is present and enabled (remote available, no unsaved changes)
+  await expect(
+    page.getByRole("button", { name: "Push current branch", exact: true }),
+  ).toBeEnabled();
+
+  // Pull latest button is labelled "Pull latest" (not "Pull --ff-only")
+  await expect(
+    page.getByRole("button", { name: "Pull latest", exact: true }),
+  ).toBeEnabled();
+});
+
 test("global search handles short and no-result queries", async ({ page }) => {
   await page.goto("/");
   await openFixtureRepo(page);
