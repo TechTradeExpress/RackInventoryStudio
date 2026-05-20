@@ -4,10 +4,10 @@
 
 `milestone/playwright-smoke-tests` — exploratory local branch.
 
-**PR:** none — not yet created  
-**Push:** not yet performed  
-**Latest code commit hash:** 9ae80db (pre-PR polish code commit)  
-**Status:** ready for PR after this cleanup commit
+**PR:** https://github.com/TechTradeExpress/RackInventoryStudio/pull/36  
+**Push:** branch pushed to origin/milestone/playwright-smoke-tests  
+**Latest code commit hash:** 077ce7f (polish commit, current HEAD before report update)  
+**Status:** ready for ChatGPT PR review
 
 ### Note on .ai/cc-report.md
 
