@@ -21,6 +21,10 @@ repomix/
 # Local app data
 .local/
 
+# Playwright test artifacts
+apps/desktop/test-results/
+apps/desktop/playwright-report/
+
 # Claude Code local settings
 .claude/
 
