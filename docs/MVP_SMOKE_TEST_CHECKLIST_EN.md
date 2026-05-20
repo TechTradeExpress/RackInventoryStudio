@@ -224,13 +224,14 @@ pnpm --filter @rack-inventory-studio/desktop test:e2e
 - This is **not** a full Tauri E2E run — the Rust backend is not involved.
 - Browser: Firefox (Chromium requires system libs unavailable in WSL2 dev environment).
 
-**Covered smoke tests (6):**
+**Covered smoke tests (7):**
 1. App shell loads without console errors.
 2. Open repository enables all tabs + search bar visible.
 3. Global search shows results and navigates to Locations tab.
 4. Validation panel shows issues and navigates to Devices tab on click.
 5. CSV import preview and import flow (textarea → preview table → import result).
 6. Rack detail and placement table visible after clicking a rack row.
+7. Global search: short query suppresses dropdown; non-matching query shows "No results".
 
 **Out of scope for this smoke layer:**
 - Native file dialogs (mocked to return fixture path or null).

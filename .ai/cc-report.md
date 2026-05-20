@@ -5,7 +5,7 @@
 `milestone/playwright-smoke-tests` — exploratory local branch, **no PR, no push**.
 
 **PR:** none — exploratory local branch  
-**Final commit hash:** see git log after hardening commit  
+**Latest code commit hash:** 9ae80db  
 **Status:** ready for ChatGPT review before continuing on the same branch
 
 ---
@@ -28,9 +28,15 @@ Initial Playwright setup: 6 smoke tests, Vite E2E config, Tauri mocks.
 - MVP smoke test checklist updated.
 - cc-report.md committed.
 
-### Hardening pass (this commit)
-- Console error guard promoted from test-1-only to global fixture, covering all 6 tests.
-- Mock invoke() converted from simple record lookup to per-command switch with argument validation.
+### Hardening pass (31b90c3)
+- Console error guard promoted from test-1-only to global page fixture.
+- Mock invoke() converted to per-command switch with argument validation.
+
+### Final pre-PR polish (9ae80db)
+- open_repository_cmd mock restricted to FIXTURE_REPO_PATH only.
+- search_repository_cmd mock returns [] for non-fixture queries.
+- Added smoke test 7: short query suppression + no-results empty state.
+- Docs updated: smoke test count 6 → 7.
 
 ---
 
@@ -42,9 +48,9 @@ Initial Playwright setup: 6 smoke tests, Vite E2E config, Tauri mocks.
 - Added `vite.config.e2e.ts` with Vite resolve aliases replacing Tauri packages with mocks.
 - Added `e2e/mocks/tauri-core.ts` — invoke() mock with per-command argument validation.
 - Added `e2e/mocks/tauri-dialog.ts` — file dialog mock returning fixture path or null.
-- Added `e2e/smoke.spec.ts` — 6 Playwright smoke tests with global console error guard.
+- Added `e2e/smoke.spec.ts` — 7 Playwright smoke tests with global console error guard.
 - Added ignore for `test-results/` and `playwright-report/` in both .gitignore files.
-- Updated `docs/MVP_SMOKE_TEST_CHECKLIST_EN.md` Playwright section.
+- Updated `docs/MVP_SMOKE_TEST_CHECKLIST_EN.md` Playwright section (count 6 → 7).
 
 ---
 
@@ -76,55 +82,36 @@ The Rust backend is not running during Playwright tests.
 
 ## Console Error Guard
 
-Previously only test 1 ("app shell loads") asserted zero console errors.
-
-Now: the `page` fixture is overridden via `base.extend()` so every test collects `console.error`
-events and fails if any are emitted. No filtering is applied — the mock layer is clean and no
-benign errors are expected. If future benign errors appear, they must be filtered precisely with
-a comment explaining why.
-
-```typescript
-const test = base.extend({
-  page: async ({ page }, use) => {
-    const errors: string[] = [];
-    page.on("console", (msg) => {
-      if (msg.type() === "error") errors.push(msg.text());
-    });
-    await use(page);
-    expect(errors, "Unexpected console errors").toHaveLength(0);
-  },
-});
-```
+The `page` fixture is overridden via `base.extend()` so every test collects `console.error`
+events and fails if any are emitted. No filtering is applied — the mock layer is clean.
 
 ---
 
 ## Mock Argument Validation
 
-`invoke()` was a simple record lookup (`COMMANDS[command]`). Now it uses a switch statement with
-per-command argument validation for the 5 commands where argument correctness matters.
+`invoke()` uses a switch statement with per-command argument validation.
 
 | Command | Validated argument | Validation rule |
 |---|---|---|
-| `open_repository_cmd` | `path` | non-empty string; rejects otherwise |
-| `search_repository_cmd` | `query` | string; returns `[]` if trimmed length < 2 |
-| `preview_device_csv_import_cmd` | `csvContent` | non-empty string; rejects otherwise |
-| `import_device_csv_cmd` | `csvContent` | non-empty string; rejects otherwise |
-| `read_csv_file` | `path` | string if provided; rejects if wrong type |
+| `open_repository_cmd` | `path` | non-empty string AND must equal FIXTURE_REPO_PATH |
+| `search_repository_cmd` | `query` | string; `[]` if trimmed length < 2; `[]` if no fixture keyword match |
+| `preview_device_csv_import_cmd` | `csvContent` | non-empty string |
+| `import_device_csv_cmd` | `csvContent` | non-empty string |
+| `read_csv_file` | `path` | string if provided |
 
-All other commands fall through to the static COMMANDS record (unchanged).
+Fixture keyword matching for search: queries containing "server", "rack", "main", or "room"
+return the fixture results. All other queries return [] (enables testing the no-results state).
 
 ---
 
 ## Browser Decision: Firefox
 
-Firefox is used. Chromium was evaluated first but requires `libnspr4.so`, which is not available
-in the WSL2 dev environment without `sudo apt-get install`. No sudo access during this session.
-Firefox is a valid CI browser widely supported by Playwright. Single-browser config kept
-intentionally — no matrix added.
+Firefox is used. Chromium requires `libnspr4.so` unavailable in WSL2 dev environment without
+sudo. Firefox is a valid CI browser. Single-browser config kept — no matrix added.
 
 ---
 
-## Smoke Tests (6)
+## Smoke Tests (7)
 
 | # | Test name | What it verifies |
 |---|---|---|
@@ -134,6 +121,7 @@ intentionally — no matrix added.
 | 4 | Validation panel shows issues and navigates on click | Click Validate, see mock issue, click "Open Device" → Devices tab |
 | 5 | CSV import preview and import flow | Fill textarea, Preview → cell visible, Import → "1 device created" |
 | 6 | Rack detail and placement table visible | Click Racks, click "Main Rack" cell → Rack Detail + plc-srv-01 |
+| 7 | Global search edge cases | Short query ("s") → no dropdown; "zz-no-match" → "No results" shown |
 
 ---
 
@@ -165,7 +153,7 @@ If Firefox is not yet installed: `npx playwright install firefox`
 | `pnpm typecheck` | PASS |
 | `pnpm test` (Vitest) | PASS — 63 tests, 6 files |
 | `pnpm build` | PASS — 55 modules, 231 kB bundle |
-| `pnpm test:e2e` (Playwright) | PASS — 6/6, Firefox, 6.4 s |
+| `pnpm test:e2e` (Playwright) | PASS — 7/7, Firefox, 7.2 s |
 
 ---
 
@@ -190,8 +178,8 @@ No regressions observed.
 - This is not full Tauri E2E — the real Rust backend is not running in Playwright tests.
 - Native file dialogs are mocked — OS-level file picker cannot be tested.
 - Real Git remote operations are not tested.
-- Console error guard covers all 6 tests; no filtering is applied.
-- Mocks validate argument types but do not validate argument values in depth (e.g. path content).
+- Mock keyword matching for search is a simple string-contains check, not a real search engine.
+- open_repository_cmd accepts only the single fixture path; multiple repos not supported in tests.
 
 ---
 
@@ -213,12 +201,11 @@ No regressions observed.
 - Real Git remote tests.
 - Backend / domain changes.
 - Multi-browser matrix.
-- Deep mock argument value validation (e.g. fixture path matching).
 
 ---
 
 ## Continuation
 
-After code review feedback, work will continue on the same branch
-`milestone/playwright-smoke-tests` without creating a new branch or PR unless explicitly
-requested.
+PR not yet created. Branch not pushed. After code review approval, a PR will be created
+from `milestone/playwright-smoke-tests` → `master` unless the reviewer requests further
+changes on this branch first.
