@@ -259,3 +259,24 @@ used directly as the button `title` attribute.
 ## Suggested Next Step
 
 Claude Design / UX audit milestone: schedule a design direction audit to inform UI polish decisions (typography, spacing, color palette) before v1.0.0 release.
+
+---
+
+## Final docs polish before merge (post-repair)
+
+### Changes
+
+Updated all project documentation to reflect the completed MVP+ feature set and the PR #39 repair.
+
+| File | Change |
+|---|---|
+| `README.md` | Added capabilities (create wizard, recent repos, native CSV picker, global search, DnD, Git UX, Playwright); removed stale limitations (DnD, CSV picker, global search); updated roadmap table to show Done for all completed items; updated v1.0.0 release gate Playwright line |
+| `docs/MVP_READINESS_REPORT_EN.md` | Removed done usability gaps (CSV picker, DnD, search, UI automation); updated Git remote sync line to mention behind/diverged gating; updated manual checklist section (Playwright 9/9 now covers golden path); updated Vitest count (38 → 128); updated Recommended next step to M42 |
+| `docs/MVP_SMOKE_TEST_CHECKLIST_EN.md` | Updated count 7 → 9; added test 2 (landing state) and test 8 (Git UX) descriptions |
+| `docs/IMPLEMENTATION_PLAN_EN.md` | Stage 2 milestones annotated with Done/Planned status and PR numbers; Stage 3 note that M42 + M44 remain |
+| `docs/UI_SCREENS_SPEC_EN.md` | Push/Pull section replaced with per-state gating table (behind-only / diverged / ahead-only / clean) |
+| `PR #39 body` | Updated with repair details, getPushDisabledReason/getPullDisabledReason, gating matrix, 128 Vitest / 44 gitStatusHelpers / 9 Playwright counts |
+
+### Tests
+
+No code changed — docs only.

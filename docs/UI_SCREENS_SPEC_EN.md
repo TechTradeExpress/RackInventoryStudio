@@ -185,7 +185,17 @@ Commit button requires: no unsaved app changes + validation run without errors +
 
 ### Push / Pull
 
-- Disabled when unsaved app changes exist (tooltip explains why).
+Push and Pull are gated individually based on sync state:
+
+| State | Push | Pull |
+|---|---|---|
+| Unsaved app changes | Disabled | Disabled |
+| No remote selected | Disabled | Disabled |
+| Behind only | Disabled — "Pull latest before pushing" | **Enabled** |
+| Diverged (↑N ↓M) | Disabled — "Branch has diverged — resolve manually" | Disabled |
+| Ahead only | **Enabled** | **Enabled** |
+| Clean / up-to-date | **Enabled** | **Enabled** |
+
 - Pull uses `git pull --ff-only`. On conflict, shows error — no automatic resolution.
 - After pull: repository summary refreshes automatically.
 - Auth (SSH/HTTPS) must be pre-configured at OS level.
