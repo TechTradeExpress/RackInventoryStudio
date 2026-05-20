@@ -210,7 +210,7 @@ Before tagging v1.0.0, all of the following must pass in addition to this manual
 - [ ] Playwright smoke test suite covers the golden path: open → add location → add rack → add device model → add device → CSV import → place device → validate → save → reload.
 - [ ] All Playwright tests pass against a production build.
 
-**Playwright smoke tests are now implemented (milestone/playwright-smoke-tests branch).**
+**Playwright smoke tests are implemented as a Vite/web smoke layer.**
 
 Run command:
 

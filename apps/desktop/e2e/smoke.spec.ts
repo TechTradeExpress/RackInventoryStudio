@@ -30,7 +30,7 @@ async function openFixtureRepo(page: Page) {
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
-test("1: app shell loads without console errors", async ({ page }) => {
+test("app shell loads without console errors", async ({ page }) => {
   await page.goto("/");
 
   await expect(
@@ -47,7 +47,7 @@ test("1: app shell loads without console errors", async ({ page }) => {
   // Console errors are asserted by the page fixture after every test
 });
 
-test("2: open repository enables all tabs", async ({ page }) => {
+test("open repository enables all tabs", async ({ page }) => {
   await page.goto("/");
   await openFixtureRepo(page);
 
@@ -69,7 +69,7 @@ test("2: open repository enables all tabs", async ({ page }) => {
   await expect(page.locator('input[placeholder*="Search"]')).toBeVisible();
 });
 
-test("3: global search shows results and navigates to Locations", async ({
+test("global search shows results and navigates to Locations", async ({
   page,
 }) => {
   await page.goto("/");
@@ -87,7 +87,7 @@ test("3: global search shows results and navigates to Locations", async ({
   await expect(page.getByText("server-room-a")).toBeVisible();
 });
 
-test("4: validation panel shows issues and navigates on click", async ({
+test("validation panel shows issues and navigates on click", async ({
   page,
 }) => {
   await page.goto("/");
@@ -112,7 +112,7 @@ test("4: validation panel shows issues and navigates on click", async ({
   await expect(page.getByRole("heading", { name: "Devices" })).toBeVisible();
 });
 
-test("5: CSV import preview and import flow", async ({ page }) => {
+test("CSV import preview and import flow", async ({ page }) => {
   await page.goto("/");
   await openFixtureRepo(page);
 
@@ -135,23 +135,7 @@ test("5: CSV import preview and import flow", async ({ page }) => {
   await expect(page.getByText(/1 device created/i)).toBeVisible();
 });
 
-test("7: global search handles short and no-result queries", async ({ page }) => {
-  await page.goto("/");
-  await openFixtureRepo(page);
-
-  const searchInput = page.locator('input[placeholder*="Search"]');
-
-  // Single character — UI suppresses the dropdown entirely (min 2 chars)
-  await searchInput.fill("s");
-  await expect(page.getByRole("listbox")).not.toBeVisible();
-  await expect(page.getByText("No results")).not.toBeVisible();
-
-  // Query with no matching fixture data — mock returns [] → "No results" shown
-  await searchInput.fill("zz-no-match");
-  await expect(page.getByText("No results")).toBeVisible();
-});
-
-test("6: rack detail and placement table visible", async ({ page }) => {
+test("rack detail and placement table visible", async ({ page }) => {
   await page.goto("/");
   await openFixtureRepo(page);
 
@@ -166,4 +150,20 @@ test("6: rack detail and placement table visible", async ({ page }) => {
   ).toBeVisible();
   // Placement table contains the fixture placement
   await expect(page.getByText("plc-srv-01")).toBeVisible();
+});
+
+test("global search handles short and no-result queries", async ({ page }) => {
+  await page.goto("/");
+  await openFixtureRepo(page);
+
+  const searchInput = page.locator('input[placeholder*="Search"]');
+
+  // Single character — UI suppresses the dropdown entirely (min 2 chars)
+  await searchInput.fill("s");
+  await expect(page.getByRole("listbox")).not.toBeVisible();
+  await expect(page.getByText("No results")).not.toBeVisible();
+
+  // Query with no matching fixture data — mock returns [] → "No results" shown
+  await searchInput.fill("zz-no-match");
+  await expect(page.getByText("No results")).toBeVisible();
 });
