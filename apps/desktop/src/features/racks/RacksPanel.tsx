@@ -116,10 +116,11 @@ export function RacksPanel({
     const rack = racks.find((r) => r.id === pendingRackNavTarget.rackId);
     if (rack) {
       onSelectRack(rack);
+      setRecentlyNavigatedRackId(rack.id);
       if (pendingRackNavTarget.placementId) {
         setPendingNavigation({
           placementId: pendingRackNavTarget.placementId,
-          message: "Navigated from validation issue.",
+          message: "Placement highlighted from navigation.",
         });
       }
     }

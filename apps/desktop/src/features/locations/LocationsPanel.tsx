@@ -180,6 +180,12 @@ export function LocationsPanel({
     );
   }
 
+  useEffect(() => {
+    if (!highlightedLocationId || locations.length === 0) return;
+    const el = document.querySelector(`[data-loc-id="${CSS.escape(highlightedLocationId)}"]`);
+    el?.scrollIntoView({ block: "center" });
+  }, [highlightedLocationId, locations]);
+
   const isEditing = editingId !== null;
 
   return (
@@ -206,6 +212,7 @@ export function LocationsPanel({
             {locations.map((loc) => (
               <tr
                 key={loc.id}
+                data-loc-id={loc.id}
                 style={
                   loc.id === highlightedLocationId
                     ? { background: "#fff8c5" }

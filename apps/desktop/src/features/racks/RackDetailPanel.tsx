@@ -35,6 +35,12 @@ function PlacementTable({
   selectedPlacementId,
   onSelectPlacement,
 }: PlacementTableProps) {
+  useEffect(() => {
+    if (!selectedPlacementId) return;
+    const el = document.querySelector(`[data-placement-id="${CSS.escape(selectedPlacementId)}"]`);
+    el?.scrollIntoView({ block: "center" });
+  }, [selectedPlacementId]);
+
   if (placements.length === 0) {
     return <p style={common.hint}>No placements.</p>;
   }
@@ -64,6 +70,7 @@ function PlacementTable({
           return (
             <tr
               key={p.id}
+              data-placement-id={p.id}
               title={p.code}
               onClick={() => onSelectPlacement(isSelected ? null : p)}
               style={{
