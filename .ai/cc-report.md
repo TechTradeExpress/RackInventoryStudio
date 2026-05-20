@@ -280,3 +280,13 @@ Updated all project documentation to reflect the completed MVP+ feature set and 
 ### Tests
 
 No code changed — docs only.
+
+---
+
+## Docs-only repair after final review
+
+- Fixed README wording for recent repositories: `one-click reopen` → `clicking an entry fills the path input`.
+- Recent repository entries fill the path input; they do not auto-open the repository — the user still clicks Open.
+- Corrected two stale README lines: "saved explicitly via the Validation tab" → "saved via the Repository tab".
+- PR body did not contain the stale wording — no update needed.
+- No functional code changes.

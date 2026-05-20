@@ -50,7 +50,7 @@ tests/                  Shared test fixtures
 
 ## Current desktop UI capabilities
 
-- Opening a local inventory repository via native folder picker or path input; recent repositories list (stored in localStorage, one-click reopen)
+- Opening a local inventory repository via native folder picker or path input; recent repositories list stored in localStorage (clicking an entry fills the path input)
 - Creating a new repository via a guided wizard (scaffolds YAML structure, optionally initialises a Git repo)
 - Repository summary (counts of locations, racks, devices, placements)
 - Validation — run rules, view per-issue results (level, code, message, object); navigation drill-down from each issue to the relevant entity
@@ -63,8 +63,8 @@ tests/                  Shared test fixtures
 - Placement inspector — all placement fields visible when a placement is selected
 - Drag-and-drop placement — drag an unplaced device or rack object onto a U row in the rack diagram (front or rear)
 - Move a placement to a new rack, side, start U, and optional height override via the Placement Inspector form (supports same-rack, cross-side, and rack-to-rack moves); cross-rack move automatically navigates to the destination rack and selects the moved placement
-- Add a new device or rack object placement to the selected rack via a simple form (side, target, start U, optional height override); unsaved changes must be saved explicitly via the Validation tab
-- Remove an existing placement from the selected rack via a confirmation button in the Placement Inspector; unsaved changes must be saved explicitly via the Validation tab
+- Add a new device or rack object placement to the selected rack via a simple form (side, target, start U, optional height override); unsaved changes must be saved via the Repository tab
+- Remove an existing placement from the selected rack via a confirmation button in the Placement Inspector; unsaved changes must be saved via the Repository tab
 - CSV device import via native OS file picker — preview with row-level validation, confirm/write
 - Git integration — semantic status labels (clean / uncommitted / ahead / behind / diverged), contextual action hints, safe publish checklist (Save → Validate → Commit → Pull → Push), commit with message, push/pull with per-state gating (behind-only blocks push; diverged blocks both)
 - Playwright smoke tests (9 tests) covering the golden path, search, CSV import, rack detail, and Git UX
