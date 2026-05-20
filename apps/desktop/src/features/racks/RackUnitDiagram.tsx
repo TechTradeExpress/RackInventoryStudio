@@ -1,6 +1,8 @@
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import type { PlacementDto } from "../../api/tauriClient";
 import { buildOccupancy, type UnitState } from "./rackOccupancy";
+import { getDragPayload } from "./dndHelpers";
+import type { DndPayload } from "./dndTypes";
 
 interface Props {
   heightU: number;
@@ -8,6 +10,7 @@ interface Props {
   rear: PlacementDto[];
   selectedPlacementId: string | null;
   onSelectPlacement: (placement: PlacementDto | null) => void;
+  onDropAtCell?: (side: "front" | "rear", startU: number, payload: DndPayload) => void;
 }
 
 const ROW_H = 22; // px per U row
@@ -94,36 +97,51 @@ function cellLabel(state: UnitState): string {
 }
 
 interface SideColumnProps {
+  side: "front" | "rear";
   units: UnitState[];
   selectedPlacementId: string | null;
   onSelectPlacement: (placement: PlacementDto | null) => void;
+  onDropAtCell?: (side: "front" | "rear", startU: number, payload: DndPayload) => void;
 }
 
 function SideColumn({
+  side,
   units,
   selectedPlacementId,
   onSelectPlacement,
+  onDropAtCell,
 }: SideColumnProps) {
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+
   // units[0] = U1 (bottom), render top-to-bottom so reverse
   const rows = [...units].reverse();
   return (
     <div style={{ width: SIDE_W, flexShrink: 0 }}>
       {rows.map((state, idx) => {
         // When reversed: idx 0 = highest U = visual top
-        // isTop in occupancy means top of the physical stack = highest U = rendered first
+        // rows[idx] = units[units.length - 1 - idx] which is U(units.length - idx)
+        const startU = units.length - idx;
         const isSelected =
           state.kind !== "empty" &&
           state.placement.id === selectedPlacementId;
         const label = cellLabel(state);
+        const isDragOver = state.kind === "empty" && hoveredIdx === idx;
+
+        const baseStyle = cellStyle(
+          state,
+          state.kind === "occupied" && state.isTop,
+          isSelected,
+        );
+        const style: CSSProperties = isDragOver
+          ? { ...baseStyle, background: "#c8e6c0", outline: "2px dashed #4a7c3f" }
+          : baseStyle;
+
         return (
           <div
             key={idx}
             title={state.kind !== "empty" ? state.placement.code : undefined}
-            style={cellStyle(
-              state,
-              state.kind === "occupied" && state.isTop,
-              isSelected,
-            )}
+            data-testid={state.kind === "empty" ? `drop-cell-${side}-${startU}` : undefined}
+            style={style}
             onClick={() => {
               if (state.kind === "empty") {
                 onSelectPlacement(null);
@@ -131,6 +149,30 @@ function SideColumn({
                 onSelectPlacement(state.placement);
               }
             }}
+            onDragOver={
+              state.kind === "empty" && onDropAtCell
+                ? (e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "copy";
+                    setHoveredIdx(idx);
+                  }
+                : undefined
+            }
+            onDragLeave={
+              state.kind === "empty" && onDropAtCell
+                ? () => setHoveredIdx(null)
+                : undefined
+            }
+            onDrop={
+              state.kind === "empty" && onDropAtCell
+                ? (e) => {
+                    e.preventDefault();
+                    setHoveredIdx(null);
+                    const payload = getDragPayload(e);
+                    if (payload) onDropAtCell(side, startU, payload);
+                  }
+                : undefined
+            }
           >
             {label}
           </div>
@@ -146,6 +188,7 @@ export function RackUnitDiagram({
   rear,
   selectedPlacementId,
   onSelectPlacement,
+  onDropAtCell,
 }: Props) {
   const frontOcc = buildOccupancy(heightU, front);
   const rearOcc = buildOccupancy(heightU, rear);
@@ -286,9 +329,11 @@ export function RackUnitDiagram({
             </div>
             <div style={{ borderLeft: "2px solid #bbb" }}>
               <SideColumn
+                side="front"
                 units={frontOcc.units}
                 selectedPlacementId={selectedPlacementId}
                 onSelectPlacement={onSelectPlacement}
+                onDropAtCell={onDropAtCell}
               />
             </div>
           </div>
@@ -312,9 +357,11 @@ export function RackUnitDiagram({
             </div>
             <div style={{ borderLeft: "1px solid #bbb" }}>
               <SideColumn
+                side="rear"
                 units={rearOcc.units}
                 selectedPlacementId={selectedPlacementId}
                 onSelectPlacement={onSelectPlacement}
+                onDropAtCell={onDropAtCell}
               />
             </div>
           </div>

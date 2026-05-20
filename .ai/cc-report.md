@@ -1,204 +1,95 @@
-# cc-report — milestone/playwright-smoke-tests
+# cc-report — milestone/drag-and-drop-placement
 
 ## Branch
 
-`milestone/playwright-smoke-tests` — exploratory local branch.
-
-**PR:** https://github.com/TechTradeExpress/RackInventoryStudio/pull/36  
-**Push:** branch pushed to origin/milestone/playwright-smoke-tests  
-**Latest code commit hash:** 077ce7f (polish commit, current HEAD before report update)  
-**Status:** ready for ChatGPT PR review
-
-### Note on .ai/cc-report.md
-
-This file is intentionally committed as an artefact of the current milestone/review workflow.
-It is tracked in git on this branch so the build-review-context.sh script can include it in
-the ChatGPT review context. It is covered by the root .gitignore entry for `.ai/`, but was
-force-added (`git add -f`) to make it available to the review script.
+`milestone/drag-and-drop-placement`
 
 ---
 
-## Goal
+## Summary
 
-Playwright Smoke Tests Foundation — establish a Vite/web-based Playwright smoke layer for the
-desktop app so that golden-path flows are verifiable without a full Tauri binary.
-
----
-
-## Iteration History
-
-### Foundation commit (d6d28a9)
-Initial Playwright setup: 6 smoke tests, Vite E2E config, Tauri mocks.
-
-### Repair commits (62af0bc, a3118dc, ae75537)
-- Root .gitignore Playwright artifact ignores committed.
-- Desktop .gitignore updated with playwright-report/.
-- MVP smoke test checklist updated.
-- cc-report.md committed.
-
-### Hardening pass (31b90c3)
-- Console error guard promoted from test-1-only to global page fixture.
-- Mock invoke() converted to per-command switch with argument validation.
-
-### Final pre-PR polish (9ae80db)
-- open_repository_cmd mock restricted to FIXTURE_REPO_PATH only.
-- search_repository_cmd mock returns [] for non-fixture queries.
-- Added smoke test 7: short query suppression + no-results empty state.
-- Docs updated: smoke test count 6 → 7.
-
-### Non-blocking cleanup (this commit)
-- Removed numeric prefixes from all 7 smoke test names.
-- Reordered tests: rack detail now appears before search edge cases.
-- Updated docs/MVP_SMOKE_TEST_CHECKLIST_EN.md: replaced branch-specific wording with
-  merge-neutral description ("implemented as a Vite/web smoke layer").
+Added HTML Drag and Drop API placement to RackDetailPanel. Users can drag unplaced
+device cards or rack object model cards from the Add Placement palette and drop them
+onto empty rack unit cells in the Rack Diagram to create placements directly — no
+form fill required. The existing form-based workflow is preserved and unchanged.
 
 ---
 
-## Summary of Changes
+## Files Changed
 
-- Added Playwright as smoke test foundation (`@playwright/test` devDependency).
-- Added `test:e2e` script to `package.json`.
-- Added `playwright.config.ts` (Firefox, port 1421, Vite web server).
-- Added `vite.config.e2e.ts` with Vite resolve aliases replacing Tauri packages with mocks.
-- Added `e2e/mocks/tauri-core.ts` — invoke() mock with per-command argument validation.
-- Added `e2e/mocks/tauri-dialog.ts` — file dialog mock returning fixture path or null.
-- Added `e2e/smoke.spec.ts` — 7 Playwright smoke tests with global console error guard.
-- Added ignore for `test-results/` and `playwright-report/` in both .gitignore files.
-- Updated `docs/MVP_SMOKE_TEST_CHECKLIST_EN.md` Playwright section.
-
----
-
-## Implementation Decision: Web/Vite Runner, not Full Tauri E2E
-
-Tests run against a Vite dev server (port 1421) — not the compiled Tauri shell.
-
-**Tauri IPC mocked via Vite aliases:**
-
-| Package import | Replaced by |
+| File | Change |
 |---|---|
-| `@tauri-apps/api/core` | `e2e/mocks/tauri-core.ts` |
-| `@tauri-apps/plugin-dialog` | `e2e/mocks/tauri-dialog.ts` |
-
-The Rust backend is not running during Playwright tests.
-
----
-
-## Console Error Guard
-
-The `page` fixture is overridden via `base.extend()` so every test collects `console.error`
-events and fails if any are emitted. No filtering is applied — the mock layer is clean.
+| `src/features/racks/dndTypes.ts` | New — DND_DATA_TYPE constant and DndPayload union type |
+| `src/features/racks/dndHelpers.ts` | New — encodeDndPayload, decodeDndPayload, getDragPayload |
+| `src/features/racks/dndHelpers.test.ts` | New — 7 Vitest tests for encode/decode round-trips and error cases |
+| `src/features/racks/AddPlacementPanel.tsx` | Added drag palette section: draggable cards for unplaced devices and rack object models |
+| `src/features/racks/RackUnitDiagram.tsx` | Added onDropAtCell prop; SideColumn now handles dragover/dragleave/drop on empty cells; green dashed outline on drag-over; data-testid on empty cells |
+| `src/features/racks/RackDetailPanel.tsx` | Added dndError state, handleDropAtCell handler, placeDevice/placeRackObject imports, dndError error box below diagram |
+| `e2e/mocks/tauri-core.ts` | Added place_device and place_rack_object mock handlers with input validation |
 
 ---
 
-## Mock Argument Validation
+## Implementation Notes
 
-| Command | Validated argument | Validation rule |
-|---|---|---|
-| `open_repository_cmd` | `path` | non-empty string AND must equal FIXTURE_REPO_PATH |
-| `search_repository_cmd` | `query` | string; `[]` if trimmed length < 2; `[]` if no fixture keyword match |
-| `preview_device_csv_import_cmd` | `csvContent` | non-empty string |
-| `import_device_csv_cmd` | `csvContent` | non-empty string |
-| `read_csv_file` | `path` | string if provided |
+### Payload format
+`DndPayload` is a JSON-serialised discriminated union (`kind: "device" | "rack_object"`)
+stored in `dataTransfer` under MIME type `application/ris-placement`.
 
----
+### Drop target U-number calculation
+`SideColumn` renders `[...units].reverse()`. Row at visual index `idx` corresponds to
+`U(units.length - idx)` — this is how `startU` is derived on drop.
 
-## Browser Decision: Firefox
+### Drag-over highlight
+Only empty cells light up (`background: #c8e6c0, outline: 2px dashed #4a7c3f`).
+Occupied and incomplete cells ignore drag events (no onDragOver/onDrop handlers).
 
-Chromium requires `libnspr4.so` unavailable in WSL2 dev environment without sudo. Firefox
-is a valid CI browser. Single-browser config kept — no matrix added.
+### Error handling
+Backend errors on drop are caught and displayed in a red error box below the diagram
+(`dndError` state). Does not crash the panel.
 
----
-
-## Smoke Tests (7)
-
-| Test name | What it verifies |
-|---|---|
-| app shell loads without console errors | Heading visible, Validation tab disabled, zero console errors |
-| open repository enables all tabs | Fill path, click Open, all 7 tabs enabled, search bar visible |
-| global search shows results and navigates to Locations | Type "server", see "Server Room A", click → Locations tab |
-| validation panel shows issues and navigates on click | Click Validate, see mock issue, click "Open Device" → Devices tab |
-| CSV import preview and import flow | Fill textarea, Preview → cell visible, Import → "1 device created" |
-| rack detail and placement table visible | Click Racks, click "Main Rack" cell → Rack Detail + plc-srv-01 |
-| global search handles short and no-result queries | "s" → no dropdown; "zz-no-match" → "No results" |
+### Playwright DnD test — deferred
+`page.dragAndDrop()` in Playwright with Firefox requires the element to be in viewport
+and the HTML DnD API behavior is not fully simulated in headless mode. A DnD Playwright
+smoke test was evaluated and deferred — Playwright's `dragAndDrop` simulates pointer
+events but HTML DnD `dataTransfer.getData()` returns empty string in the simulated
+environment. The existing 7 smoke tests continue to pass.
 
 ---
 
-## How to Run
-
-```bash
-pnpm --filter @rack-inventory-studio/desktop test:e2e
-```
-
-If Firefox is not yet installed: `npx playwright install firefox`
-
----
-
-## Test Results
-
-### Backend
+## Tests
 
 | Command | Result |
 |---|---|
 | `cargo fmt --all --check` | PASS |
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS — 344 tests, 0 failed |
+| `cargo test --workspace` | PASS — all tests pass |
 | `cargo clippy --workspace -- -D warnings` | PASS |
-
-### Frontend
-
-| Command | Result |
-|---|---|
 | `pnpm typecheck` | PASS |
-| `pnpm test` (Vitest) | PASS — 63 tests, 6 files |
-| `pnpm build` | PASS — 55 modules, 231 kB bundle |
-| `pnpm test:e2e` (Playwright) | PASS — 7/7, Firefox, 7.3 s |
-
----
-
-## Manual Check Result
-
-| Flow | Result |
-|---|---|
-| Repository tab — open example repo, summary loads | PASS |
-| Validation tab — click Validate, issues appear | PASS |
-| Global Search — type query, result visible, click navigates | PASS |
-| Racks / Rack Detail — click rack row, placement table visible | PASS |
-| CSV Import — paste CSV into textarea, Preview, Import | PASS |
-
----
-
-## Known Limitations
-
-- Not full Tauri E2E — real Rust backend is not running in Playwright tests.
-- Native file dialogs are mocked.
-- Real Git remote operations are not tested.
-- Mock keyword matching for search is a simple string-contains check.
-- open_repository_cmd accepts only the single fixture path.
+| `pnpm test` (Vitest) | PASS — 70 tests, 7 files (7 new dndHelpers tests) |
+| `pnpm build` | PASS — 57 modules, 234 kB bundle |
+| `pnpm test:e2e` (Playwright) | PASS — 7/7, Firefox |
 
 ---
 
 ## Risks
 
-- Mocks may drift from real backend command shape over time.
-- Firefox-only config: Chromium behavior differences not caught.
-- Smoke layer tests frontend flow only, not full desktop integration.
+- Playwright HTML DnD simulation gap: real drag-and-drop UX is not covered by automated tests.
+- Mock `get_rack_detail` returns a static fixture after drop — no live state update in E2E tests.
+- `dataTransfer` MIME type `application/ris-placement` may be filtered by some browser security
+  policies in iframes, but this is a desktop app (Tauri WebView) so not a concern in production.
 
 ---
 
-## Out of Scope (Intentional)
+## Not Done
 
-- Drag and drop tests.
-- Full Tauri E2E with compiled binary.
-- GitHub Actions CI job.
-- Visual regression tests.
-- Native file dialog tests.
-- Real Git remote tests.
-- Backend / domain changes.
-- Multi-browser matrix.
+- Playwright DnD smoke test (deferred — see implementation notes above).
+- Drag-and-drop touch support (not needed for desktop).
+- Keyboard alternative for drag-and-drop (not in milestone scope).
 
 ---
 
-## Status
+## Suggested Next Step
 
-Branch ready for push and PR creation. PR not yet created. Branch not yet pushed.
-Current branch HEAD will be visible in the accompanying review-context file.
+Add a Playwright smoke test for drag-and-drop once a reliable approach is confirmed
+(e.g. using `page.dispatchEvent` to fire synthetic dragstart/dragover/drop events
+with a mocked dataTransfer, or upgrading to Chromium when WSL2 system libs are available).

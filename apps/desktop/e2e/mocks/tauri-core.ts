@@ -10,6 +10,7 @@ const FIXTURE_DEVICE_MODEL_ID = "cccccccc-cccc-cccc-cccc-cccccccccccc";
 const FIXTURE_RACK_OBJECT_ID = "dddddddd-dddd-dddd-dddd-dddddddddddd";
 const FIXTURE_DEVICE_ID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
 const FIXTURE_PLACEMENT_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+const FIXTURE_NEW_PLACEMENT_ID = "11111111-1111-1111-1111-111111111111";
 
 const COMMANDS: Record<string, unknown> = {
   open_repository_cmd: {
@@ -299,6 +300,38 @@ export function invoke<T>(command: string, args?: unknown): Promise<T> {
         );
       }
       return Promise.resolve(COMMANDS.read_csv_file as T);
+    }
+
+    case "place_device": {
+      const { input } = (args ?? {}) as { input?: unknown };
+      const i = (input ?? {}) as Record<string, unknown>;
+      if (
+        typeof i.rack_id !== "string" ||
+        typeof i.device_id !== "string" ||
+        typeof i.side !== "string" ||
+        typeof i.start_u !== "number"
+      ) {
+        return Promise.reject(
+          new Error(`[E2E mock] place_device: invalid input args`),
+        );
+      }
+      return Promise.resolve(FIXTURE_NEW_PLACEMENT_ID as unknown as T);
+    }
+
+    case "place_rack_object": {
+      const { input } = (args ?? {}) as { input?: unknown };
+      const i = (input ?? {}) as Record<string, unknown>;
+      if (
+        typeof i.rack_id !== "string" ||
+        typeof i.device_model_id !== "string" ||
+        typeof i.side !== "string" ||
+        typeof i.start_u !== "number"
+      ) {
+        return Promise.reject(
+          new Error(`[E2E mock] place_rack_object: invalid input args`),
+        );
+      }
+      return Promise.resolve(FIXTURE_NEW_PLACEMENT_ID as unknown as T);
     }
 
     default:

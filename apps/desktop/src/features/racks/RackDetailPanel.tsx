@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { common } from "../../lib/styles";
 import {
   getRackDetail,
+  placeDevice,
+  placeRackObject,
   type PlacementDto,
   type RackDetailDto,
   type RackSummaryDto,
@@ -9,6 +11,7 @@ import {
 import { RackUnitDiagram } from "./RackUnitDiagram";
 import { PlacementInspectorPanel } from "./PlacementInspectorPanel";
 import { AddPlacementPanel } from "./AddPlacementPanel";
+import type { DndPayload } from "./dndTypes";
 
 interface NavigationRequest {
   placementId: string;
@@ -123,6 +126,7 @@ export function RackDetailPanel({
     useState<PlacementDto | null>(null);
   const [targetReloadToken, setTargetReloadToken] = useState(0);
   const [mutationMessage, setMutationMessage] = useState<string | null>(null);
+  const [dndError, setDndError] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -232,6 +236,38 @@ export function RackDetailPanel({
     refreshAfterMutation({ selectId: newPlacementId, bumpTargets: true });
   }
 
+  async function handleDropAtCell(
+    side: "front" | "rear",
+    startU: number,
+    payload: DndPayload,
+  ) {
+    setDndError(null);
+    try {
+      let newId: string;
+      if (payload.kind === "device") {
+        newId = await placeDevice({
+          rack_id: rack.id,
+          device_id: payload.deviceId,
+          side,
+          start_u: startU,
+          height_u: payload.defaultHeightU,
+        });
+      } else {
+        newId = await placeRackObject({
+          rack_id: rack.id,
+          device_model_id: payload.deviceModelId,
+          side,
+          start_u: startU,
+          height_u: payload.defaultHeightU,
+        });
+      }
+      setMutationMessage(null);
+      refreshAfterMutation({ selectId: newId, bumpTargets: true });
+    } catch (e) {
+      setDndError(String(e));
+    }
+  }
+
   function handleRemoveSuccess() {
     setMutationMessage(null);
     refreshAfterMutation({ selectId: null, bumpTargets: true });
@@ -279,7 +315,23 @@ export function RackDetailPanel({
             rear={detail.rear}
             selectedPlacementId={selectedPlacement?.id ?? null}
             onSelectPlacement={handleSelectPlacement}
+            onDropAtCell={handleDropAtCell}
           />
+          {dndError && (
+            <div
+              style={{
+                marginTop: "0.4rem",
+                padding: "0.3rem 0.5rem",
+                background: "#fff0f0",
+                border: "1px solid #f88",
+                color: "#b00",
+                borderRadius: 3,
+                fontSize: "0.78rem",
+              }}
+            >
+              Drop failed: {dndError}
+            </div>
+          )}
 
           <h3 style={{ ...common.h3, marginTop: "1.25rem" }}>
             Add Placement
