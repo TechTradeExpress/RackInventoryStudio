@@ -1,6 +1,21 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test as base, expect, type Page } from "@playwright/test";
 
 const CSV_SNIPPET = "code,device_type,status,name\nCSV-DEV-001,server,planned,CSV Device 001";
+
+// ── Console error guard ────────────────────────────────────────────────────────
+// Override the page fixture so every test automatically fails on unexpected
+// console.error calls. No filtering needed — the mock layer is clean.
+
+const test = base.extend({
+  page: async ({ page }, use) => {
+    const errors: string[] = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "error") errors.push(msg.text());
+    });
+    await use(page);
+    expect(errors, "Unexpected console errors").toHaveLength(0);
+  },
+});
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -13,19 +28,9 @@ async function openFixtureRepo(page: Page) {
   ).toBeEnabled({ timeout: 6_000 });
 }
 
-/** Register a console-error listener; returns a getter for the collected list. */
-function collectErrors(page: Page): () => string[] {
-  const errors: string[] = [];
-  page.on("console", (msg) => {
-    if (msg.type() === "error") errors.push(msg.text());
-  });
-  return () => errors;
-}
-
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
 test("1: app shell loads without console errors", async ({ page }) => {
-  const getErrors = collectErrors(page);
   await page.goto("/");
 
   await expect(
@@ -39,8 +44,7 @@ test("1: app shell loads without console errors", async ({ page }) => {
   await expect(
     page.getByRole("button", { name: "Validation", exact: true }),
   ).toBeDisabled();
-
-  expect(getErrors()).toHaveLength(0);
+  // Console errors are asserted by the page fixture after every test
 });
 
 test("2: open repository enables all tabs", async ({ page }) => {

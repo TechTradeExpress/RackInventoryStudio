@@ -217,9 +217,78 @@ const COMMANDS: Record<string, unknown> = {
   read_csv_file: "",
 };
 
-export function invoke<T>(command: string, _args?: unknown): Promise<T> {
-  if (command in COMMANDS) {
-    return Promise.resolve(COMMANDS[command] as T);
+export function invoke<T>(command: string, args?: unknown): Promise<T> {
+  switch (command) {
+    case "open_repository_cmd": {
+      const { path } = (args ?? {}) as { path?: unknown };
+      if (typeof path !== "string" || path.trim().length === 0) {
+        return Promise.reject(
+          new Error(
+            `[E2E mock] open_repository_cmd: 'path' must be a non-empty string, got: ${JSON.stringify(path)}`,
+          ),
+        );
+      }
+      return Promise.resolve(COMMANDS.open_repository_cmd as T);
+    }
+
+    case "search_repository_cmd": {
+      const { query } = (args ?? {}) as { query?: unknown };
+      if (typeof query !== "string") {
+        return Promise.reject(
+          new Error(
+            `[E2E mock] search_repository_cmd: 'query' must be a string, got: ${JSON.stringify(query)}`,
+          ),
+        );
+      }
+      // Short queries return no results (mirrors real backend minimum-length guard).
+      if (query.trim().length < 2) {
+        return Promise.resolve([] as unknown as T);
+      }
+      return Promise.resolve(COMMANDS.search_repository_cmd as T);
+    }
+
+    case "preview_device_csv_import_cmd": {
+      const { csvContent } = (args ?? {}) as { csvContent?: unknown };
+      if (typeof csvContent !== "string" || csvContent.trim().length === 0) {
+        return Promise.reject(
+          new Error(
+            `[E2E mock] preview_device_csv_import_cmd: 'csvContent' must be a non-empty string`,
+          ),
+        );
+      }
+      return Promise.resolve(COMMANDS.preview_device_csv_import_cmd as T);
+    }
+
+    case "import_device_csv_cmd": {
+      const { csvContent } = (args ?? {}) as { csvContent?: unknown };
+      if (typeof csvContent !== "string" || csvContent.trim().length === 0) {
+        return Promise.reject(
+          new Error(
+            `[E2E mock] import_device_csv_cmd: 'csvContent' must be a non-empty string`,
+          ),
+        );
+      }
+      return Promise.resolve(COMMANDS.import_device_csv_cmd as T);
+    }
+
+    case "read_csv_file": {
+      // Native file picker is not tested; always return empty string.
+      // Reject if path argument is provided but is not a string (likely a bug in the caller).
+      const { path } = (args ?? {}) as { path?: unknown };
+      if (path !== undefined && typeof path !== "string") {
+        return Promise.reject(
+          new Error(
+            `[E2E mock] read_csv_file: 'path' must be a string if provided, got: ${JSON.stringify(path)}`,
+          ),
+        );
+      }
+      return Promise.resolve(COMMANDS.read_csv_file as T);
+    }
+
+    default:
+      if (command in COMMANDS) {
+        return Promise.resolve(COMMANDS[command] as T);
+      }
+      return Promise.reject(new Error(`[E2E mock] Unhandled command: ${command}`));
   }
-  return Promise.reject(new Error(`[E2E mock] Unhandled command: ${command}`));
 }
