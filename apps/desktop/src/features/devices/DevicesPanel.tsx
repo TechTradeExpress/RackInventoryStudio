@@ -232,6 +232,12 @@ export function DevicesPanel({
     }
   }
 
+  useEffect(() => {
+    if (!highlightedDeviceId || devices.length === 0) return;
+    const el = document.querySelector(`[data-dev-id="${highlightedDeviceId}"]`);
+    el?.scrollIntoView({ block: "center" });
+  }, [highlightedDeviceId, devices]);
+
   const isEditing = editingId !== null;
 
   return (
@@ -261,6 +267,7 @@ export function DevicesPanel({
             {devices.map((dev) => (
               <tr
                 key={dev.id}
+                data-dev-id={dev.id}
                 style={
                   dev.id === highlightedDeviceId
                     ? { background: "#fff8c5" }

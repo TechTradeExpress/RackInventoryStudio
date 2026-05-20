@@ -184,6 +184,12 @@ export function DeviceModelsPanel({
     }
   }
 
+  useEffect(() => {
+    if (!highlightedDeviceModelId || models.length === 0) return;
+    const el = document.querySelector(`[data-model-id="${highlightedDeviceModelId}"]`);
+    el?.scrollIntoView({ block: "center" });
+  }, [highlightedDeviceModelId, models]);
+
   const isEditing = editingId !== null;
 
   return (
@@ -210,6 +216,7 @@ export function DeviceModelsPanel({
             {models.map((m) => (
               <tr
                 key={m.id}
+                data-model-id={m.id}
                 style={
                   m.id === highlightedDeviceModelId
                     ? { background: "#fff8c5" }
