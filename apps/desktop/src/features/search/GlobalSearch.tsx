@@ -22,9 +22,11 @@ interface Props {
   onNavigate: (event: SearchNavigationEvent) => void;
   /** Increment this token whenever repository data mutates to trigger a re-search. */
   refreshKey?: number;
+  /** When true, the container fills its parent width instead of fixed 320px. */
+  fullWidth?: boolean;
 }
 
-export function GlobalSearch({ onNavigate, refreshKey }: Props) {
+export function GlobalSearch({ onNavigate, refreshKey, fullWidth }: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResultDto[]>([]);
   const [open, setOpen] = useState(false);
@@ -155,7 +157,7 @@ export function GlobalSearch({ onNavigate, refreshKey }: Props) {
   }
 
   return (
-    <div ref={containerRef} style={styles.container}>
+    <div ref={containerRef} style={fullWidth ? { ...styles.container, width: "100%" } : styles.container}>
       <div style={styles.inputWrapper}>
         <input
           ref={inputRef}

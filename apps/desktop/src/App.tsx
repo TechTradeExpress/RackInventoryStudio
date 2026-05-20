@@ -14,7 +14,6 @@ import {
   getRecentRepositories,
   removeRecentRepository,
 } from "./features/repository/recentRepositories";
-import { TabBar } from "./components/TabBar";
 import { RepositoryPanel } from "./features/repository/RepositoryPanel";
 import { ValidationPanel } from "./features/validation/ValidationPanel";
 import { LocationsPanel } from "./features/locations/LocationsPanel";
@@ -26,7 +25,20 @@ import {
   GlobalSearch,
   type SearchNavigationEvent,
 } from "./features/search/GlobalSearch";
-import { common } from "./lib/styles";
+import {
+  IcFolder,
+  IcCheckCircle,
+  IcMapPin,
+  IcServer,
+  IcBox,
+  IcLayers,
+  IcUpload,
+  IcSearch,
+  IcAlertTriangle,
+  IcSave,
+  IcAlertCircle,
+  IcGitBranch,
+} from "./components/ui/Icon";
 import type { ValidationNavigationTarget } from "./features/validation/navigation";
 
 type Tab =
@@ -50,7 +62,6 @@ export function App() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [repositoryMutationToken, setRepositoryMutationToken] = useState(0);
 
-  // Navigation highlights set from validation drill-down
   const [highlightedLocationId, setHighlightedLocationId] = useState<string | null>(null);
   const [highlightedDeviceId, setHighlightedDeviceId] = useState<string | null>(null);
   const [highlightedDeviceModelId, setHighlightedDeviceModelId] = useState<string | null>(null);
@@ -83,10 +94,7 @@ export function App() {
       case "racks":
         setActiveTab("racks");
         if (target.rackId) {
-          setPendingRackNavTarget({
-            rackId: target.rackId,
-            placementId: target.placementId,
-          });
+          setPendingRackNavTarget({ rackId: target.rackId, placementId: target.placementId });
         }
         break;
       case "devices":
@@ -114,10 +122,7 @@ export function App() {
       case "racks":
         setActiveTab("racks");
         if (event.rackId) {
-          setPendingRackNavTarget({
-            rackId: event.rackId,
-            placementId: event.placementId,
-          });
+          setPendingRackNavTarget({ rackId: event.rackId, placementId: event.placementId });
         }
         break;
       case "devices":
@@ -136,9 +141,7 @@ export function App() {
     setWorking(true);
     setError(null);
     try {
-      const result: OpenRepositoryResultDto = await openRepository(
-        repoPath.trim(),
-      );
+      const result: OpenRepositoryResultDto = await openRepository(repoPath.trim());
       setSummary(result.summary);
       setValidationSummary(result.validation_summary);
       setSelectedRack(null);
@@ -184,9 +187,7 @@ export function App() {
   async function handleClose() {
     if (
       hasUnsavedChanges &&
-      !confirm(
-        "You have unsaved in-memory changes. Close anyway? Changes not saved to disk will be lost.",
-      )
+      !confirm("You have unsaved in-memory changes. Close anyway? Changes not saved to disk will be lost.")
     ) {
       return;
     }
@@ -211,154 +212,248 @@ export function App() {
     }
   }
 
-  const tabs = [
-    { id: "repository", label: "Repository" },
-    { id: "validation", label: "Validation", disabled: !isOpen },
-    { id: "locations", label: "Locations", disabled: !isOpen },
-    { id: "racks", label: "Racks", disabled: !isOpen },
-    { id: "devices", label: "Devices", disabled: !isOpen },
-    { id: "device_models", label: "Device Models", disabled: !isOpen },
-    { id: "csv_import", label: "CSV Import", disabled: !isOpen },
-  ];
+  function navItem(tab: Tab, icon: React.ReactNode, label: string, badge?: React.ReactNode) {
+    const disabled = !isOpen && tab !== "repository";
+    const active = activeTab === tab;
+    return (
+      <div
+        key={tab}
+        className={`nav-item${active ? " active" : ""}${disabled ? " nav-disabled" : ""}`}
+        onClick={() => { if (!disabled) setActiveTab(tab); }}
+        role="button"
+        tabIndex={disabled ? -1 : 0}
+        onKeyDown={(e) => { if (!disabled && (e.key === "Enter" || e.key === " ")) setActiveTab(tab); }}
+        aria-label={label}
+        aria-current={active ? "page" : undefined}
+      >
+        <span className="nav-ic">{icon}</span>
+        <span>{label}</span>
+        {badge}
+      </div>
+    );
+  }
+
+  const warnCount = validationSummary?.warnings ?? 0;
+  const errCount  = validationSummary?.errors ?? 0;
+  const valBadge = isOpen
+    ? errCount > 0
+      ? <span className="nav-count nc-err">{errCount}</span>
+      : warnCount > 0
+        ? <span className="nav-count nc-warn">{warnCount}</span>
+        : null
+    : null;
 
   return (
-    <main style={styles.main}>
-      <h1 style={{ margin: "0 0 1rem" }}>Rack Inventory Studio</h1>
-
-      {working && <p style={common.working}>Working…</p>}
-
-      {error && (
-        <div style={common.errorBox}>
-          <strong>Error:</strong> {error}
+    <div className="app">
+      {/* Titlebar */}
+      <div className="titlebar">
+        <div className="brand">
+          <span className="glyph"><i /></span>
+          <span>Rack Inventory Studio</span>
         </div>
-      )}
-
-      {hasUnsavedChanges && (
-        <div style={styles.unsavedBanner}>
-          <strong>Unsaved inventory changes</strong> — data modified in memory,
-          not yet written to YAML files. Use{" "}
-          <strong>Save repository</strong> in the Repository tab to persist
-          changes to disk.{" "}
-          <span style={{ opacity: 0.75 }}>
-            (This is separate from Git — save to disk first, then commit to Git.)
-          </span>
+        <div className="repo-pill">
+          {isOpen ? (
+            <>
+              <IcFolder size={12} />
+              <span className="repo-name">{summary.repository_name}</span>
+              <span className="sep">·</span>
+              <span className="mono" style={{ fontSize: 11, color: "var(--tx-3)" }}>
+                {summary.repository_code}
+              </span>
+              {hasUnsavedChanges && (
+                <>
+                  <span className="sep">·</span>
+                  <span style={{ color: "var(--st-warn-tx)", fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}>
+                    <IcAlertTriangle size={11} /> unsaved
+                  </span>
+                </>
+              )}
+              {validationSummary && errCount > 0 && (
+                <>
+                  <span className="sep">·</span>
+                  <span style={{ color: "var(--st-err-tx)", fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}>
+                    <IcAlertCircle size={11} /> {errCount} error{errCount !== 1 ? "s" : ""}
+                  </span>
+                </>
+              )}
+            </>
+          ) : (
+            <span style={{ color: "var(--tx-4)", fontSize: 12 }}>No repository open</span>
+          )}
         </div>
-      )}
+      </div>
 
-      {isOpen && (
-        <div style={styles.searchBar}>
-          <GlobalSearch
-            onNavigate={handleNavigateFromSearch}
-            refreshKey={repositoryMutationToken}
-          />
-        </div>
-      )}
+      {/* Body */}
+      <div className="body">
+        <aside className="rail">
+          {/* Search */}
+          <div className="rail-search">
+            {isOpen ? (
+              <GlobalSearch
+                onNavigate={handleNavigateFromSearch}
+                refreshKey={repositoryMutationToken}
+                fullWidth
+              />
+            ) : (
+              <>
+                <span className="search-icon"><IcSearch size={13} /></span>
+                <input
+                  className="ri-input"
+                  style={{ width: "100%", height: 28, paddingLeft: 26, fontSize: 12 }}
+                  placeholder="Search…"
+                  disabled
+                />
+              </>
+            )}
+          </div>
 
-      <TabBar
-        tabs={tabs}
-        active={activeTab}
-        onChange={(id) => setActiveTab(id as Tab)}
-      />
+          {/* Nav */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "4px 0 8px" }}>
+            <div className="nav-section">Workspace</div>
+            {navItem("repository",   <IcFolder size={13} />,       "Repository")}
+            {navItem("validation",   <IcCheckCircle size={13} />,  "Validation",   valBadge)}
 
-      {activeTab === "repository" && (
-        <RepositoryPanel
-          repoPath={repoPath}
-          onRepoPathChange={setRepoPath}
-          onOpen={handleOpen}
-          onBrowse={handleBrowse}
-          onClose={handleClose}
-          working={working}
-          summary={summary}
-          validationSummary={validationSummary}
-          recentRepos={recentRepos}
-          onRemoveRecentRepo={(path) => {
-            removeRecentRepository(path);
-            setRecentRepos(getRecentRepositories());
-          }}
-          hasUnsavedChanges={hasUnsavedChanges}
-          onSaveSuccess={() => setHasUnsavedChanges(false)}
-          onPullSuccess={(s) => setSummary(s)}
-          onPullRunning={(v) => setWorking(v)}
-          onCreateSuccess={handleCreateSuccess}
-        />
-      )}
+            <div className="nav-section">Inventory</div>
+            {navItem("locations",    <IcMapPin size={13} />,        "Locations")}
+            {navItem("racks",        <IcServer size={13} />,        "Racks")}
+            {navItem("devices",      <IcBox size={13} />,           "Devices",
+              isOpen && summary.unplaced_devices_count > 0
+                ? <span className="nav-count nc-warn">{summary.unplaced_devices_count}</span>
+                : undefined
+            )}
+            {navItem("device_models",<IcLayers size={13} />,        "Device Models")}
 
-      {activeTab === "validation" && isOpen && (
-        <ValidationPanel
-          working={working}
-          setWorking={setWorking}
-          setError={setError}
-          onSaveSuccess={() => setHasUnsavedChanges(false)}
-          onNavigate={handleNavigateFromValidation}
-        />
-      )}
+            <div className="nav-section">Data</div>
+            {navItem("csv_import",   <IcUpload size={13} />,        "CSV Import")}
+          </div>
 
-      {activeTab === "locations" && isOpen && (
-        <LocationsPanel
-          repoPath={summary.repo_path}
-          highlightedLocationId={highlightedLocationId}
-          onRepositoryMutated={handleRepositoryMutated}
-        />
-      )}
+          {/* Repo card */}
+          {isOpen && (
+            <div className="repo-card">
+              <div className="rc-label">Current repo</div>
+              <div className="rc-name">{summary.repository_name}</div>
+              <div className="rc-path">{summary.repo_path}</div>
+            </div>
+          )}
+        </aside>
 
-      {activeTab === "racks" && isOpen && (
-        <RacksPanel
-          repoPath={summary.repo_path}
-          selectedRackId={selectedRack?.id ?? null}
-          onSelectRack={setSelectedRack}
-          mutationToken={repositoryMutationToken}
-          pendingRackNavTarget={pendingRackNavTarget}
-          onRackNavTargetConsumed={() => setPendingRackNavTarget(null)}
-          onRepositoryMutated={handleRepositoryMutated}
-        />
-      )}
+        <main className="main">
+          {/* Working indicator */}
+          {working && (
+            <div style={{ padding: "6px 16px", fontSize: 12, color: "var(--tx-3)", fontStyle: "italic", borderBottom: "1px solid var(--bd-1)", background: "var(--bg-surface)" }}>
+              Working…
+            </div>
+          )}
 
-      {activeTab === "devices" && isOpen && (
-        <DevicesPanel
-          repoPath={summary.repo_path}
-          mutationToken={repositoryMutationToken}
-          highlightedDeviceId={highlightedDeviceId}
-          onRepositoryMutated={handleRepositoryMutated}
-        />
-      )}
+          {/* Global error */}
+          {error && (
+            <div style={{ margin: "12px 16px", padding: "8px 12px", background: "var(--st-err-bg)", border: "1px solid var(--st-err-bd)", color: "var(--st-err-tx)", borderRadius: 4, fontSize: 12 }}>
+              <strong>Error:</strong> {error}
+            </div>
+          )}
 
-      {activeTab === "device_models" && isOpen && (
-        <DeviceModelsPanel
-          repoPath={summary.repo_path}
-          mutationToken={repositoryMutationToken}
-          highlightedDeviceModelId={highlightedDeviceModelId}
-          onRepositoryMutated={handleRepositoryMutated}
-        />
-      )}
+          {/* Unsaved changes callout bar */}
+          {hasUnsavedChanges && (
+            <div className="callout-bar">
+              <IcAlertTriangle size={14} />
+              <span>
+                <strong>Unsaved inventory changes</strong> — data modified in memory, not yet written to YAML files.
+                {activeTab !== "repository" && (
+                  <> Use <strong>Save repository</strong> in the Repository tab.</>
+                )}
+              </span>
+              {activeTab !== "repository" && (
+                <div className="cb-actions">
+                  <button
+                    className="btn btn-sm"
+                    onClick={() => setActiveTab("repository")}
+                  >
+                    <IcSave size={11} /> Go to Repository
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
-      {activeTab === "csv_import" && isOpen && (
-        <CsvImportPanel
-          onRepositoryMutated={handleRepositoryMutated}
-        />
-      )}
-    </main>
+          {/* Panel content */}
+          {activeTab === "repository" && (
+            <RepositoryPanel
+              repoPath={repoPath}
+              onRepoPathChange={setRepoPath}
+              onOpen={handleOpen}
+              onBrowse={handleBrowse}
+              onClose={handleClose}
+              working={working}
+              summary={summary}
+              validationSummary={validationSummary}
+              recentRepos={recentRepos}
+              onRemoveRecentRepo={(path) => {
+                removeRecentRepository(path);
+                setRecentRepos(getRecentRepositories());
+              }}
+              hasUnsavedChanges={hasUnsavedChanges}
+              onSaveSuccess={() => setHasUnsavedChanges(false)}
+              onPullSuccess={(s) => setSummary(s)}
+              onPullRunning={(v) => setWorking(v)}
+              onCreateSuccess={handleCreateSuccess}
+            />
+          )}
+
+          {activeTab === "validation" && isOpen && (
+            <ValidationPanel
+              working={working}
+              setWorking={setWorking}
+              setError={setError}
+              onSaveSuccess={() => setHasUnsavedChanges(false)}
+              onNavigate={handleNavigateFromValidation}
+            />
+          )}
+
+          {activeTab === "locations" && isOpen && (
+            <LocationsPanel
+              repoPath={summary.repo_path}
+              highlightedLocationId={highlightedLocationId}
+              onRepositoryMutated={handleRepositoryMutated}
+            />
+          )}
+
+          {activeTab === "racks" && isOpen && (
+            <RacksPanel
+              repoPath={summary.repo_path}
+              selectedRackId={selectedRack?.id ?? null}
+              onSelectRack={setSelectedRack}
+              mutationToken={repositoryMutationToken}
+              pendingRackNavTarget={pendingRackNavTarget}
+              onRackNavTargetConsumed={() => setPendingRackNavTarget(null)}
+              onRepositoryMutated={handleRepositoryMutated}
+            />
+          )}
+
+          {activeTab === "devices" && isOpen && (
+            <DevicesPanel
+              repoPath={summary.repo_path}
+              mutationToken={repositoryMutationToken}
+              highlightedDeviceId={highlightedDeviceId}
+              onRepositoryMutated={handleRepositoryMutated}
+            />
+          )}
+
+          {activeTab === "device_models" && isOpen && (
+            <DeviceModelsPanel
+              repoPath={summary.repo_path}
+              mutationToken={repositoryMutationToken}
+              highlightedDeviceModelId={highlightedDeviceModelId}
+              onRepositoryMutated={handleRepositoryMutated}
+            />
+          )}
+
+          {activeTab === "csv_import" && isOpen && (
+            <CsvImportPanel
+              onRepositoryMutated={handleRepositoryMutated}
+            />
+          )}
+        </main>
+      </div>
+    </div>
   );
 }
-
-const styles = {
-  main: {
-    fontFamily: "monospace",
-    padding: "1.25rem",
-    maxWidth: "960px",
-    margin: "0 auto",
-  },
-  unsavedBanner: {
-    marginBottom: "0.6rem",
-    padding: "0.35rem 0.75rem",
-    background: "#fff8e1",
-    border: "1px solid #f5c800",
-    borderRadius: 3,
-    fontSize: "0.82rem",
-    color: "#7a5800",
-  },
-  searchBar: {
-    marginBottom: "0.5rem",
-    display: "flex",
-    justifyContent: "flex-end",
-  },
-};
