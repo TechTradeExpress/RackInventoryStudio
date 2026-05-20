@@ -1,5 +1,4 @@
 import { FormEvent, useState } from "react";
-import { common } from "../../lib/styles";
 import {
   importDeviceCsv,
   previewDeviceCsvImport,
@@ -8,6 +7,11 @@ import {
   type CsvImportPreviewDto,
   type CsvImportPreviewRowDto,
 } from "../../api/tauriClient";
+import { PageHeader } from "../../components/ui/PageHeader";
+import { Panel } from "../../components/ui/Panel";
+import { Badge } from "../../components/ui/Badge";
+import { Banner } from "../../components/ui/Banner";
+import { IcRefresh, IcDownload, IcFolder, IcX } from "../../components/ui/Icon";
 
 function fileName(path: string): string {
   return path.split(/[\\/]/).pop() ?? path;
@@ -24,27 +28,45 @@ function hasErrors(preview: CsvImportPreviewDto): boolean {
   );
 }
 
+function rowBadge(row: CsvImportPreviewRowDto) {
+  if (row.action === "skip_due_to_error") return <Badge tone="err" dot>skip</Badge>;
+  if (row.issues.some((i) => i.level === "warning")) return <Badge tone="warn" dot>create</Badge>;
+  return <Badge tone="ok" dot>create</Badge>;
+}
+
 function issueText(row: CsvImportPreviewRowDto): string {
   if (row.issues.length === 0) return "";
-  const errors = row.issues.filter((i) => i.level === "error");
-  const warnings = row.issues.filter((i) => i.level === "warning");
+  const errs  = row.issues.filter((i) => i.level === "error").length;
+  const warns = row.issues.filter((i) => i.level === "warning").length;
   const parts: string[] = [];
-  if (errors.length > 0) parts.push(`${errors.length} error${errors.length > 1 ? "s" : ""}`);
-  if (warnings.length > 0)
-    parts.push(`${warnings.length} warning${warnings.length > 1 ? "s" : ""}`);
+  if (errs  > 0) parts.push(`${errs} error${errs  > 1 ? "s" : ""}`);
+  if (warns > 0) parts.push(`${warns} warning${warns > 1 ? "s" : ""}`);
   return parts.join(", ");
 }
 
+function SummaryRow({ tone, label, value, desc }: { tone: "ok" | "warn" | "err"; label: string; value: number; desc: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <span className={`status-dot ${tone}`} />
+      <div className="grow">
+        <div style={{ fontWeight: 600, fontSize: 13 }}>{label}</div>
+        <div style={{ color: "var(--tx-3)", fontSize: 11 }}>{desc}</div>
+      </div>
+      <div style={{ fontSize: 22, fontWeight: 600, color: `var(--st-${tone}-tx)` }}>{value}</div>
+    </div>
+  );
+}
+
 export function CsvImportPanel({ onRepositoryMutated }: Props) {
-  const [csvContent, setCsvContent] = useState("");
+  const [csvContent, setCsvContent]     = useState("");
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [fileLoading, setFileLoading] = useState(false);
-  const [fileError, setFileError] = useState<string | null>(null);
-  const [preview, setPreview] = useState<CsvImportPreviewDto | null>(null);
-  const [previewing, setPreviewing] = useState(false);
-  const [importing, setImporting] = useState(false);
+  const [fileLoading, setFileLoading]   = useState(false);
+  const [fileError, setFileError]       = useState<string | null>(null);
+  const [preview, setPreview]           = useState<CsvImportPreviewDto | null>(null);
+  const [previewing, setPreviewing]     = useState(false);
+  const [importing, setImporting]       = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
-  const [importError, setImportError] = useState<string | null>(null);
+  const [importError, setImportError]   = useState<string | null>(null);
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
 
   async function handleChooseFile() {
@@ -52,7 +74,7 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
     setFileLoading(true);
     try {
       const path = await selectCsvFile();
-      if (path === null) return; // user cancelled — do nothing
+      if (path === null) return;
       const content = await readCsvFile(path);
       setSelectedFile(path);
       setCsvContent(content);
@@ -73,10 +95,8 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
 
   async function handlePreview(e: FormEvent) {
     e.preventDefault();
-    setPreview(null);
-    setPreviewError(null);
-    setImportError(null);
-    setImportSuccess(null);
+    setPreview(null); setPreviewError(null);
+    setImportError(null); setImportSuccess(null);
     setPreviewing(true);
     try {
       const result = await previewDeviceCsvImport(csvContent);
@@ -90,21 +110,16 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
 
   async function handleImport() {
     if (!preview || hasErrors(preview)) return;
-    setImportError(null);
-    setImportSuccess(null);
+    setImportError(null); setImportSuccess(null);
     setImporting(true);
     try {
       const result = await importDeviceCsv(csvContent);
       onRepositoryMutated();
       setImportSuccess(
         `Import complete: ${result.created_count} device${result.created_count !== 1 ? "s" : ""} created.` +
-          (result.warning_count > 0
-            ? ` (${result.warning_count} warning${result.warning_count > 1 ? "s" : ""})`
-            : ""),
+        (result.warning_count > 0 ? ` (${result.warning_count} warning${result.warning_count > 1 ? "s" : ""})` : ""),
       );
-      setPreview(null);
-      setCsvContent("");
-      setSelectedFile(null);
+      setPreview(null); setCsvContent(""); setSelectedFile(null);
     } catch (e) {
       setImportError(String(e));
     } finally {
@@ -112,379 +127,199 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
     }
   }
 
-  const blocked = preview !== null && hasErrors(preview);
+  const blocked      = preview !== null && hasErrors(preview);
+  const okRows       = preview?.rows.filter((r) => r.action !== "skip_due_to_error").length ?? 0;
+  const warnRows     = preview?.rows.filter((r) => r.action !== "skip_due_to_error" && r.issues.some((i) => i.level === "warning")).length ?? 0;
+  const errRows      = preview?.rows.filter((r) => r.action === "skip_due_to_error").length ?? 0;
+  const totalRows    = preview?.rows.length ?? 0;
 
   return (
-    <section style={common.section}>
-      <h2 style={common.h2}>CSV Import</h2>
+    <>
+      <PageHeader
+        title="CSV Import"
+        subtitle="Import new Device records from a CSV file. Placements and Device Models are not imported."
+      />
+      <div className="page-content">
+        <div className="cols-sidebar">
+          <div className="stack-4">
+            {/* Source panel */}
+            <Panel title="Source" desc="Pick a CSV file or paste contents.">
+              <form onSubmit={handlePreview} className="stack-3">
+                <div>
+                  <label className="eyebrow" style={{ marginBottom: 6, display: "block" }}>File</label>
+                  <div className="row" style={{ gap: 6 }}>
+                    <div className="input-group" style={{ flex: 1 }}>
+                      <input
+                        className="ri-input"
+                        style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}
+                        value={selectedFile ? fileName(selectedFile) : ""}
+                        readOnly
+                        placeholder="No file selected"
+                      />
+                      <button
+                        type="button"
+                        className="btn"
+                        onClick={handleChooseFile}
+                        disabled={fileLoading || previewing || importing}
+                      >
+                        <IcFolder size={12} /> {fileLoading ? "Loading…" : "Browse…"}
+                      </button>
+                    </div>
+                    {selectedFile && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-icon"
+                        onClick={handleClearFile}
+                        disabled={fileLoading || previewing || importing}
+                        title="Clear file"
+                      >
+                        <IcX size={12} />
+                      </button>
+                    )}
+                  </div>
+                  {fileError && (
+                    <div style={{ marginTop: 6 }}>
+                      <Banner tone="err">{fileError}</Banner>
+                    </div>
+                  )}
+                </div>
 
-      <p style={common.hint}>
-        Import new concrete Device records from CSV. Choose a CSV file using
-        the button below, or paste the CSV content directly into the text area.
-        Placements and Device Models are not imported.
-      </p>
-      <p style={styles.formatHint}>
-        Expected columns:{" "}
-        <code>
-          code, device_type, name, device_model_code, serial_number, asset_tag,
-          external_ref, status, tags
-        </code>
-        <br />
-        Required: <code>code</code>, <code>device_type</code>,{" "}
-        <code>status</code>. Tags use <code>;</code> as separator.
-      </p>
+                <div className="hr" style={{ margin: 0 }} />
 
-      <form onSubmit={handlePreview} style={styles.form}>
-        <div style={styles.filePickerRow}>
-          <button
-            type="button"
-            style={common.btn}
-            onClick={handleChooseFile}
-            disabled={fileLoading || previewing || importing}
-          >
-            {fileLoading ? "Loading…" : "Choose CSV file…"}
-          </button>
-          {selectedFile && (
-            <>
-              <span style={styles.selectedFile}>{fileName(selectedFile)}</span>
-              <button
-                type="button"
-                style={styles.clearBtn}
-                onClick={handleClearFile}
-                disabled={fileLoading || previewing || importing}
-              >
-                Clear
-              </button>
-            </>
-          )}
-        </div>
-        {fileError && (
-          <div style={common.errorBox}>{fileError}</div>
-        )}
+                <div>
+                  <label className="eyebrow" style={{ marginBottom: 4, display: "block" }}>Or paste CSV content</label>
+                  <p style={{ fontSize: 11, color: "var(--tx-3)", margin: "0 0 6px" }}>
+                    Comma-separated. Use <span className="code">;</span> as separator inside tags column.
+                  </p>
+                  <textarea
+                    className="ri-input"
+                    style={{ width: "100%", fontFamily: "var(--font-mono)", fontSize: 11.5, resize: "vertical" }}
+                    rows={6}
+                    value={csvContent}
+                    placeholder={"code,device_type,status,name\nsrv-new,server,planned,New Server"}
+                    onChange={(e) => {
+                      setCsvContent(e.target.value);
+                      setPreview(null); setImportSuccess(null); setImportError(null);
+                    }}
+                    disabled={previewing || importing}
+                  />
+                </div>
 
-        <div style={styles.fieldRow}>
-          <label style={styles.label}>CSV Content</label>
-          <textarea
-            value={csvContent}
-            onChange={(e) => {
-              setCsvContent(e.target.value);
-              setPreview(null);
-              setImportSuccess(null);
-              setImportError(null);
-            }}
-            style={styles.textarea}
-            placeholder={"code,device_type,status,name\nsrv-new,server,planned,New Server"}
-            disabled={previewing || importing}
-            rows={8}
-          />
-        </div>
+                {previewError && <Banner tone="err">{previewError}</Banner>}
 
-        {previewError && <div style={common.errorBox}>{previewError}</div>}
-
-        <div style={styles.buttonRow}>
-          <button
-            type="submit"
-            disabled={!csvContent.trim() || previewing || importing}
-            style={common.btn}
-          >
-            {previewing ? "Previewing…" : "Preview"}
-          </button>
-          <button
-            type="button"
-            onClick={handleImport}
-            disabled={!preview || blocked || previewing || importing}
-            style={blocked ? styles.btnDisabled : common.btn}
-          >
-            {importing ? "Importing…" : "Import valid devices"}
-          </button>
-        </div>
-
-        {blocked && (
-          <div style={styles.blockedBanner}>
-            Import is blocked: fix all errors before importing.
-          </div>
-        )}
-
-        {importError && <div style={common.errorBox}>{importError}</div>}
-        {importSuccess && <div style={styles.successBox}>{importSuccess}</div>}
-      </form>
-
-      {preview && (
-        <div style={styles.previewSection}>
-          <h3 style={common.h3}>Preview</h3>
-
-          <div style={styles.summaryGrid}>
-            <span style={styles.summaryLabel}>Total rows</span>
-            <span>{preview.summary.total_rows}</span>
-            <span style={styles.summaryLabel}>Valid rows</span>
-            <span style={preview.summary.valid_rows > 0 ? styles.ok : undefined}>
-              {preview.summary.valid_rows}
-            </span>
-            <span style={styles.summaryLabel}>Error rows</span>
-            <span
-              style={
-                preview.summary.error_rows > 0 ? styles.errorText : undefined
-              }
-            >
-              {preview.summary.error_rows}
-            </span>
-            <span style={styles.summaryLabel}>Warnings</span>
-            <span
-              style={
-                preview.summary.warning_count > 0
-                  ? styles.warnText
-                  : undefined
-              }
-            >
-              {preview.summary.warning_count}
-            </span>
-          </div>
-
-          {preview.file_issues.length > 0 && (
-            <div style={styles.fileIssuesSection}>
-              <strong style={styles.fileIssuesTitle}>File-level issues</strong>
-              <ul style={styles.issueList}>
-                {preview.file_issues.map((iss, idx) => (
-                  <li
-                    key={idx}
-                    style={
-                      iss.level === "error" ? styles.errorText : styles.warnText
-                    }
+                <div className="row">
+                  <button
+                    type="submit"
+                    className="btn"
+                    disabled={!csvContent.trim() || previewing || importing}
                   >
-                    [{iss.level.toUpperCase()}] {iss.message}
-                    {iss.details ? ` (${iss.details})` : ""}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+                    <IcRefresh size={12} /> {previewing ? "Previewing…" : "Preview"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={handleImport}
+                    disabled={!preview || blocked || previewing || importing}
+                  >
+                    <IcDownload size={12} /> {importing ? "Importing…" : `Import ${okRows + warnRows} row${okRows + warnRows !== 1 ? "s" : ""}`}
+                  </button>
+                </div>
 
-          {preview.rows.length > 0 && (
-            <div style={styles.tableWrapper}>
-              <table style={common.table}>
-                <thead>
-                  <tr>
-                    {[
-                      "Row",
-                      "Code",
-                      "Type",
-                      "Model",
-                      "Serial",
-                      "Asset Tag",
-                      "Status",
-                      "Action",
-                      "Issues",
-                    ].map((h) => (
-                      <th key={h} style={common.th}>
-                        {h}
-                      </th>
+                {blocked && <Banner tone="err">Import is blocked — fix all errors before importing.</Banner>}
+                {importError && <Banner tone="err">{importError}</Banner>}
+                {importSuccess && <Banner tone="ok">{importSuccess}</Banner>}
+              </form>
+            </Panel>
+
+            {/* Preview panel */}
+            {preview && (
+              <Panel
+                title="Preview"
+                desc={`${totalRows} rows · ${okRows} ready · ${warnRows} warning · ${errRows} skipped`}
+                flush
+              >
+                {preview.file_issues.length > 0 && (
+                  <div style={{ padding: "8px 12px", borderBottom: "1px solid var(--bd-1)" }}>
+                    {preview.file_issues.map((iss, idx) => (
+                      <Banner key={idx} tone={iss.level === "error" ? "err" : "warn"}>
+                        {iss.message}{iss.details ? ` (${iss.details})` : ""}
+                      </Banner>
                     ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {preview.rows.map((row) => {
-                    const isError = row.action === "skip_due_to_error";
-                    const rowStyle = isError
-                      ? { background: "#fff0f0" }
-                      : undefined;
-                    return (
-                      <tr key={row.row_number} style={rowStyle}>
-                        <td style={common.td}>{row.row_number}</td>
-                        <td style={{ ...common.td, fontFamily: "monospace" }}>
-                          {row.code ?? ""}
+                  </div>
+                )}
+                <table className="tbl">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 36 }}>#</th>
+                      <th style={{ width: 80 }}>Status</th>
+                      <th className="tbl-mono">Code</th>
+                      <th>Type</th>
+                      <th>Name</th>
+                      <th className="tbl-mono">Model</th>
+                      <th className="tbl-mono">Serial</th>
+                      <th>Issues</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.rows.map((row) => (
+                      <tr key={row.row_number}>
+                        <td className="tbl-mono" style={{ color: "var(--tx-3)" }}>{row.row_number}</td>
+                        <td>{rowBadge(row)}</td>
+                        <td className="tbl-mono">
+                          {row.code ?? <span style={{ color: "var(--st-err-tx)" }}>—</span>}
                         </td>
-                        <td style={common.td}>{row.device_type ?? ""}</td>
-                        <td
-                          style={{ ...common.td, fontFamily: "monospace" }}
-                        >
-                          {row.device_model_code ?? ""}
-                        </td>
-                        <td
-                          style={{ ...common.td, fontFamily: "monospace" }}
-                        >
-                          {row.serial_number ?? ""}
-                        </td>
-                        <td
-                          style={{ ...common.td, fontFamily: "monospace" }}
-                        >
-                          {row.asset_tag ?? ""}
-                        </td>
-                        <td style={common.td}>{row.status ?? ""}</td>
-                        <td
-                          style={{
-                            ...common.td,
-                            color: isError ? "#b00" : "#2e7d32",
-                            fontWeight: 600,
-                          }}
-                        >
-                          {isError ? "skip" : "create"}
-                        </td>
-                        <td style={{ ...common.td, fontSize: "0.78rem" }}>
+                        <td className="tbl-mono">{row.device_type ?? "—"}</td>
+                        <td>{row.name ?? <span style={{ color: "var(--tx-4)" }}>—</span>}</td>
+                        <td className="tbl-mono">{row.device_model_code ?? "—"}</td>
+                        <td className="tbl-mono">{row.serial_number ?? "—"}</td>
+                        <td style={{ fontSize: 11, color: row.issues.some((i) => i.level === "error") ? "var(--st-err-tx)" : "var(--st-warn-tx)" }}>
                           {issueText(row)}
                         </td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {preview.rows.length > 0 &&
-            preview.rows.some((r) => r.issues.length > 0) && (
-              <div style={styles.rowIssueDetails}>
-                <strong>Row issue details</strong>
-                <ul style={styles.issueList}>
-                  {preview.rows.flatMap((row) =>
-                    row.issues.map((iss, idx) => (
-                      <li
-                        key={`${row.row_number}-${idx}`}
-                        style={
-                          iss.level === "error"
-                            ? styles.errorText
-                            : styles.warnText
-                        }
-                      >
-                        Row {row.row_number} [{iss.level.toUpperCase()}]{" "}
-                        {iss.message}
-                        {iss.details ? ` — ${iss.details}` : ""}
-                      </li>
-                    )),
-                  )}
-                </ul>
-              </div>
+                    ))}
+                  </tbody>
+                </table>
+              </Panel>
             )}
+          </div>
+
+          {/* Sidebar */}
+          <div className="stack-4">
+            <Panel title="Schema">
+              <div className="stack-3">
+                <div>
+                  <div className="eyebrow" style={{ marginBottom: 6 }}>Required columns</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {["code", "device_type", "status"].map((c) => <span key={c} className="tag">{c}</span>)}
+                  </div>
+                </div>
+                <div>
+                  <div className="eyebrow" style={{ marginBottom: 6 }}>Optional columns</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {["name", "device_model_code", "serial_number", "asset_tag", "external_ref", "tags"].map((c) => (
+                      <span key={c} className="tag">{c}</span>
+                    ))}
+                  </div>
+                </div>
+                <p style={{ fontSize: 11, color: "var(--tx-3)", margin: 0, lineHeight: 1.5 }}>
+                  Tags use <span className="code">;</span> as separator.
+                  Duplicate codes are skipped (update-existing is not supported).
+                </p>
+              </div>
+            </Panel>
+
+            {preview && (
+              <Panel title="Outcome">
+                <div className="stack-3">
+                  <SummaryRow tone="ok"   label="Will create" value={okRows + warnRows} desc="Rows pass validation" />
+                  <SummaryRow tone="warn" label="Warnings"    value={warnRows}          desc="Imported but need follow-up" />
+                  <SummaryRow tone="err"  label="Skipped"     value={errRows}           desc="Need fixes in source CSV" />
+                </div>
+              </Panel>
+            )}
+          </div>
         </div>
-      )}
-    </section>
+      </div>
+    </>
   );
 }
-
-const styles = {
-  form: {
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: "0.6rem",
-    maxWidth: "800px",
-  },
-  fieldRow: {
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: "0.2rem",
-  },
-  label: {
-    fontSize: "0.82rem",
-    color: "#555",
-  },
-  textarea: {
-    fontFamily: "monospace",
-    fontSize: "0.85rem",
-    padding: "0.4rem 0.5rem",
-    border: "1px solid #ccc",
-    borderRadius: "3px",
-    resize: "vertical" as const,
-  },
-  buttonRow: {
-    display: "flex",
-    gap: "0.5rem",
-    flexWrap: "wrap" as const,
-  },
-  btnDisabled: {
-    padding: "0.4rem 0.8rem",
-    fontFamily: "monospace",
-    cursor: "not-allowed",
-    border: "1px solid #ccc",
-    borderRadius: "3px",
-    background: "#f4f4f4",
-    color: "#aaa",
-  },
-  blockedBanner: {
-    padding: "0.35rem 0.75rem",
-    background: "#fff0f0",
-    border: "1px solid #f88",
-    borderRadius: 3,
-    fontSize: "0.82rem",
-    color: "#b00",
-  },
-  successBox: {
-    padding: "0.4rem 0.75rem",
-    background: "#f0fff4",
-    border: "1px solid #5cb85c",
-    color: "#2d6a2d",
-    borderRadius: "3px",
-    fontSize: "0.85rem",
-  },
-  formatHint: {
-    margin: "0 0 0.75rem",
-    fontSize: "0.8rem",
-    color: "#555",
-    lineHeight: 1.5,
-  },
-  previewSection: {
-    marginTop: "1.5rem",
-  },
-  summaryGrid: {
-    display: "grid",
-    gridTemplateColumns: "auto auto",
-    gap: "0.15rem 0.75rem",
-    width: "fit-content",
-    marginBottom: "0.75rem",
-    fontSize: "0.85rem",
-  },
-  summaryLabel: {
-    color: "#666",
-  },
-  ok: {
-    color: "#2e7d32",
-    fontWeight: 600,
-  },
-  errorText: {
-    color: "#b00",
-    fontWeight: 600,
-  },
-  warnText: {
-    color: "#7a5800",
-  },
-  fileIssuesSection: {
-    marginBottom: "0.75rem",
-  },
-  fileIssuesTitle: {
-    fontSize: "0.85rem",
-  },
-  issueList: {
-    margin: "0.25rem 0 0",
-    paddingLeft: "1.2rem",
-    fontSize: "0.82rem",
-    lineHeight: 1.6,
-  },
-  tableWrapper: {
-    overflowX: "auto" as const,
-    marginBottom: "0.75rem",
-  },
-  rowIssueDetails: {
-    marginTop: "0.5rem",
-    fontSize: "0.82rem",
-  },
-  filePickerRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: "0.5rem",
-    flexWrap: "wrap" as const,
-    marginBottom: "0.25rem",
-  },
-  selectedFile: {
-    fontFamily: "monospace",
-    fontSize: "0.85rem",
-    color: "#333",
-  },
-  clearBtn: {
-    padding: "0.25rem 0.5rem",
-    fontFamily: "monospace",
-    fontSize: "0.8rem",
-    border: "1px solid #ccc",
-    borderRadius: "3px",
-    background: "#f4f4f4",
-    cursor: "pointer",
-    color: "#555",
-  },
-};

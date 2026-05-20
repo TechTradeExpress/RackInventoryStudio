@@ -1,5 +1,4 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { common } from "../../lib/styles";
 import { parseTags, joinTags } from "../../lib/tags";
 import {
   addLocation,
@@ -8,6 +7,11 @@ import {
   updateLocation,
   type LocationDto,
 } from "../../api/tauriClient";
+import { PageHeader } from "../../components/ui/PageHeader";
+import { Panel } from "../../components/ui/Panel";
+import { Banner } from "../../components/ui/Banner";
+import { EmptyState } from "../../components/ui/EmptyState";
+import { IcPlus, IcEdit, IcTrash, IcMapPin } from "../../components/ui/Icon";
 
 interface Props {
   repoPath: string;
@@ -23,13 +27,7 @@ interface FormState {
   tags: string;
 }
 
-const EMPTY_FORM: FormState = {
-  code: "",
-  name: "",
-  description: "",
-  address: "",
-  tags: "",
-};
+const EMPTY_FORM: FormState = { code: "", name: "", description: "", address: "", tags: "" };
 
 function locationToForm(loc: LocationDto): FormState {
   return {
@@ -47,17 +45,14 @@ export function LocationsPanel({
   onRepositoryMutated,
 }: Props) {
   const [locations, setLocations] = useState<LocationDto[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [error, setError]         = useState<string | null>(null);
+  const [loading, setLoading]     = useState(false);
+  const [showForm, setShowForm]   = useState(false);
+  const [form, setForm]           = useState<FormState>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-
-  // null = add mode; string = edit mode (the id being edited)
-  const [editingId, setEditingId] = useState<string | null>(null);
-
+  const [submitting, setSubmitting]   = useState(false);
+  const [editingId, setEditingId]     = useState<string | null>(null);
   const prevRepoPathRef = useRef<string>("");
 
   useEffect(() => {
@@ -65,12 +60,8 @@ export function LocationsPanel({
     const isRepoSwitch = prevRepoPathRef.current !== repoPath;
     prevRepoPathRef.current = repoPath;
     if (isRepoSwitch) {
-      setLocations([]);
-      setError(null);
-      setForm(EMPTY_FORM);
-      setFormError(null);
-      setFormSuccess(null);
-      setEditingId(null);
+      setLocations([]); setError(null); setForm(EMPTY_FORM);
+      setFormError(null); setFormSuccess(null); setEditingId(null); setShowForm(false);
     }
     setLoading(true);
     listLocations()
@@ -81,32 +72,26 @@ export function LocationsPanel({
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    setFormError(null);
-    setFormSuccess(null);
-
+    setFormError(null); setFormSuccess(null);
     const code = form.code.trim();
     const name = form.name.trim();
     if (!code) { setFormError("Code is required."); return; }
     if (!name) { setFormError("Name is required."); return; }
-
     setSubmitting(true);
     try {
       if (editingId) {
         await updateLocation({
           id: editingId,
-          code,
-          name,
+          code, name,
           description: form.description.trim() || undefined,
           address: form.address.trim() || undefined,
           tags: parseTags(form.tags),
         });
         setFormSuccess(`Location "${code}" updated.`);
-        setEditingId(null);
-        setForm(EMPTY_FORM);
+        setEditingId(null); setForm(EMPTY_FORM); setShowForm(false);
       } else {
         await addLocation({
-          code,
-          name,
+          code, name,
           description: form.description.trim() || undefined,
           address: form.address.trim() || undefined,
           tags: parseTags(form.tags),
@@ -125,59 +110,27 @@ export function LocationsPanel({
   }
 
   function handleEdit(loc: LocationDto) {
-    setEditingId(loc.id);
-    setForm(locationToForm(loc));
-    setFormError(null);
-    setFormSuccess(null);
+    setEditingId(loc.id); setForm(locationToForm(loc));
+    setFormError(null); setFormSuccess(null); setShowForm(true);
   }
 
   function handleCancelEdit() {
-    setEditingId(null);
-    setForm(EMPTY_FORM);
-    setFormError(null);
-    setFormSuccess(null);
+    setEditingId(null); setForm(EMPTY_FORM);
+    setFormError(null); setFormSuccess(null); setShowForm(false);
   }
 
   async function handleDelete(loc: LocationDto) {
     if (!confirm(`Delete location "${loc.name}"? This cannot be undone.`)) return;
-    setFormError(null);
-    setFormSuccess(null);
+    setFormError(null); setFormSuccess(null);
     try {
       await deleteLocation(loc.id);
-      if (editingId === loc.id) {
-        setEditingId(null);
-        setForm(EMPTY_FORM);
-      }
+      if (editingId === loc.id) { setEditingId(null); setForm(EMPTY_FORM); setShowForm(false); }
       const updated = await listLocations();
       setLocations(updated);
       onRepositoryMutated();
     } catch (e) {
       setFormError(String(e));
     }
-  }
-
-  function field(
-    label: string,
-    key: keyof FormState,
-    placeholder?: string,
-    required?: boolean,
-  ) {
-    return (
-      <div style={styles.fieldRow}>
-        <label style={styles.label}>
-          {label}
-          {required && <span style={styles.required}> *</span>}
-        </label>
-        <input
-          style={common.input}
-          value={form[key]}
-          placeholder={placeholder}
-          onChange={(e) =>
-            setForm((f) => ({ ...f, [key]: e.target.value }))
-          }
-        />
-      </div>
-    );
   }
 
   useEffect(() => {
@@ -189,148 +142,125 @@ export function LocationsPanel({
   const isEditing = editingId !== null;
 
   return (
-    <section style={common.section}>
-      <h2 style={common.h2}>Locations</h2>
+    <>
+      <PageHeader
+        title="Locations"
+        subtitle="Physical sites that contain racks."
+        actions={
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              setEditingId(null); setForm(EMPTY_FORM);
+              setFormError(null); setFormSuccess(null); setShowForm(true);
+            }}
+          >
+            <IcPlus size={12} /> Add location
+          </button>
+        }
+      />
+      <div className="page-content stack-4">
+        {loading && <p style={{ fontSize: 12, color: "var(--tx-3)", fontStyle: "italic" }}>Loading…</p>}
+        {error && <Banner tone="err">{error}</Banner>}
 
-      {loading && <p style={common.working}>Loading…</p>}
-      {error && <div style={common.errorBox}>{error}</div>}
+        {!loading && !error && locations.length === 0 && (
+          <EmptyState
+            icon={<IcMapPin size={32} />}
+            title="No locations yet"
+            body="Add a physical location to start building your inventory."
+          />
+        )}
 
-      {!loading && !error && locations.length === 0 && (
-        <p style={common.hint}>No locations found.</p>
-      )}
+        {locations.length > 0 && (
+          <Panel flush title={`${locations.length} location${locations.length !== 1 ? "s" : ""}`}>
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th className="tbl-mono">Code</th>
+                  <th>Name</th>
+                  <th>Address</th>
+                  <th>Description</th>
+                  <th className="tbl-num">Racks</th>
+                  <th>Tags</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {locations.map((loc) => (
+                  <tr
+                    key={loc.id}
+                    data-loc-id={loc.id}
+                    className={loc.id === highlightedLocationId ? "tbl-selected" : undefined}
+                  >
+                    <td className="tbl-mono"><strong>{loc.code}</strong></td>
+                    <td>{loc.name}</td>
+                    <td>{loc.address ?? <span style={{ color: "var(--tx-4)" }}>—</span>}</td>
+                    <td style={{ color: "var(--tx-3)" }}>{loc.description ?? "—"}</td>
+                    <td className="tbl-num tbl-mono">{loc.rack_count}</td>
+                    <td>
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                        {loc.tags.map((t) => <span key={t} className="tag">{t}</span>)}
+                      </div>
+                    </td>
+                    <td className="tbl-actions">
+                      <button className="btn btn-ghost btn-sm btn-icon" title="Edit" onClick={() => handleEdit(loc)}>
+                        <IcEdit size={12} />
+                      </button>
+                      <button
+                        className="btn btn-ghost btn-sm btn-icon"
+                        title="Delete"
+                        onClick={() => handleDelete(loc)}
+                        style={{ color: "var(--st-err-tx)" }}
+                      >
+                        <IcTrash size={12} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Panel>
+        )}
 
-      {locations.length > 0 && (
-        <table style={common.table}>
-          <thead>
-            <tr>
-              {["Code", "Name", "Racks", "Address", "Description", "Actions"].map((h) => (
-                <th key={h} style={common.th}>{h}</th>
+        {showForm && (
+          <Panel title={isEditing ? "Edit Location" : "Add Location"}>
+            <form onSubmit={handleSubmit} className="stack-3" style={{ maxWidth: 480 }}>
+              {([
+                ["Code", "code", "e.g. warsaw-serverroom-a", true],
+                ["Name", "name", "e.g. Warsaw — Server Room A", true],
+                ["Description", "description", "optional"],
+                ["Address", "address", "optional"],
+                ["Tags (comma-separated)", "tags", "e.g. production, warsaw"],
+              ] as [string, keyof FormState, string, boolean?][]).map(([label, key, placeholder, req]) => (
+                <div key={key}>
+                  <label className="eyebrow" style={{ marginBottom: 4, display: "block" }}>
+                    {label}{req && <span style={{ color: "var(--st-err-tx)" }}> *</span>}
+                  </label>
+                  <input
+                    className="ri-input"
+                    style={{ width: "100%" }}
+                    value={form[key]}
+                    placeholder={placeholder}
+                    onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
+                    disabled={submitting}
+                  />
+                </div>
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {locations.map((loc) => (
-              <tr
-                key={loc.id}
-                data-loc-id={loc.id}
-                style={
-                  loc.id === highlightedLocationId
-                    ? { background: "#fff8c5" }
-                    : undefined
-                }
-              >
-                <td style={{ ...common.td, fontFamily: "monospace" }}>{loc.code}</td>
-                <td style={common.td}>{loc.name}</td>
-                <td style={common.td}>{loc.rack_count}</td>
-                <td style={common.td}>{loc.address ?? ""}</td>
-                <td style={common.td}>{loc.description ?? ""}</td>
-                <td style={{ ...common.td, whiteSpace: "nowrap" }}>
-                  <button
-                    style={styles.actionBtn}
-                    onClick={() => handleEdit(loc)}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    style={{ ...styles.actionBtn, ...styles.deleteBtn }}
-                    onClick={() => handleDelete(loc)}
-                  >
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
 
-      <section style={styles.formSection}>
-        <h3 style={common.h3}>{isEditing ? "Edit Location" : "Add Location"}</h3>
-        <form onSubmit={handleSubmit} style={styles.form}>
-          {field("Code", "code", "e.g. warsaw-serverroom-a", true)}
-          {field("Name", "name", "e.g. Warsaw - Server Room A", true)}
-          {field("Description", "description", "optional")}
-          {field("Address", "address", "optional")}
-          {field("Tags", "tags", "comma-separated, e.g. production, warsaw")}
+              {formError && <Banner tone="err">{formError}</Banner>}
+              {formSuccess && <Banner tone="ok">{formSuccess}</Banner>}
 
-          {formError && <div style={common.errorBox}>{formError}</div>}
-          {formSuccess && <div style={styles.successBox}>{formSuccess}</div>}
-
-          <div style={styles.btnRow}>
-            <button type="submit" style={common.btn} disabled={submitting}>
-              {submitting
-                ? isEditing ? "Saving…" : "Adding…"
-                : isEditing ? "Save changes" : "Add location"}
-            </button>
-            {isEditing && (
-              <button
-                type="button"
-                style={{ ...common.btn, ...styles.cancelBtn }}
-                onClick={handleCancelEdit}
-              >
-                Cancel
-              </button>
-            )}
-          </div>
-        </form>
-      </section>
-    </section>
+              <div className="row">
+                <button type="submit" className="btn btn-primary" disabled={submitting}>
+                  {submitting
+                    ? isEditing ? "Saving…" : "Adding…"
+                    : isEditing ? "Save changes" : "Add location"}
+                </button>
+                <button type="button" className="btn" onClick={handleCancelEdit}>Cancel</button>
+              </div>
+            </form>
+          </Panel>
+        )}
+      </div>
+    </>
   );
 }
-
-const styles = {
-  formSection: {
-    marginTop: "1.25rem",
-    paddingTop: "0.75rem",
-    borderTop: "1px solid #eee",
-  },
-  form: {
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: "0.5rem",
-    maxWidth: "480px",
-  },
-  fieldRow: {
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: "0.2rem",
-  },
-  label: {
-    fontSize: "0.82rem",
-    color: "#555",
-  },
-  required: {
-    color: "#b00",
-  },
-  successBox: {
-    padding: "0.4rem 0.75rem",
-    background: "#f0fff4",
-    border: "1px solid #5cb85c",
-    color: "#2d6a2d",
-    borderRadius: "3px",
-    fontSize: "0.85rem",
-  },
-  btnRow: {
-    display: "flex",
-    gap: "0.5rem",
-  },
-  actionBtn: {
-    fontSize: "0.78rem",
-    padding: "0.2rem 0.5rem",
-    marginRight: "0.25rem",
-    cursor: "pointer",
-    border: "1px solid #bbb",
-    borderRadius: "3px",
-    background: "#f5f5f5",
-  },
-  deleteBtn: {
-    borderColor: "#d9534f",
-    color: "#b52b27",
-    background: "#fff5f5",
-  },
-  cancelBtn: {
-    background: "#f5f5f5",
-    color: "#555",
-    border: "1px solid #bbb",
-  },
-};

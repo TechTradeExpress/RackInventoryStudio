@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { common } from "../../lib/styles";
+import { parseTags, joinTags } from "../../lib/tags";
 import {
   listDeviceModels,
   addDeviceModel,
@@ -7,17 +7,16 @@ import {
   deleteDeviceModel,
   type DeviceModelDto,
 } from "../../api/tauriClient";
-import { parseTags, joinTags } from "../../lib/tags";
 import { parsePositiveInt } from "../racks/positiveInt";
+import { PageHeader } from "../../components/ui/PageHeader";
+import { Panel } from "../../components/ui/Panel";
+import { Badge } from "../../components/ui/Badge";
+import { Banner } from "../../components/ui/Banner";
+import { EmptyState } from "../../components/ui/EmptyState";
+import { IcPlus, IcEdit, IcTrash, IcLayers } from "../../components/ui/Icon";
 
 const DEVICE_TYPES = [
-  "server",
-  "network",
-  "storage",
-  "ups",
-  "appliance",
-  "rack_object",
-  "other",
+  "server", "network", "storage", "ups", "appliance", "rack_object", "other",
 ] as const;
 
 const EMPTY_FORM = {
@@ -57,18 +56,15 @@ export function DeviceModelsPanel({
   highlightedDeviceModelId,
   onRepositoryMutated,
 }: Props) {
-  const [models, setModels] = useState<DeviceModelDto[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [models, setModels]       = useState<DeviceModelDto[]>([]);
+  const [error, setError]         = useState<string | null>(null);
+  const [loading, setLoading]     = useState(false);
+  const [showForm, setShowForm]   = useState(false);
+  const [form, setForm]           = useState(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-
-  // null = add mode; string = edit mode (id being edited)
-  const [editingId, setEditingId] = useState<string | null>(null);
-
+  const [submitting, setSubmitting]   = useState(false);
+  const [editingId, setEditingId]     = useState<string | null>(null);
   const prevRepoPathRef = useRef<string>("");
 
   useEffect(() => {
@@ -76,12 +72,8 @@ export function DeviceModelsPanel({
     const isRepoSwitch = prevRepoPathRef.current !== repoPath;
     prevRepoPathRef.current = repoPath;
     if (isRepoSwitch) {
-      setModels([]);
-      setError(null);
-      setForm(EMPTY_FORM);
-      setFormError(null);
-      setFormSuccess(null);
-      setEditingId(null);
+      setModels([]); setError(null); setForm(EMPTY_FORM);
+      setFormError(null); setFormSuccess(null); setEditingId(null); setShowForm(false);
     }
     setLoading(true);
     listDeviceModels()
@@ -98,18 +90,15 @@ export function DeviceModelsPanel({
     if (!form.deviceType) return "Device type is required.";
     if (!form.code.trim()) return "Code is required.";
     if (!form.name.trim()) return "Name is required.";
-    const heightU = parsePositiveInt(form.heightU);
-    if (heightU === null) return "Height (U) must be a positive integer.";
+    if (parsePositiveInt(form.heightU) === null) return "Height (U) must be a positive integer.";
     return null;
   }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    setFormError(null);
-    setFormSuccess(null);
+    setFormError(null); setFormSuccess(null);
     const err = validate();
     if (err) { setFormError(err); return; }
-
     const heightU = parsePositiveInt(form.heightU)!;
     setSubmitting(true);
     try {
@@ -126,8 +115,7 @@ export function DeviceModelsPanel({
           tags: parseTags(form.tags),
         });
         setFormSuccess(`Device model "${form.code.trim()}" updated.`);
-        setEditingId(null);
-        setForm(EMPTY_FORM);
+        setEditingId(null); setForm(EMPTY_FORM); setShowForm(false);
       } else {
         await addDeviceModel({
           device_type: form.deviceType,
@@ -140,7 +128,7 @@ export function DeviceModelsPanel({
           tags: parseTags(form.tags),
         });
         setFormSuccess(`Device model "${form.code.trim()}" added.`);
-        setForm({ ...EMPTY_FORM, deviceType: form.deviceType });
+        setForm((f) => ({ ...EMPTY_FORM, deviceType: f.deviceType }));
       }
       const updated = await listDeviceModels();
       setModels(updated);
@@ -153,29 +141,21 @@ export function DeviceModelsPanel({
   }
 
   function handleEdit(m: DeviceModelDto) {
-    setEditingId(m.id);
-    setForm(modelToForm(m));
-    setFormError(null);
-    setFormSuccess(null);
+    setEditingId(m.id); setForm(modelToForm(m));
+    setFormError(null); setFormSuccess(null); setShowForm(true);
   }
 
   function handleCancelEdit() {
-    setEditingId(null);
-    setForm(EMPTY_FORM);
-    setFormError(null);
-    setFormSuccess(null);
+    setEditingId(null); setForm(EMPTY_FORM);
+    setFormError(null); setFormSuccess(null); setShowForm(false);
   }
 
   async function handleDelete(m: DeviceModelDto) {
     if (!confirm(`Delete device model "${m.name}"? This cannot be undone.`)) return;
-    setFormError(null);
-    setFormSuccess(null);
+    setFormError(null); setFormSuccess(null);
     try {
       await deleteDeviceModel(m.id);
-      if (editingId === m.id) {
-        setEditingId(null);
-        setForm(EMPTY_FORM);
-      }
+      if (editingId === m.id) { setEditingId(null); setForm(EMPTY_FORM); setShowForm(false); }
       const updated = await listDeviceModels();
       setModels(updated);
       onRepositoryMutated();
@@ -193,209 +173,161 @@ export function DeviceModelsPanel({
   const isEditing = editingId !== null;
 
   return (
-    <section style={common.section}>
-      <h2 style={common.h2}>Device Models</h2>
+    <>
+      <PageHeader
+        title="Device Models"
+        subtitle="Hardware templates referenced by devices and placements."
+        actions={
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              setEditingId(null); setForm(EMPTY_FORM);
+              setFormError(null); setFormSuccess(null); setShowForm(true);
+            }}
+          >
+            <IcPlus size={12} /> Add model
+          </button>
+        }
+      />
+      <div className="page-content stack-4">
+        {loading && <p style={{ fontSize: 12, color: "var(--tx-3)", fontStyle: "italic" }}>Loading…</p>}
+        {error && <Banner tone="err">{error}</Banner>}
 
-      {loading && <p style={common.working}>Loading…</p>}
-      {error && <div style={common.errorBox}>{error}</div>}
+        {!loading && !error && models.length === 0 && (
+          <EmptyState
+            icon={<IcLayers size={32} />}
+            title="No device models yet"
+            body="Add a model to define hardware templates for devices."
+          />
+        )}
 
-      {!loading && !error && models.length === 0 && (
-        <p style={common.hint}>No device models found.</p>
-      )}
+        {models.length > 0 && (
+          <Panel flush title={`${models.length} model${models.length !== 1 ? "s" : ""}`}>
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th className="tbl-mono">Code</th>
+                  <th>Type</th>
+                  <th>Name</th>
+                  <th>Vendor</th>
+                  <th className="tbl-mono">Model number</th>
+                  <th className="tbl-num">Height</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {models.map((m) => (
+                  <tr
+                    key={m.id}
+                    data-model-id={m.id}
+                    className={m.id === highlightedDeviceModelId ? "tbl-selected" : undefined}
+                  >
+                    <td className="tbl-mono"><strong>{m.code}</strong></td>
+                    <td>
+                      <Badge tone={m.device_type === "rack_object" ? "muted" : "info"}>
+                        {m.device_type}
+                      </Badge>
+                    </td>
+                    <td>{m.name}</td>
+                    <td>{m.vendor ?? <span style={{ color: "var(--tx-4)" }}>—</span>}</td>
+                    <td className="tbl-mono">{m.model_number ?? "—"}</td>
+                    <td className="tbl-num tbl-mono">{m.default_height_u}U</td>
+                    <td className="tbl-actions">
+                      <button className="btn btn-ghost btn-sm btn-icon" title="Edit" onClick={() => handleEdit(m)}>
+                        <IcEdit size={12} />
+                      </button>
+                      <button
+                        className="btn btn-ghost btn-sm btn-icon"
+                        title="Delete"
+                        onClick={() => handleDelete(m)}
+                        style={{ color: "var(--st-err-tx)" }}
+                      >
+                        <IcTrash size={12} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Panel>
+        )}
 
-      {models.length > 0 && (
-        <table style={common.table}>
-          <thead>
-            <tr>
-              {["Code", "Type", "Name", "Vendor", "Model Number", "Height (U)", "Actions"].map(
-                (h) => <th key={h} style={common.th}>{h}</th>
+        {showForm && (
+          <Panel title={isEditing ? "Edit Device Model" : "Add Device Model"}>
+            <form onSubmit={handleSubmit} className="stack-3" style={{ maxWidth: 480 }}>
+              <div>
+                <label className="eyebrow" style={{ marginBottom: 4, display: "block" }}>
+                  Device Type <span style={{ color: "var(--st-err-tx)" }}>*</span>
+                </label>
+                <select
+                  className="ri-input"
+                  style={{ width: "100%", background: "var(--bg-surface)" }}
+                  value={form.deviceType}
+                  onChange={(e) => set("deviceType", e.target.value)}
+                  disabled={submitting}
+                >
+                  <option value="">— select —</option>
+                  {DEVICE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+
+              {form.deviceType === "rack_object" && (
+                <Banner tone="info">
+                  Rack objects can be placed directly in racks without creating a Device.
+                </Banner>
               )}
-            </tr>
-          </thead>
-          <tbody>
-            {models.map((m) => (
-              <tr
-                key={m.id}
-                data-model-id={m.id}
-                style={
-                  m.id === highlightedDeviceModelId
-                    ? { background: "#fff8c5" }
-                    : undefined
-                }
-              >
-                <td style={{ ...common.td, fontFamily: "monospace" }}>{m.code}</td>
-                <td style={common.td}>{m.device_type}</td>
-                <td style={common.td}>{m.name}</td>
-                <td style={common.td}>{m.vendor ?? ""}</td>
-                <td style={{ ...common.td, fontFamily: "monospace" }}>{m.model_number ?? ""}</td>
-                <td style={common.td}>{m.default_height_u}</td>
-                <td style={{ ...common.td, whiteSpace: "nowrap" }}>
-                  <button style={styles.actionBtn} onClick={() => handleEdit(m)}>Edit</button>
-                  <button
-                    style={{ ...styles.actionBtn, ...styles.deleteBtn }}
-                    onClick={() => handleDelete(m)}
-                  >Delete</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
 
-      <section style={styles.formSection}>
-        <h3 style={common.h3}>{isEditing ? "Edit Device Model" : "Add Device Model"}</h3>
-
-        <form onSubmit={handleSubmit} style={styles.form}>
-          <div style={styles.fieldRow}>
-            <label style={styles.label}>
-              Device Type<span style={styles.required}> *</span>
-            </label>
-            <select
-              value={form.deviceType}
-              onChange={(e) => set("deviceType", e.target.value)}
-              style={common.input}
-              disabled={submitting}
-            >
-              <option value="">— select —</option>
-              {DEVICE_TYPES.map((t) => (
-                <option key={t} value={t}>{t}</option>
+              {([
+                ["Code", "code", true],
+                ["Name", "name", true],
+                ["Vendor", "vendor", false],
+                ["Model Number", "model", false],
+                ["Description", "description", false],
+                ["Tags (comma-separated)", "tags", false],
+              ] as [string, string, boolean][]).map(([label, key, req]) => (
+                <div key={key}>
+                  <label className="eyebrow" style={{ marginBottom: 4, display: "block" }}>
+                    {label}{req && <span style={{ color: "var(--st-err-tx)" }}> *</span>}
+                  </label>
+                  <input
+                    className="ri-input"
+                    style={{ width: "100%" }}
+                    value={form[key as keyof typeof EMPTY_FORM]}
+                    onChange={(e) => set(key as keyof typeof EMPTY_FORM, e.target.value)}
+                    disabled={submitting}
+                  />
+                </div>
               ))}
-            </select>
-          </div>
 
-          {form.deviceType === "rack_object" && (
-            <p style={styles.rackObjectHint}>
-              Rack objects can be placed directly in racks without creating a Device.
-            </p>
-          )}
+              <div>
+                <label className="eyebrow" style={{ marginBottom: 4, display: "block" }}>
+                  Height (U) <span style={{ color: "var(--st-err-tx)" }}>*</span>
+                </label>
+                <input
+                  className="ri-input"
+                  type="number" min={1}
+                  style={{ width: 90 }}
+                  value={form.heightU}
+                  onChange={(e) => set("heightU", e.target.value)}
+                  disabled={submitting}
+                />
+              </div>
 
-          <div style={styles.fieldRow}>
-            <label style={styles.label}>Code<span style={styles.required}> *</span></label>
-            <input value={form.code} onChange={(e) => set("code", e.target.value)} style={common.input} disabled={submitting} />
-          </div>
+              {formError && <Banner tone="err">{formError}</Banner>}
+              {formSuccess && <Banner tone="ok">{formSuccess}</Banner>}
 
-          <div style={styles.fieldRow}>
-            <label style={styles.label}>Name<span style={styles.required}> *</span></label>
-            <input value={form.name} onChange={(e) => set("name", e.target.value)} style={common.input} disabled={submitting} />
-          </div>
-
-          <div style={styles.fieldRow}>
-            <label style={styles.label}>Vendor</label>
-            <input value={form.vendor} onChange={(e) => set("vendor", e.target.value)} style={common.input} disabled={submitting} />
-          </div>
-
-          <div style={styles.fieldRow}>
-            <label style={styles.label}>Model Number</label>
-            <input value={form.model} onChange={(e) => set("model", e.target.value)} style={common.input} disabled={submitting} />
-          </div>
-
-          <div style={styles.fieldRow}>
-            <label style={styles.label}>Height (U)<span style={styles.required}> *</span></label>
-            <input
-              type="number"
-              min={1}
-              value={form.heightU}
-              onChange={(e) => set("heightU", e.target.value)}
-              style={{ ...common.input, flex: "none", width: "6rem" }}
-              disabled={submitting}
-            />
-          </div>
-
-          <div style={styles.fieldRow}>
-            <label style={styles.label}>Description</label>
-            <input value={form.description} onChange={(e) => set("description", e.target.value)} style={common.input} disabled={submitting} />
-          </div>
-
-          <div style={styles.fieldRow}>
-            <label style={styles.label}>Tags (comma-separated)</label>
-            <input value={form.tags} onChange={(e) => set("tags", e.target.value)} style={common.input} disabled={submitting} />
-          </div>
-
-          {formError && <div style={common.errorBox}>{formError}</div>}
-          {formSuccess && <div style={styles.successBox}>{formSuccess}</div>}
-
-          <div style={styles.btnRow}>
-            <button type="submit" disabled={submitting} style={common.btn}>
-              {submitting
-                ? isEditing ? "Saving…" : "Adding…"
-                : isEditing ? "Save changes" : "Add device model"}
-            </button>
-            {isEditing && (
-              <button
-                type="button"
-                style={{ ...common.btn, ...styles.cancelBtn }}
-                onClick={handleCancelEdit}
-              >
-                Cancel
-              </button>
-            )}
-          </div>
-        </form>
-      </section>
-    </section>
+              <div className="row">
+                <button type="submit" className="btn btn-primary" disabled={submitting}>
+                  {submitting
+                    ? isEditing ? "Saving…" : "Adding…"
+                    : isEditing ? "Save changes" : "Add device model"}
+                </button>
+                <button type="button" className="btn" onClick={handleCancelEdit}>Cancel</button>
+              </div>
+            </form>
+          </Panel>
+        )}
+      </div>
+    </>
   );
 }
-
-const styles = {
-  formSection: {
-    marginTop: "1.5rem",
-  },
-  form: {
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: "0.5rem",
-    maxWidth: "400px",
-  },
-  fieldRow: {
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: "0.2rem",
-  },
-  label: {
-    fontSize: "0.82rem",
-    color: "#555",
-  },
-  required: {
-    color: "#b00",
-  },
-  rackObjectHint: {
-    margin: "0",
-    padding: "0.3rem 0.6rem",
-    background: "#f0f4ff",
-    border: "1px solid #c5d3f0",
-    borderRadius: 3,
-    fontSize: "0.8rem",
-    color: "#3a4a7a",
-  },
-  successBox: {
-    padding: "0.4rem 0.75rem",
-    background: "#f0fff4",
-    border: "1px solid #5cb85c",
-    color: "#2d6a2d",
-    borderRadius: "3px",
-    fontSize: "0.85rem",
-  },
-  btnRow: {
-    display: "flex",
-    gap: "0.5rem",
-  },
-  actionBtn: {
-    fontSize: "0.78rem",
-    padding: "0.2rem 0.5rem",
-    marginRight: "0.25rem",
-    cursor: "pointer",
-    border: "1px solid #bbb",
-    borderRadius: "3px",
-    background: "#f5f5f5",
-  },
-  deleteBtn: {
-    borderColor: "#d9534f",
-    color: "#b52b27",
-    background: "#fff5f5",
-  },
-  cancelBtn: {
-    background: "#f5f5f5",
-    color: "#555",
-    border: "1px solid #bbb",
-  },
-};
