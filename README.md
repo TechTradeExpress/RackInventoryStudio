@@ -46,23 +46,28 @@ tests/                  Shared test fixtures
 | Placement use cases — place, move, remove device and rack objects | Done |
 | Tauri commands — open, save, validate, close, list entities, move placement, remove placement | Done |
 
-275 workspace tests pass as of v0.35.0.
+275 workspace tests pass. 128 frontend (Vitest) tests pass. 9 Playwright smoke tests pass.
 
 ## Current desktop UI capabilities
 
-- Opening a local inventory repository via folder picker or path input
+- Opening a local inventory repository via native folder picker or path input; recent repositories list stored in localStorage (clicking an entry fills the path input)
+- Creating a new repository via a guided wizard (scaffolds YAML structure, optionally initialises a Git repo)
 - Repository summary (counts of locations, racks, devices, placements)
-- Validation — run rules, view per-issue results (level, code, message, object)
+- Validation — run rules, view per-issue results (level, code, message, object); navigation drill-down from each issue to the relevant entity
 - Save changes back to YAML files
 - Close the current repository session (with unsaved-changes confirmation)
-- Global unsaved changes banner whenever in-memory state differs from disk
+- Global unsaved changes banner whenever in-memory state differs from disk (explicit note that this is separate from Git)
 - Tab navigation: Locations list, Racks list, Devices list, Device Models list
+- Global search — single input covering devices, racks, locations, and device models; navigate directly to any matching entity
 - Rack detail view — metadata table, graphical read-only rack unit diagram (U-position, front and rear sides)
 - Placement inspector — all placement fields visible when a placement is selected
+- Drag-and-drop placement — drag an unplaced device or rack object onto a U row in the rack diagram (front or rear)
 - Move a placement to a new rack, side, start U, and optional height override via the Placement Inspector form (supports same-rack, cross-side, and rack-to-rack moves); cross-rack move automatically navigates to the destination rack and selects the moved placement
-- Add a new device or rack object placement to the selected rack via a simple form (side, target, start U, optional height override); unsaved changes must be saved explicitly via the Validation tab
-- Remove an existing placement from the selected rack via a confirmation button in the Placement Inspector; unsaved changes must be saved explicitly via the Validation tab
-- Frontend Vitest unit tests
+- Add a new device or rack object placement to the selected rack via a simple form (side, target, start U, optional height override); unsaved changes must be saved via the Repository tab
+- Remove an existing placement from the selected rack via a confirmation button in the Placement Inspector; unsaved changes must be saved via the Repository tab
+- CSV device import via native OS file picker — preview with row-level validation, confirm/write
+- Git integration — semantic status labels (clean / uncommitted / ahead / behind / diverged), contextual action hints, safe publish checklist (Save → Validate → Commit → Pull → Push), commit with message, push/pull with per-state gating (behind-only blocks push; diverged blocks both)
+- Playwright smoke tests (9 tests) covering the golden path, search, CSV import, rack detail, and Git UX
 
 ## Project status
 
@@ -89,16 +94,17 @@ The project is now in the **MVP+ / Beta** phase, targeting a user-facing **v1.0.
 
 v1.0.0 is the first user-facing release. It is not just a technical MVP — it must be an application that a new user can pick up and use without requiring developer guidance.
 
-| Area | Target |
+| Area | Status |
 |---|---|
-| Safe publish workflow / better Git UX | MVP+ / Beta |
-| Create new repository wizard | MVP+ / Beta |
-| Native CSV file picker | MVP+ / Beta |
-| Minimal global search | MVP+ / Beta |
-| Claude Design / UX audit and design direction | MVP+ / Beta |
-| Drag-and-drop placement | MVP+ / Beta |
-| UI polish based on design direction | MVP+ / Beta |
-| UI automation / Playwright smoke tests | MVP+ / Beta |
+| Safe publish workflow / better Git UX | Done (PR #39) |
+| Create new repository wizard | Done (PR #33) |
+| Native CSV file picker | Done (PR #33) |
+| Minimal global search | Done (PR #35) |
+| Playwright smoke tests (9/9) | Done (PR #36, #39) |
+| Drag-and-drop placement | Done (PR #37) |
+| Repository flow polish (landing / open / close / recent repos) | Done (PR #38) |
+| Claude Design / UX audit and design direction | Planned |
+| UI polish based on design direction | Planned |
 | Release hardening | v1.0.0 Candidate |
 | Packaging and user-facing release documentation | v1.0.0 Release |
 
@@ -112,7 +118,7 @@ Before tagging v1.0.0, all of the following must pass:
 
 - `cargo test --workspace` — all Rust tests
 - `pnpm typecheck` + `pnpm test` + `pnpm build` — frontend checks
-- Playwright smoke tests (to be added during MVP+ phase)
+- `pnpm --filter @rack-inventory-studio/desktop test:e2e` — Playwright smoke tests (9/9)
 - Manual smoke checklist (`docs/MVP_SMOKE_TEST_CHECKLIST_EN.md`)
 - Packaging check (app bundles and launches from a clean install)
 
@@ -174,8 +180,6 @@ pnpm --filter @rack-inventory-studio/desktop build
 ## Current limitations
 
 - **No in-app Git auth** — push and pull are implemented but SSH keys and HTTPS credentials must be configured in the OS or git-credential-helper outside the app. Auth errors surface as clear error messages.
-- **No drag and drop** — placement positions are changed via inspector forms. Drag and drop is planned for the MVP+ phase before v1.0.0.
-- **No native CSV file picker** — users paste CSV content into a textarea. A native file picker is planned for MVP+.
-- **No global search** — entity lookup requires navigating to the relevant tab. Minimal global search is planned for MVP+.
 - **No full dirty diff tracking** — the app uses a global unsaved-changes flag. It warns that in-memory state may differ from disk, but it does not track exactly which rack or placement changed.
+- **No Git conflict resolution UI** — on diverged branches, the app shows a clear error and the user must resolve manually with Git outside the app.
 - **Local desktop, single-user** — no server, no sync, no multi-user conflict resolution.

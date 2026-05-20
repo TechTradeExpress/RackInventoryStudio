@@ -50,9 +50,9 @@ UI-level workflow including validation navigation drill-down (step 16).
 No wording corrections were needed — the checklist accurately reflects the
 current UI behavior.
 
-The manual checklist has not been executed end-to-end in an automated UI
-test harness (no UI automation is implemented). It is intended for human
-execution before release candidates.
+Playwright smoke tests (9/9) cover the golden path and key UX flows automatically.
+The manual checklist is intended for human execution before release candidates to
+verify placement, reload, and validation navigation that the smoke layer does not cover.
 
 ---
 
@@ -75,7 +75,7 @@ The following non-Git inventory operations are implemented and tested:
 - **Cross-panel refresh**: `repositoryMutationToken` propagates to all panels
 - **Validation navigation**: each validation issue links to its relevant tab/object
 - **Git foundation**: detect whether repo is a Git repository, init, show status (branch / upstream / ahead-behind / clean / counts), show recent commits, commit saved changes with user-provided message from Repository panel
-- **Git remote sync**: list configured remotes, add a remote, push current branch (`git push -u`), pull fast-forward (`git pull --ff-only`); push/pull disabled when unsaved changes exist; after pull, session reloads from disk automatically; auth errors (SSH/HTTPS) surface as clear error messages
+- **Git remote sync**: list configured remotes, add a remote, push current branch (`git push -u`), pull fast-forward (`git pull --ff-only`); push/pull gated per sync state (behind-only blocks push, diverged blocks both); after pull, session reloads from disk automatically; auth errors (SSH/HTTPS) surface as clear error messages
 
 ---
 
@@ -97,7 +97,7 @@ The following items are planned for the MVP+ / Beta phase before v1.0.0. They ar
 
 | Area | Status |
 |---|---|
-| Safe publish workflow / better Git UX | Planned next |
+| Safe publish workflow / better Git UX | Done (PR #39) |
 | Create new repository wizard | Done (PR #33) |
 | Native CSV file picker | Done (PR #33) |
 | Minimal global search | Done (PR #35) |
@@ -111,13 +111,10 @@ The following items are planned for the MVP+ / Beta phase before v1.0.0. They ar
 
 ### Known usability gaps (tracked, not blocking MVP Core)
 
-- **No native CSV file picker** — users must paste CSV content into a textarea. Targeted: M40.
-- **No drag-and-drop** for rack unit placement. Form-based operations cover core use case. Targeted: M43.
-- **No global search** — entity lookup requires navigating to the correct tab. Targeted: M41.
 - **No scrollIntoView** for validation-highlighted rows — rows may need manual scrolling to become visible.
-- **No UI automation tests** — the manual checklist requires human execution. Targeted: M45.
 - **Devices tab does not auto-scroll** to a newly highlighted device after validation navigation.
 - **Repository summary placement counts** reflect all placement files; no per-location breakdown.
+- **No Git conflict resolution UI** — on diverged branches, users must resolve manually with Git outside the app.
 
 ### Not planned before v1.0.0
 
@@ -131,7 +128,7 @@ The following items are planned for the MVP+ / Beta phase before v1.0.0. They ar
 
 ## Recommended next step
 
-**MVP+ / Beta phase (M38–M45):** Start with safe publish workflow (M38) and create new repository wizard (M39) as the highest-impact usability improvements. Native CSV file picker (M40) and minimal global search (M41) can follow. Claude Design / UX audit (M42) should be scheduled early enough to inform the UI polish milestone (M44).
+**Claude Design / UX audit (M42):** All MVP+ feature milestones (M38–M41, M43, M45) are complete. The next step before v1.0.0 is a UX audit of the current screens against documented workflows, followed by an incremental UI polish milestone (M44) based on its output.
 
 See `docs/IMPLEMENTATION_PLAN_EN.md` section 30 for the full revised roadmap.
 
@@ -144,5 +141,5 @@ See `docs/IMPLEMENTATION_PLAN_EN.md` section 30 for the full revised roadmap.
   explicit `height_u` override at placement time (no model to derive height from).
   This is expected behavior and is documented as a known limitation.
 - All 275 Rust tests pass (245 existing + 30 new ris-git tests: 7 parser unit + 11 remote integration + 12 git workflow).
-- All 38 Vitest tests pass.
+- All 128 Vitest tests pass (44 in gitStatusHelpers, 9 Playwright smoke tests pass).
 - Typecheck, build, and Clippy are clean.

@@ -1390,21 +1390,22 @@ Goal: bring the app to a quality level suitable for a user-facing release.
 No single blocker — this is a set of parallel improvements.
 
 ```text
-M38  Safe publish workflow / better Git UX
-       - clearer publish/pull state, credential error guidance,
-       - explicit "publish requires clean validation" confirmation.
+M38  Safe publish workflow / better Git UX                    [Done — PR #39]
+       - semantic status labels, contextual action hints, safe publish checklist,
+       - push/pull gating per sync state (behind-only blocks push, diverged blocks both),
+       - getPushDisabledReason / getPullDisabledReason helpers + 44 Vitest tests.
 
-M39  Create new repository wizard
+M39  Create new repository wizard                             [Done — PR #33]
        - guided flow to init a Git repository and create the YAML directory
          structure inside the app.
 
-M40  Native CSV file picker
+M40  Native CSV file picker                                   [Done — PR #33]
        - replace the textarea with a native OS file picker.
 
-M41  Minimal global search
+M41  Minimal global search                                    [Done — PR #35]
        - single search input covering devices, racks, locations, device models.
 
-M42  Claude Design / UX audit
+M42  Claude Design / UX audit                                 [Planned]
        - UX audit of current screens against documented workflows,
        - screenshot and friction-point collection,
        - design direction for: app shell, rack detail, validation/publish flow,
@@ -1413,23 +1414,24 @@ M42  Claude Design / UX audit
        - Constraint: design changes must not mix with backend logic changes.
          Redesign milestones are isolated from correctness milestones.
 
-M43  Drag-and-drop placement
+M43  Drag-and-drop placement                                  [Done — PR #37]
        - drag device from unplaced panel to a U row in the rack diagram,
        - drag rack object similarly,
        - backend collision validation unchanged.
 
-M44  UI polish (based on M42 design direction)
+M44  UI polish (based on M42 design direction)                [Planned]
        - apply design decisions from M42 incrementally.
 
-M45  UI automation / Playwright smoke tests
-       - automate the manual smoke checklist from docs/MVP_SMOKE_TEST_CHECKLIST_EN.md,
-       - cover the golden path: open → add → import → place → validate → save → reload.
+M45  UI automation / Playwright smoke tests                   [Done — PR #36, #39]
+       - 9 smoke tests covering: app shell, landing state, open repo, global search,
+         validation navigation, CSV import, rack detail, Git UX, search edge cases.
+       - Run: pnpm --filter @rack-inventory-studio/desktop test:e2e
 ```
 
 #### Stage 3 — v1.0.0 Candidate
 
 ```text
-- All MVP+ milestones (M38–M45) complete.
+- All MVP+ milestones (M38–M45) complete. Remaining: M42 (UX audit) and M44 (UI polish).
 - Release hardening: dependency audit, error message review, known-limitation docs.
 - Packaging check: app bundles and launches from a clean install on target OS.
 - All test gates pass (Rust, frontend, Playwright, manual checklist).

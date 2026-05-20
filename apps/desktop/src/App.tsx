@@ -235,8 +235,13 @@ export function App() {
 
       {hasUnsavedChanges && (
         <div style={styles.unsavedBanner}>
-          Unsaved changes in memory — use <strong>Save</strong> in the
-          Validation tab to write changes to disk.
+          <strong>Unsaved inventory changes</strong> — data modified in memory,
+          not yet written to YAML files. Use{" "}
+          <strong>Save repository</strong> in the Repository tab to persist
+          changes to disk.{" "}
+          <span style={{ opacity: 0.75 }}>
+            (This is separate from Git — save to disk first, then commit to Git.)
+          </span>
         </div>
       )}
 

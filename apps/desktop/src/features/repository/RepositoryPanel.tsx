@@ -19,6 +19,15 @@ import {
   type ValidationSummaryDto,
 } from "../../api/tauriClient";
 import { computeValidationSummary, isNothingToCommitError } from "./publishHelpers";
+import {
+  deriveGitActionHints,
+  deriveGitStatusLabel,
+  derivePublishChecklist,
+  getPullDisabledReason,
+  getPushDisabledReason,
+  type GitSeverity,
+  type PublishChecklistStep,
+} from "./gitStatusHelpers";
 import { CreateRepositoryWizard } from "./CreateRepositoryWizard";
 
 interface Props {
@@ -120,11 +129,42 @@ function SummaryTable({
   );
 }
 
-function buildSyncLabel(ahead: number | null, behind: number | null): string {
-  const parts: string[] = [];
-  if (ahead !== null && ahead > 0) parts.push(`↑ ${ahead} ahead`);
-  if (behind !== null && behind > 0) parts.push(`↓ ${behind} behind`);
-  return parts.length > 0 ? parts.join(", ") : "Up to date";
+const SEVERITY_COLOR: Record<GitSeverity, string> = {
+  ok: "#2d6a2d",
+  warn: "#7a5800",
+  error: "#b00020",
+  info: "#555",
+};
+
+function ChecklistRow({ steps }: { steps: PublishChecklistStep[] }) {
+  if (steps.length === 0) return null;
+  return (
+    <div style={styles.checklist}>
+      {steps.map((s) => (
+        <span
+          key={s.step}
+          style={{
+            ...styles.checklistItem,
+            color:
+              s.done === true
+                ? "#2d6a2d"
+                : s.done === null
+                  ? "#888"
+                  : "#7a3800",
+          }}
+          title={s.note}
+        >
+          <span style={styles.checklistIcon}>
+            {s.done === true ? "✓" : s.done === null ? "·" : "○"}
+          </span>
+          {s.label}
+          {s.note && (
+            <span style={styles.checklistNote}> — {s.note}</span>
+          )}
+        </span>
+      ))}
+    </div>
+  );
 }
 
 type PublishValidation =
@@ -407,8 +447,8 @@ function GitSection({
     return (
       <section style={common.section}>
         <h2 style={common.h2}>Git</h2>
-        <p style={common.hint}>
-          This repository directory is not tracked by Git.
+        <p style={{ ...common.hint, color: SEVERITY_COLOR.info }}>
+          No Git repository detected — this directory is not tracked by Git.
         </p>
         {initError && <div style={common.errorBox}>{initError}</div>}
         <button style={common.btn} onClick={handleInit} disabled={initing}>
@@ -418,9 +458,9 @@ function GitSection({
     );
   }
 
-  const statusLabel = gitStatus.is_clean
-    ? "Clean"
-    : `Dirty — ${gitStatus.staged_count} staged, ${gitStatus.unstaged_count} unstaged, ${gitStatus.untracked_count} untracked`;
+  const { label: statusLabel, severity: statusSeverity } =
+    deriveGitStatusLabel(gitStatus);
+  const actionHints = deriveGitActionHints(gitStatus, hasUnsavedChanges);
 
   // Determine publish readiness
   const nothingToCommit = gitStatus.is_clean;
@@ -438,13 +478,41 @@ function GitSection({
     nothingToCommit ||
     validationBlocked;
 
-  const syncDisabled = pushing || pulling || hasUnsavedChanges || !selectedRemote;
+  const pushBlockedReason = getPushDisabledReason(
+    gitStatus,
+    hasUnsavedChanges,
+    selectedRemote,
+  );
+  const pullBlockedReason = getPullDisabledReason(
+    gitStatus,
+    hasUnsavedChanges,
+    selectedRemote,
+  );
+  const pushDisabled = pushBlockedReason !== null || pushing || pulling;
+  const pullDisabled = pullBlockedReason !== null || pushing || pulling;
+
+  // Build publish checklist and inject current validation state into step 2
+  const rawChecklist = derivePublishChecklist(gitStatus, hasUnsavedChanges);
+  const checklist: typeof rawChecklist = rawChecklist.map((step) => {
+    if (step.step !== 2) return step;
+    if (publishValidation.kind === "done") {
+      return {
+        ...step,
+        done: publishValidation.summary.errors === 0,
+        note:
+          publishValidation.summary.errors > 0
+            ? `${publishValidation.summary.errors} error(s) — fix and re-validate.`
+            : undefined,
+      };
+    }
+    return step;
+  });
 
   return (
     <section style={common.section}>
       <h2 style={common.h2}>Git</h2>
 
-      <table style={{ ...common.table, marginBottom: "0.75rem" }}>
+      <table style={{ ...common.table, marginBottom: "0.5rem" }}>
         <tbody>
           <tr>
             <td style={common.th}>Branch</td>
@@ -456,18 +524,22 @@ function GitSection({
               <td style={common.td}>{gitStatus.upstream}</td>
             </tr>
           )}
-          {gitStatus.upstream && (
-            <tr>
-              <td style={common.th}>Sync</td>
-              <td style={common.td}>
-                {buildSyncLabel(gitStatus.ahead, gitStatus.behind)}
-              </td>
-            </tr>
-          )}
           <tr>
             <td style={common.th}>Status</td>
-            <td style={{ ...common.td, color: gitStatus.is_clean ? "#2d6a2d" : "#7a3800" }}>
+            <td
+              style={{
+                ...common.td,
+                color: SEVERITY_COLOR[statusSeverity],
+                fontWeight: statusSeverity === "error" ? "bold" : undefined,
+              }}
+            >
               {statusLabel}
+              {!gitStatus.is_clean && (
+                <span style={{ marginLeft: "0.5rem", color: "#888", fontWeight: "normal" }}>
+                  ({gitStatus.staged_count} staged, {gitStatus.unstaged_count} unstaged,{" "}
+                  {gitStatus.untracked_count} untracked)
+                </span>
+              )}
             </td>
           </tr>
           {gitStatus.message && (
@@ -478,6 +550,16 @@ function GitSection({
           )}
         </tbody>
       </table>
+
+      {actionHints.length > 0 && (
+        <ul style={styles.hintList}>
+          {actionHints.map((hint, i) => (
+            <li key={i} style={styles.hintItem}>
+              {hint}
+            </li>
+          ))}
+        </ul>
+      )}
 
       <div style={{ marginBottom: "0.75rem" }}>
         <button
@@ -526,10 +608,11 @@ function GitSection({
       {/* ── Publish changes ──────────────────────────────────── */}
       <div style={styles.subSection}>
         <h3 style={common.h3}>Publish changes</h3>
+        <ChecklistRow steps={checklist} />
         <p style={styles.flowHint}>
-          Safe publish preparation: save → validate → commit.
-          Then push from the Remote sync section below.
-          Commit is blocked when there are unsaved changes or validation errors.
+          Safe publish path: save changes to disk → validate → commit →
+          pull if behind → push. Commit requires no unsaved changes and
+          validation without errors.
         </p>
 
         {/* Step 1 — Save */}
@@ -604,7 +687,7 @@ function GitSection({
                 style={common.input}
                 value={commitMessage}
                 onChange={(e) => setCommitMessage(e.target.value)}
-                placeholder="Commit message…"
+                placeholder="e.g. Add rack-b01 to Warsaw server room"
                 disabled={committing || hasUnsavedChanges || !validationPassed}
               />
               <button
@@ -613,12 +696,14 @@ function GitSection({
                 disabled={commitDisabled}
                 title={
                   hasUnsavedChanges
-                    ? "Save changes first"
+                    ? "Save inventory changes to disk first"
                     : !validationPassed
-                      ? "Validate without errors first"
+                      ? "Run validation without errors before committing"
                       : !commitMessage.trim()
                         ? "Enter a commit message"
-                        : undefined
+                        : nothingToCommit
+                          ? "Nothing to commit — working tree is clean"
+                          : undefined
                 }
               >
                 {committing ? "Committing…" : "Commit"}
@@ -686,13 +771,43 @@ function GitSection({
           <h4 style={styles.h4}>Push / Pull</h4>
           {hasUnsavedChanges && (
             <div style={styles.warningBox}>
-              Save and commit local changes before syncing.
+              Save and commit all changes before syncing with remote.
             </div>
           )}
           {remotes.length === 0 ? (
             <p style={common.hint}>Add a remote above to enable push and pull.</p>
           ) : (
             <>
+              {!hasUnsavedChanges &&
+                gitStatus.behind !== null &&
+                gitStatus.behind > 0 &&
+                gitStatus.ahead !== null &&
+                gitStatus.ahead > 0 && (
+                  <div style={styles.blockedBox}>
+                    Branch has diverged from remote — manual git intervention
+                    required before push or pull.
+                  </div>
+                )}
+              {!hasUnsavedChanges &&
+                gitStatus.behind !== null &&
+                gitStatus.behind > 0 &&
+                !(gitStatus.ahead !== null && gitStatus.ahead > 0) && (
+                  <div style={styles.warningBox}>
+                    Branch is {gitStatus.behind} commit
+                    {gitStatus.behind !== 1 ? "s" : ""} behind remote — pull
+                    before pushing.
+                  </div>
+                )}
+              {!hasUnsavedChanges &&
+                gitStatus.ahead !== null &&
+                gitStatus.ahead > 0 &&
+                !(gitStatus.behind !== null && gitStatus.behind > 0) && (
+                  <div style={styles.okBox}>
+                    Branch is {gitStatus.ahead} commit
+                    {gitStatus.ahead !== 1 ? "s" : ""} ahead of remote — push
+                    when ready.
+                  </div>
+                )}
               <div style={styles.remoteSelectRow}>
                 <span style={styles.remoteSelectLabel}>Remote:</span>
                 <select
@@ -710,16 +825,26 @@ function GitSection({
                 <button
                   style={common.btn}
                   onClick={handlePush}
-                  disabled={syncDisabled}
+                  disabled={pushDisabled}
+                  title={
+                    !pushing && !pulling && pushBlockedReason !== null
+                      ? pushBlockedReason
+                      : undefined
+                  }
                 >
                   {pushing ? "Pushing…" : "Push current branch"}
                 </button>
                 <button
                   style={common.btn}
                   onClick={handlePull}
-                  disabled={syncDisabled}
+                  disabled={pullDisabled}
+                  title={
+                    !pushing && !pulling && pullBlockedReason !== null
+                      ? pullBlockedReason
+                      : undefined
+                  }
                 >
-                  {pulling ? "Pulling…" : "Pull --ff-only"}
+                  {pulling ? "Pulling…" : "Pull latest"}
                 </button>
               </div>
               {pushError && <div style={{ ...common.errorBox, marginTop: "0.4rem" }}>{pushError}</div>}
@@ -930,6 +1055,47 @@ const styles = {
     paddingBottom: "0.5rem",
     marginBottom: "0.25rem",
     borderBottom: "1px solid #eee",
+  } as CSSProperties,
+  hintList: {
+    margin: "0 0 0.75rem",
+    padding: "0.35rem 0.75rem 0.35rem 1.5rem",
+    background: "#fffbf0",
+    border: "1px solid #e8d88a",
+    borderRadius: 3,
+    fontSize: "0.82rem",
+    color: "#5a4400",
+    listStyle: "disc",
+    lineHeight: 1.5,
+  } as CSSProperties,
+  hintItem: {
+    margin: "0.1rem 0",
+  } as CSSProperties,
+  checklist: {
+    display: "flex",
+    flexWrap: "wrap" as const,
+    gap: "0.35rem 1rem",
+    margin: "0.4rem 0 0.5rem",
+    padding: "0.4rem 0.75rem",
+    background: "#f8f8f8",
+    border: "1px solid #ddd",
+    borderRadius: 3,
+    fontSize: "0.8rem",
+  } as CSSProperties,
+  checklistItem: {
+    display: "inline-flex",
+    alignItems: "baseline",
+    gap: "0.25rem",
+    whiteSpace: "nowrap" as const,
+  } as CSSProperties,
+  checklistIcon: {
+    fontWeight: "bold" as const,
+    minWidth: "0.9rem",
+    textAlign: "center" as const,
+  } as CSSProperties,
+  checklistNote: {
+    fontStyle: "italic" as const,
+    color: "#7a5800",
+    fontSize: "0.78rem",
   } as CSSProperties,
   subSection: {
     marginTop: "0.75rem",
