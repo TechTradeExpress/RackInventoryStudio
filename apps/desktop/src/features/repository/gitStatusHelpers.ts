@@ -79,6 +79,45 @@ export function deriveGitActionHints(
   return hints;
 }
 
+/**
+ * Returns the reason Push should be disabled, or null when push is allowed.
+ * selectedRemote must be the currently selected remote name (empty string if none selected).
+ */
+export function getPushDisabledReason(
+  status: GitStatusDto,
+  hasUnsavedChanges: boolean,
+  selectedRemote: string,
+): string | null {
+  if (hasUnsavedChanges) return "Save inventory changes to disk first";
+  if (!selectedRemote) return "Select a remote to push to";
+  const ahead = status.ahead ?? 0;
+  const behind = status.behind ?? 0;
+  if (ahead > 0 && behind > 0) {
+    return "Branch has diverged — resolve manually with Git";
+  }
+  if (behind > 0) return "Pull latest before pushing";
+  return null;
+}
+
+/**
+ * Returns the reason Pull should be disabled, or null when pull is allowed.
+ * selectedRemote must be the currently selected remote name (empty string if none selected).
+ */
+export function getPullDisabledReason(
+  status: GitStatusDto,
+  hasUnsavedChanges: boolean,
+  selectedRemote: string,
+): string | null {
+  if (hasUnsavedChanges) return "Save inventory changes to disk first";
+  if (!selectedRemote) return "Select a remote to pull from";
+  const ahead = status.ahead ?? 0;
+  const behind = status.behind ?? 0;
+  if (ahead > 0 && behind > 0) {
+    return "Branch has diverged — resolve manually with Git";
+  }
+  return null;
+}
+
 export interface PublishChecklistStep {
   step: number;
   label: string;

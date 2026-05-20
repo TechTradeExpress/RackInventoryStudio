@@ -23,6 +23,8 @@ import {
   deriveGitActionHints,
   deriveGitStatusLabel,
   derivePublishChecklist,
+  getPullDisabledReason,
+  getPushDisabledReason,
   type GitSeverity,
   type PublishChecklistStep,
 } from "./gitStatusHelpers";
@@ -476,7 +478,18 @@ function GitSection({
     nothingToCommit ||
     validationBlocked;
 
-  const syncDisabled = pushing || pulling || hasUnsavedChanges || !selectedRemote;
+  const pushBlockedReason = getPushDisabledReason(
+    gitStatus,
+    hasUnsavedChanges,
+    selectedRemote,
+  );
+  const pullBlockedReason = getPullDisabledReason(
+    gitStatus,
+    hasUnsavedChanges,
+    selectedRemote,
+  );
+  const pushDisabled = pushBlockedReason !== null || pushing || pulling;
+  const pullDisabled = pullBlockedReason !== null || pushing || pulling;
 
   // Build publish checklist and inject current validation state into step 2
   const rawChecklist = derivePublishChecklist(gitStatus, hasUnsavedChanges);
@@ -812,16 +825,24 @@ function GitSection({
                 <button
                   style={common.btn}
                   onClick={handlePush}
-                  disabled={syncDisabled}
-                  title={syncDisabled && !pushing && !pulling ? "Save and commit all changes before pushing" : undefined}
+                  disabled={pushDisabled}
+                  title={
+                    !pushing && !pulling && pushBlockedReason !== null
+                      ? pushBlockedReason
+                      : undefined
+                  }
                 >
                   {pushing ? "Pushing…" : "Push current branch"}
                 </button>
                 <button
                   style={common.btn}
                   onClick={handlePull}
-                  disabled={syncDisabled}
-                  title={syncDisabled && !pushing && !pulling ? "Save and commit all changes before pulling" : undefined}
+                  disabled={pullDisabled}
+                  title={
+                    !pushing && !pulling && pullBlockedReason !== null
+                      ? pullBlockedReason
+                      : undefined
+                  }
                 >
                   {pulling ? "Pulling…" : "Pull latest"}
                 </button>

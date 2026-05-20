@@ -3,6 +3,8 @@ import type { GitStatusDto } from "../../api/tauriClient";
 import {
   deriveGitActionHints,
   deriveGitStatusLabel,
+  getPullDisabledReason,
+  getPushDisabledReason,
   derivePublishChecklist,
 } from "./gitStatusHelpers";
 
@@ -212,5 +214,91 @@ describe("derivePublishChecklist", () => {
     const steps = derivePublishChecklist(makeStatus({ ahead: 1 }), false);
     expect(steps[4].note).toContain("1 commit");
     expect(steps[4].note).not.toContain("1 commits");
+  });
+});
+
+// ── getPushDisabledReason ─────────────────────────────────────────────────────
+
+describe("getPushDisabledReason", () => {
+  it("returns null for ahead-only with remote — push is allowed", () => {
+    expect(getPushDisabledReason(makeStatus({ ahead: 2 }), false, "origin")).toBeNull();
+  });
+
+  it("returns null for clean up-to-date with remote", () => {
+    expect(getPushDisabledReason(makeStatus(), false, "origin")).toBeNull();
+  });
+
+  it("blocks push when unsaved app changes exist", () => {
+    const reason = getPushDisabledReason(makeStatus(), true, "origin");
+    expect(reason).not.toBeNull();
+    expect(reason).toContain("Save inventory");
+  });
+
+  it("blocks push when no remote selected", () => {
+    const reason = getPushDisabledReason(makeStatus(), false, "");
+    expect(reason).not.toBeNull();
+    expect(reason).toContain("remote");
+  });
+
+  it("blocks push when behind only — instructs to pull first", () => {
+    const reason = getPushDisabledReason(makeStatus({ behind: 3 }), false, "origin");
+    expect(reason).toContain("Pull");
+  });
+
+  it("blocks push when diverged", () => {
+    const reason = getPushDisabledReason(
+      makeStatus({ ahead: 1, behind: 2 }),
+      false,
+      "origin",
+    );
+    expect(reason).toContain("diverged");
+  });
+
+  it("unsaved changes reason takes priority over no-remote", () => {
+    const reason = getPushDisabledReason(makeStatus(), true, "");
+    expect(reason).toContain("Save inventory");
+  });
+});
+
+// ── getPullDisabledReason ─────────────────────────────────────────────────────
+
+describe("getPullDisabledReason", () => {
+  it("returns null for behind-only with remote — pull is allowed", () => {
+    expect(getPullDisabledReason(makeStatus({ behind: 2 }), false, "origin")).toBeNull();
+  });
+
+  it("returns null for clean up-to-date with remote", () => {
+    expect(getPullDisabledReason(makeStatus(), false, "origin")).toBeNull();
+  });
+
+  it("returns null for ahead-only with remote — pull still allowed", () => {
+    expect(getPullDisabledReason(makeStatus({ ahead: 1 }), false, "origin")).toBeNull();
+  });
+
+  it("blocks pull when unsaved app changes exist", () => {
+    const reason = getPullDisabledReason(makeStatus(), true, "origin");
+    expect(reason).not.toBeNull();
+    expect(reason).toContain("Save inventory");
+  });
+
+  it("blocks pull when no remote selected", () => {
+    const reason = getPullDisabledReason(makeStatus(), false, "");
+    expect(reason).not.toBeNull();
+    expect(reason).toContain("remote");
+  });
+
+  it("blocks pull when diverged", () => {
+    const reason = getPullDisabledReason(
+      makeStatus({ ahead: 1, behind: 2 }),
+      false,
+      "origin",
+    );
+    expect(reason).toContain("diverged");
+  });
+
+  it("does not block pull for behind-only when no unsaved changes", () => {
+    // Behind-only is the normal pull scenario — must stay enabled
+    const reason = getPullDisabledReason(makeStatus({ behind: 5 }), false, "origin");
+    expect(reason).toBeNull();
   });
 });

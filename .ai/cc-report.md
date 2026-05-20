@@ -186,6 +186,66 @@ Verified points:
 
 ---
 
+## Repair (post-review blocker)
+
+### Blocker
+Push/Pull controls were not gated by Git sync state. A single `syncDisabled`
+flag (`pushing || pulling || hasUnsavedChanges || !selectedRemote`) was shared
+by both buttons, ignoring behind/diverged states. This meant:
+- Behind-only: Pull was enabled (correct), but Push was also enabled — users
+  could try to push before pulling, which remote would reject.
+- Diverged: both Push and Pull could appear enabled despite the UI saying
+  "manual git intervention required."
+
+### Fix
+Replaced `syncDisabled` with separate `pushDisabled` / `pullDisabled` derived
+from two new pure helper functions in `gitStatusHelpers.ts`:
+
+- `getPushDisabledReason(status, hasUnsavedChanges, selectedRemote): string | null`
+- `getPullDisabledReason(status, hasUnsavedChanges, selectedRemote): string | null`
+
+Each returns `null` when the action is allowed, or a specific reason string
+used directly as the button `title` attribute.
+
+### Gating logic per state
+
+| State | Push | Pull |
+|---|---|---|
+| Unsaved app changes | Disabled — "Save inventory changes to disk first" | Disabled — same |
+| No remote selected | Disabled — "Select a remote to push to" | Disabled — "Select a remote to pull from" |
+| Behind only | Disabled — "Pull latest before pushing" | **Enabled** |
+| Diverged | Disabled — "Branch has diverged — resolve manually with Git" | Disabled — same |
+| Ahead only | **Enabled** | **Enabled** |
+| Clean/up-to-date | **Enabled** | **Enabled** |
+
+### Tests added
+14 new Vitest tests in `gitStatusHelpers.test.ts`:
+- `getPushDisabledReason`: 7 tests (ahead-only → null, clean → null, unsaved → blocked, no remote → blocked, behind-only → blocked with Pull message, diverged → blocked, unsaved priority over no-remote)
+- `getPullDisabledReason`: 7 tests (behind-only → null, clean → null, ahead-only → null, unsaved → blocked, no remote → blocked, diverged → blocked, behind-only explicitly re-tested for null)
+
+### Test results after repair
+
+| Command | Result |
+|---|---|
+| `cargo fmt --all --check` | PASS |
+| `cargo check --workspace` | PASS |
+| `cargo test --workspace` | PASS — all Rust tests pass |
+| `cargo clippy --workspace -- -D warnings` | PASS |
+| `pnpm typecheck` | PASS |
+| `pnpm test` (Vitest) | PASS — 128 tests, 9 files (44 in gitStatusHelpers) |
+| `pnpm build` | PASS — 59 modules, 242 kB bundle |
+| `pnpm test:e2e` (Playwright) | PASS — 9/9 |
+
+### Manual check (verified by test logic)
+1. Ahead-only (mock state): Push enabled, Pull enabled ✓ (Playwright test confirms)
+2. Behind-only (unit test): Push disabled ("Pull latest before pushing"), Pull enabled (null) ✓
+3. Diverged (unit test): Push disabled ("diverged"), Pull disabled ("diverged") ✓
+4. Unsaved app changes (unit test): Push disabled, Pull disabled ✓
+5. No remote (unit test): Push disabled, Pull disabled ✓
+6. Existing Playwright Git UX smoke still passes 9/9 ✓
+
+---
+
 ## Not Done
 
 - Conflict resolution (intentionally deferred).
