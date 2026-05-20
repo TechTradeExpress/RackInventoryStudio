@@ -4,7 +4,7 @@
 
 `milestone/git-ux-polish`
 
-**PR:** (to be added after PR creation)
+**PR:** https://github.com/TechTradeExpress/RackInventoryStudio/pull/39
 
 ---
 
