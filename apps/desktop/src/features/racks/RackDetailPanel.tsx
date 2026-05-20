@@ -37,7 +37,7 @@ function PlacementTable({
 }: PlacementTableProps) {
   useEffect(() => {
     if (!selectedPlacementId) return;
-    const el = document.querySelector(`[data-placement-id="${selectedPlacementId}"]`);
+    const el = document.querySelector(`[data-placement-id="${CSS.escape(selectedPlacementId)}"]`);
     el?.scrollIntoView({ block: "center" });
   }, [selectedPlacementId]);
 

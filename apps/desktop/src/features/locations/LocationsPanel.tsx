@@ -182,7 +182,7 @@ export function LocationsPanel({
 
   useEffect(() => {
     if (!highlightedLocationId || locations.length === 0) return;
-    const el = document.querySelector(`[data-loc-id="${highlightedLocationId}"]`);
+    const el = document.querySelector(`[data-loc-id="${CSS.escape(highlightedLocationId)}"]`);
     el?.scrollIntoView({ block: "center" });
   }, [highlightedLocationId, locations]);
 

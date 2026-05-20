@@ -186,7 +186,7 @@ export function DeviceModelsPanel({
 
   useEffect(() => {
     if (!highlightedDeviceModelId || models.length === 0) return;
-    const el = document.querySelector(`[data-model-id="${highlightedDeviceModelId}"]`);
+    const el = document.querySelector(`[data-model-id="${CSS.escape(highlightedDeviceModelId)}"]`);
     el?.scrollIntoView({ block: "center" });
   }, [highlightedDeviceModelId, models]);
 

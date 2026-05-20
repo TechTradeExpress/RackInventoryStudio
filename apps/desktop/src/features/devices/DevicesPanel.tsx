@@ -234,7 +234,7 @@ export function DevicesPanel({
 
   useEffect(() => {
     if (!highlightedDeviceId || devices.length === 0) return;
-    const el = document.querySelector(`[data-dev-id="${highlightedDeviceId}"]`);
+    const el = document.querySelector(`[data-dev-id="${CSS.escape(highlightedDeviceId)}"]`);
     el?.scrollIntoView({ block: "center" });
   }, [highlightedDeviceId, devices]);
 
