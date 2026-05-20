@@ -7,7 +7,13 @@ import {
   type OpenRepositoryResultDto,
   type RackSummaryDto,
   type RepositorySummaryDto,
+  type ValidationSummaryDto,
 } from "./api/tauriClient";
+import {
+  addRecentRepository,
+  getRecentRepositories,
+  removeRecentRepository,
+} from "./features/repository/recentRepositories";
 import { TabBar } from "./components/TabBar";
 import { RepositoryPanel } from "./features/repository/RepositoryPanel";
 import { ValidationPanel } from "./features/validation/ValidationPanel";
@@ -35,6 +41,8 @@ type Tab =
 export function App() {
   const [repoPath, setRepoPath] = useState("");
   const [summary, setSummary] = useState<RepositorySummaryDto | null>(null);
+  const [validationSummary, setValidationSummary] = useState<ValidationSummaryDto | null>(null);
+  const [recentRepos, setRecentRepos] = useState<string[]>(() => getRecentRepositories());
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("repository");
@@ -132,6 +140,7 @@ export function App() {
         repoPath.trim(),
       );
       setSummary(result.summary);
+      setValidationSummary(result.validation_summary);
       setSelectedRack(null);
       setHasUnsavedChanges(false);
       setHighlightedLocationId(null);
@@ -139,6 +148,8 @@ export function App() {
       setHighlightedDeviceModelId(null);
       setPendingRackNavTarget(null);
       setActiveTab("repository");
+      addRecentRepository(repoPath.trim());
+      setRecentRepos(getRecentRepositories());
     } catch (e) {
       setError(String(e));
     } finally {
@@ -157,6 +168,7 @@ export function App() {
 
   function handleCreateSuccess(result: OpenRepositoryResultDto) {
     setSummary(result.summary);
+    setValidationSummary(result.validation_summary);
     setRepoPath(result.summary.repo_path);
     setSelectedRack(null);
     setHasUnsavedChanges(false);
@@ -165,6 +177,8 @@ export function App() {
     setHighlightedDeviceModelId(null);
     setPendingRackNavTarget(null);
     setActiveTab("repository");
+    addRecentRepository(result.summary.repo_path);
+    setRecentRepos(getRecentRepositories());
   }
 
   async function handleClose() {
@@ -181,8 +195,10 @@ export function App() {
     try {
       await closeRepository();
       setSummary(null);
+      setValidationSummary(null);
       setSelectedRack(null);
       setHasUnsavedChanges(false);
+      setRepositoryMutationToken(0);
       setHighlightedLocationId(null);
       setHighlightedDeviceId(null);
       setHighlightedDeviceModelId(null);
@@ -248,6 +264,12 @@ export function App() {
           onClose={handleClose}
           working={working}
           summary={summary}
+          validationSummary={validationSummary}
+          recentRepos={recentRepos}
+          onRemoveRecentRepo={(path) => {
+            removeRecentRepository(path);
+            setRecentRepos(getRecentRepositories());
+          }}
           hasUnsavedChanges={hasUnsavedChanges}
           onSaveSuccess={() => setHasUnsavedChanges(false)}
           onPullSuccess={(s) => setSummary(s)}

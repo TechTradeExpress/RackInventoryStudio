@@ -71,20 +71,22 @@ The user starts the application and selects the work mode.
 ### Steps
 
 1. User starts the application.
-2. Application shows the start screen.
+2. Application shows the landing state on the Repository tab.
 3. User selects one option:
-   - `Open existing repository`,
-   - `Create new repository`.
+   - `Open existing repository` — browse or type a path and click **Open**,
+   - `Create new repository` — fill in the wizard form and click **Create repository**.
 
-### Application behavior
+### Application behavior (implemented)
 
-The application should remember the last used repository.
+The landing state shows:
 
-If a repository was previously opened, the application may show:
+- Heading: **Open or Create a Repository**
+- Brief description of what a RIS repository is
+- **Recent repositories** list (up to 5 entries from localStorage) — clicking a path fills the path input; clicking × removes the entry
+- **Open existing repository** section: path input, Browse…, Open button
+- **Create new repository** section: wizard form (path, code, name, optional Git init)
 
-```text
-Open last repository
-```
+After a successful open or create, the application switches to the open-repo view showing the Repository Summary and Git section. All other tabs become enabled.
 
 ---
 

@@ -52,35 +52,60 @@ Validation: 0 errors / 4 warnings
 
 If repository has `ERROR` validation issues, the `Publish changes` button is disabled or shows: `Publishing blocked — 3 validation errors`.
 
-## 5. Start screen
+## 5. Start screen (landing state — implemented)
 
 ### Purpose
 
-The first screen after launching the application.
+The first screen after launching the application, shown when no repository is open.
 
-### Layout
+### Layout (current implementation)
 
 ```text
 Rack Inventory Studio
 
-[ Open last repository ]
-[ Open existing repository ]
-[ Create new repository ]
+[Repository] [Validation*] [Locations*] [Racks*] [Devices*] [Device Models*] [CSV Import*]
+(* = disabled until repo is open)
+
+── Open or Create a Repository ─────────────────────────────────────
+
+Rack Inventory Studio manages rack inventory as a file-based repository
+on disk. Open an existing repository to start working, or create a new
+one from scratch.
 
 Recent repositories:
-- example-rack-inventory
-- production-rack-inventory
+  [/path/to/repo-a] [×]
+  [/path/to/repo-b] [×]
+
+Open existing repository:
+  [ path input          ] [ Browse… ] [ Open ]
+  Example: examples/example-repository
+
+Create new repository:
+  Directory: [ path input ] [ Browse… ]
+  Code:      [ input ]
+  Name:      [ input ]
+  [ ] Initialize Git repository
+  [ Create repository ]
 ```
 
 ### Actions
 
 | Action | Effect |
 |---|---|
-| Open last repository | Loads last used directory |
-| Open existing repository | Opens directory picker |
-| Create new repository | Starts new repository wizard |
+| Click recent repo path | Fills the path input (user then clicks Open) |
+| × on recent entry | Removes the entry from the local recent list |
+| Browse… (open) | Opens native folder picker; fills path input on confirm |
+| Open | Opens the selected repository path |
+| Browse… (create) | Opens native folder picker for new repo location |
+| Create repository | Scaffolds and opens the new repository |
 
-Invalid directory error: `The selected directory does not contain a valid Rack Inventory Studio repository.`
+Invalid directory error: shown inline below the path input row.
+
+Cancelling the folder picker does not produce an error and does not change the current input.
+
+### Repository open state
+
+When a repository is open, the landing section is replaced by a compact path/Open/Close bar above the Repository Summary table. All tabs become enabled. The search bar appears in the header.
 
 ## 6. Screen: Repository / synchronization
 

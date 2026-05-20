@@ -29,6 +29,9 @@ interface Props {
   onClose: () => void;
   working: boolean;
   summary: RepositorySummaryDto | null;
+  validationSummary?: ValidationSummaryDto | null;
+  recentRepos?: string[];
+  onRemoveRecentRepo?: (path: string) => void;
   hasUnsavedChanges: boolean;
   onSaveSuccess: () => void;
   onPullSuccess: (summary: RepositorySummaryDto) => void;
@@ -38,7 +41,13 @@ interface Props {
 
 const EXAMPLE_HINT = "examples/example-repository";
 
-function SummaryTable({ summary }: { summary: RepositorySummaryDto }) {
+function SummaryTable({
+  summary,
+  validationSummary,
+}: {
+  summary: RepositorySummaryDto;
+  validationSummary?: ValidationSummaryDto | null;
+}) {
   const rows: [string, string | number][] = [
     ["Path", summary.repo_path],
     ["Code", summary.repository_code],
@@ -52,16 +61,62 @@ function SummaryTable({ summary }: { summary: RepositorySummaryDto }) {
     ["Unplaced Devices", summary.unplaced_devices_count],
   ];
   return (
-    <table style={common.table}>
-      <tbody>
-        {rows.map(([label, value]) => (
-          <tr key={label}>
-            <td style={common.th}>{label}</td>
-            <td style={common.td}>{value}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <>
+      <table style={common.table}>
+        <tbody>
+          {rows.map(([label, value]) => (
+            <tr key={label}>
+              <td style={common.th}>{label}</td>
+              <td
+                style={{
+                  ...common.td,
+                  ...(label === "Unplaced Devices" && (value as number) > 0
+                    ? { color: "#7a5800" }
+                    : {}),
+                }}
+              >
+                {value}
+              </td>
+            </tr>
+          ))}
+          {validationSummary && (
+            <>
+              <tr>
+                <td style={common.th}>Validation Errors</td>
+                <td
+                  style={{
+                    ...common.td,
+                    ...(validationSummary.errors > 0
+                      ? { color: "#b00020", fontWeight: "bold" }
+                      : { color: "#2d6a2d" }),
+                  }}
+                >
+                  {validationSummary.errors}
+                </td>
+              </tr>
+              <tr>
+                <td style={common.th}>Validation Warnings</td>
+                <td
+                  style={{
+                    ...common.td,
+                    ...(validationSummary.warnings > 0
+                      ? { color: "#7a5800" }
+                      : {}),
+                  }}
+                >
+                  {validationSummary.warnings}
+                </td>
+              </tr>
+            </>
+          )}
+        </tbody>
+      </table>
+      {validationSummary && (
+        <p style={{ margin: "0.25rem 0 0", fontSize: "0.78rem", color: "#888" }}>
+          Validation counts are from the time of last open. Use the Validation tab for current state.
+        </p>
+      )}
+    </>
   );
 }
 
@@ -687,17 +742,55 @@ export function RepositoryPanel({
   onClose,
   working,
   summary,
+  validationSummary,
+  recentRepos = [],
+  onRemoveRecentRepo,
   hasUnsavedChanges,
   onSaveSuccess,
   onPullSuccess,
   onPullRunning,
   onCreateSuccess,
 }: Props) {
-  return (
-    <>
+  // ── No repository open: landing state ───────────────────────────────────────
+  if (!summary) {
+    return (
       <section style={common.section}>
-        <h2 style={common.h2}>Open Repository</h2>
-        <p style={common.hint}>Example path: {EXAMPLE_HINT}</p>
+        <h2 style={common.h2}>Open or Create a Repository</h2>
+        <p style={styles.landingDescription}>
+          Rack Inventory Studio manages rack inventory as a file-based
+          repository on disk. Open an existing repository to start working, or
+          create a new one from scratch.
+        </p>
+
+        {recentRepos.length > 0 && (
+          <div style={styles.recentSection}>
+            <h3 style={styles.subHeading}>Recent repositories</h3>
+            <ul style={styles.recentList}>
+              {recentRepos.map((path) => (
+                <li key={path} style={styles.recentItem}>
+                  <button
+                    style={styles.recentPathBtn}
+                    onClick={() => onRepoPathChange(path)}
+                    disabled={working}
+                    title={`Click to fill path: ${path}`}
+                  >
+                    {path}
+                  </button>
+                  <button
+                    style={styles.recentRemoveBtn}
+                    onClick={() => onRemoveRecentRepo?.(path)}
+                    title="Remove from recent list"
+                    disabled={working}
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <h3 style={styles.subHeading}>Open existing repository</h3>
         <div style={common.row}>
           <input
             type="text"
@@ -718,45 +811,126 @@ export function RepositoryPanel({
           >
             Open
           </button>
-          {summary && (
-            <button onClick={onClose} disabled={working} style={common.btn}>
-              Close
-            </button>
-          )}
+        </div>
+        <p style={common.hint}>Example: {EXAMPLE_HINT}</p>
+
+        <h3 style={{ ...styles.subHeading, marginTop: "1.25rem" }}>
+          Create new repository
+        </h3>
+        <p style={common.hint}>
+          Scaffold a new RIS repository on disk. Git initialization is optional
+          and can be done later.
+        </p>
+        <CreateRepositoryWizard onSuccess={onCreateSuccess} />
+      </section>
+    );
+  }
+
+  // ── Repository open ──────────────────────────────────────────────────────────
+  return (
+    <>
+      <section style={styles.openBar}>
+        <div style={common.row}>
+          <input
+            type="text"
+            value={repoPath}
+            onChange={(e) => onRepoPathChange(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && onOpen()}
+            placeholder="Repository path…"
+            style={common.input}
+            disabled={working}
+          />
+          <button onClick={onBrowse} disabled={working} style={common.btn}>
+            Browse…
+          </button>
+          <button
+            onClick={onOpen}
+            disabled={working || !repoPath.trim()}
+            style={common.btn}
+          >
+            Open
+          </button>
+          <button onClick={onClose} disabled={working} style={common.btn}>
+            Close
+          </button>
         </div>
       </section>
 
-      {!summary && (
-        <section style={common.section}>
-          <h2 style={common.h2}>Create New Repository</h2>
-          <p style={common.hint}>
-            Scaffold a new RIS repository on disk. Git initialization is optional and can be done later.
-          </p>
-          <CreateRepositoryWizard onSuccess={onCreateSuccess} />
-        </section>
-      )}
+      <section style={common.section}>
+        <h2 style={common.h2}>Repository Summary</h2>
+        <SummaryTable summary={summary} validationSummary={validationSummary} />
+      </section>
 
-      {summary && (
-        <section style={common.section}>
-          <h2 style={common.h2}>Repository Summary</h2>
-          <SummaryTable summary={summary} />
-        </section>
-      )}
-
-      {summary && (
-        <GitSection
-          repoPath={summary.repo_path}
-          hasUnsavedChanges={hasUnsavedChanges}
-          onSaveSuccess={onSaveSuccess}
-          onPullSuccess={onPullSuccess}
-          onPullRunning={onPullRunning}
-        />
-      )}
+      <GitSection
+        repoPath={summary.repo_path}
+        hasUnsavedChanges={hasUnsavedChanges}
+        onSaveSuccess={onSaveSuccess}
+        onPullSuccess={onPullSuccess}
+        onPullRunning={onPullRunning}
+      />
     </>
   );
 }
 
 const styles = {
+  landingDescription: {
+    margin: "0 0 1rem",
+    fontSize: "0.88rem",
+    color: "#555",
+    lineHeight: 1.55,
+  } as CSSProperties,
+  subHeading: {
+    fontSize: "0.95rem",
+    fontWeight: 600,
+    margin: "0.75rem 0 0.4rem",
+    color: "#333",
+  } as CSSProperties,
+  recentSection: {
+    marginBottom: "0.5rem",
+  } as CSSProperties,
+  recentList: {
+    listStyle: "none",
+    margin: "0",
+    padding: "0",
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: "0.2rem",
+  } as CSSProperties,
+  recentItem: {
+    display: "flex",
+    alignItems: "center",
+    gap: "0.35rem",
+  } as CSSProperties,
+  recentPathBtn: {
+    background: "none",
+    border: "1px solid #ccc",
+    borderRadius: 3,
+    padding: "0.2rem 0.5rem",
+    fontFamily: "monospace",
+    fontSize: "0.82rem",
+    cursor: "pointer",
+    color: "#2255aa",
+    textAlign: "left" as const,
+    flex: 1,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap" as const,
+  } as CSSProperties,
+  recentRemoveBtn: {
+    background: "none",
+    border: "1px solid transparent",
+    borderRadius: 3,
+    padding: "0.15rem 0.4rem",
+    cursor: "pointer",
+    color: "#999",
+    fontSize: "0.9rem",
+    flexShrink: 0,
+  } as CSSProperties,
+  openBar: {
+    paddingBottom: "0.5rem",
+    marginBottom: "0.25rem",
+    borderBottom: "1px solid #eee",
+  } as CSSProperties,
   subSection: {
     marginTop: "0.75rem",
     paddingTop: "0.5rem",
