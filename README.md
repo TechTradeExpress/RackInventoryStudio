@@ -164,10 +164,10 @@ pnpm dev
 pnpm tauri dev
 ```
 
-### WSL / Linux rendering notes
+### WSL2 / Linux rendering notes
 
-On WSL2 (and some Linux setups without hardware GPU access), `pnpm tauri dev` may print
-Mesa/EGL warnings at startup:
+On WSL2 without GPU passthrough (`/dev/dri` absent), `pnpm tauri dev` will print Mesa/EGL
+warnings and the **app window will not appear**:
 
 ```
 libEGL warning: failed to get driver name for fd -1
@@ -176,28 +176,21 @@ MESA: error: ZINK: failed to choose pdev
 libEGL warning: egl: failed to create dri2 screen
 ```
 
-These warnings are **environmental** (Mesa cannot open `/dev/dri` because no DRM device is
-exposed in the WSL2 container). They are not application errors. The app continues to render
-via the Wayland compositor provided by WSLg.
-
-**If the app window opens and renders correctly** — the warnings are harmless; ignore them.
-
-**If the app window is blank or fails to render**, disable the WebKitGTK DMA-BUF renderer:
+Mesa blocks on EGL/ZINK initialisation before the GTK window can open. The fix is to force
+Mesa's CPU-based software rasteriser and disable WebKit's DMA-BUF renderer:
 
 ```bash
-WEBKIT_DISABLE_DMABUF_RENDERER=1 pnpm tauri dev
+WEBKIT_DISABLE_DMABUF_RENDERER=1 LIBGL_ALWAYS_SOFTWARE=1 pnpm tauri dev
 # or use the helper script:
 bash scripts/dev/tauri-dev-wsl.sh
 ```
 
-If the window is still blank, add software rendering as a fallback (slower but always works):
+`LIBGL_ALWAYS_SOFTWARE=1` skips hardware GPU detection entirely; Mesa errors disappear and
+the GTK/WebKit main loop starts normally. Rendering is CPU-only (slower, but functional).
+`WEBKIT_DISABLE_DMABUF_RENDERER=1` additionally prevents a blank-window issue in WebKit
+when DMA-BUF buffer allocation fails.
 
-```bash
-WEBKIT_DISABLE_DMABUF_RENDERER=1 LIBGL_ALWAYS_SOFTWARE=1 pnpm tauri dev
-```
-
-`LIBGL_ALWAYS_SOFTWARE=1` forces Mesa CPU-based software rasterisation. It is not needed in
-most WSLg setups and is not included in the helper script by default.
+This workaround is for local development only. Do not add it to CI.
 
 ## Running frontend checks
 
