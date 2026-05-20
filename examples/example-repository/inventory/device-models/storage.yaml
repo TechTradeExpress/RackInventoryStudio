@@ -1,12 +1,11 @@
 device_type: storage
-
 models:
-  - id: ddd19fa1-8a1a-4300-80c1-b08f7b79ed38
-    code: dell-powervault-me5024
-    name: Dell PowerVault ME5024
-    vendor: Dell
-    model: PowerVault ME5024
-    default_height_u: 2
-    tags:
-      - storage
-      - array
+- id: ddd19fa1-8a1a-4300-80c1-b08f7b79ed38
+  code: dell-powervault-me5024
+  name: Dell PowerVault ME5024
+  vendor: Dell
+  model: PowerVault ME5024
+  default_height_u: 2
+  tags:
+  - storage
+  - array

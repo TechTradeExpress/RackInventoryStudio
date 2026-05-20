@@ -1,11 +1,10 @@
 device_type: ups
-
 models:
-  - id: 98f89575-febc-4b66-a2c1-19aa22a0ff89
-    code: apc-smart-ups-3000
-    name: APC Smart-UPS 3000
-    vendor: APC
-    model: Smart-UPS 3000
-    default_height_u: 2
-    tags:
-      - ups
+- id: 98f89575-febc-4b66-a2c1-19aa22a0ff89
+  code: apc-smart-ups-3000
+  name: APC Smart-UPS 3000
+  vendor: APC
+  model: Smart-UPS 3000
+  default_height_u: 2
+  tags:
+  - ups

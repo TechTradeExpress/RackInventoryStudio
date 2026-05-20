@@ -164,6 +164,34 @@ pnpm dev
 pnpm tauri dev
 ```
 
+### WSL2 / Linux rendering notes
+
+On WSL2 without GPU passthrough (`/dev/dri` absent), `pnpm tauri dev` will print Mesa/EGL
+warnings and the **app window will not appear**:
+
+```
+libEGL warning: failed to get driver name for fd -1
+libEGL warning: MESA-LOADER: failed to retrieve device information
+MESA: error: ZINK: failed to choose pdev
+libEGL warning: egl: failed to create dri2 screen
+```
+
+Mesa blocks on EGL/ZINK initialisation before the GTK window can open. The fix is to force
+Mesa's CPU-based software rasteriser and disable WebKit's DMA-BUF renderer:
+
+```bash
+WEBKIT_DISABLE_DMABUF_RENDERER=1 LIBGL_ALWAYS_SOFTWARE=1 pnpm tauri dev
+# or use the helper script:
+bash scripts/dev/tauri-dev-wsl.sh
+```
+
+`LIBGL_ALWAYS_SOFTWARE=1` skips hardware GPU detection entirely; Mesa errors disappear and
+the GTK/WebKit main loop starts normally. Rendering is CPU-only (slower, but functional).
+`WEBKIT_DISABLE_DMABUF_RENDERER=1` additionally prevents a blank-window issue in WebKit
+when DMA-BUF buffer allocation fails.
+
+This workaround is for local development only. Do not add it to CI.
+
 ## Running frontend checks
 
 ```bash

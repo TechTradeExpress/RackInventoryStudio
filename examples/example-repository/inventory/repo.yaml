@@ -1,30 +1,6 @@
 format: rack-inventory-studio
-version: 0.1
-
+version: '0.1'
 repository:
   id: 9ad7c7fa-1178-4c83-a678-d3fd2b482d1b
   code: example-rack-inventory
   name: Example Rack Inventory Repository
-
-defaults:
-  rack_unit_numbering: bottom-up
-  placement_view: single-side
-  default_status: unknown
-
-device_types:
-  - server
-  - network
-  - storage
-  - ups
-  - appliance
-  - rack_object
-  - other
-
-status_values:
-  - planned
-  - in_stock
-  - installed
-  - to_remove
-  - removed
-  - disposed
-  - unknown

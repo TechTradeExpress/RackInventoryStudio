@@ -1,20 +1,18 @@
 location_id: 79f0b3c0-f4d3-47ad-89e1-9efae2ad5c87
-
 racks:
-  - id: 7d73b40f-53c3-4b11-9a33-9fd5f15f72d2
-    code: rack-a01
-    name: Rack A01
-    height_u: 42
-    row: A
-    description: Example production rack.
-    tags:
-      - production
-
-  - id: 3cc51429-4d7d-4912-ae31-94b7c2f3fb72
-    code: rack-a02
-    name: Rack A02
-    height_u: 42
-    row: A
-    description: Empty example rack prepared for future placements.
-    tags:
-      - production
+- id: 7d73b40f-53c3-4b11-9a33-9fd5f15f72d2
+  code: rack-a01
+  name: Rack A01
+  height_u: 42
+  row: A
+  description: Example production rack.
+  tags:
+  - production
+- id: 3cc51429-4d7d-4912-ae31-94b7c2f3fb72
+  code: rack-a02
+  name: Rack A02
+  height_u: 42
+  row: A
+  description: Empty example rack prepared for future placements.
+  tags:
+  - production

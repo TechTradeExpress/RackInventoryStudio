@@ -1,35 +1,32 @@
 device_type: server
-
 devices:
-  - id: 9a7c5e10-3d3a-4b31-947c-7d3cba39f314
-    code: srv-db-01
-    name: srv-db-01
-    device_model_id: 4a7d5a62-36f4-4cd9-818e-66eac20351a1
-    serial_number: ABC123456
-    asset_tag: INV-00451
-    external_ref: SRV-DB-01
-    status: installed
-    tags:
-      - database
-
-  - id: b0fd6e38-1e99-44c6-a8d7-e34d95f05e41
-    code: srv-app-01
-    name: srv-app-01
-    device_model_id: 0fd050a7-4a7a-4a4e-9c35-153f42c8a06e
-    serial_number: XYZ987654
-    asset_tag: INV-00452
-    external_ref: SRV-APP-01
-    status: installed
-    tags:
-      - app
-
-  - id: 55de54c1-3699-4484-b20e-26b703aef4cb
-    code: srv-unplaced-01
-    name: srv-unplaced-01
-    device_model_id: 4a7d5a62-36f4-4cd9-818e-66eac20351a1
-    serial_number: UNPLACED001
-    asset_tag: INV-00499
-    external_ref: SRV-UNPLACED-01
-    status: in_stock
-    tags:
-      - unplaced
+- id: b0fd6e38-1e99-44c6-a8d7-e34d95f05e41
+  code: srv-app-01
+  name: srv-app-01
+  device_model_id: 0fd050a7-4a7a-4a4e-9c35-153f42c8a06e
+  serial_number: XYZ987654
+  asset_tag: INV-00452
+  external_ref: SRV-APP-01
+  status: installed
+  tags:
+  - app
+- id: 9a7c5e10-3d3a-4b31-947c-7d3cba39f314
+  code: srv-db-01
+  name: srv-db-01
+  device_model_id: 4a7d5a62-36f4-4cd9-818e-66eac20351a1
+  serial_number: ABC123456
+  asset_tag: INV-00451
+  external_ref: SRV-DB-01
+  status: installed
+  tags:
+  - database
+- id: 55de54c1-3699-4484-b20e-26b703aef4cb
+  code: srv-unplaced-01
+  name: srv-unplaced-01
+  device_model_id: 4a7d5a62-36f4-4cd9-818e-66eac20351a1
+  serial_number: UNPLACED001
+  asset_tag: INV-00499
+  external_ref: SRV-UNPLACED-01
+  status: in_stock
+  tags:
+  - unplaced
