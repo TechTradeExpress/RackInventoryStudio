@@ -1,22 +1,20 @@
 device_type: server
-
 models:
-  - id: 4a7d5a62-36f4-4cd9-818e-66eac20351a1
-    code: dell-r650
-    name: Dell PowerEdge R650
-    vendor: Dell
-    model: PowerEdge R650
-    default_height_u: 1
-    tags:
-      - server
-      - 1u
-
-  - id: 0fd050a7-4a7a-4a4e-9c35-153f42c8a06e
-    code: hpe-dl380-gen10
-    name: HPE ProLiant DL380 Gen10
-    vendor: HPE
-    model: ProLiant DL380 Gen10
-    default_height_u: 2
-    tags:
-      - server
-      - 2u
+- id: 4a7d5a62-36f4-4cd9-818e-66eac20351a1
+  code: dell-r650
+  name: Dell PowerEdge R650
+  vendor: Dell
+  model: PowerEdge R650
+  default_height_u: 1
+  tags:
+  - server
+  - 1u
+- id: 0fd050a7-4a7a-4a4e-9c35-153f42c8a06e
+  code: hpe-dl380-gen10
+  name: HPE ProLiant DL380 Gen10
+  vendor: HPE
+  model: ProLiant DL380 Gen10
+  default_height_u: 2
+  tags:
+  - server
+  - 2u

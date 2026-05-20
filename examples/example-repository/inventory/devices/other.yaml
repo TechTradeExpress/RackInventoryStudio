@@ -1,9 +1,8 @@
 device_type: other
-
 devices:
-  - id: 62b9cce5-e671-4412-ae1a-9892dc656e31
-    code: unknown-device-01
-    serial_number: UNKNOWN001
-    status: unknown
-    tags:
-      - unidentified
+- id: 62b9cce5-e671-4412-ae1a-9892dc656e31
+  code: unknown-device-01
+  serial_number: UNKNOWN001
+  status: unknown
+  tags:
+  - unidentified

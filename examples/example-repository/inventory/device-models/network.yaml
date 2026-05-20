@@ -1,21 +1,19 @@
 device_type: network
-
 models:
-  - id: 21f8ff6a-3be8-4eee-9285-df11aac1686b
-    code: cisco-c9300
-    name: Cisco Catalyst 9300
-    vendor: Cisco
-    model: Catalyst 9300
-    default_height_u: 1
-    tags:
-      - switch
-
-  - id: 847c3e5c-5b76-4c8a-994e-66009ddf7f0c
-    code: fortigate-100f
-    name: Fortinet FortiGate 100F
-    vendor: Fortinet
-    model: FortiGate 100F
-    default_height_u: 1
-    tags:
-      - firewall
-      - edge
+- id: 21f8ff6a-3be8-4eee-9285-df11aac1686b
+  code: cisco-c9300
+  name: Cisco Catalyst 9300
+  vendor: Cisco
+  model: Catalyst 9300
+  default_height_u: 1
+  tags:
+  - switch
+- id: 847c3e5c-5b76-4c8a-994e-66009ddf7f0c
+  code: fortigate-100f
+  name: Fortinet FortiGate 100F
+  vendor: Fortinet
+  model: FortiGate 100F
+  default_height_u: 1
+  tags:
+  - firewall
+  - edge

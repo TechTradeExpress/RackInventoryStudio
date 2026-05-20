@@ -1,26 +1,24 @@
 device_type: network
-
 devices:
-  - id: a5d56564-a2e3-4c07-8d35-81f2a0864373
-    code: sw-core-01
-    name: sw-core-01
-    device_model_id: 21f8ff6a-3be8-4eee-9285-df11aac1686b
-    serial_number: FOC123456
-    asset_tag: INV-01001
-    external_ref: SW-CORE-01
-    status: installed
-    tags:
-      - core
-      - switch
-
-  - id: 7158dccb-145b-42c0-b346-bb13f9c349d9
-    code: fw-edge-01
-    name: fw-edge-01
-    device_model_id: 847c3e5c-5b76-4c8a-994e-66009ddf7f0c
-    serial_number: FG100F123
-    asset_tag: INV-02001
-    external_ref: FW-EDGE-01
-    status: installed
-    tags:
-      - firewall
-      - edge
+- id: 7158dccb-145b-42c0-b346-bb13f9c349d9
+  code: fw-edge-01
+  name: fw-edge-01
+  device_model_id: 847c3e5c-5b76-4c8a-994e-66009ddf7f0c
+  serial_number: FG100F123
+  asset_tag: INV-02001
+  external_ref: FW-EDGE-01
+  status: installed
+  tags:
+  - firewall
+  - edge
+- id: a5d56564-a2e3-4c07-8d35-81f2a0864373
+  code: sw-core-01
+  name: sw-core-01
+  device_model_id: 21f8ff6a-3be8-4eee-9285-df11aac1686b
+  serial_number: FOC123456
+  asset_tag: INV-01001
+  external_ref: SW-CORE-01
+  status: installed
+  tags:
+  - core
+  - switch
