@@ -228,6 +228,13 @@ export function invoke<T>(command: string, args?: unknown): Promise<T> {
           ),
         );
       }
+      if (path !== FIXTURE_REPO_PATH) {
+        return Promise.reject(
+          new Error(
+            `[E2E mock] open_repository_cmd: unexpected fixture path: "${path}" (expected "${FIXTURE_REPO_PATH}")`,
+          ),
+        );
+      }
       return Promise.resolve(COMMANDS.open_repository_cmd as T);
     }
 
@@ -242,6 +249,15 @@ export function invoke<T>(command: string, args?: unknown): Promise<T> {
       }
       // Short queries return no results (mirrors real backend minimum-length guard).
       if (query.trim().length < 2) {
+        return Promise.resolve([] as unknown as T);
+      }
+      // Return fixture results only for queries matching fixture data keywords.
+      // All other queries return empty to allow testing the no-results state.
+      const q = query.trim().toLowerCase();
+      const matchesFixture = ["server", "rack", "main", "room"].some((kw) =>
+        q.includes(kw),
+      );
+      if (!matchesFixture) {
         return Promise.resolve([] as unknown as T);
       }
       return Promise.resolve(COMMANDS.search_repository_cmd as T);

@@ -135,6 +135,22 @@ test("5: CSV import preview and import flow", async ({ page }) => {
   await expect(page.getByText(/1 device created/i)).toBeVisible();
 });
 
+test("7: global search handles short and no-result queries", async ({ page }) => {
+  await page.goto("/");
+  await openFixtureRepo(page);
+
+  const searchInput = page.locator('input[placeholder*="Search"]');
+
+  // Single character — UI suppresses the dropdown entirely (min 2 chars)
+  await searchInput.fill("s");
+  await expect(page.getByRole("listbox")).not.toBeVisible();
+  await expect(page.getByText("No results")).not.toBeVisible();
+
+  // Query with no matching fixture data — mock returns [] → "No results" shown
+  await searchInput.fill("zz-no-match");
+  await expect(page.getByText("No results")).toBeVisible();
+});
+
 test("6: rack detail and placement table visible", async ({ page }) => {
   await page.goto("/");
   await openFixtureRepo(page);
