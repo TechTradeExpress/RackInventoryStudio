@@ -1,204 +1,132 @@
-# cc-report — milestone/playwright-smoke-tests
+# cc-report — milestone/drag-and-drop-placement
 
 ## Branch
 
-`milestone/playwright-smoke-tests` — exploratory local branch.
+`milestone/drag-and-drop-placement`
 
-**PR:** https://github.com/TechTradeExpress/RackInventoryStudio/pull/36  
-**Push:** branch pushed to origin/milestone/playwright-smoke-tests  
-**Latest code commit hash:** 077ce7f (polish commit, current HEAD before report update)  
-**Status:** ready for ChatGPT PR review
-
-### Note on .ai/cc-report.md
-
-This file is intentionally committed as an artefact of the current milestone/review workflow.
-It is tracked in git on this branch so the build-review-context.sh script can include it in
-the ChatGPT review context. It is covered by the root .gitignore entry for `.ai/`, but was
-force-added (`git add -f`) to make it available to the review script.
+**PR:** https://github.com/TechTradeExpress/RackInventoryStudio/pull/37
 
 ---
 
-## Goal
+## Summary
 
-Playwright Smoke Tests Foundation — establish a Vite/web-based Playwright smoke layer for the
-desktop app so that golden-path flows are verifiable without a full Tauri binary.
-
----
-
-## Iteration History
-
-### Foundation commit (d6d28a9)
-Initial Playwright setup: 6 smoke tests, Vite E2E config, Tauri mocks.
-
-### Repair commits (62af0bc, a3118dc, ae75537)
-- Root .gitignore Playwright artifact ignores committed.
-- Desktop .gitignore updated with playwright-report/.
-- MVP smoke test checklist updated.
-- cc-report.md committed.
-
-### Hardening pass (31b90c3)
-- Console error guard promoted from test-1-only to global page fixture.
-- Mock invoke() converted to per-command switch with argument validation.
-
-### Final pre-PR polish (9ae80db)
-- open_repository_cmd mock restricted to FIXTURE_REPO_PATH only.
-- search_repository_cmd mock returns [] for non-fixture queries.
-- Added smoke test 7: short query suppression + no-results empty state.
-- Docs updated: smoke test count 6 → 7.
-
-### Non-blocking cleanup (this commit)
-- Removed numeric prefixes from all 7 smoke test names.
-- Reordered tests: rack detail now appears before search edge cases.
-- Updated docs/MVP_SMOKE_TEST_CHECKLIST_EN.md: replaced branch-specific wording with
-  merge-neutral description ("implemented as a Vite/web smoke layer").
+Added HTML Drag and Drop API placement to RackDetailPanel (initial commit), then fixed
+the blocking review issue: drop target validation now checks item height before showing
+a valid-drop highlight (repair commit).
 
 ---
 
-## Summary of Changes
+## Blocking Issue Fixed (repair for PR #37)
 
-- Added Playwright as smoke test foundation (`@playwright/test` devDependency).
-- Added `test:e2e` script to `package.json`.
-- Added `playwright.config.ts` (Firefox, port 1421, Vite web server).
-- Added `vite.config.e2e.ts` with Vite resolve aliases replacing Tauri packages with mocks.
-- Added `e2e/mocks/tauri-core.ts` — invoke() mock with per-command argument validation.
-- Added `e2e/mocks/tauri-dialog.ts` — file dialog mock returning fixture path or null.
-- Added `e2e/smoke.spec.ts` — 7 Playwright smoke tests with global console error guard.
-- Added ignore for `test-results/` and `playwright-report/` in both .gitignore files.
-- Updated `docs/MVP_SMOKE_TEST_CHECKLIST_EN.md` Playwright section.
+**Problem:** All empty rack unit cells showed a green valid-drop highlight regardless of
+item height. A 2U or 4U rack object dragged near the top of the rack could highlight
+cells where the full range would exceed the rack height or overlap an existing placement.
+The backend would reject these drops, but the UI should not indicate they are valid.
+
+**Fix:** Added `canDropAt(units, startU, heightU)` which checks that the entire U-range
+fits within the rack and all cells in that range are empty. The `SideColumn` component
+now runs this check on every `dragover` event using the active payload cached in a
+module-level singleton (required because `dataTransfer.getData()` is blocked by the
+browser during `dragover`). Green highlight → valid; red dashed highlight → invalid;
+drop is silently ignored for invalid targets.
 
 ---
 
-## Implementation Decision: Web/Vite Runner, not Full Tauri E2E
+## Files Changed
 
-Tests run against a Vite dev server (port 1421) — not the compiled Tauri shell.
-
-**Tauri IPC mocked via Vite aliases:**
-
-| Package import | Replaced by |
+| File | Change |
 |---|---|
-| `@tauri-apps/api/core` | `e2e/mocks/tauri-core.ts` |
-| `@tauri-apps/plugin-dialog` | `e2e/mocks/tauri-dialog.ts` |
-
-The Rust backend is not running during Playwright tests.
-
----
-
-## Console Error Guard
-
-The `page` fixture is overridden via `base.extend()` so every test collects `console.error`
-events and fails if any are emitted. No filtering is applied — the mock layer is clean.
+| `src/features/racks/dndTypes.ts` | New — DND_DATA_TYPE and DndPayload union type |
+| `src/features/racks/dndHelpers.ts` | New — encode/decode, active-drag singleton, `getPayloadHeight`, `canDropAt` |
+| `src/features/racks/dndHelpers.test.ts` | New — 15 tests: 7 encode/decode, 8 canDropAt scenarios |
+| `src/features/racks/AddPlacementPanel.tsx` | Drag palette; `allDeviceModels` state for height lookup; `setActiveDragPayload` on dragstart/dragend |
+| `src/features/racks/RackUnitDiagram.tsx` | Drop targets in `SideColumn`; `{ idx, valid }` hover state; green/red highlight based on `canDropAt`; drop guard |
+| `src/features/racks/RackDetailPanel.tsx` | `handleDropAtCell`; `dndError` state; `placeDevice`/`placeRackObject` imports |
+| `e2e/mocks/tauri-core.ts` | `place_device` and `place_rack_object` mock handlers |
 
 ---
 
-## Mock Argument Validation
+## Implementation Notes
 
-| Command | Validated argument | Validation rule |
-|---|---|---|
-| `open_repository_cmd` | `path` | non-empty string AND must equal FIXTURE_REPO_PATH |
-| `search_repository_cmd` | `query` | string; `[]` if trimmed length < 2; `[]` if no fixture keyword match |
-| `preview_device_csv_import_cmd` | `csvContent` | non-empty string |
-| `import_device_csv_cmd` | `csvContent` | non-empty string |
-| `read_csv_file` | `path` | string if provided |
+### canDropAt semantics
+`units[0]` = U1 (bottom), `units[n-1]` = top — same convention as `buildOccupancy`.
+A placement from `startU` to `startU + heightU - 1` must:
+- have `heightU ≥ 1` (positive integer),
+- have `startU ≥ 1`,
+- have `startU + heightU - 1 ≤ units.length` (fits in rack),
+- have all cells in range as `empty` (not `occupied` or `incomplete`).
 
----
+### Active drag singleton
+HTML DnD API restricts `dataTransfer.getData()` to `dragstart` and `drop` events only.
+During `dragover` the data is not readable. A module-level variable `_activeDragPayload`
+is set on `dragstart` and cleared on `dragend`, allowing `SideColumn` to validate
+during `dragover` without lifting state through multiple component layers.
 
-## Browser Decision: Firefox
+### Height for device vs rack_object
+- `rack_object`: `payload.defaultHeightU` is always a concrete number → used directly.
+- `device`: `payload.defaultHeightU` is looked up from `allDeviceModels` (full model list
+  stored in `AddPlacementPanel` state). Falls back to `null` when device has no model,
+  and `getPayloadHeight` returns `1` for `null`. This means a device without a model is
+  validated as 1U — acceptable because the backend sets default height to 1U in that case.
 
-Chromium requires `libnspr4.so` unavailable in WSL2 dev environment without sudo. Firefox
-is a valid CI browser. Single-browser config kept — no matrix added.
-
----
-
-## Smoke Tests (7)
-
-| Test name | What it verifies |
-|---|---|
-| app shell loads without console errors | Heading visible, Validation tab disabled, zero console errors |
-| open repository enables all tabs | Fill path, click Open, all 7 tabs enabled, search bar visible |
-| global search shows results and navigates to Locations | Type "server", see "Server Room A", click → Locations tab |
-| validation panel shows issues and navigates on click | Click Validate, see mock issue, click "Open Device" → Devices tab |
-| CSV import preview and import flow | Fill textarea, Preview → cell visible, Import → "1 device created" |
-| rack detail and placement table visible | Click Racks, click "Main Rack" cell → Rack Detail + plc-srv-01 |
-| global search handles short and no-result queries | "s" → no dropdown; "zz-no-match" → "No results" |
+### Limitation
+Devices with a model have their height correctly resolved in the drag card.
+The height is baked into the payload at drag start, so if a model's height changes
+between page load and drop, the stale height is used for UI validation
+(backend remains the source of truth).
 
 ---
 
-## How to Run
-
-```bash
-pnpm --filter @rack-inventory-studio/desktop test:e2e
-```
-
-If Firefox is not yet installed: `npx playwright install firefox`
-
----
-
-## Test Results
-
-### Backend
+## Tests
 
 | Command | Result |
 |---|---|
 | `cargo fmt --all --check` | PASS |
 | `cargo check --workspace` | PASS |
-| `cargo test --workspace` | PASS — 344 tests, 0 failed |
+| `cargo test --workspace` | PASS — all 344 Rust tests pass |
 | `cargo clippy --workspace -- -D warnings` | PASS |
-
-### Frontend
-
-| Command | Result |
-|---|---|
 | `pnpm typecheck` | PASS |
-| `pnpm test` (Vitest) | PASS — 63 tests, 6 files |
-| `pnpm build` | PASS — 55 modules, 231 kB bundle |
-| `pnpm test:e2e` (Playwright) | PASS — 7/7, Firefox, 7.3 s |
+| `pnpm test` (Vitest) | PASS — 78 tests, 7 files (15 new dndHelpers tests) |
+| `pnpm build` | PASS — 57 modules, 234 kB bundle |
+| `pnpm test:e2e` (Playwright) | PASS — 7/7, Firefox |
 
 ---
 
-## Manual Check Result
+## Manual Check
 
-| Flow | Result |
-|---|---|
-| Repository tab — open example repo, summary loads | PASS |
-| Validation tab — click Validate, issues appear | PASS |
-| Global Search — type query, result visible, click navigates | PASS |
-| Racks / Rack Detail — click rack row, placement table visible | PASS |
-| CSV Import — paste CSV into textarea, Preview, Import | PASS |
+Performed against Vite dev server (port 1420) in WSL2 environment (no browser available
+for interactive UI; functional correctness verified via unit tests and Playwright smoke layer).
 
----
-
-## Known Limitations
-
-- Not full Tauri E2E — real Rust backend is not running in Playwright tests.
-- Native file dialogs are mocked.
-- Real Git remote operations are not tested.
-- Mock keyword matching for search is a simple string-contains check.
-- open_repository_cmd accepts only the single fixture path.
+- `canDropAt` unit tests cover all valid/invalid scenarios including out-of-bounds,
+  overlap with occupied and incomplete cells, and multi-U range validation.
+- Playwright smoke tests confirm rack detail loads, placements are visible, and
+  the global console error guard detects any runtime errors.
+- Form-based placement workflow unchanged and verified via existing code paths.
 
 ---
 
 ## Risks
 
-- Mocks may drift from real backend command shape over time.
-- Firefox-only config: Chromium behavior differences not caught.
-- Smoke layer tests frontend flow only, not full desktop integration.
+- Playwright DnD smoke test deferred — Firefox headless does not populate
+  `dataTransfer.getData()` in synthetic drag events (unchanged from initial commit).
+- Active drag singleton is module-level state: if multiple rack diagrams are rendered
+  simultaneously, the last dragstart wins. This is acceptable for the current single-
+  rack-detail layout but would require a Context-based approach if multiple diagrams
+  were visible at once.
+- Device height baked into payload at drag start — stale if model changes mid-session.
+  Backend validation is the final guard.
 
 ---
 
-## Out of Scope (Intentional)
+## Not Done
 
-- Drag and drop tests.
-- Full Tauri E2E with compiled binary.
-- GitHub Actions CI job.
-- Visual regression tests.
-- Native file dialog tests.
-- Real Git remote tests.
-- Backend / domain changes.
-- Multi-browser matrix.
+- Playwright DnD smoke test (deferred — unchanged).
+- Drag-and-drop touch support (not in scope).
+- Keyboard alternative for drag-and-drop (not in scope).
 
 ---
 
-## Status
+## Suggested Next Step
 
-Branch ready for push and PR creation. PR not yet created. Branch not yet pushed.
-Current branch HEAD will be visible in the accompanying review-context file.
+Add a Playwright smoke test for drag-and-drop using synthetic `dispatchEvent` calls
+with a mocked `dataTransfer` object once a reliable cross-browser approach is confirmed.
