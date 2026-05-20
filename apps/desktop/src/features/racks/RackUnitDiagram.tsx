@@ -1,7 +1,12 @@
 import { useState, type CSSProperties } from "react";
 import type { PlacementDto } from "../../api/tauriClient";
 import { buildOccupancy, type UnitState } from "./rackOccupancy";
-import { getDragPayload } from "./dndHelpers";
+import {
+  getDragPayload,
+  getActiveDragPayload,
+  getPayloadHeight,
+  canDropAt,
+} from "./dndHelpers";
 import type { DndPayload } from "./dndTypes";
 
 interface Props {
@@ -111,7 +116,7 @@ function SideColumn({
   onSelectPlacement,
   onDropAtCell,
 }: SideColumnProps) {
-  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+  const [hovered, setHovered] = useState<{ idx: number; valid: boolean } | null>(null);
 
   // units[0] = U1 (bottom), render top-to-bottom so reverse
   const rows = [...units].reverse();
@@ -125,16 +130,19 @@ function SideColumn({
           state.kind !== "empty" &&
           state.placement.id === selectedPlacementId;
         const label = cellLabel(state);
-        const isDragOver = state.kind === "empty" && hoveredIdx === idx;
 
         const baseStyle = cellStyle(
           state,
           state.kind === "occupied" && state.isTop,
           isSelected,
         );
-        const style: CSSProperties = isDragOver
-          ? { ...baseStyle, background: "#c8e6c0", outline: "2px dashed #4a7c3f" }
-          : baseStyle;
+
+        let style: CSSProperties = baseStyle;
+        if (state.kind === "empty" && hovered?.idx === idx) {
+          style = hovered.valid
+            ? { ...baseStyle, background: "#c8e6c0", outline: "2px dashed #4a7c3f" }
+            : { ...baseStyle, background: "#fde8e8", outline: "2px dashed #cc4444" };
+        }
 
         return (
           <div
@@ -153,23 +161,29 @@ function SideColumn({
               state.kind === "empty" && onDropAtCell
                 ? (e) => {
                     e.preventDefault();
-                    e.dataTransfer.dropEffect = "copy";
-                    setHoveredIdx(idx);
+                    const payload = getActiveDragPayload();
+                    const valid =
+                      payload !== null &&
+                      canDropAt(units, startU, getPayloadHeight(payload));
+                    e.dataTransfer.dropEffect = valid ? "copy" : "none";
+                    setHovered({ idx, valid });
                   }
                 : undefined
             }
             onDragLeave={
               state.kind === "empty" && onDropAtCell
-                ? () => setHoveredIdx(null)
+                ? () => setHovered(null)
                 : undefined
             }
             onDrop={
               state.kind === "empty" && onDropAtCell
                 ? (e) => {
                     e.preventDefault();
-                    setHoveredIdx(null);
+                    setHovered(null);
                     const payload = getDragPayload(e);
-                    if (payload) onDropAtCell(side, startU, payload);
+                    if (!payload) return;
+                    if (!canDropAt(units, startU, getPayloadHeight(payload))) return;
+                    onDropAtCell(side, startU, payload);
                   }
                 : undefined
             }

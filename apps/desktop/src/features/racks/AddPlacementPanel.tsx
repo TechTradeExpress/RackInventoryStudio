@@ -10,7 +10,7 @@ import {
 } from "../../api/tauriClient";
 import { common } from "../../lib/styles";
 import { parsePositiveInt } from "./positiveInt";
-import { encodeDndPayload } from "./dndHelpers";
+import { encodeDndPayload, setActiveDragPayload } from "./dndHelpers";
 import { DND_DATA_TYPE } from "./dndTypes";
 
 interface Props {
@@ -31,6 +31,8 @@ export function AddPlacementPanel({ rack, onAddSuccess, reloadToken, mutationTok
   const [heightU, setHeightU] = useState("");
   const [devices, setDevices] = useState<DeviceDto[]>([]);
   const [deviceModels, setDeviceModels] = useState<DeviceModelDto[]>([]);
+  // Full model list used to look up default_height_u for device drag cards.
+  const [allDeviceModels, setAllDeviceModels] = useState<DeviceModelDto[]>([]);
   const [targetsLoading, setTargetsLoading] = useState(false);
   const [manualRetryToken, setManualRetryToken] = useState(0);
   const [working, setWorking] = useState(false);
@@ -61,6 +63,7 @@ export function AddPlacementPanel({ rack, onAddSuccess, reloadToken, mutationTok
         const [devs, models] = await Promise.all([listDevices(), listDeviceModels()]);
         if (!cancelled) {
           setDevices(devs.filter((d) => !d.is_placed));
+          setAllDeviceModels(models);
           setDeviceModels(models.filter((m) => m.device_type === "rack_object"));
           setTargetsLoading(false);
         }
@@ -399,70 +402,77 @@ export function AddPlacementPanel({ rack, onAddSuccess, reloadToken, mutationTok
             Drag to place:
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem" }}>
-            {unplacedDevices.map((d) => (
-              <div
-                key={d.id}
-                draggable
-                data-testid={`dnd-device-${d.id}`}
-                onDragStart={(e) => {
-                  e.dataTransfer.effectAllowed = "copy";
-                  e.dataTransfer.setData(
-                    DND_DATA_TYPE,
-                    encodeDndPayload({
-                      kind: "device",
-                      deviceId: d.id,
-                      deviceCode: d.code,
-                      defaultHeightU: null,
-                    }),
-                  );
-                }}
-                style={{
-                  padding: "0.2rem 0.45rem",
-                  background: "#dce8fc",
-                  border: "1px solid #9bbde8",
-                  borderRadius: 3,
-                  fontSize: "0.75rem",
-                  fontFamily: "monospace",
-                  cursor: "grab",
-                  userSelect: "none",
-                }}
-                title={`Drag to place ${d.code}`}
-              >
-                {d.code}
-              </div>
-            ))}
-            {rackObjectModels.map((m) => (
-              <div
-                key={m.id}
-                draggable
-                data-testid={`dnd-model-${m.id}`}
-                onDragStart={(e) => {
-                  e.dataTransfer.effectAllowed = "copy";
-                  e.dataTransfer.setData(
-                    DND_DATA_TYPE,
-                    encodeDndPayload({
-                      kind: "rack_object",
-                      deviceModelId: m.id,
-                      modelCode: m.code,
-                      defaultHeightU: m.default_height_u,
-                    }),
-                  );
-                }}
-                style={{
-                  padding: "0.2rem 0.45rem",
-                  background: "#f0e8fc",
-                  border: "1px solid #c0a0e0",
-                  borderRadius: 3,
-                  fontSize: "0.75rem",
-                  fontFamily: "monospace",
-                  cursor: "grab",
-                  userSelect: "none",
-                }}
-                title={`Drag to place ${m.code} (${m.default_height_u}U)`}
-              >
-                {m.code}
-              </div>
-            ))}
+            {unplacedDevices.map((d) => {
+              const modelHeight =
+                allDeviceModels.find((m) => m.id === d.device_model_id)
+                  ?.default_height_u ?? null;
+              const payload = {
+                kind: "device" as const,
+                deviceId: d.id,
+                deviceCode: d.code,
+                defaultHeightU: modelHeight,
+              };
+              return (
+                <div
+                  key={d.id}
+                  draggable
+                  data-testid={`dnd-device-${d.id}`}
+                  onDragStart={(e) => {
+                    e.dataTransfer.effectAllowed = "copy";
+                    e.dataTransfer.setData(DND_DATA_TYPE, encodeDndPayload(payload));
+                    setActiveDragPayload(payload);
+                  }}
+                  onDragEnd={() => setActiveDragPayload(null)}
+                  style={{
+                    padding: "0.2rem 0.45rem",
+                    background: "#dce8fc",
+                    border: "1px solid #9bbde8",
+                    borderRadius: 3,
+                    fontSize: "0.75rem",
+                    fontFamily: "monospace",
+                    cursor: "grab",
+                    userSelect: "none",
+                  }}
+                  title={`Drag to place ${d.code}${modelHeight ? ` (${modelHeight}U)` : ""}`}
+                >
+                  {d.code}
+                </div>
+              );
+            })}
+            {rackObjectModels.map((m) => {
+              const payload = {
+                kind: "rack_object" as const,
+                deviceModelId: m.id,
+                modelCode: m.code,
+                defaultHeightU: m.default_height_u,
+              };
+              return (
+                <div
+                  key={m.id}
+                  draggable
+                  data-testid={`dnd-model-${m.id}`}
+                  onDragStart={(e) => {
+                    e.dataTransfer.effectAllowed = "copy";
+                    e.dataTransfer.setData(DND_DATA_TYPE, encodeDndPayload(payload));
+                    setActiveDragPayload(payload);
+                  }}
+                  onDragEnd={() => setActiveDragPayload(null)}
+                  style={{
+                    padding: "0.2rem 0.45rem",
+                    background: "#f0e8fc",
+                    border: "1px solid #c0a0e0",
+                    borderRadius: 3,
+                    fontSize: "0.75rem",
+                    fontFamily: "monospace",
+                    cursor: "grab",
+                    userSelect: "none",
+                  }}
+                  title={`Drag to place ${m.code} (${m.default_height_u}U)`}
+                >
+                  {m.code}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
