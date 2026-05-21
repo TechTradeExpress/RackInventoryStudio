@@ -7,6 +7,7 @@ import {
   type CsvImportPreviewDto,
   type CsvImportPreviewRowDto,
 } from "../../api/tauriClient";
+import { deriveCsvImportUiSummary } from "./csvImportSummary";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { Panel } from "../../components/ui/Panel";
 import { Badge } from "../../components/ui/Badge";
@@ -127,11 +128,9 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
     }
   }
 
-  const blocked      = preview !== null && hasErrors(preview);
-  const okRows       = preview?.rows.filter((r) => r.action !== "skip_due_to_error").length ?? 0;
-  const warnRows     = preview?.rows.filter((r) => r.action !== "skip_due_to_error" && r.issues.some((i) => i.level === "warning")).length ?? 0;
-  const errRows      = preview?.rows.filter((r) => r.action === "skip_due_to_error").length ?? 0;
-  const totalRows    = preview?.rows.length ?? 0;
+  const blocked = preview !== null && hasErrors(preview);
+  const { totalRows, importableRows, cleanRows, warningRows, skippedRows } =
+    deriveCsvImportUiSummary(preview);
 
   return (
     <>
@@ -221,7 +220,7 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
                     onClick={handleImport}
                     disabled={!preview || blocked || previewing || importing}
                   >
-                    <IcDownload size={12} /> {importing ? "Importing…" : `Import ${okRows + warnRows} row${okRows + warnRows !== 1 ? "s" : ""}`}
+                    <IcDownload size={12} /> {importing ? "Importing…" : `Import ${importableRows} row${importableRows !== 1 ? "s" : ""}`}
                   </button>
                 </div>
 
@@ -235,7 +234,7 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
             {preview && (
               <Panel
                 title="Preview"
-                desc={`${totalRows} rows · ${okRows} ready · ${warnRows} warning · ${errRows} skipped`}
+                desc={`${totalRows} rows · ${cleanRows} clean · ${warningRows} with warnings · ${skippedRows} skipped`}
                 flush
               >
                 {preview.file_issues.length > 0 && (
@@ -311,9 +310,9 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
             {preview && (
               <Panel title="Outcome">
                 <div className="stack-3">
-                  <SummaryRow tone="ok"   label="Will create" value={okRows + warnRows} desc="Rows pass validation" />
-                  <SummaryRow tone="warn" label="Warnings"    value={warnRows}          desc="Imported but need follow-up" />
-                  <SummaryRow tone="err"  label="Skipped"     value={errRows}           desc="Need fixes in source CSV" />
+                  <SummaryRow tone="ok"   label="Will create" value={importableRows} desc="Rows that will be imported" />
+                  <SummaryRow tone="warn" label="Warnings"    value={warningRows}   desc="Importable rows with warnings — review after import" />
+                  <SummaryRow tone="err"  label="Skipped"     value={skippedRows}   desc="Need fixes in source CSV" />
                 </div>
               </Panel>
             )}

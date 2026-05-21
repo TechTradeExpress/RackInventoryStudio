@@ -57,14 +57,14 @@ pnpm --filter @rack-inventory-studio/desktop test:e2e                  → 9/9 p
 - The rack detail three-pane grid (260px | 1fr | 320px) requires sufficient viewport width; it will overflow horizontally on very narrow windows. No responsive breakpoints were added.
 - `AddPlacementPanel` still contains both the palette and the form in one component — for narrow left columns the form may feel cramped. A future pass could extract them.
 - The `common` styles object from `lib/styles` is still imported and used in some non-rewritten components (e.g., `RackUnitDiagram`). These were not in scope.
-- No end-to-end (Playwright) tests were run — the dev server requires Tauri and a real OS environment.
+- ~~No end-to-end (Playwright) tests were run~~ — **corrected in repair**: Playwright smoke tests run 9/9 on a Vite/web layer with Tauri mocks; full Tauri runtime is not required.
 
 ## Not done
 
 - Responsive layout / mobile breakpoints
 - Dark mode toggle (tokens are defined, but no toggle UI added)
 - Keyboard navigation polish for the palette drag cards
-- Playwright e2e tests (require full Tauri runtime)
+- ~~Playwright e2e tests~~ — **done in repair**: 9/9 pass on Vite/web smoke layer with Tauri mocks (no full Tauri runtime needed)
 - `RackUnitDiagram` visual polish (diagram cell colors still use inline styles from before)
 
 ## Suggested next step
@@ -116,3 +116,42 @@ Launched with `WEBKIT_DISABLE_DMABUF_RENDERER=1 LIBGL_ALWAYS_SOFTWARE=1 pnpm tau
 - Responsive layout / breakpoints
 - Playwright accessibility audit beyond smoke coverage
 - Backend / domain / repo schema changes
+
+---
+
+## Repair update — CSV import warning row counts
+
+**Blocker:**
+`CsvImportPanel.tsx` computed `okRows` as all importable rows (including warning rows) and `warnRows` as the warning-row subset. The button label `Import ${okRows + warnRows} rows` and the Outcome panel `Will create: okRows + warnRows` both double-counted warning rows. A CSV with 3 importable rows (1 with warning) showed "Import 4 rows" and "Will create: 4", while the backend would only create 3 devices.
+
+**Fix:**
+Extracted a pure helper `deriveCsvImportUiSummary` into `csvImportSummary.ts` with unambiguous counters:
+- `importableRows` — all rows that are NOT `skip_due_to_error` (what to import)
+- `warningRows` — importable rows with at least one warning issue (subset of importable)
+- `cleanRows` — `importableRows - warningRows` (importable with no warnings)
+- `skippedRows` — rows with `skip_due_to_error`
+- `totalRows` — all rows in preview
+
+`CsvImportPanel.tsx` now uses:
+- Button: `Import ${importableRows} row(s)` — no double-count
+- Preview description: `N rows · N clean · N with warnings · N skipped`
+- Outcome "Will create": `importableRows`
+- Outcome "Warnings": `warningRows` + desc clarified as "Importable rows with warnings — review after import"
+- Outcome "Skipped": `skippedRows`
+
+No backend changes. No DTO changes. No Tauri commands touched.
+
+**Test added:**
+`apps/desktop/src/features/csvImport/csvImportSummary.test.ts` — 4 Vitest cases:
+1. null preview → all zeros
+2. 1 clean importable row
+3. 1 warning importable row
+4. mixed (2 clean + 1 warning importable + 1 skipped) — asserts `importableRows === cleanRows + warningRows` (no double-count invariant)
+
+**Check results:**
+- `git diff --check` → pass (no whitespace errors)
+- `pnpm --filter @rack-inventory-studio/desktop typecheck` → pass
+- `pnpm --filter @rack-inventory-studio/desktop test` → **132/132 pass** (10 test files, +4 new)
+- `pnpm --filter @rack-inventory-studio/desktop test:e2e` → **9/9 pass**
+
+**Manual Tauri check:** not performed (headless WSL2). Logic covered by Vitest helper tests and Playwright CSV import smoke (test 6 still passes end-to-end through mock). No functional changes to backend or import logic.
