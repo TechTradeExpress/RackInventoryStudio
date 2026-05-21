@@ -225,6 +225,7 @@ export function App() {
         onKeyDown={(e) => { if (!disabled && (e.key === "Enter" || e.key === " ")) setActiveTab(tab); }}
         aria-label={label}
         aria-current={active ? "page" : undefined}
+        aria-disabled={disabled ? true : undefined}
       >
         <span className="nav-ic">{icon}</span>
         <span>{label}</span>

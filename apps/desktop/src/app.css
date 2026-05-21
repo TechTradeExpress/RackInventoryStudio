@@ -179,7 +179,6 @@ body {
   display: grid;
   grid-template-columns: var(--rail-w) 1fr;
   min-height: 0;
-  overflow: hidden;
 }
 
 /* ============== Left rail ============== */
@@ -189,7 +188,6 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow: hidden;
 }
 .rail .rail-search {
   position: relative;
@@ -432,7 +430,7 @@ textarea.ri-input { height: auto; padding: 6px 8px; font-family: var(--font-mono
   border-bottom: 1px solid var(--bd-1);
   background: var(--bg-surface);
 }
-.panel-hd .phd-title { font-weight: 600; font-size: var(--fs-13); color: var(--tx-1); }
+.panel-hd .phd-title { font-weight: 600; font-size: var(--fs-13); color: var(--tx-1); margin: 0; }
 .panel-hd .phd-desc  { color: var(--tx-3); font-size: var(--fs-12); margin-left: var(--sp-1); }
 .panel-hd .phd-actions { margin-left: auto; display: flex; gap: var(--sp-2); align-items: center; }
 .panel-bd { padding: var(--sp-4); }

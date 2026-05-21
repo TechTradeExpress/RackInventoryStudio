@@ -114,7 +114,7 @@ export function ValidationPanel({
         actions={
           <>
             <button className="btn" onClick={handleValidate} disabled={working}>
-              <IcRefresh size={12} /> Re-run
+              <IcRefresh size={12} /> Validate
             </button>
             <button className="btn btn-primary" onClick={handleSave} disabled={working}>
               <IcSave size={12} /> Save inventory
@@ -159,7 +159,7 @@ export function ValidationPanel({
                 <EmptyState
                   icon={<IcCheckCircle size={28} />}
                   title="No results yet"
-                  body="Click Re-run to validate the current inventory."
+                  body="Click Validate to validate the current inventory."
                 />
               ) : filtered.length === 0 ? (
                 <EmptyState

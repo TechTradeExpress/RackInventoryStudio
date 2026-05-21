@@ -760,7 +760,7 @@ function GitSection({
       )}
 
       {/* Git status + action hints sidebar content */}
-      <Panel title="Git status">
+      <Panel title="Git">
         <div className="stack-3">
           <dl className="kv">
             <dt>Branch</dt>
@@ -968,6 +968,7 @@ export function RepositoryPanel({
                     <label>Repository path</label>
                     <div className="input-group">
                       <input
+                        type="text"
                         className="ri-input ri-mono"
                         value={repoPath}
                         onChange={(e) => onRepoPathChange(e.target.value)}

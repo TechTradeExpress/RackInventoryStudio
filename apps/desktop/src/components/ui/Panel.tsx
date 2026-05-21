@@ -15,7 +15,7 @@ export function Panel({ title, desc, actions, children, flush }: PanelProps) {
       {hasHeader && (
         <div className="panel-hd">
           <div>
-            {title && <span className="phd-title">{title}</span>}
+            {title && <h2 className="phd-title">{title}</h2>}
             {desc  && <span className="phd-desc">{desc}</span>}
           </div>
           {actions && <div className="phd-actions">{actions}</div>}
