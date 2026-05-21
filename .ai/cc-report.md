@@ -264,7 +264,7 @@ bash scripts/ai/build-review-context.sh design/claude-ui-polish ".ai/review-cont
 **What was implemented:**
 
 *New TypeScript components (`apps/desktop/src/components/ui/`):*
-- `Modal.tsx` — portal-rendered overlay via `createPortal(…, document.body)`. Props: `open`, `title`, `subtitle`, `onClose`, `children`, `footer`, `footerMessage/Tone`, `size` ("sm"=460/"md"=560/"lg"=640/"xl"=720), `width`, `danger`, `flush`, `disableBackdropClose`. Esc key + backdrop click close the modal. Focus trapped to dialog `tabIndex={-1}` on open.
+- `Modal.tsx` — portal-rendered overlay via `createPortal(…, document.body)`. Props: `open`, `title`, `subtitle`, `onClose`, `children`, `footer`, `footerMessage/Tone`, `size` ("sm"=460/"md"=560/"lg"=640/"xl"=720), `width`, `danger`, `flush`, `disableBackdropClose`. Esc key + backdrop click close the modal. Dialog receives focus on open via `tabIndex={-1}`. Full focus trapping (Tab/Shift+Tab cycling within the modal) is not yet implemented; can be added when the first production CRUD modal is wired if needed.
 - `ConfirmDialog.tsx` — thin wrapper over Modal. Fixed width 460 px. Props: `tone` ("default"|"danger"), `confirmLabel`, `cancelLabel`, `onConfirm`, `onCancel`. Danger tone: red border + `btn-danger` button.
 - `Segmented.tsx` — generic `<T extends string>` controlled component. Renders `role="tablist"` with `role="tab"` buttons. Props: `value`, `onChange`, `options` (value/label/icon?/count?), `ariaLabel`. Active option gets `aria-selected="true"` and `.on` CSS class.
 - `Field.tsx` — form field wrapper. Props: `label`, `required` (renders `<span class="req">*</span>`), `help`, `error` (shows `IcAlertCircle` + message), `className` (for `col-6` etc). Uses `.help` / `.help.err` child classes.
@@ -317,6 +317,8 @@ No Rust/Tauri files changed → cargo checks not required for this branch.
 **Known risks:**
 - `Field.tsx` uses `.help` / `.help.err` CSS child class pattern (design convention). Existing `RepositoryPanel.tsx` still uses `.fld-help` directly on a `div` — both `.fld-help` and `.help` are present in CSS, no conflict.
 - `Modal` uses `createPortal` targeting `document.body`. In Playwright (real browser), this works correctly. In jsdom tests `document.body` is pre-cleared in `beforeEach`.
+- `Modal` focus management is minimal: the dialog element receives focus on open (`tabIndex={-1}`) but Tab/Shift+Tab do not cycle within the modal. Full focus trapping can be added in a later accessibility polish pass without API changes.
+- `Segmented` uses `tablist`/`tab` semantics but does not implement arrow-key tablist navigation yet. Acceptable for an initial primitive; should be revisited before Rack Front/Rear production use if keyboard accessibility is required.
 - `Segmented` is a generic component — TypeScript ensures option `value` types match the `value` prop type. Future callers must provide compatible string literal union.
 - CSS file grew by ~120 lines; no performance concern at current scale.
 
