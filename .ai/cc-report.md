@@ -69,7 +69,12 @@ pnpm --filter @rack-inventory-studio/desktop test:e2e                  → 9/9 p
 
 ## Suggested next step
 
-Run the Tauri dev build (`pnpm tauri dev`) and do a visual QA pass against the Claude Design HTML, especially checking the rack three-pane layout at different window sizes and verifying the drag-to-place flow works correctly with the new `.palette-card` drag handles.
+Perform human visual QA on a machine with a GUI desktop (Windows or macOS) before deciding whether this branch is ready for PR. The automated suite (typecheck, 132 unit tests, 9/9 Playwright smoke, production build, cargo fmt/check/test/clippy) all pass and Tauri dev compiles and launches without panics, but visual inspection of the running app requires a real display server. Focus areas:
+
+- **Global Search dropdown** — token-migrated in QA/hardening pass; confirm fonts, colors, hover highlight, and dropdown shadow look correct inside the 200px rail.
+- **Rack Detail three-pane layout** — 260px palette | 1fr diagram | 320px inspector at different window widths; verify drag-to-place works end-to-end with the new `.palette-card` drag handles.
+- **CSV Import** — preview rows, outcome panel counters, "Import N rows" button label.
+- **Repository sidebar** — "Repository details" panel now uses `.kv` dl list (migrated from legacy inline styles); confirm alignment and colors.
 
 ---
 
@@ -190,3 +195,19 @@ No backend changes. No DTO changes. No Tauri commands touched.
 - `cargo check --workspace` → pass
 - `cargo test --workspace` → pass
 - `cargo clippy --workspace -- -D warnings` → pass
+
+**Tauri dev smoke (WSL2, run after QA/hardening commit `7974dd4`):**
+
+Command:
+```
+WEBKIT_DISABLE_DMABUF_RENDERER=1 LIBGL_ALWAYS_SOFTWARE=1 pnpm tauri dev
+```
+
+Result:
+- Vite dev server: **started** — ready in 126 ms at http://localhost:1420/
+- Rust backend: **compiled** — `cargo run --no-default-features` finished in 7.31 s
+- App binary: **launched** — `Running target/debug/rack-inventory-studio-desktop`, no panics or crashes observed during the 45-second smoke window
+
+Environment constraint: WSL2 with no display server. The process started and ran without errors, but full visual inspection of the UI requires a GUI environment. The automated suite (Playwright, Vitest, typecheck, build) confirms correctness of all frontend behaviour that can be tested without a display.
+
+Visual QA on a GUI machine is the only remaining step before this branch is ready for PR.
