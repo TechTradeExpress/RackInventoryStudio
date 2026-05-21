@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { searchRepository, type SearchResultDto } from "../../api/tauriClient";
+import { IcSearch } from "../../components/ui/Icon";
 
 const KIND_LABEL: Record<SearchResultDto["kind"], string> = {
   location: "Location",
@@ -156,12 +157,29 @@ export function GlobalSearch({ onNavigate, refreshKey, fullWidth }: Props) {
     }
   }
 
+  const dropdownBase: CSSProperties = {
+    position: "absolute",
+    top: "calc(100% + 2px)",
+    left: 0,
+    right: 0,
+    background: "var(--bg-surface)",
+    border: "1px solid var(--bd-2)",
+    borderRadius: "var(--r-2)",
+    zIndex: 1000,
+    padding: "4px 0",
+  };
+
   return (
-    <div ref={containerRef} style={fullWidth ? { ...styles.container, width: "100%" } : styles.container}>
-      <div style={styles.inputWrapper}>
+    <div ref={containerRef} style={{ position: "relative", width: fullWidth ? "100%" : 320 }}>
+      <div style={{ position: "relative" }}>
+        <span style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", color: "var(--tx-3)", pointerEvents: "none", display: "flex", alignItems: "center" }}>
+          {loading ? <span style={{ fontSize: 11 }}>…</span> : <IcSearch size={12} />}
+        </span>
         <input
           ref={inputRef}
           type="text"
+          className="ri-input"
+          style={{ width: "100%", paddingLeft: 26, paddingRight: query ? 26 : undefined, fontSize: "var(--fs-12)" }}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -169,18 +187,16 @@ export function GlobalSearch({ onNavigate, refreshKey, fullWidth }: Props) {
             if (results.length > 0 || error) setOpen(true);
           }}
           placeholder="Search… (min 2 chars)"
-          style={styles.input}
           aria-label="Global search"
           aria-expanded={open}
           aria-haspopup="listbox"
           role="combobox"
           aria-autocomplete="list"
         />
-        {loading && <span style={styles.spinner}>…</span>}
         {query && (
           <button
             type="button"
-            style={styles.clearBtn}
+            style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", border: "none", background: "transparent", cursor: "pointer", color: "var(--tx-3)", padding: "0 2px", fontSize: 14, lineHeight: 1 }}
             onClick={() => {
               setQuery("");
               setResults([]);
@@ -196,18 +212,17 @@ export function GlobalSearch({ onNavigate, refreshKey, fullWidth }: Props) {
       </div>
 
       {open && error && (
-        <div style={styles.errorBox}>{error}</div>
+        <div style={{ ...dropdownBase, background: "var(--st-err-bg)", border: "1px solid var(--st-err-bd)", padding: "8px 10px", fontSize: "var(--fs-12)", color: "var(--st-err-tx)" }}>
+          {error}
+        </div>
       )}
 
       {open && !error && results.length > 0 && (
-        <ul style={styles.dropdown} role="listbox">
+        <ul style={{ ...dropdownBase, listStyle: "none", margin: 0, boxShadow: "var(--sh-2)", maxHeight: 320, overflowY: "auto" }} role="listbox">
           {results.map((r, idx) => (
             <li
               key={`${r.kind}-${r.id}`}
-              style={{
-                ...styles.item,
-                ...(idx === activeIndex ? styles.itemActive : {}),
-              }}
+              style={{ display: "flex", alignItems: "baseline", gap: 6, padding: "5px 10px", cursor: "pointer", fontSize: "var(--fs-12)", background: idx === activeIndex ? "var(--ac-soft-bg)" : undefined }}
               role="option"
               aria-selected={idx === activeIndex}
               onMouseDown={(e) => {
@@ -216,135 +231,22 @@ export function GlobalSearch({ onNavigate, refreshKey, fullWidth }: Props) {
               }}
               onMouseEnter={() => setActiveIndex(idx)}
             >
-              <span style={styles.kindBadge}>{KIND_LABEL[r.kind]}</span>
-              <span style={styles.itemCode}>{r.code}</span>
-              {r.label !== r.code && <span style={styles.itemLabel}>{r.label}</span>}
-              {r.detail && <span style={styles.itemDetail}>{r.detail}</span>}
+              <span style={{ fontSize: 10, color: "var(--ac-text)", background: "var(--ac-soft-bg)", border: "1px solid var(--ac-soft-bd)", borderRadius: "var(--r-1)", padding: "0 4px", flexShrink: 0, fontWeight: 600, letterSpacing: "0.02em" }}>
+                {KIND_LABEL[r.kind]}
+              </span>
+              <span style={{ fontFamily: "var(--font-mono)", fontWeight: 600, color: "var(--tx-1)", fontSize: 11.5 }}>{r.code}</span>
+              {r.label !== r.code && <span style={{ color: "var(--tx-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{r.label}</span>}
+              {r.detail && <span style={{ color: "var(--tx-3)", fontSize: 11, flexShrink: 0 }}>{r.detail}</span>}
             </li>
           ))}
         </ul>
       )}
 
       {open && !error && query.trim().length >= 2 && !loading && results.length === 0 && (
-        <div style={styles.noResults}>No results</div>
+        <div style={{ ...dropdownBase, padding: "8px 10px", fontSize: "var(--fs-12)", color: "var(--tx-3)" }}>
+          No results
+        </div>
       )}
     </div>
   );
 }
-
-const styles = {
-  container: {
-    position: "relative" as const,
-    display: "inline-block",
-    width: "320px",
-  },
-  inputWrapper: {
-    display: "flex",
-    alignItems: "center",
-    border: "1px solid #ccc",
-    borderRadius: "4px",
-    background: "#fff",
-    overflow: "hidden",
-  },
-  input: {
-    flex: 1,
-    border: "none",
-    outline: "none",
-    padding: "0.3rem 0.5rem",
-    fontFamily: "monospace",
-    fontSize: "0.85rem",
-    background: "transparent",
-  },
-  spinner: {
-    padding: "0 0.4rem",
-    color: "#999",
-    fontSize: "0.85rem",
-  },
-  clearBtn: {
-    border: "none",
-    background: "transparent",
-    cursor: "pointer",
-    color: "#999",
-    padding: "0 0.4rem",
-    fontSize: "1rem",
-    lineHeight: 1,
-  },
-  dropdown: {
-    position: "absolute" as const,
-    top: "calc(100% + 2px)",
-    left: 0,
-    right: 0,
-    background: "#fff",
-    border: "1px solid #ccc",
-    borderRadius: "4px",
-    boxShadow: "0 4px 12px rgba(0,0,0,0.12)",
-    zIndex: 1000,
-    listStyle: "none",
-    margin: 0,
-    padding: "0.2rem 0",
-    maxHeight: "320px",
-    overflowY: "auto" as const,
-  },
-  item: {
-    display: "flex",
-    alignItems: "baseline",
-    gap: "0.4rem",
-    padding: "0.3rem 0.6rem",
-    cursor: "pointer",
-    fontSize: "0.82rem",
-  },
-  itemActive: {
-    background: "#e8f0fe",
-  },
-  kindBadge: {
-    fontSize: "0.7rem",
-    color: "#fff",
-    background: "#607d8b",
-    borderRadius: "3px",
-    padding: "0 0.3rem",
-    flexShrink: 0,
-  },
-  itemCode: {
-    fontFamily: "monospace",
-    fontWeight: 600,
-    color: "#222",
-  },
-  itemLabel: {
-    color: "#555",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap" as const,
-    flex: 1,
-  },
-  itemDetail: {
-    color: "#888",
-    fontSize: "0.75rem",
-    flexShrink: 0,
-  },
-  errorBox: {
-    position: "absolute" as const,
-    top: "calc(100% + 2px)",
-    left: 0,
-    right: 0,
-    background: "#fff0f0",
-    border: "1px solid #f88",
-    borderRadius: "4px",
-    padding: "0.4rem 0.6rem",
-    fontSize: "0.82rem",
-    color: "#b00",
-    zIndex: 1000,
-  },
-  noResults: {
-    position: "absolute" as const,
-    top: "calc(100% + 2px)",
-    left: 0,
-    right: 0,
-    background: "#fff",
-    border: "1px solid #ccc",
-    borderRadius: "4px",
-    padding: "0.4rem 0.6rem",
-    fontSize: "0.82rem",
-    color: "#888",
-    zIndex: 1000,
-  },
-};

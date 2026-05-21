@@ -1,4 +1,4 @@
-import { type CSSProperties, FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import {
   addGitRemote,
   commitRepositoryChanges,
@@ -77,75 +77,34 @@ function SummaryTable({
   summary: RepositorySummaryDto;
   validationSummary?: ValidationSummaryDto | null;
 }) {
-  const rows: [string, string | number][] = [
-    ["Path", summary.repo_path],
-    ["Code", summary.repository_code],
-    ["Name", summary.repository_name],
-    ["Locations", summary.locations_count],
-    ["Racks", summary.racks_count],
-    ["Device Models", summary.device_models_count],
-    ["Devices", summary.devices_count],
-    ["Placement Files", summary.placement_files_count],
-    ["Placements", summary.placements_count],
-    ["Unplaced Devices", summary.unplaced_devices_count],
-  ];
   return (
-    <>
-      <table style={legacyCommon.table}>
-        <tbody>
-          {rows.map(([label, value]) => (
-            <tr key={label}>
-              <td style={legacyCommon.th}>{label}</td>
-              <td
-                style={{
-                  ...legacyCommon.td,
-                  ...(label === "Unplaced Devices" && (value as number) > 0
-                    ? { color: "var(--st-warn-tx)" }
-                    : {}),
-                }}
-              >
-                {value}
-              </td>
-            </tr>
-          ))}
-          {validationSummary && (
-            <>
-              <tr>
-                <td style={legacyCommon.th}>Validation Errors</td>
-                <td
-                  style={{
-                    ...legacyCommon.td,
-                    ...(validationSummary.errors > 0
-                      ? { color: "var(--st-err-tx)", fontWeight: "bold" }
-                      : { color: "var(--st-ok-tx)" }),
-                  }}
-                >
-                  {validationSummary.errors}
-                </td>
-              </tr>
-              <tr>
-                <td style={legacyCommon.th}>Validation Warnings</td>
-                <td
-                  style={{
-                    ...legacyCommon.td,
-                    ...(validationSummary.warnings > 0
-                      ? { color: "var(--st-warn-tx)" }
-                      : {}),
-                  }}
-                >
-                  {validationSummary.warnings}
-                </td>
-              </tr>
-            </>
-          )}
-        </tbody>
-      </table>
+    <div className="stack-3">
+      <dl className="kv">
+        <dt>Path</dt>       <dd className="mono" style={{ wordBreak: "break-all", fontSize: 11 }}>{summary.repo_path}</dd>
+        <dt>Code</dt>       <dd className="mono">{summary.repository_code}</dd>
+        <dt>Name</dt>       <dd>{summary.repository_name}</dd>
+        <dt>Locations</dt>  <dd>{summary.locations_count}</dd>
+        <dt>Racks</dt>      <dd>{summary.racks_count}</dd>
+        <dt>Device Models</dt> <dd>{summary.device_models_count}</dd>
+        <dt>Devices</dt>    <dd>{summary.devices_count}</dd>
+        <dt>Placement Files</dt> <dd>{summary.placement_files_count}</dd>
+        <dt>Placements</dt> <dd>{summary.placements_count}</dd>
+        <dt>Unplaced</dt>   <dd style={summary.unplaced_devices_count > 0 ? { color: "var(--st-warn-tx)", fontWeight: 600 } : undefined}>{summary.unplaced_devices_count}</dd>
+        {validationSummary && (
+          <>
+            <dt>Val. Errors</dt>
+            <dd style={validationSummary.errors > 0 ? { color: "var(--st-err-tx)", fontWeight: 600 } : { color: "var(--st-ok-tx)" }}>{validationSummary.errors}</dd>
+            <dt>Val. Warnings</dt>
+            <dd style={validationSummary.warnings > 0 ? { color: "var(--st-warn-tx)" } : undefined}>{validationSummary.warnings}</dd>
+          </>
+        )}
+      </dl>
       {validationSummary && (
-        <p style={{ margin: "0.25rem 0 0", fontSize: "0.78rem", color: "var(--tx-3)" }}>
-          Validation counts are from the time of last open. Use the Validation tab for current state.
+        <p style={{ margin: 0, fontSize: 11, color: "var(--tx-3)", lineHeight: 1.5 }}>
+          Counts from time of last open — use the Validation tab for current state.
         </p>
       )}
-    </>
+    </div>
   );
 }
 
@@ -1076,25 +1035,3 @@ export function RepositoryPanel({
     </>
   );
 }
-
-const legacyCommon = {
-  table: {
-    borderCollapse: "collapse" as const,
-    width: "100%",
-    fontSize: 12,
-  },
-  th: {
-    padding: "4px 8px",
-    textAlign: "left" as const,
-    fontWeight: 500,
-    color: "var(--tx-3)",
-    whiteSpace: "nowrap" as const,
-    width: "40%",
-  },
-  td: {
-    padding: "4px 8px",
-    borderBottom: "1px solid var(--bd-1)",
-    color: "var(--tx-1)",
-    fontSize: 12,
-  },
-};

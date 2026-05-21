@@ -317,7 +317,7 @@ export function RacksPanel({
         )}
 
         {racks.length > 0 && (
-          <Panel flush>
+          <Panel flush title={`${racks.length} rack${racks.length !== 1 ? "s" : ""}`}>
             <table className="tbl">
               <thead>
                 <tr>

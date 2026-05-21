@@ -2,9 +2,9 @@
 
 ## Summary
 
-Implemented the Claude Design UI polish across the entire desktop app frontend, on branch `design/claude-ui-polish`. Five commits, all pushed. No PR created (branch stays for review).
+Implemented the Claude Design UI polish across the entire desktop app frontend, on branch `design/claude-ui-polish`. Eight commits, all pushed. No PR created (branch stays for review).
 
-The work replaces inline `common.*` style objects throughout the app with a design-token-driven CSS class system, using the design primitives extracted from the Claude Design file.
+The work replaces inline `common.*` style objects throughout the app with a design-token-driven CSS class system, using the design primitives extracted from the Claude Design file. Followed by a stabilisation pass (Playwright fixes, cargo checks), a CSV import double-count bugfix, and a UI QA/hardening pass.
 
 ## Files changed
 
@@ -155,3 +155,38 @@ No backend changes. No DTO changes. No Tauri commands touched.
 - `pnpm --filter @rack-inventory-studio/desktop test:e2e` → **9/9 pass**
 
 **Manual Tauri check:** not performed (headless WSL2). Logic covered by Vitest helper tests and Playwright CSV import smoke (test 6 still passes end-to-end through mock). No functional changes to backend or import logic.
+
+---
+
+## UI QA / hardening pass
+
+**Scope:** Practical audit of all redesigned panels for visual regressions against the design token system.
+
+**Regressions found and fixed (3 files):**
+
+1. **`GlobalSearch.tsx`** — Highest-impact regression: the search component was never migrated from old hardcoded hex styles (`#ccc`, `#607d8b`, `#e8f0fe`, `fontFamily: "monospace"`) to design tokens. Fixed: migrated to `.ri-input` class, `var(--font-mono)`, `var(--bg-surface)`, `var(--bd-2)`, `var(--ac-soft-bg)` for hover, `var(--sh-2)` for dropdown shadow, semantic error/empty colors. Also removed the dead `styles` object and added `IcSearch` icon to the input. Unused CSSProperties import from React added where needed.
+
+2. **`RacksPanel.tsx`** — The rack list Panel had no `title` prop (`<Panel flush>`) while LocationsPanel and DevicesPanel both show a count title on their list panels. Added `title={`${racks.length} rack${racks.length !== 1 ? "s" : ""}`}` for consistency.
+
+3. **`RepositoryPanel.tsx`** — The "Repository details" sidebar Panel still used `legacyCommon` inline styles (old pattern, not migrated in original UI polish). Replaced with a `.kv` dl list and removed the `legacyCommon` object entirely. Also cleaned up the now-unused `CSSProperties` import.
+
+**Panels confirmed clean (no changes needed):**
+- `App.tsx` — nav, titlebar, callout bar: tokens correct
+- `ValidationPanel.tsx` — filter pills, issues table, summary sidebar: tokens correct
+- `LocationsPanel.tsx` — list table, add/edit form: tokens correct
+- `DevicesPanel.tsx` — filter pills, list table, add/edit form: tokens correct
+- `DeviceModelsPanel.tsx` — list table, add/edit form: tokens correct
+- `CsvImportPanel.tsx` — source/preview/schema/outcome panels: tokens correct
+- `RackDetailPanel.tsx` — three-pane grid, diagram panel, inspector, placement tables: tokens correct
+- `RepositoryPanel.tsx` (GitSection) — stepper, recent commits, git status, remote: tokens correct
+
+**Check results:**
+- `git diff --check` → pass (no whitespace errors)
+- `pnpm --filter @rack-inventory-studio/desktop typecheck` → pass
+- `pnpm --filter @rack-inventory-studio/desktop test` → **132/132 pass**
+- `pnpm --filter @rack-inventory-studio/desktop test:e2e` → **9/9 pass**
+- `pnpm --filter @rack-inventory-studio/desktop build` → pass (17 kB CSS, 256 kB JS)
+- `cargo fmt --all --check` → pass
+- `cargo check --workspace` → pass
+- `cargo test --workspace` → pass
+- `cargo clippy --workspace -- -D warnings` → pass
