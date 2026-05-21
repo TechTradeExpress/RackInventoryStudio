@@ -211,3 +211,40 @@ Result:
 Environment constraint: WSL2 with no display server. The process started and ran without errors, but full visual inspection of the UI requires a GUI environment. The automated suite (Playwright, Vitest, typecheck, build) confirms correctness of all frontend behaviour that can be tested without a display.
 
 Visual QA on a GUI machine is the only remaining step before this branch is ready for PR.
+
+---
+
+## UI correction planning after Claude Design 2105
+
+**Commit type:** docs / planning only — no application code changed.
+
+**Design artifacts (input):**
+- `Rack Inventory Studio2105.html` — interactive HTML prototype from Claude Design correction pass
+- `Rack Inventory Studio2105.zip` — annotated ZIP handoff with component specs and layout grids
+
+**What this commit does:**
+Creates `.ai/ui-correction-plan.md` documenting the accepted design decisions, branch strategy, milestone breakdown, per-milestone acceptance criteria, test expectations, and review handoff requirements for the UI correction phase. No src, tests, package files, or Rust/Tauri files were touched.
+
+**Branch strategy:**
+All correction work is done on short sub-branches cut from `design/claude-ui-polish` and merged back into `design/claude-ui-polish` after review. The eight planned branches are:
+
+| Branch | Scope |
+|---|---|
+| `design/ui-correction-modal-primitives` | Modal, ConfirmDialog, Segmented, form-grid CSS |
+| `design/ui-correction-location-modal` | Location Add/Edit as modal, end-to-end validation |
+| `design/ui-correction-rack-model-modals` | Rack + Device Model modals |
+| `design/ui-correction-device-modal` | Device modal, sectioned form |
+| `design/ui-correction-rack-single-side` | activeSide state, Front/Rear segmented control |
+| `design/ui-correction-rack-labels` | Enriched placement labels, 1U/2U/3U+ tiers |
+| `design/ui-correction-rack-inspector-table` | Placement table sync, side read-only, Change side modal |
+| `design/ui-correction-final-qa` | Final visual QA, smoke update, Tauri smoke |
+
+**Review context for correction branches:**
+Each correction branch generates its review context **against `design/claude-ui-polish`**, not against `master`:
+```bash
+TS=$(date +%Y%m%d-%H%M)
+bash scripts/ai/build-review-context.sh design/claude-ui-polish ".ai/review-context-${TS}.md"
+```
+
+**master and PR status:**
+`master` is not a target for any of these short correction branches. No PR to `master` will be created until branch H (final QA) is complete and approved.
