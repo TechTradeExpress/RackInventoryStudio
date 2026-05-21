@@ -324,3 +324,61 @@ No Rust/Tauri files changed → cargo checks not required for this branch.
 
 **Suggested next step:**
 Branch B — `design/ui-correction-location-modal`: replace inline Location Add/Edit form with `LocationFormModal` using the new `Modal` primitive. This is the lowest-risk entity to validate the modal CRUD pattern end-to-end.
+
+---
+
+## UI correction location modal — branch design/ui-correction-location-modal
+
+**Branch:** `design/ui-correction-location-modal`
+**Base branch:** `design/claude-ui-polish`
+
+**Prerequisite:** Branch `design/ui-correction-modal-primitives` was merged into `design/claude-ui-polish` before this branch was created. Modal, ConfirmDialog, Field, Segmented and supporting CSS are present on the base branch.
+
+**What was changed:**
+
+*New files:*
+- `apps/desktop/src/features/locations/LocationFormModal.tsx` — Add/Edit Location modal component. Uses `Modal` (width 520 px) and `Field`. Handles add and edit modes. In edit mode: `code` field is disabled (immutable identifier). `disableBackdropClose` is set when form is dirty. Footer shows required-field warning or error message. Calls `addLocation`/`updateLocation` from tauriClient.
+- `apps/desktop/src/features/locations/LocationFormModal.test.tsx` — 12 Vitest component tests (jsdom): modal not rendered when closed, add title/empty fields, required footer message, Cancel closes, Esc closes, valid submit calls addLocation + onSaved + onClose, Create button disabled when empty, format error for invalid code, edit title + pre-populated fields, code disabled in edit, updateLocation called on save, form resets when reopened with different location.
+
+*Modified files:*
+- `apps/desktop/src/features/locations/LocationsPanel.tsx` — Removed inline Add/Edit form. Replaced with `LocationFormModal` and `ConfirmDialog` for delete. Panel now has: `modalOpen`/`editingLocation` state for form modal, `pendingDelete` state for ConfirmDialog, `successMsg` dismissible Banner for post-save feedback. Delete now uses `ConfirmDialog` (danger tone, width 460 px) instead of native `window.confirm`. `aria-label` added to edit/delete icon buttons.
+- `apps/desktop/vite.config.ts` — `environmentMatchGlobs` extended to cover `src/features/**/*.test.tsx` with jsdom environment (needed for LocationFormModal tests).
+
+**How Add/Edit Location works after change:**
+- "Add location" button → opens `LocationFormModal` (add mode, empty fields, code editable)
+- Row "Edit" icon → opens `LocationFormModal` (edit mode, pre-populated, code disabled)
+- Cancel button / Esc key → closes modal without saving
+- Backdrop click on clean form → closes; on dirty form → blocked
+- Save → calls tauriClient, on success: closes modal, re-fetches list, shows dismissible success Banner
+- Row "Delete" icon → opens `ConfirmDialog` (danger) → on confirm: calls deleteLocation, re-fetches list
+- All error states surfaced via footerMessage in modal or Banner in panel
+
+**Intentionally NOT changed:**
+- `DevicesPanel` Add/Edit flow — still inline (branch D)
+- `DeviceModelsPanel` Add/Edit flow — still inline (branch C)
+- `RacksPanel` Add/Edit flow — still inline (branch C)
+- `RackDetailPanel`, `RackUnitDiagram` — unchanged (branches E, F, G)
+- CSV Import — unchanged
+- All Rust/Tauri backend files — unchanged
+- Example repository data — unchanged
+
+**Tests run and results:**
+```
+git diff --check                                                        → pass
+pnpm --filter @rack-inventory-studio/desktop typecheck                 → pass
+pnpm --filter @rack-inventory-studio/desktop test                      → 167/167 pass (14 test files)
+  - LocationFormModal.test.tsx  12/12 (new)
+  + 155 existing tests          pass
+pnpm --filter @rack-inventory-studio/desktop test:e2e                  → 9/9 pass
+pnpm --filter @rack-inventory-studio/desktop build                     → pass (20.9 kB CSS, 259 kB JS)
+```
+No Rust/Tauri files changed → cargo checks not required for this branch.
+
+**Known risks:**
+- `LocationFormModal` calls tauriClient directly; tests mock the module. Mocks cover the happy path and close logic but not backend error surface (e.g. duplicate code error from Rust). Error is caught and shown in footerMessage; not unit-tested.
+- `isDirtyForm` compares form strings. If `joinTags` uses ", " separator and user types "tag1, tag2" with trailing space, dirty detection may produce a false positive. Acceptable for this iteration.
+- `successMsg` auto-shown after save is dismissed only by the user (no auto-timeout). Minor UX — acceptable for this phase.
+- `ConfirmDialog` body says "Locations with racks cannot be deleted" — this is a UX hint, not enforced by the modal. Backend will return an error if a rack is assigned; that error is caught and shown in `deleteError` Banner.
+
+**Suggested next step:**
+Branch C — `design/ui-correction-rack-model-modals`: replace inline Rack Add/Edit and Device Model Add/Edit forms with modals using the same pattern validated here.
