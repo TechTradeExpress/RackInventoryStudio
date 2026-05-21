@@ -17,5 +17,9 @@ export default defineConfig({
   test: {
     // Keep Vitest focused on unit tests; Playwright handles e2e/
     exclude: ["node_modules/**", "e2e/**"],
+    // Component tests in src/components/ui/*.test.tsx use jsdom environment
+    environmentMatchGlobs: [
+      ["src/components/ui/*.test.tsx", "jsdom"],
+    ],
   },
 });

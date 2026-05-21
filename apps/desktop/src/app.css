@@ -89,7 +89,14 @@
   /* Shadow */
   --sh-1: 0 1px 2px rgba(0,0,0,0.05);
   --sh-2: 0 2px 6px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --sh-3: 0 4px 16px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06);
   --sh-focus: 0 0 0 2px var(--bg-surface), 0 0 0 4px var(--ac);
+
+  /* Overlay */
+  --bg-overlay: rgba(0,0,0,0.32);
+
+  /* Extended spacing */
+  --sp-12: 48px;
 
   /* Layout */
   --rail-w: 200px;
@@ -632,6 +639,165 @@ table.tbl tfoot td { padding: 8px var(--sp-3); color: var(--tx-3); font-size: 11
 .field > label { font-size: var(--fs-12); font-weight: 500; color: var(--tx-2); }
 .field .fld-help { font-size: var(--fs-11); color: var(--tx-3); line-height: 1.4; }
 .field .fld-err  { font-size: var(--fs-11); color: var(--st-err-tx); }
+/* Design-aligned aliases used by modal form components */
+.field .help { font-size: var(--fs-11); color: var(--tx-3); line-height: 1.4; }
+.field .help.err { color: var(--st-err-tx); display: flex; align-items: center; gap: 3px; }
+.field .req { color: var(--st-err); margin-left: 2px; }
+
+/* ============== Input alias ============== */
+/* .input mirrors .ri-input so modal forms can use either class */
+.input, select.input, textarea.input {
+  height: 28px;
+  padding: 0 var(--sp-2);
+  background: var(--bg-surface);
+  border: 1px solid var(--bd-2);
+  border-radius: var(--r-2);
+  font: inherit; font-size: var(--fs-13);
+  color: var(--tx-1);
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+textarea.input { height: auto; padding: 6px 8px; resize: vertical; }
+.input:hover { border-color: var(--bd-3); }
+.input:focus { border-color: var(--ac); box-shadow: 0 0 0 1px var(--ac); }
+.input::placeholder { color: var(--tx-4); }
+.input.mono { font-family: var(--font-mono); font-size: var(--fs-12); }
+.input:disabled { background: var(--bg-subtle); color: var(--tx-3); cursor: not-allowed; }
+
+/* ============== Modal / Dialog ============== */
+.modal-backdrop {
+  position: fixed; inset: 0;
+  background: var(--bg-overlay);
+  display: grid; place-items: center;
+  z-index: 200;
+  padding: var(--sp-6);
+  animation: m-fade 120ms ease-out;
+}
+@keyframes m-fade { from { opacity: 0; } to { opacity: 1; } }
+.modal {
+  background: var(--bg-surface);
+  border: 1px solid var(--bd-2);
+  border-radius: var(--r-4);
+  box-shadow: var(--sh-3);
+  max-height: calc(100vh - var(--sp-12));
+  display: flex; flex-direction: column;
+  min-width: 360px;
+  width: 560px;
+  animation: m-pop 140ms cubic-bezier(.2,.8,.3,1);
+  outline: none;
+}
+@keyframes m-pop {
+  from { transform: translateY(6px) scale(0.98); opacity: 0; }
+  to   { transform: none; opacity: 1; }
+}
+.modal.danger { border-top: 3px solid var(--st-err); }
+.modal-hd {
+  display: flex; align-items: flex-start; gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-5) var(--sp-3);
+  border-bottom: 1px solid var(--bd-1);
+  flex: none;
+}
+.modal-hd > div:first-child { flex: 1; min-width: 0; }
+.modal-title {
+  font: 600 var(--fs-16)/1.25 var(--font-display);
+  color: var(--tx-1);
+  letter-spacing: -0.005em;
+}
+.modal-sub {
+  font-size: var(--fs-12);
+  color: var(--tx-3);
+  margin-top: 4px;
+  line-height: 1.5;
+}
+.modal-bd {
+  padding: var(--sp-4) var(--sp-5);
+  overflow-y: auto;
+  flex: 1; min-height: 0;
+}
+.modal-bd.flush { padding: 0; }
+.modal-ft {
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-5);
+  border-top: 1px solid var(--bd-1);
+  background: var(--bg-subtle);
+  flex: none;
+}
+.modal-ft .grow { flex: 1; }
+.modal-ft .ft-msg { font-size: var(--fs-12); }
+.modal-ft .ft-msg.err  { color: var(--st-err-tx); }
+.modal-ft .ft-msg.ok   { color: var(--st-ok-tx); }
+.modal-ft .ft-msg.warn { color: var(--st-warn-tx); }
+
+/* ============== Form grid (inside modal body) ============== */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: var(--sp-3);
+}
+.form-grid > .field    { grid-column: span 12; min-width: 0; }
+.form-grid .field.col-6  { grid-column: span 6; }
+.form-grid .field.col-4  { grid-column: span 4; }
+.form-grid .field.col-3  { grid-column: span 3; }
+.form-grid .field.col-8  { grid-column: span 8; }
+.form-grid .field.col-12 { grid-column: span 12; }
+.form-section {
+  grid-column: 1 / -1;
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--bd-1);
+}
+.form-section:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.form-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tx-3);
+  margin-bottom: var(--sp-2);
+}
+
+/* ============== Segmented control ============== */
+.seg {
+  display: inline-flex;
+  background: var(--bg-sunken);
+  border: 1px solid var(--bd-2);
+  border-radius: var(--r-2);
+  padding: 2px;
+  gap: 2px;
+}
+.seg .seg-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  height: 22px;
+  padding: 0 10px;
+  font: inherit; font-size: var(--fs-12);
+  color: var(--tx-2);
+  border-radius: var(--r-1);
+  cursor: default;
+  display: inline-flex; align-items: center; gap: 5px;
+  white-space: nowrap;
+}
+.seg .seg-btn:hover { color: var(--tx-1); background: var(--bg-subtle); }
+.seg .seg-btn.on {
+  background: var(--bg-surface);
+  color: var(--tx-1);
+  font-weight: 600;
+  box-shadow: 0 0 0 1px var(--bd-2), 0 1px 1px rgba(0,0,0,0.04);
+}
+.seg .seg-btn .count {
+  font-size: 10px;
+  font-weight: 500;
+  background: var(--bg-sunken);
+  border: 1px solid var(--bd-1);
+  padding: 0 5px;
+  height: 14px;
+  border-radius: 7px;
+  display: inline-flex; align-items: center;
+  color: var(--tx-3);
+}
+.seg .seg-btn.on .count { background: var(--ac-soft-bg); border-color: var(--ac-soft-bd); color: var(--ac-text); }
 
 /* ============== Scrollbars ============== */
 *::-webkit-scrollbar { width: 8px; height: 8px; }

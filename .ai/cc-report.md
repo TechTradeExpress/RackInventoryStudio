@@ -248,3 +248,77 @@ bash scripts/ai/build-review-context.sh design/claude-ui-polish ".ai/review-cont
 
 **master and PR status:**
 `master` is not a target for any of these short correction branches. No PR to `master` will be created until branch H (final QA) is complete and approved.
+
+---
+
+## UI correction modal primitives — branch design/ui-correction-modal-primitives
+
+**Branch:** `design/ui-correction-modal-primitives`
+**Base branch:** `design/claude-ui-polish`
+
+**Design artifacts used:**
+- Claude Design handoff URL: `https://api.anthropic.com/v1/design/h/mnJFycw0fL6IbEQ-OuONEw`
+- Files read: `primitives.jsx`, `forms.jsx`, `styles.css` (extracted from gzip tar bundle)
+- Relevant sections: Modal/Dialog, ConfirmDialog, Segmented control, form-grid, Field
+
+**What was implemented:**
+
+*New TypeScript components (`apps/desktop/src/components/ui/`):*
+- `Modal.tsx` — portal-rendered overlay via `createPortal(…, document.body)`. Props: `open`, `title`, `subtitle`, `onClose`, `children`, `footer`, `footerMessage/Tone`, `size` ("sm"=460/"md"=560/"lg"=640/"xl"=720), `width`, `danger`, `flush`, `disableBackdropClose`. Esc key + backdrop click close the modal. Focus trapped to dialog `tabIndex={-1}` on open.
+- `ConfirmDialog.tsx` — thin wrapper over Modal. Fixed width 460 px. Props: `tone` ("default"|"danger"), `confirmLabel`, `cancelLabel`, `onConfirm`, `onCancel`. Danger tone: red border + `btn-danger` button.
+- `Segmented.tsx` — generic `<T extends string>` controlled component. Renders `role="tablist"` with `role="tab"` buttons. Props: `value`, `onChange`, `options` (value/label/icon?/count?), `ariaLabel`. Active option gets `aria-selected="true"` and `.on` CSS class.
+- `Field.tsx` — form field wrapper. Props: `label`, `required` (renders `<span class="req">*</span>`), `help`, `error` (shows `IcAlertCircle` + message), `className` (for `col-6` etc). Uses `.help` / `.help.err` child classes.
+
+*CSS additions to `app.css`:*
+- New tokens: `--sh-3` (heavy modal shadow), `--bg-overlay` (semi-transparent backdrop), `--sp-12` (48px spacing)
+- `.input` / `select.input` / `textarea.input` — alias for `.ri-input`; used by future modal form fields
+- `.input.mono` — monospace variant
+- `Modal / Dialog` section: `.modal-backdrop`, `.modal`, `.modal.danger`, `.modal-hd`, `.modal-title`, `.modal-sub`, `.modal-bd`, `.modal-ft`, `.ft-msg`
+- `Form grid` section: `.form-grid`, `.field.col-{3,4,6,8,12}`, `.form-section`, `.form-section-title`
+- `Segmented control` section: `.seg`, `.seg-btn`, `.seg-btn.on`, `.seg-btn .count`
+- `Field` additions: `.field .help`, `.field .help.err`, `.field .req`
+
+*Barrel export (`index.ts`):*
+Added exports for `ConfirmDialog`, `Field`, `Modal`, `Segmented` (alongside existing exports).
+
+*Test infrastructure:*
+- Added `jsdom@^26.1.0` and `@testing-library/react@^16.3.0` to `apps/desktop/package.json` devDependencies. These are required for React component DOM rendering tests.
+- Updated `vite.config.ts`: added `environmentMatchGlobs` to enable `jsdom` environment for `src/components/ui/*.test.tsx` files only; other tests run in default (node) environment.
+
+*Test files (`apps/desktop/src/components/ui/`):*
+- `Modal.test.tsx` — 10 tests: does-not-render-when-closed, renders title/body/footer/subtitle, close button, Esc key, backdrop click, no-close-on-content-click, disableBackdropClose, danger class, custom width
+- `ConfirmDialog.test.tsx` — 7 tests: does-not-render-when-closed, renders title/body, onConfirm, onCancel, Esc, custom labels, danger tone
+- `Segmented.test.tsx` — 6 tests: renders options, selected state (aria-selected + .on), onChange, ariaLabel, count badge
+
+**Intentionally NOT changed:**
+- `LocationsPanel` Add/Edit flow — still inline (branch B)
+- `DevicesPanel` Add/Edit flow — still inline (branch D)
+- `DeviceModelsPanel` Add/Edit flow — still inline (branch C)
+- `RacksPanel` Add/Edit flow — still inline (branch C)
+- `RackDetailPanel` active side — unchanged (branch E)
+- `RackUnitDiagram` — unchanged
+- CSV Import — unchanged
+- All Rust/Tauri backend files — unchanged
+
+**Tests run and results:**
+```
+git diff --check                                                        → pass
+pnpm --filter @rack-inventory-studio/desktop typecheck                 → pass
+pnpm --filter @rack-inventory-studio/desktop test                      → 155/155 pass (13 test files)
+  - Modal.test.tsx       10/10
+  - ConfirmDialog.test.tsx 7/7
+  - Segmented.test.tsx   6/6
+  + 132 existing tests   pass (all 10 previous test files)
+pnpm --filter @rack-inventory-studio/desktop test:e2e                  → 9/9 pass
+pnpm --filter @rack-inventory-studio/desktop build                     → pass (20.9 kB CSS, 256 kB JS)
+```
+No Rust/Tauri files changed → cargo checks not required for this branch.
+
+**Known risks:**
+- `Field.tsx` uses `.help` / `.help.err` CSS child class pattern (design convention). Existing `RepositoryPanel.tsx` still uses `.fld-help` directly on a `div` — both `.fld-help` and `.help` are present in CSS, no conflict.
+- `Modal` uses `createPortal` targeting `document.body`. In Playwright (real browser), this works correctly. In jsdom tests `document.body` is pre-cleared in `beforeEach`.
+- `Segmented` is a generic component — TypeScript ensures option `value` types match the `value` prop type. Future callers must provide compatible string literal union.
+- CSS file grew by ~120 lines; no performance concern at current scale.
+
+**Suggested next step:**
+Branch B — `design/ui-correction-location-modal`: replace inline Location Add/Edit form with `LocationFormModal` using the new `Modal` primitive. This is the lowest-risk entity to validate the modal CRUD pattern end-to-end.
