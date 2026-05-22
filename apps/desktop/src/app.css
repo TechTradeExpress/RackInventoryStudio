@@ -634,6 +634,12 @@ table.tbl tfoot td { padding: 8px var(--sp-3); color: var(--tx-3); font-size: 11
 .palette-card .pc-name { font-family: var(--font-mono); font-size: 11px; color: var(--tx-1); }
 .palette-card .pc-meta { color: var(--tx-3); font-size: 11px; margin-left: auto; }
 
+/* ============== Rack placement label ============== */
+.rpl-primary   { font-size: 0.72rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; padding: 0 4px; }
+.rpl-primary.rpl-compact { font-weight: normal; }
+.rpl-secondary { font-size: 0.65rem; opacity: 0.85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; padding: 0 4px; }
+.rpl-meta      { font-size: 0.60rem; opacity: 0.75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; padding: 0 4px; }
+
 /* ============== Field ============== */
 .field { display: flex; flex-direction: column; gap: 4px; }
 .field > label { font-size: var(--fs-12); font-weight: 500; color: var(--tx-2); }
