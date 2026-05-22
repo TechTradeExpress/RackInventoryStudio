@@ -4,6 +4,15 @@ set -euo pipefail
 BASE_BRANCH="${1:-master}"
 OUT="${2:-.ai/review-context-$(date +%Y%m%d-%H%M).md}"
 
+# Always run from the repo root so .ai/ paths resolve correctly regardless of CWD.
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+# Resolve OUT to absolute path (it may have been relative to caller's CWD).
+if [[ "$OUT" != /* ]]; then
+  OUT="${REPO_ROOT}/${OUT}"
+fi
+
 mkdir -p .ai
 git fetch origin "$BASE_BRANCH" --quiet
 
