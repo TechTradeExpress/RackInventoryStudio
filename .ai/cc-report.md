@@ -1047,3 +1047,114 @@ No Rust/Tauri code changed → cargo checks not required.
 ### Suggested next step
 
 Run the workflow manually on GitHub Actions against `design/claude-ui-polish` and download the artifact. Test the installer on a clean Windows 11 machine.
+
+---
+
+## Local diagnostics logging — branch chore/local-diagnostics-logging
+
+**Branch:** `chore/local-diagnostics-logging`
+**Base branch:** `design/claude-ui-polish`
+
+### Technology chosen
+
+**`tauri-plugin-log` v2** (official Tauri v2 logging plugin) + **`log` v0.4** (Rust logging facade).
+
+Chosen because:
+- It is the officially recommended solution for Tauri v2 applications.
+- Writes directly to the platform's app log directory with no external dependencies.
+- Already part of the Tauri ecosystem used by the rest of the project.
+- Provides both file and stdout targets out of the box.
+- Frontend counterpart `@tauri-apps/plugin-log` integrates with the same pipeline.
+
+### Where logs are stored
+
+Logs are written to the platform app log directory managed by Tauri:
+
+- **Windows 11 (QA target):** `%APPDATA%\com.techtradeexpress.rackinventorystudio\logs\`
+- **macOS:** `~/Library/Logs/com.techtradeexpress.rackinventorystudio/`
+- **Linux:** `~/.local/share/com.techtradeexpress.rackinventorystudio/logs/` (XDG)
+
+Exact filename confirmed during Windows QA (Tauri names it by app bundle identifier).
+
+### Logs are local-only / no telemetry
+
+Confirmed: no external endpoints, no analytics, no Sentry, no OpenTelemetry.
+The log plugin writes only to local filesystem and stdout.
+
+### Events logged
+
+**Backend (Rust):** app startup, open/create/save/validate repository (counts only),
+CSV preview/import (byte size + counts), git status/commit/push/pull (result + counts),
+errors for all the above.
+
+**Frontend (TS):** app init, open/create/close repository (success/failure), global
+unhandled errors and promise rejections.
+
+### Data redaction
+
+- Sensitive patterns (`token`, `password`, `secret`, `private_key`, `api_key`, `auth`) →
+  replaced with `[redacted]` / `[error message redacted: possible credential]`
+- Strings capped at 300 characters
+- File system paths reduced to basename only
+- No full YAML/CSV content, no serial numbers, asset tags, or full user paths
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `apps/desktop/src-tauri/Cargo.toml` | Added `tauri-plugin-log = "2"`, `log = "0.4"` |
+| `apps/desktop/src-tauri/src/lib.rs` | Init log plugin in Builder; startup log via `.setup()` hook |
+| `apps/desktop/src-tauri/src/diagnostics.rs` | **New** — `basename`, `truncate`, `sanitize_error` helpers + unit tests |
+| `apps/desktop/src-tauri/src/commands/repository.rs` | Log calls: open, create, save, validate, csv preview/import |
+| `apps/desktop/src-tauri/src/commands/git.rs` | Log calls: git status, commit, push, pull |
+| `apps/desktop/src-tauri/capabilities/default.json` | Added `log:default` permission |
+| `apps/desktop/package.json` | Added `@tauri-apps/plugin-log ^2.0.0` |
+| `apps/desktop/src/lib/diagnosticsLog.ts` | **New** — `logInfo`/`logWarn`/`logError` with Tauri fallback |
+| `apps/desktop/src/lib/redact.ts` | **New** — `redactForLog`, `sanitizePathForLog`, `sanitizeErrorForLog` |
+| `apps/desktop/src/lib/redact.test.ts` | **New** — 18 Vitest tests for redact helpers |
+| `apps/desktop/src/main.tsx` | Global error/rejection handlers; frontend init log |
+| `apps/desktop/src/App.tsx` | Log calls: handleOpen, handleCreateSuccess, handleClose |
+| `apps/desktop/e2e/mocks/tauri-log.ts` | **New** — no-op mock for Playwright e2e |
+| `apps/desktop/vite.config.e2e.ts` | Added alias for `@tauri-apps/plugin-log` mock |
+| `.ai/local-diagnostics-logging.md` | **New** — user-facing documentation |
+| `Cargo.lock` | Updated (tauri-plugin-log v2.8.0 and deps) |
+| `pnpm-lock.yaml` | Updated (@tauri-apps/plugin-log v2.x) |
+
+### Dependencies added
+
+- Rust: `tauri-plugin-log = "2"` → resolved `2.8.0`; `log = "0.4"` → resolved `0.4.29`
+- npm: `@tauri-apps/plugin-log ^2.0.0`
+- Lockfile changes are minimal and contain only the log plugin and its transitive deps.
+
+### Tests and results
+
+| Check | Result |
+|-------|--------|
+| `git diff --check` | pass |
+| `pnpm typecheck` | pass |
+| `pnpm test` | 236/236 pass (18 new tests in `redact.test.ts`) |
+| `pnpm test:e2e` | 10/10 pass |
+| `pnpm build` | pass (270 kB JS, 21 kB CSS) |
+| `cargo fmt --all --check` | pass (auto-applied) |
+| `cargo check --workspace` | pass |
+| `cargo test --workspace` | pass (12 tests in desktop crate, all workspace tests pass) |
+| `cargo clippy --workspace -- -D warnings` | pass (no warnings) |
+
+### Tauri dev smoke
+
+Not run in this session — WSL2 environment has no display/Tauri runtime.
+The log file path on Windows 11 will be confirmed during installer QA.
+
+### Privacy risks
+
+- Repository basenames and codes appear in logs (expected).
+- Git branch names appear in `get_git_status` log entries.
+- Item counts (locations, racks, devices) are logged — no personally identifying data.
+- Full paths are NOT logged (basename only).
+- Heuristic redaction only — unusual credential key names would not be caught.
+
+### Suggested next step
+
+Run the app from the Windows NSIS installer on a clean Windows 11 machine, verify
+`%APPDATA%\com.techtradeexpress.rackinventorystudio\logs\` is created on first launch,
+and confirm log entries are written for open/save/git operations.

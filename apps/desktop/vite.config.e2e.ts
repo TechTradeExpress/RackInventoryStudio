@@ -16,6 +16,7 @@ export default defineConfig({
     alias: {
       "@tauri-apps/api/core": path.resolve(__dirname, "e2e/mocks/tauri-core.ts"),
       "@tauri-apps/plugin-dialog": path.resolve(__dirname, "e2e/mocks/tauri-dialog.ts"),
+      "@tauri-apps/plugin-log": path.resolve(__dirname, "e2e/mocks/tauri-log.ts"),
     },
   },
 });
