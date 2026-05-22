@@ -339,10 +339,18 @@ export function RackDetailPanel({
                             <th>Model</th>
                             <th className="tbl-mono">Serial</th>
                             <th className="tbl-mono">Asset tag</th>
+                            <th>Type</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {activePlacements.map((p) => (
+                          {activePlacements.map((p) => {
+                            const typeLabel =
+                              p.target_kind === "device"
+                                ? (p.device_type ?? "Device")
+                                : p.target_kind === "device_model"
+                                  ? "Rack object"
+                                  : "—";
+                            return (
                             <tr
                               key={p.id}
                               data-placement-id={p.id}
@@ -364,8 +372,12 @@ export function RackDetailPanel({
                               <td className="tbl-mono" style={{ color: "var(--tx-3)" }}>
                                 {p.target_asset_tag ?? "—"}
                               </td>
+                              <td className="tbl-mono" style={{ color: "var(--tx-3)" }}>
+                                {typeLabel}
+                              </td>
                             </tr>
-                          ))}
+                            );
+                          })}
                         </tbody>
                       </table>
                     )}

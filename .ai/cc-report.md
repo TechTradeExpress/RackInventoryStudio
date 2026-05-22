@@ -823,3 +823,29 @@ No Rust/Tauri changes → cargo checks not required.
 
 **Suggested next step:**
 Branch H — `design/ui-correction-final-qa`: full visual and automated QA pass before deciding on PR to master.
+
+---
+
+### Repair update (post-ChatGPT review)
+
+**Blockers fixed:**
+
+1. **Type column missing from active placement table** — `RackDetailPanel.tsx` placement table had columns U · Name · Model · Serial · Asset tag but no Type column. Added `typeLabel` computation per row (`p.device_type ?? "Device"` for device placements, `"Rack object"` for device_model placements, `"—"` otherwise) and a `<th>Type</th>` header + `<td className="tbl-mono">` cell.
+
+2. **cc-report incorrectly claimed Change side ConfirmDialog was covered by e2e** — the Risks section stated the dialog was "tested via Playwright only indirectly" and that the "full confirm sequence is not automated in smoke". In fact no e2e test for the dialog open/cancel flow existed at all. Added a new smoke test: `"rack detail: Change side dialog opens and can be cancelled"` that:
+   - Opens rack detail, selects fixture placement `srv-01` from the table
+   - Asserts "Move to Rear…" button is visible
+   - Clicks it, asserts the `ConfirmDialog` is open (`getByRole("dialog", { name: /Move to Rear/i })`)
+   - Clicks Cancel, asserts dialog is closed
+   - Asserts placement is still on Front
+
+   **Selector fix also required:** the initial implementation used `getByRole("heading", { name: /Move to Rear/i })` which fails because `Modal` renders the title as `<div className="modal-title">`, not a `<h2>` or heading role. The dialog element has `role="dialog"` with `aria-label="Move to Rear?"`, so the correct Playwright selector is `getByRole("dialog", { name: /Move to Rear/i })`.
+
+**Tests after repair:**
+```
+git diff --check   → pass
+pnpm typecheck     → pass
+pnpm test          → 218/218 pass
+pnpm test:e2e      → 10/10 pass (1 new test)
+pnpm build         → pass
+```

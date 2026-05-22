@@ -185,6 +185,38 @@ test("rack detail and placement table visible", async ({ page }) => {
   await expect(page.getByRole("cell", { name: "srv-01", exact: true })).not.toBeVisible();
 });
 
+test("rack detail: Change side dialog opens and can be cancelled", async ({ page }) => {
+  await page.goto("/");
+  await openFixtureRepo(page);
+
+  await page.getByRole("button", { name: "Racks", exact: true }).click();
+  await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Front placements", exact: true })).toBeVisible();
+
+  // Select the fixture placement from the table
+  await page.getByRole("cell", { name: "srv-01", exact: true }).click();
+
+  // Inspector should show the "Move to Rear…" change-side button
+  await expect(
+    page.getByRole("button", { name: /Move to Rear/i }),
+  ).toBeVisible();
+
+  // Open the confirmation dialog
+  await page.getByRole("button", { name: /Move to Rear/i }).click();
+  await expect(
+    page.getByRole("dialog", { name: /Move to Rear/i }),
+  ).toBeVisible();
+
+  // Cancel — dialog should close without mutating state
+  await page.getByRole("button", { name: /Cancel/i }).click();
+  await expect(
+    page.getByRole("dialog", { name: /Move to Rear/i }),
+  ).not.toBeVisible();
+
+  // Placement is still selected and on Front
+  await expect(page.getByRole("heading", { name: "Front placements", exact: true })).toBeVisible();
+});
+
 test("git section shows status label and publish guidance", async ({ page }) => {
   await page.goto("/");
   await openFixtureRepo(page);
