@@ -849,3 +849,110 @@ pnpm test          → 218/218 pass
 pnpm test:e2e      → 10/10 pass (1 new test)
 pnpm build         → pass
 ```
+
+---
+
+## UI correction final QA — branch design/ui-correction-final-qa
+
+**Branch:** `design/ui-correction-final-qa`
+**Base branch:** `design/claude-ui-polish`
+
+All previous UI correction branches (A–G) are merged into `design/claude-ui-polish`:
+- `design/ui-correction-modal-primitives` ✓
+- `design/ui-correction-location-modal` ✓
+- `design/ui-correction-rack-model-modals` ✓
+- `design/ui-correction-device-modal` ✓
+- `design/ui-correction-rack-single-side` ✓
+- `design/ui-correction-rack-labels` ✓
+- `design/ui-correction-rack-inspector-table` ✓
+
+### What was reviewed
+
+**A. CRUD modals** — All four entity modals (Location, Rack, Device Model, Device) reviewed:
+- Modal sizes correct: Location 520 px, Rack/DeviceModel 560 px, Device 640 px.
+- All modals: `title`, `subtitle`, `disableBackdropClose` on dirty form, `footerMessage` with required/error feedback, `Cancel` + `Save changes`/`Create` footer buttons — consistent.
+- Code field disabled in edit mode for all entities.
+- `ConfirmDialog` (danger tone) wired for all delete actions.
+- Edit/delete action buttons all have `aria-label` and `title` attributes.
+- No inline forms remaining in any CRUD panel.
+
+**B. Rack Detail** — Verified:
+- Front/Rear Segmented control in PageHeader.
+- Default active side is `front`.
+- `RackUnitDiagram` renders only the active side.
+- Active placement table shows only `activeSide` placements with columns: U · Name · Model · Serial · Asset tag · Type.
+- Selection sync: diagram ↔ table ↔ inspector.
+- Move form uses `currentSide` (read-only, no side select).
+- "Change side…" opens `ConfirmDialog`; dialog uses `getByRole("dialog")` in e2e (correct).
+- `AddPlacementPanel` locked to `activeSide`.
+
+**C. CSV Import** — Verified:
+- `deriveCsvImportUiSummary` used; no double-counting of warning rows.
+- Import button: `Import ${importableRows} row(s)`.
+- Outcome "Will create": `importableRows`.
+- Warning rows described as "importable rows with warnings".
+
+**D. Repository/Git** — Not changed in this branch. Reviewed as unchanged; no regressions observed.
+
+**E. App shell / Navigation** — Not changed in this branch. Left rail, GlobalSearch, tab navigation — verified unchanged.
+
+### Fix applied
+
+**`PlacementInspectorPanel.tsx` — Replace native `confirm()` with `ConfirmDialog` for "Remove placement"**
+
+The "Remove placement" action was the only CRUD-level destructive action still using a native browser `confirm()` dialog. All other destructive actions (delete location, delete rack, delete device model, delete device, change side) already use `ConfirmDialog`. Replaced with:
+- New `removeConfirmOpen` state.
+- New `ConfirmDialog` (danger tone, 460 px) with title "Remove placement?" and body naming the placement code.
+- `executeRemove` function does the actual removal after confirmation.
+- `removeConfirmOpen` resets when `placement.id` changes (existing `useEffect` block extended).
+
+No other files changed.
+
+### Visual QA
+
+**Environment:** Headless WSL2 — full visual QA not possible.
+
+**Tauri dev smoke:**
+- Command: `WEBKIT_DISABLE_DMABUF_RENDERER=1 LIBGL_ALWAYS_SOFTWARE=1 pnpm tauri dev`
+- Vite dev server: started (BeforeDevCommand completed).
+- Rust backend: compiled in 9.15s, no errors.
+- App binary: launched (`Running target/debug/rack-inventory-studio-desktop`), no panics observed.
+- Visual inspection: not possible (headless WSL2, no display server).
+
+**Manual visual QA required on Windows 11** before final PR to `master`. Focus areas:
+1. Rack Detail three-pane layout at typical desktop window widths.
+2. Placement table columns (U / Name / Model / Serial / Asset tag / Type) — confirm last column fits without overflow.
+3. "Remove placement" — confirm `ConfirmDialog` (danger) opens and cancels correctly.
+4. "Change side…" — confirm `ConfirmDialog` opens, shows placement code, closes on Cancel.
+5. All four CRUD modals — confirm fields, required markers, disabled code field in edit mode.
+6. Global Search dropdown — confirm not clipped by the left rail.
+7. CSV Import — import button label and "Will create" counter match row count.
+
+### Tests
+
+```
+git diff --check                → pass
+pnpm typecheck                  → pass
+pnpm test                       → 218/218 pass (18 test files)
+pnpm test:e2e                   → 10/10 pass
+pnpm build                      → pass (21.33 kB CSS, 267.41 kB JS)
+cargo fmt --all --check         → pass
+cargo check --workspace         → pass
+cargo test --workspace          → pass (258 tests across all crates)
+cargo clippy -D warnings        → pass
+```
+
+### Risks
+
+- Full visual QA not completed (headless WSL2). Final appearance requires GUI machine inspection.
+- The placement table (6 columns) may be narrow at some window widths in the 320 px right column — visual test needed.
+- `PlacementInspectorPanel` remove confirmation: tested via unit ConfirmDialog tests and smoke "Change side" pattern; no dedicated remove-dialog e2e smoke test (low risk — dialog reuses the same ConfirmDialog component already covered by unit tests).
+- `Window.confirm()` in `App.tsx` (unsaved-changes window-close guard) left intentionally — appropriate for a system-level close event.
+
+### Readiness assessment
+
+`design/claude-ui-polish` after merging this branch appears ready for PR to `master`, pending:
+1. Manual visual QA on Windows 11 by a human reviewer.
+2. ChatGPT code review approval of this branch.
+
+No known functional blockers remain. All automated checks pass.
