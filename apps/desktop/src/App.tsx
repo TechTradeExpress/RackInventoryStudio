@@ -40,6 +40,8 @@ import {
   IcGitBranch,
 } from "./components/ui/Icon";
 import type { ValidationNavigationTarget } from "./features/validation/navigation";
+import { logError, logInfo, logWarn } from "./lib/diagnosticsLog";
+import { sanitizeErrorForLog, sanitizePathForLog } from "./lib/redact";
 
 type Tab =
   | "repository"
@@ -140,6 +142,7 @@ export function App() {
     if (!repoPath.trim()) return;
     setWorking(true);
     setError(null);
+    logInfo(`Opening repository: ${sanitizePathForLog(repoPath.trim())}`);
     try {
       const result: OpenRepositoryResultDto = await openRepository(repoPath.trim());
       setSummary(result.summary);
@@ -153,8 +156,12 @@ export function App() {
       setActiveTab("repository");
       addRecentRepository(repoPath.trim());
       setRecentRepos(getRecentRepositories());
+      logInfo(
+        `Repository opened: code=${result.summary.repository_code} locations=${result.summary.locations_count} racks=${result.summary.racks_count} devices=${result.summary.devices_count}`,
+      );
     } catch (e) {
       setError(String(e));
+      logWarn(`Open repository failed: ${sanitizeErrorForLog(e)}`);
     } finally {
       setWorking(false);
     }
@@ -182,6 +189,7 @@ export function App() {
     setActiveTab("repository");
     addRecentRepository(result.summary.repo_path);
     setRecentRepos(getRecentRepositories());
+    logInfo(`Repository created: code=${result.summary.repository_code}`);
   }
 
   async function handleClose() {
@@ -205,8 +213,10 @@ export function App() {
       setHighlightedDeviceModelId(null);
       setPendingRackNavTarget(null);
       setActiveTab("repository");
+      logInfo("Repository closed");
     } catch (e) {
       setError(String(e));
+      logError(`Close repository failed: ${sanitizeErrorForLog(e)}`);
     } finally {
       setWorking(false);
     }

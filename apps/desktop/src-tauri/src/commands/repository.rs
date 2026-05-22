@@ -1,6 +1,8 @@
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
+use crate::diagnostics::{basename, sanitize_error};
+
 use ris_application::{
     create_repository, open_repository, AddDeviceInput, AddDeviceModelInput, AddLocationInput,
     AddRackInput, CreateRepositoryInput, MovePlacementToTargetInput, PlaceDeviceInput,
@@ -104,12 +106,24 @@ pub fn open_repository_cmd(
     path: String,
     state: State<AppState>,
 ) -> Result<OpenRepositoryResultDto, String> {
-    let session =
-        open_repository(Path::new(&path)).map_err(|e| format!("Failed to open repository: {e}"))?;
+    log::info!("open_repository: {}", basename(Path::new(&path)));
+    let session = open_repository(Path::new(&path)).map_err(|e| {
+        let msg = format!("Failed to open repository: {e}");
+        log::error!("open_repository failed: {}", sanitize_error(&msg));
+        msg
+    })?;
 
     let issues = session.validate();
     let summary = build_summary(&session);
     let validation_summary = build_validation_summary(&issues);
+    log::info!(
+        "open_repository ok: code={} locations={} racks={} devices={} validation_issues={}",
+        summary.repository_code,
+        summary.locations_count,
+        summary.racks_count,
+        summary.devices_count,
+        validation_summary.total,
+    );
 
     let mut guard = lock_session(&state)?;
     *guard = Some(session);
@@ -129,22 +143,39 @@ pub fn create_repository_cmd(
     if path.is_empty() {
         return Err("Target path cannot be blank".to_string());
     }
+    log::info!(
+        "create_repository: {} init_git={}",
+        basename(std::path::Path::new(&path)),
+        input.initialize_git,
+    );
 
     let session = create_repository(CreateRepositoryInput {
         path: std::path::PathBuf::from(&path),
-        code: input.code,
-        name: input.name,
+        code: input.code.clone(),
+        name: input.name.clone(),
         id: None,
     })
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| {
+        let msg = e.to_string();
+        log::error!("create_repository failed: {}", sanitize_error(&msg));
+        msg
+    })?;
 
     if input.initialize_git {
-        ris_git::init_repository(&session.repo_path).map_err(|e| e.to_string())?;
+        ris_git::init_repository(&session.repo_path).map_err(|e| {
+            let msg = e.to_string();
+            log::warn!(
+                "create_repository: git init failed: {}",
+                sanitize_error(&msg)
+            );
+            msg
+        })?;
     }
 
     let issues = session.validate();
     let summary = build_summary(&session);
     let validation_summary = build_validation_summary(&issues);
+    log::info!("create_repository ok: code={}", summary.repository_code);
 
     let mut guard = lock_session(&state)?;
     *guard = Some(session);
@@ -169,22 +200,39 @@ pub fn validate_current_repository(
     let guard = lock_session(&state)?;
     let session = guard.as_ref().ok_or_else(no_session)?;
     let issues = session.validate();
+    let summary = build_validation_summary(&issues);
+    log::info!(
+        "validate_current_repository: errors={} warnings={} infos={}",
+        summary.errors,
+        summary.warnings,
+        summary.infos,
+    );
     Ok(issues.iter().map(issue_to_dto).collect())
 }
 
 #[tauri::command]
 pub fn save_current_repository(state: State<AppState>) -> Result<SaveSummaryDto, String> {
+    log::info!("save_current_repository: start");
     let mut guard = lock_session(&state)?;
     let session = guard.as_mut().ok_or_else(no_session)?;
-    let report = session
-        .save()
-        .map_err(|e| format!("Failed to save repository: {e}"))?;
-    Ok(SaveSummaryDto {
+    let report = session.save().map_err(|e| {
+        let msg = format!("Failed to save repository: {e}");
+        log::error!("save_current_repository failed: {}", sanitize_error(&msg));
+        msg
+    })?;
+    let dto = SaveSummaryDto {
         created: report.created.len(),
         updated: report.updated.len(),
         unchanged: report.unchanged.len(),
         total: report.total(),
-    })
+    };
+    log::info!(
+        "save_current_repository ok: created={} updated={} unchanged={}",
+        dto.created,
+        dto.updated,
+        dto.unchanged,
+    );
+    Ok(dto)
 }
 
 #[tauri::command]
@@ -655,6 +703,7 @@ pub fn preview_device_csv_import_cmd(
     csv_content: String,
     state: State<AppState>,
 ) -> Result<CsvImportPreviewDto, String> {
+    log::info!("preview_device_csv_import: bytes={}", csv_content.len());
     let guard = lock_session(&state)?;
     let session = guard.as_ref().ok_or_else(no_session)?;
     let preview = session.preview_devices_csv(&csv_content);
@@ -677,7 +726,7 @@ pub fn preview_device_csv_import_cmd(
             issues: r.issues.iter().map(issue_to_csv_dto).collect(),
         })
         .collect();
-    Ok(CsvImportPreviewDto {
+    let dto = CsvImportPreviewDto {
         summary: CsvImportSummaryDto {
             total_rows: preview.summary.total_rows,
             valid_rows: preview.summary.valid_rows,
@@ -686,7 +735,14 @@ pub fn preview_device_csv_import_cmd(
         },
         file_issues: preview.issues.iter().map(issue_to_csv_dto).collect(),
         rows,
-    })
+    };
+    log::info!(
+        "preview_device_csv_import ok: total_rows={} valid={} errors={}",
+        dto.summary.total_rows,
+        dto.summary.valid_rows,
+        dto.summary.error_rows,
+    );
+    Ok(dto)
 }
 
 #[tauri::command]
@@ -694,15 +750,27 @@ pub fn import_device_csv_cmd(
     csv_content: String,
     state: State<AppState>,
 ) -> Result<CsvImportResultDto, String> {
+    log::info!("import_device_csv: bytes={}", csv_content.len());
     let mut guard = lock_session(&state)?;
     let session = guard.as_mut().ok_or_else(no_session)?;
     session
         .import_devices_csv(&csv_content)
-        .map(|r| CsvImportResultDto {
-            created_count: r.created_count,
-            warning_count: r.warning_count,
+        .map(|r| {
+            log::info!(
+                "import_device_csv ok: created={} warnings={}",
+                r.created_count,
+                r.warning_count,
+            );
+            CsvImportResultDto {
+                created_count: r.created_count,
+                warning_count: r.warning_count,
+            }
         })
-        .map_err(|e| e.to_string())
+        .map_err(|e| {
+            let msg = e.to_string();
+            log::error!("import_device_csv failed: {}", sanitize_error(&msg));
+            msg
+        })
 }
 
 #[tauri::command]
