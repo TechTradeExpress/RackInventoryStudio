@@ -1375,3 +1375,45 @@ Rust/Tauri not changed → cargo checks not required.
 Run the app from the Windows NSIS installer on a clean Windows 11 machine, verify
 `%APPDATA%\com.techtradeexpress.rackinventorystudio\logs\` is created on first launch,
 and confirm log entries are written for open/save/git operations without full paths.
+
+---
+
+## Post UI Polish QA integration plan — branch integration/post-ui-polish-qa
+
+**Branch:** `integration/post-ui-polish-qa`
+**Base branch:** `master`
+
+`design/claude-ui-polish` has been merged to `master`. This section records the setup of
+the integration branch for the next work series.
+
+**What was done in this step:**
+- Created branch `integration/post-ui-polish-qa` from current `master` (`6ff2ef4`).
+- No application code was changed — docs/plan only.
+- Plan saved to `.ai/post-ui-polish-qa-plan.md`.
+
+**Planned working branches (in order):**
+1. `repo/force-git-init` — enforce Git on repo creation
+2. `repo/unsaved-guard-recent-open` — unsaved-changes guard + Recent open UX
+3. `perf/git-status-cache` — cache Git status, no auto-poll
+4. `ux/location-scoped-racks` — manage racks from location context
+5. `ux/rack-form-polish` — rack form label and default value polish
+6. `ux/csv-sample-import` — sample CSV download
+7. `ux/validation-save-copy` — clarify Validation and Save copy
+8. `assets/app-icon` — app icon preparation and deployment
+9. `ci/windows-diagnostic-installer` — diagnostic Windows installer with verbose logging
+10. `qa/post-ui-polish-final` — final QA, checks, Windows test, final PR
+
+**PR rules:**
+- Working branch PRs → `integration/post-ui-polish-qa`
+- Final PR → `master` (after full series approved)
+
+**Review context rules:**
+- Working branches: generate relative to `integration/post-ui-polish-qa`
+- Integration branch (final): generate relative to `master`
+
+**Baseline detected:**
+- Windows installer workflow (`.github/workflows/windows-installer.yml`): **present** — manual-only `workflow_dispatch`
+- Local diagnostics logging (`tauri-plugin-log` + `@tauri-apps/plugin-log`): **present**
+- No prerequisite branches needed before `ci/windows-diagnostic-installer`
+
+**Suggested next step:** `repo/force-git-init`
