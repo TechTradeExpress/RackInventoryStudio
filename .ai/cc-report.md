@@ -382,3 +382,74 @@ No Rust/Tauri files changed → cargo checks not required for this branch.
 
 **Suggested next step:**
 Branch C — `design/ui-correction-rack-model-modals`: replace inline Rack Add/Edit and Device Model Add/Edit forms with modals using the same pattern validated here.
+
+---
+
+## UI correction rack and model modals — branch design/ui-correction-rack-model-modals
+
+**Branch:** `design/ui-correction-rack-model-modals`
+**Base branch:** `design/claude-ui-polish`
+
+**Prerequisites merged into base:**
+- `design/ui-correction-modal-primitives` — Modal, ConfirmDialog, Field, Segmented, form-grid CSS
+- `design/ui-correction-location-modal` — LocationFormModal as the reference CRUD modal pattern
+
+**What was changed:**
+
+*New files:*
+- `apps/desktop/src/features/racks/RackFormModal.tsx` — Add/Edit Rack modal (560 px / `size="md"`). Uses `Modal` and `Field`. Handles add and edit modes. Fields: location (select), code (disabled in edit — identity), name, height U, row, description, tags. `disableBackdropClose` when dirty. Footer shows required-field warning or error. Calls `addRack`/`updateRack` from tauriClient.
+- `apps/desktop/src/features/deviceModels/DeviceModelFormModal.tsx` — Add/Edit Device Model modal (560 px / `size="md"`). Uses `Modal` and `Field`. Fields: device type (select), code (disabled in edit — identity), name, vendor, model number, height U, description, tags. Inline note for `rack_object` type. `disableBackdropClose` when dirty. Calls `addDeviceModel`/`updateDeviceModel` from tauriClient.
+- `apps/desktop/src/features/racks/RackFormModal.test.tsx` — 12 Vitest component tests (jsdom): closed state, add mode (title/fields/required footer/Create disabled/Cancel/Esc/code format error/valid submit), edit mode (title/pre-populated/code disabled/valid update/form resets on reopen).
+- `apps/desktop/src/features/deviceModels/DeviceModelFormModal.test.tsx` — 12 Vitest component tests (jsdom): closed state, add mode (title/fields/required footer/Create disabled/Cancel/Esc/code format error/valid submit), edit mode (title/pre-populated/code disabled/valid update/form resets on reopen).
+
+*Modified files:*
+- `apps/desktop/src/features/racks/RacksPanel.tsx` — Removed inline Add/Edit rack form and all related inline state (`rackForm`, `rackFormError`, `rackFormSuccess`, `rackFormSubmitting`, `showAddForm`, `editingRackId`). Replaced with `RackFormModal` and `ConfirmDialog` for delete. Panel now has: `modalOpen`/`editingRack` state, `pendingDelete` state for ConfirmDialog, `successMsg` dismissible Banner. Delete now uses `ConfirmDialog` (danger tone) instead of native `window.confirm`. `aria-label` added to edit/delete icon buttons.
+- `apps/desktop/src/features/deviceModels/DeviceModelsPanel.tsx` — Removed inline Add/Edit model form and all related inline state (`showForm`, `form`, `formError`, `formSuccess`, `submitting`, `editingId`). Replaced with `DeviceModelFormModal` and `ConfirmDialog` for delete. Added internal `reloadToken` for post-save list refresh. `aria-label` added to edit/delete icon buttons.
+- `apps/desktop/e2e/smoke.spec.ts` — Updated `getByRole("cell", { name: "Main Rack" })` selector to `exact: true` to avoid ambiguity caused by the new `aria-label` attributes on action buttons ("Edit Main Rack", "Delete Main Rack") which made the action cell's accessible name also include "Main Rack".
+
+**How Add/Edit Rack works after change:**
+- "Add rack" button → opens `RackFormModal` (add mode, empty fields, code editable)
+- Row "Edit" icon → opens `RackFormModal` (edit mode, pre-populated, code disabled)
+- Cancel / Esc → closes modal without saving
+- Backdrop click on clean form → closes; dirty form → blocked
+- Save → calls tauriClient, on success: closes modal, re-fetches rack list, shows dismissible success Banner
+- Row "Delete" icon → opens `ConfirmDialog` (danger) → on confirm: calls deleteRack, re-fetches list
+- Rack Detail view (clicking a rack row) is unchanged — still transitions to full detail via `onSelectRack`
+
+**How Add/Edit Device Model works after change:**
+- "Add model" button → opens `DeviceModelFormModal` (add mode)
+- Row "Edit" icon → opens `DeviceModelFormModal` (edit mode, code disabled)
+- Cancel / Esc → closes modal without saving
+- Save → calls tauriClient, on success: closes modal, triggers list reload, shows dismissible success Banner
+- Row "Delete" icon → opens `ConfirmDialog` (danger) → on confirm: calls deleteDeviceModel, reloads list
+
+**Intentionally NOT changed:**
+- `RackDetailPanel` — unchanged (branch E)
+- `RackUnitDiagram` — unchanged (branch F)
+- `AddPlacementPanel` / `PlacementInspectorPanel` — unchanged
+- `DevicesPanel` Add/Edit flow — still inline (branch D)
+- `LocationsPanel` — unchanged
+- CSV Import — unchanged
+- All Rust/Tauri backend files — unchanged
+- Example repository data — unchanged
+
+**Tests run and results:**
+```
+git diff --check                                                        → pass
+pnpm --filter @rack-inventory-studio/desktop typecheck                 → pass
+pnpm --filter @rack-inventory-studio/desktop test                      → 191/191 pass (16 test files)
+  - RackFormModal.test.tsx          12/12 (new)
+  - DeviceModelFormModal.test.tsx   12/12 (new)
+  + 167 existing tests              pass
+pnpm --filter @rack-inventory-studio/desktop test:e2e                  → 9/9 pass (1 selector fixed)
+pnpm --filter @rack-inventory-studio/desktop build                     → pass (20.9 kB CSS, 262 kB JS)
+```
+No Rust/Tauri files changed → cargo checks not required for this branch.
+
+**Known risks:**
+- `RackFormModal` passes `locations` as a prop (loaded by parent `RacksPanel`). If locations fail to load, the select is empty. Error is not surfaced in the modal itself but `RacksPanel` catches the error silently (`setLocations([])`).
+- `DeviceModelsPanel` uses an internal `reloadToken` to refresh the list after save/delete. This is additive with the existing `mutationToken` prop trigger — both can trigger a reload if a parent mutation and a local mutation happen close together. Harmless (just an extra identical fetch).
+- `isDirty` for edit mode on `RackFormModal` does not detect changes to `locationId` changing back to original — technically it would mark the form as dirty then clean. Acceptable for this iteration.
+
+**Suggested next step:**
+Branch D — `design/ui-correction-device-modal`: replace inline Device Add/Edit form with a modal (640 px) with three sections: Identity / Hardware / Metadata.

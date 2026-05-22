@@ -164,7 +164,7 @@ test("rack detail and placement table visible", async ({ page }) => {
   await expect(page.getByText("rack-main")).toBeVisible();
 
   // Click the rack row to open detail
-  await page.getByRole("cell", { name: "Main Rack" }).click();
+  await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: /Main Rack/i }),
   ).toBeVisible();
