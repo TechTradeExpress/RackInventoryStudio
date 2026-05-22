@@ -1031,6 +1031,18 @@ Run the Windows Installer workflow manually on GitHub Actions against `design/cl
 
 ---
 
+### Repair update (post-ChatGPT review)
+
+**Blocker fixed:** `.ai/cc-report.md` contained a contradiction between the new "Docs cleanup" section (which correctly stated the `pull_request` trigger was removed) and the older "Windows installer CI" section (which still described the PR trigger as present and intentionally kept).
+
+**Changes made to `.ai/cc-report.md`:**
+- "When the workflow runs" subsection in `Windows installer CI` section rewritten: now states `workflow_dispatch` only, no `pull_request`/push/schedule, and explains the PR trigger was removed in `chore/docs-cleanup-release-readiness`.
+- "Artifacts uploaded" subsection updated: removed stale MSI glob and `apps/desktop/src-tauri/target/` path; now shows only `target/release/bundle/nsis/*.exe` (workspace-level target, NSIS only, matching actual workflow and `tauri.conf.json`).
+
+**No other files changed.** Workflow `.github/workflows/windows-installer.yml` was already `workflow_dispatch`-only.
+
+---
+
 ## Windows installer CI — branch ci/windows-installer-build
 
 **Branch:** `ci/windows-installer-build`
@@ -1045,10 +1057,9 @@ A GitHub Actions workflow that builds an unsigned Windows installer artifact for
 
 ### When the workflow runs
 
-- `workflow_dispatch` — triggered manually from the GitHub Actions UI (primary use case for internal QA)
-- `pull_request` to `design/claude-ui-polish` with path filter — triggers on changes to `apps/desktop/**`, `Cargo.toml`, `Cargo.lock`, `pnpm-lock.yaml`, `package.json`, `pnpm-workspace.yaml`, or the workflow file itself
+- `workflow_dispatch` only — triggered manually from the GitHub Actions UI.
 
-Pull-request trigger is kept because `design/claude-ui-polish` is a long-lived feature branch with infrequent PRs. If build times prove excessive in practice, the PR trigger can be removed in a follow-up.
+The workflow does **not** trigger on pull requests, push, or schedule. The `pull_request` trigger that existed in the original commit was removed in branch `chore/docs-cleanup-release-readiness` so that the installer is only built on explicit manual request.
 
 ### Checks performed by the workflow
 
@@ -1073,14 +1084,14 @@ pnpm --filter @rack-inventory-studio/desktop tauri build
 
 ### Artifacts uploaded
 
-Both installer formats produced by Tauri v2 on Windows (if present):
+NSIS installer only (`bundle.targets: ["nsis"]` in `tauri.conf.json`; MSI excluded — WiX not available on `windows-latest`):
 
 | Glob | Format |
 |---|---|
-| `apps/desktop/src-tauri/target/release/bundle/msi/*.msi` | MSI (requires WiX on runner) |
-| `apps/desktop/src-tauri/target/release/bundle/nsis/*.exe` | NSIS self-extracting installer |
+| `target/release/bundle/nsis/*.exe` | NSIS self-extracting installer |
 
-`if-no-files-found: error` — CI fails if neither format is produced.
+Path is workspace-level Cargo target directory (not `apps/desktop/src-tauri/target/`).
+`if-no-files-found: error` — CI fails if the file is missing.
 Retention: 30 days.
 Artifact name: `rack-inventory-studio-windows-installer`
 
