@@ -9,6 +9,10 @@
     "beforeBuildCommand": "pnpm build",
     "frontendDist": "../dist"
   },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"]
+  },
   "app": {
     "windows": [
       {

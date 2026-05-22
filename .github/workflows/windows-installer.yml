@@ -70,7 +70,6 @@ jobs:
         with:
           name: rack-inventory-studio-windows-installer
           path: |
-            apps/desktop/src-tauri/target/release/bundle/msi/*.msi
-            apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
+            target/release/bundle/nsis/*.exe
           if-no-files-found: error
           retention-days: 30
