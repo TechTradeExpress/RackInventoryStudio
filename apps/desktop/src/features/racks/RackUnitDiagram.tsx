@@ -13,6 +13,8 @@ interface Props {
   heightU: number;
   front: PlacementDto[];
   rear: PlacementDto[];
+  /** Which side to display in the diagram. */
+  side: "front" | "rear";
   selectedPlacementId: string | null;
   onSelectPlacement: (placement: PlacementDto | null) => void;
   onDropAtCell?: (side: "front" | "rear", startU: number, payload: DndPayload) => void;
@@ -200,17 +202,15 @@ export function RackUnitDiagram({
   heightU,
   front,
   rear,
+  side,
   selectedPlacementId,
   onSelectPlacement,
   onDropAtCell,
 }: Props) {
-  const frontOcc = buildOccupancy(heightU, front);
-  const rearOcc = buildOccupancy(heightU, rear);
+  const activePlacements = side === "front" ? front : rear;
+  const activeOcc = buildOccupancy(heightU, activePlacements);
 
-  const allWarnings = [
-    ...frontOcc.warnings.map((w) => ({ side: "Front", ...w })),
-    ...rearOcc.warnings.map((w) => ({ side: "Rear", ...w })),
-  ];
+  const allWarnings = activeOcc.warnings.map((w) => ({ side: side === "front" ? "Front" : "Rear", ...w }));
 
   // U-number column: rendered top-to-bottom, so heightU down to 1
   const uNumbers = Array.from({ length: heightU }, (_, i) => heightU - i);
@@ -324,7 +324,7 @@ export function RackUnitDiagram({
             ))}
           </div>
 
-          {/* Front column */}
+          {/* Active side column */}
           <div style={{ flexShrink: 0 }}>
             <div
               style={{
@@ -339,40 +339,12 @@ export function RackUnitDiagram({
                 borderLeft: "2px solid #bbb",
               }}
             >
-              Front
+              {side === "front" ? "Front" : "Rear"}
             </div>
             <div style={{ borderLeft: "2px solid #bbb" }}>
               <SideColumn
-                side="front"
-                units={frontOcc.units}
-                selectedPlacementId={selectedPlacementId}
-                onSelectPlacement={onSelectPlacement}
-                onDropAtCell={onDropAtCell}
-              />
-            </div>
-          </div>
-
-          {/* Rear column */}
-          <div style={{ flexShrink: 0 }}>
-            <div
-              style={{
-                height: ROW_H,
-                width: SIDE_W,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontWeight: "bold",
-                background: colors.headerBg,
-                borderBottom: "1px solid #ccc",
-                borderLeft: "1px solid #bbb",
-              }}
-            >
-              Rear
-            </div>
-            <div style={{ borderLeft: "1px solid #bbb" }}>
-              <SideColumn
-                side="rear"
-                units={rearOcc.units}
+                side={side}
+                units={activeOcc.units}
                 selectedPlacementId={selectedPlacementId}
                 onSelectPlacement={onSelectPlacement}
                 onDropAtCell={onDropAtCell}

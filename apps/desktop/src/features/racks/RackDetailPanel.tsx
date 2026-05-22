@@ -14,6 +14,7 @@ import type { DndPayload } from "./dndTypes";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { Panel } from "../../components/ui/Panel";
 import { Banner } from "../../components/ui/Banner";
+import { Segmented } from "../../components/ui/Segmented";
 import { IcServer } from "../../components/ui/Icon";
 
 interface NavigationRequest {
@@ -53,6 +54,7 @@ export function RackDetailPanel({
   const [detail, setDetail] = useState<RackDetailDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [activeSide, setActiveSide] = useState<"front" | "rear">("front");
   const [selectedPlacement, setSelectedPlacement] = useState<PlacementDto | null>(null);
   const [targetReloadToken, setTargetReloadToken] = useState(0);
   const [mutationMessage, setMutationMessage] = useState<string | null>(null);
@@ -63,6 +65,7 @@ export function RackDetailPanel({
     setError(null);
     setDetail(null);
     setSelectedPlacement(null);
+    setActiveSide("front");
     setMutationMessage(null);
     getRackDetail(rack.id)
       .then((newDetail) => {
@@ -75,6 +78,8 @@ export function RackDetailPanel({
           if (found) {
             setSelectedPlacement(found);
             setMutationMessage(initialNavigation.message);
+            // Switch to the side where the navigated placement lives
+            setActiveSide(newDetail.rear.some((p) => p.id === found.id) ? "rear" : "front");
           } else {
             setMutationMessage("Placement not found in destination rack.");
           }
@@ -86,6 +91,11 @@ export function RackDetailPanel({
         if (initialNavigation) onNavigationConsumed?.();
       });
   }, [rack.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleSideChange(side: "front" | "rear") {
+    setActiveSide(side);
+    setSelectedPlacement(null);
+  }
 
   function handleSelectPlacement(p: PlacementDto | null) {
     setMutationMessage(null);
@@ -108,6 +118,10 @@ export function RackDetailPanel({
             newDetail.rear.find((p) => p.id === opts.selectId) ??
             null;
           setSelectedPlacement(found);
+          if (found) {
+            // Switch diagram to the side where the placement now lives
+            setActiveSide(newDetail.rear.some((p) => p.id === found.id) ? "rear" : "front");
+          }
         }
       })
       .catch((e) => setError(String(e)))
@@ -193,11 +207,22 @@ export function RackDetailPanel({
           </span>
         }
         actions={
-          onBack && (
-            <button className="btn" onClick={onBack}>
-              ← Back to racks
-            </button>
-          )
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <Segmented<"front" | "rear">
+              value={activeSide}
+              onChange={handleSideChange}
+              options={[
+                { value: "front", label: "Front" },
+                { value: "rear", label: "Rear" },
+              ]}
+              ariaLabel="Rack side"
+            />
+            {onBack && (
+              <button className="btn" onClick={onBack}>
+                ← Back to racks
+              </button>
+            )}
+          </div>
         }
       />
 
@@ -216,6 +241,7 @@ export function RackDetailPanel({
                 onAddSuccess={handleAddSuccess}
                 reloadToken={targetReloadToken}
                 mutationToken={mutationToken}
+                activeSide={activeSide}
               />
             </div>
 
@@ -223,7 +249,7 @@ export function RackDetailPanel({
             <div style={{ minWidth: 0 }}>
               <Panel
                 title="Rack diagram"
-                desc={`Top (U${detail.height_u}) at top. Click a unit to inspect or drag from palette.`}
+                desc={`${activeSide === "front" ? "Front" : "Rear"} · top (U${detail.height_u}) at top · click to inspect or drag from palette`}
                 actions={
                   <div className="row" style={{ gap: 12, fontSize: 11 }}>
                     <span className="row" style={{ gap: 4 }}>
@@ -245,6 +271,7 @@ export function RackDetailPanel({
                   heightU={detail.height_u}
                   front={detail.front}
                   rear={detail.rear}
+                  side={activeSide}
                   selectedPlacementId={selectedPlacement?.id ?? null}
                   onSelectPlacement={handleSelectPlacement}
                   onDropAtCell={handleDropAtCell}
@@ -255,8 +282,12 @@ export function RackDetailPanel({
                   </div>
                 )}
                 <div className="row-between" style={{ marginTop: 10, fontSize: 11, color: "var(--tx-3)" }}>
-                  <span>Front: {frontUsed}U used · {detail.height_u - frontUsed}U free</span>
-                  <span>Rear: {rearUsed}U used · {detail.height_u - rearUsed}U free</span>
+                  <span style={{ fontWeight: activeSide === "front" ? 600 : undefined }}>
+                    Front: {frontUsed}U used · {detail.height_u - frontUsed}U free
+                  </span>
+                  <span style={{ fontWeight: activeSide === "rear" ? 600 : undefined }}>
+                    Rear: {rearUsed}U used · {detail.height_u - rearUsed}U free
+                  </span>
                 </div>
               </Panel>
             </div>
