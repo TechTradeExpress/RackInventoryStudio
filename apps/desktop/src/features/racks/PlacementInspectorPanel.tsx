@@ -47,6 +47,9 @@ export function PlacementInspectorPanel({
   const [changeSideWorking, setChangeSideWorking] = useState(false);
   const [changeSideError, setChangeSideError] = useState<string | null>(null);
 
+  // Remove confirmation dialog
+  const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
+
   useEffect(() => {
     setRacksLoading(true);
     setRacksError(null);
@@ -70,6 +73,7 @@ export function PlacementInspectorPanel({
     setRemoveError(null);
     setChangeSideError(null);
     setChangeSideOpen(false);
+    setRemoveConfirmOpen(false);
   }, [placement?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!placement) {
@@ -163,9 +167,9 @@ export function PlacementInspectorPanel({
     }
   }
 
-  async function handleRemove() {
+  async function executeRemove() {
     if (!placement) return;
-    if (!confirm(`Remove placement ${placement.code} from this rack? This change is in memory until Save is used.`)) return;
+    setRemoveConfirmOpen(false);
     setRemoveWorking(true);
     setRemoveError(null);
     try {
@@ -182,6 +186,21 @@ export function PlacementInspectorPanel({
 
   return (
     <>
+      <ConfirmDialog
+        open={removeConfirmOpen}
+        title="Remove placement?"
+        body={
+          <p style={{ margin: 0, fontSize: 13 }}>
+            Remove <strong>{placement.code}</strong> from this rack?
+            This is an in-memory change until Save is used.
+          </p>
+        }
+        confirmLabel="Remove placement"
+        tone="danger"
+        onConfirm={executeRemove}
+        onCancel={() => setRemoveConfirmOpen(false)}
+      />
+
       <ConfirmDialog
         open={changeSideOpen}
         title={`Move to ${otherSideLabel}?`}
@@ -298,7 +317,7 @@ export function PlacementInspectorPanel({
           <button
             type="button"
             className="btn btn-danger btn-sm"
-            onClick={handleRemove}
+            onClick={() => setRemoveConfirmOpen(true)}
             disabled={removeWorking}
           >
             {removeWorking ? "Removing…" : "Remove placement"}
