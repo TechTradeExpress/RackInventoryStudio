@@ -168,16 +168,21 @@ test("rack detail and placement table visible", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: /Main Rack/i }),
   ).toBeVisible();
-  // Placement table contains the fixture placement
-  await expect(page.getByText("plc-srv-01")).toBeVisible();
 
   // Front/Rear segmented control is visible
   await expect(page.getByRole("tab", { name: "Front" })).toBeVisible();
   await expect(page.getByRole("tab", { name: "Rear" })).toBeVisible();
 
-  // Switching to Rear works without crashing
+  // Active side table shows "Front placements" heading and fixture placement (by device name)
+  await expect(page.getByRole("heading", { name: "Front placements", exact: true })).toBeVisible();
+  // fixture device name "srv-01" appears in the Name column
+  await expect(page.getByRole("cell", { name: "srv-01", exact: true })).toBeVisible();
+
+  // Switching to Rear updates tab state and table title; fixture placement disappears
   await page.getByRole("tab", { name: "Rear" }).click();
   await expect(page.getByRole("tab", { name: "Rear" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("heading", { name: "Rear placements", exact: true })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "srv-01", exact: true })).not.toBeVisible();
 });
 
 test("git section shows status label and publish guidance", async ({ page }) => {
