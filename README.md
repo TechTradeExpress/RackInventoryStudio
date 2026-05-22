@@ -46,7 +46,7 @@ tests/                  Shared test fixtures
 | Placement use cases — place, move, remove device and rack objects | Done |
 | Tauri commands — open, save, validate, close, list entities, move placement, remove placement | Done |
 
-275 workspace tests pass. 128 frontend (Vitest) tests pass. 9 Playwright smoke tests pass.
+258 workspace tests pass. 218 frontend (Vitest) tests pass. 10 Playwright smoke tests pass.
 
 ## Current desktop UI capabilities
 
@@ -67,7 +67,7 @@ tests/                  Shared test fixtures
 - Remove an existing placement from the selected rack via a confirmation button in the Placement Inspector; unsaved changes must be saved via the Repository tab
 - CSV device import via native OS file picker — preview with row-level validation, confirm/write
 - Git integration — semantic status labels (clean / uncommitted / ahead / behind / diverged), contextual action hints, safe publish checklist (Save → Validate → Commit → Pull → Push), commit with message, push/pull with per-state gating (behind-only blocks push; diverged blocks both)
-- Playwright smoke tests (9 tests) covering the golden path, search, CSV import, rack detail, and Git UX
+- Playwright smoke tests (10 tests) covering the golden path, search, CSV import, rack detail, rack side-switch, change-side dialog, and Git UX
 
 ## Project status
 
@@ -103,8 +103,10 @@ v1.0.0 is the first user-facing release. It is not just a technical MVP — it m
 | Playwright smoke tests (9/9) | Done (PR #36, #39) |
 | Drag-and-drop placement | Done (PR #37) |
 | Repository flow polish (landing / open / close / recent repos) | Done (PR #38) |
-| Claude Design / UX audit and design direction | Planned |
-| UI polish based on design direction | Planned |
+| Claude Design / UX audit and design direction | Done (branch `design/claude-ui-polish`) |
+| UI polish based on design direction | Done (branch `design/claude-ui-polish`) |
+| Windows installer CI (manual, unsigned) | Done (branch `design/claude-ui-polish`) |
+| Manual visual QA on Windows 11 | Required before release |
 | Release hardening | v1.0.0 Candidate |
 | Packaging and user-facing release documentation | v1.0.0 Release |
 
@@ -118,9 +120,10 @@ Before tagging v1.0.0, all of the following must pass:
 
 - `cargo test --workspace` — all Rust tests
 - `pnpm typecheck` + `pnpm test` + `pnpm build` — frontend checks
-- `pnpm --filter @rack-inventory-studio/desktop test:e2e` — Playwright smoke tests (9/9)
+- `pnpm --filter @rack-inventory-studio/desktop test:e2e` — Playwright smoke tests (10/10)
 - Manual smoke checklist (`docs/MVP_SMOKE_TEST_CHECKLIST_EN.md`)
-- Packaging check (app bundles and launches from a clean install)
+- Manual visual QA on a real Windows 11 machine (see `.ai/windows-installer-ci.md`)
+- Packaging check: run Windows Installer workflow manually via GitHub Actions, download artifact, install and verify on clean Windows 11
 
 ### Claude Design / UX Direction
 
@@ -204,6 +207,18 @@ pnpm --filter @rack-inventory-studio/desktop test
 # Full frontend build (TypeScript + Vite bundle)
 pnpm --filter @rack-inventory-studio/desktop build
 ```
+
+## Windows installer (manual CI)
+
+A GitHub Actions workflow builds an unsigned Windows NSIS installer:
+
+```
+GitHub Actions → Windows Installer → Run workflow
+```
+
+The workflow runs on `windows-latest`, compiles the Rust backend and Vite frontend, and uploads the installer as a 30-day artifact. It is **not triggered automatically** — run it manually before a release. See `.ai/windows-installer-ci.md` for full instructions.
+
+The installer is unsigned. Windows SmartScreen will warn on first run — click **More info → Run anyway**.
 
 ## Current limitations
 

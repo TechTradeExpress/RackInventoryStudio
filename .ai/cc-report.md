@@ -959,6 +959,78 @@ No known functional blockers remain. All automated checks pass.
 
 ---
 
+## Docs cleanup and release readiness — branch chore/docs-cleanup-release-readiness
+
+**Branch:** `chore/docs-cleanup-release-readiness`
+**Base branch:** `design/claude-ui-polish`
+
+### What was updated
+
+**`.github/workflows/windows-installer.yml`**
+- Removed `pull_request` trigger. Workflow is now `workflow_dispatch` only (manual).
+- Updated header comment to reflect manual-only trigger.
+- PR trigger existed because `design/claude-ui-polish` was a long-lived branch — now removed for clarity.
+
+**`apps/desktop/src-tauri/tauri.conf.json`** — no change in this branch (bundle config was fixed in `ci/windows-installer-build`).
+
+**`.ai/windows-installer-ci.md`**
+- Section "How to trigger" updated: emphasised manual-only trigger, no PR/push/schedule.
+- Artifact glob clarified: `target/release/bundle/nsis/*.exe` (workspace-level target, not `apps/desktop/src-tauri/target/`).
+- Added note: installer does not build on PRs.
+
+**`README.md`**
+- Updated test counts: 258 Rust (was 275), 218 Vitest (was 128), 10 Playwright (was 9). Previous counts in README were never updated after later test additions.
+- Updated Playwright smoke test description: 10 tests (was 9).
+- Roadmap table: "Claude Design / UX audit" and "UI polish based on design direction" updated from "Planned" to "Done (branch `design/claude-ui-polish`)". Added "Windows installer CI (manual, unsigned)" row as Done. Added "Manual visual QA on Windows 11" row as "Required before release".
+- Release gate updated: 10/10 smoke tests, added manual Windows 11 QA and packaging check with installer.
+- Added "Windows installer (manual CI)" section describing the manual workflow trigger and SmartScreen note.
+
+**`CHANGELOG.md`**
+- Added "Unreleased — UI polish (branch `design/claude-ui-polish`)" section at the top covering: CRUD modals, rack single-side flow, enriched placement labels, active placement table, inspector side-safety, CSV double-count fix, Windows installer workflow (manual-only), manual Windows 11 QA still required.
+
+**`apps/desktop/src/components/TabBar.tsx`** — **deleted**
+- File existed since v0.8.0 (milestone 8) as a shared tab bar component. After the `design/claude-ui-polish` UI redesign, `App.tsx` was rewritten to use a `.rail` left navigation pattern. `TabBar` is no longer imported anywhere. Only reference: its own definition. Confirmed dead: `grep -rl "TabBar" apps/desktop/src` returned only the file itself. Deleted. Typecheck passes.
+
+### What was NOT changed
+
+- `lib/styles.ts` — still used in `CreateRepositoryWizard.tsx` and `AddPlacementPanel.tsx` (`common.btn`, `common.input`, `common.row`, `common.errorBox`). Not dead. Left for a future focused cleanup pass.
+- All Rust/Tauri backend files — unchanged.
+- All CRUD panels, Rack Detail flow, CSV Import logic — unchanged.
+- `examples/example-repository/` — unchanged.
+- `package.json` / lockfile — unchanged.
+- `CLAUDE.md` — no changes needed (already accurate).
+- `MANIFEST.md` — archival document, already marked as such, no changes needed.
+- `docs/*.md` — spec/architecture docs left as-is; they describe design intent, not current test counts.
+- `.ai/ui-correction-plan.md` — planning document, historically accurate, no changes needed.
+
+### actionlint
+
+`actionlint` is not installed locally. Workflow YAML verified by manual inspection. The `on: workflow_dispatch:` form is valid GitHub Actions syntax.
+
+### Tests
+
+```
+git diff --check                                                        → pass
+pnpm --filter @rack-inventory-studio/desktop typecheck                 → pass
+pnpm --filter @rack-inventory-studio/desktop test                      → 218/218 pass (18 test files)
+pnpm --filter @rack-inventory-studio/desktop test:e2e                  → 10/10 pass
+pnpm --filter @rack-inventory-studio/desktop build                     → pass (21.33 kB CSS, 267.41 kB JS)
+```
+
+No Rust/Tauri code changed → cargo checks not required.
+
+### Risks
+
+- `lib/styles.ts` and `CreateRepositoryWizard.tsx` / `AddPlacementPanel.tsx` still use legacy `common.*` inline styles. These components were not in scope for this cleanup branch; they should be migrated in a future pass.
+- Test counts in README are now correct as of this branch. They will drift again as tests are added; consider removing hardcoded numbers in favor of prose descriptions in a future README refresh.
+- `docs/*.md` spec files may have stale references to old UI patterns (inline forms, both-sides rack view) but they are design/spec documents — updating them would require a separate spec review pass.
+
+### Suggested next step
+
+Run the Windows Installer workflow manually on GitHub Actions against `design/claude-ui-polish` → download artifact → test installation on a clean Windows 11 machine → if QA passes, open PR from `design/claude-ui-polish` to `master`.
+
+---
+
 ## Windows installer CI — branch ci/windows-installer-build
 
 **Branch:** `ci/windows-installer-build`

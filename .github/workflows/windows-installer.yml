@@ -1,6 +1,5 @@
 # Builds an unsigned Windows installer artifact for Rack Inventory Studio.
-# Triggered manually or on pull requests to design/claude-ui-polish that touch
-# relevant source paths.
+# Triggered manually only — go to Actions → Windows Installer → Run workflow.
 #
 # The produced installer is unsigned. Windows SmartScreen will show a warning
 # on first run. Signing can be added later via GitHub Actions secrets.
@@ -12,17 +11,6 @@ name: Windows Installer
 
 on:
   workflow_dispatch:
-  pull_request:
-    branches:
-      - design/claude-ui-polish
-    paths:
-      - "apps/desktop/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "pnpm-lock.yaml"
-      - "package.json"
-      - "pnpm-workspace.yaml"
-      - ".github/workflows/windows-installer.yml"
 
 permissions:
   contents: read
