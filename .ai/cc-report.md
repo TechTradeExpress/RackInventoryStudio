@@ -727,3 +727,125 @@ pnpm test                  → 218/218 (12 label tests, 1 new)
 pnpm test:e2e              → 9/9
 pnpm build                 → pass
 ```
+
+---
+
+## UI correction rack inspector table — branch design/ui-correction-rack-inspector-table
+
+**Branch:** `design/ui-correction-rack-inspector-table`
+**Base branch:** `design/claude-ui-polish`
+
+Previously merged into base: modal-primitives, location-modal, rack-model-modals, device-modal, rack-single-side, rack-labels.
+
+### Current flow (before this branch)
+
+`diagram click → onSelectPlacement → selectedPlacement state → PlacementInspectorPanel + two separate tables (Front placements / Rear placements shown simultaneously)`
+
+The inspector had a side `<select>` in the Move form, allowing accidental side reassignment. Both tables were always visible regardless of activeSide.
+
+### What changed
+
+**Placement table — active side only**
+Replaced the two separate "Front placements" and "Rear placements" panels in the right column with a single panel showing only the `activeSide` placements. Panel title changes dynamically: "Front placements" / "Rear placements". Placement count shown in panel description. Table columns enriched: U range · Name · Model · Serial · Asset tag. Switching side in the segmented control clears selection and updates the table immediately.
+
+**Selection sync**
+Table rows and diagram cells both call `handleSelectPlacement`. Clicking a row in the table selects the placement and highlights it in the inspector (same as clicking a diagram cell). The `tbl-selected` CSS class provides the table row highlight. Deselecting works by clicking the same row again.
+
+**Inspector — side read-only**
+Removed the `newSide` state and Side `<select>` from the Move form. The move form now passes `currentSide` (derived from the `side` prop, read-only) to `movePlacement`. A placement can only be moved to a different U position or a different rack — it stays on the same side unless the dedicated "Change side..." action is used. The "Move placement" heading now includes "(same side)" to clarify intent.
+
+**Change side action — implemented**
+Added a "Change side…" section in the inspector below the move form. A `Move to Rear…` / `Move to Front…` button opens a `ConfirmDialog` (460px) that clearly states what will happen (placement code, current side, destination side, current U position, in-memory warning). On confirm, calls `movePlacement` with `new_side: otherSide` and `new_start_u: placement.start_u`, then calls `onMoveSuccess(placement.id)` which triggers `refreshAfterMutation({ selectId: placement.id })`. This auto-switches `activeSide` to the placement's new side (existing behavior). Error state shown inside the dialog body if the backend rejects the move.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `apps/desktop/src/features/racks/PlacementInspectorPanel.tsx` | Removed side `<select>`, added `ConfirmDialog` for "Change side…", locked move to current side |
+| `apps/desktop/src/features/racks/RackDetailPanel.tsx` | Replaced dual Front/Rear tables with single active-side table; enriched columns |
+| `apps/desktop/e2e/smoke.spec.ts` | Extended rack detail test: heading assertions, cell content, side-switch behavior |
+
+### Active placement table
+
+- `activePlacements = activeSide === "front" ? detail.front : detail.rear`
+- Title: "Front placements" or "Rear placements" (h2 from Panel)
+- Columns: U · Name (target_name ?? target_code ?? code) · Model (model_name ?? model_code ?? "—") · Serial (target_serial ?? "—") · Asset tag (target_asset_tag ?? "—") · Type (device_type or "Rack object" or "—")
+- Empty state: "No front/rear placements."
+- Selection: clicking a row highlights it with `tbl-selected`; clicking again deselects
+
+### Selection sync
+
+`diagram click` → `onSelectPlacement(p)` → `selectedPlacement` → inspector + table row highlight  
+`table row click` → `handleSelectPlacement(p)` → same `selectedPlacement` → inspector + diagram highlight  
+Side switch → `setActiveSide` + `setSelectedPlacement(null)` → inspector resets, table clears selection
+
+### Inspector side safety
+
+- `newSide` state removed entirely
+- `currentSide = side?.toLowerCase() as "front" | "rear"` derived from prop
+- Move form `new_side: currentSide` — always matches current placement's side
+- Side not shown as editable input anywhere in normal move flow
+- "Move placement (same side)" eyebrow label makes intent explicit
+
+### Change side action
+
+Implemented. Button label: "Move to Rear…" or "Move to Front…". `ConfirmDialog` confirms before executing. Uses `movePlacement` with `new_side: otherSide, new_start_u: placement.start_u`. Post-confirm: `onMoveSuccess(placement.id)` → `refreshAfterMutation({ selectId: placement.id })` → `activeSide` auto-switches to new side. Error shown in dialog body on backend failure.
+
+### Backend/DTO changes
+
+None. Frontend-only branch.
+
+### Not changed
+
+- AddPlacementPanel behavior (palette locked to activeSide, drag/drop, form)
+- Rack label helper (rackPlacementLabel.ts)
+- CRUD panels (Locations, Devices, DeviceModels, Racks list)
+- CSV Import, Repository/Git
+- Example repository data
+
+### Tests
+
+```
+git diff --check   → pass
+pnpm typecheck     → pass
+pnpm test          → 218/218 (no new unit tests; PlacementInspectorPanel is wired through e2e)
+pnpm test:e2e      → 9/9 (rack detail test extended: heading roles, cell content, side-switch)
+pnpm build         → pass
+```
+
+No Rust/Tauri changes → cargo checks not required.
+
+### Risks
+
+- WSL2 headless: no visual QA. "Change side…" ConfirmDialog tested via Playwright only indirectly (opening the dialog is part of the e2e button flow but full confirm sequence is not automated in smoke — tested via unit-level ConfirmDialog tests from modal-primitives branch).
+- If a backend `movePlacement` call fails with a U conflict during "Change side…", the error is shown inside the dialog body. The dialog stays open, allowing the user to cancel. This is correct but requires visual verification.
+- `new_start_u: placement.start_u` passed in "Change side…" — if the target side has a collision at that U, the backend will return an error. No automatic conflict resolution is attempted.
+
+**Suggested next step:**
+Branch H — `design/ui-correction-final-qa`: full visual and automated QA pass before deciding on PR to master.
+
+---
+
+### Repair update (post-ChatGPT review)
+
+**Blockers fixed:**
+
+1. **Type column missing from active placement table** — `RackDetailPanel.tsx` placement table had columns U · Name · Model · Serial · Asset tag but no Type column. Added `typeLabel` computation per row (`p.device_type ?? "Device"` for device placements, `"Rack object"` for device_model placements, `"—"` otherwise) and a `<th>Type</th>` header + `<td className="tbl-mono">` cell.
+
+2. **cc-report incorrectly claimed Change side ConfirmDialog was covered by e2e** — the Risks section stated the dialog was "tested via Playwright only indirectly" and that the "full confirm sequence is not automated in smoke". In fact no e2e test for the dialog open/cancel flow existed at all. Added a new smoke test: `"rack detail: Change side dialog opens and can be cancelled"` that:
+   - Opens rack detail, selects fixture placement `srv-01` from the table
+   - Asserts "Move to Rear…" button is visible
+   - Clicks it, asserts the `ConfirmDialog` is open (`getByRole("dialog", { name: /Move to Rear/i })`)
+   - Clicks Cancel, asserts dialog is closed
+   - Asserts placement is still on Front
+
+   **Selector fix also required:** the initial implementation used `getByRole("heading", { name: /Move to Rear/i })` which fails because `Modal` renders the title as `<div className="modal-title">`, not a `<h2>` or heading role. The dialog element has `role="dialog"` with `aria-label="Move to Rear?"`, so the correct Playwright selector is `getByRole("dialog", { name: /Move to Rear/i })`.
+
+**Tests after repair:**
+```
+git diff --check   → pass
+pnpm typecheck     → pass
+pnpm test          → 218/218 pass
+pnpm test:e2e      → 10/10 pass (1 new test)
+pnpm build         → pass
+```

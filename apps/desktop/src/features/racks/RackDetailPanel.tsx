@@ -316,77 +316,74 @@ export function RackDetailPanel({
                 />
               </Panel>
 
-              <Panel title="Front placements" flush>
-                {detail.front.length === 0 ? (
-                  <div style={{ padding: "12px 16px", fontSize: 12, color: "var(--tx-3)" }}>
-                    No front placements.
-                  </div>
-                ) : (
-                  <table className="tbl">
-                    <thead>
-                      <tr>
-                        <th className="tbl-mono">U</th>
-                        <th className="tbl-mono">Code</th>
-                        <th className="tbl-mono">Target</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detail.front.map((p) => (
-                        <tr
-                          key={p.id}
-                          data-placement-id={p.id}
-                          className={`tbl-clickable${p.id === selectedPlacement?.id ? " tbl-selected" : ""}`}
-                          onClick={() => handleSelectPlacement(p.id === selectedPlacement?.id ? null : p)}
-                        >
-                          <td className="tbl-mono">
-                            U{p.start_u}{p.end_u && p.end_u !== p.start_u ? `–${p.end_u}` : ""}
-                          </td>
-                          <td className="tbl-mono">{p.code}</td>
-                          <td className="tbl-mono" style={{ color: "var(--tx-3)" }}>
-                            {p.target_code ?? p.target_id}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </Panel>
-
-              <Panel title="Rear placements" flush>
-                {detail.rear.length === 0 ? (
-                  <div style={{ padding: "12px 16px", fontSize: 12, color: "var(--tx-3)" }}>
-                    No rear placements.
-                  </div>
-                ) : (
-                  <table className="tbl">
-                    <thead>
-                      <tr>
-                        <th className="tbl-mono">U</th>
-                        <th className="tbl-mono">Code</th>
-                        <th className="tbl-mono">Target</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detail.rear.map((p) => (
-                        <tr
-                          key={p.id}
-                          data-placement-id={p.id}
-                          className={`tbl-clickable${p.id === selectedPlacement?.id ? " tbl-selected" : ""}`}
-                          onClick={() => handleSelectPlacement(p.id === selectedPlacement?.id ? null : p)}
-                        >
-                          <td className="tbl-mono">
-                            U{p.start_u}{p.end_u && p.end_u !== p.start_u ? `–${p.end_u}` : ""}
-                          </td>
-                          <td className="tbl-mono">{p.code}</td>
-                          <td className="tbl-mono" style={{ color: "var(--tx-3)" }}>
-                            {p.target_code ?? p.target_id}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </Panel>
+              {(() => {
+                const activePlacements = activeSide === "front" ? detail.front : detail.rear;
+                const tableTitle = activeSide === "front" ? "Front placements" : "Rear placements";
+                const emptyMsg   = activeSide === "front" ? "No front placements." : "No rear placements.";
+                return (
+                  <Panel
+                    title={tableTitle}
+                    desc={activePlacements.length > 0 ? `${activePlacements.length} placement${activePlacements.length !== 1 ? "s" : ""}` : undefined}
+                    flush
+                  >
+                    {activePlacements.length === 0 ? (
+                      <div style={{ padding: "12px 16px", fontSize: 12, color: "var(--tx-3)" }}>
+                        {emptyMsg}
+                      </div>
+                    ) : (
+                      <table className="tbl">
+                        <thead>
+                          <tr>
+                            <th className="tbl-mono">U</th>
+                            <th>Name</th>
+                            <th>Model</th>
+                            <th className="tbl-mono">Serial</th>
+                            <th className="tbl-mono">Asset tag</th>
+                            <th>Type</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {activePlacements.map((p) => {
+                            const typeLabel =
+                              p.target_kind === "device"
+                                ? (p.device_type ?? "Device")
+                                : p.target_kind === "device_model"
+                                  ? "Rack object"
+                                  : "—";
+                            return (
+                            <tr
+                              key={p.id}
+                              data-placement-id={p.id}
+                              className={`tbl-clickable${p.id === selectedPlacement?.id ? " tbl-selected" : ""}`}
+                              onClick={() => handleSelectPlacement(p.id === selectedPlacement?.id ? null : p)}
+                            >
+                              <td className="tbl-mono" style={{ whiteSpace: "nowrap" }}>
+                                U{p.start_u}{p.end_u && p.end_u !== p.start_u ? `–${p.end_u}` : ""}
+                              </td>
+                              <td style={{ maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {p.target_name ?? p.target_code ?? p.code}
+                              </td>
+                              <td className="tbl-mono" style={{ color: "var(--tx-3)", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {p.model_name ?? p.model_code ?? "—"}
+                              </td>
+                              <td className="tbl-mono" style={{ color: "var(--tx-3)" }}>
+                                {p.target_serial ?? "—"}
+                              </td>
+                              <td className="tbl-mono" style={{ color: "var(--tx-3)" }}>
+                                {p.target_asset_tag ?? "—"}
+                              </td>
+                              <td className="tbl-mono" style={{ color: "var(--tx-3)" }}>
+                                {typeLabel}
+                              </td>
+                            </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </Panel>
+                );
+              })()}
             </div>
           </div>
         )}

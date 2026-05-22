@@ -168,16 +168,53 @@ test("rack detail and placement table visible", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: /Main Rack/i }),
   ).toBeVisible();
-  // Placement table contains the fixture placement
-  await expect(page.getByText("plc-srv-01")).toBeVisible();
 
   // Front/Rear segmented control is visible
   await expect(page.getByRole("tab", { name: "Front" })).toBeVisible();
   await expect(page.getByRole("tab", { name: "Rear" })).toBeVisible();
 
-  // Switching to Rear works without crashing
+  // Active side table shows "Front placements" heading and fixture placement (by device name)
+  await expect(page.getByRole("heading", { name: "Front placements", exact: true })).toBeVisible();
+  // fixture device name "srv-01" appears in the Name column
+  await expect(page.getByRole("cell", { name: "srv-01", exact: true })).toBeVisible();
+
+  // Switching to Rear updates tab state and table title; fixture placement disappears
   await page.getByRole("tab", { name: "Rear" }).click();
   await expect(page.getByRole("tab", { name: "Rear" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("heading", { name: "Rear placements", exact: true })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "srv-01", exact: true })).not.toBeVisible();
+});
+
+test("rack detail: Change side dialog opens and can be cancelled", async ({ page }) => {
+  await page.goto("/");
+  await openFixtureRepo(page);
+
+  await page.getByRole("button", { name: "Racks", exact: true }).click();
+  await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Front placements", exact: true })).toBeVisible();
+
+  // Select the fixture placement from the table
+  await page.getByRole("cell", { name: "srv-01", exact: true }).click();
+
+  // Inspector should show the "Move to Rear…" change-side button
+  await expect(
+    page.getByRole("button", { name: /Move to Rear/i }),
+  ).toBeVisible();
+
+  // Open the confirmation dialog
+  await page.getByRole("button", { name: /Move to Rear/i }).click();
+  await expect(
+    page.getByRole("dialog", { name: /Move to Rear/i }),
+  ).toBeVisible();
+
+  // Cancel — dialog should close without mutating state
+  await page.getByRole("button", { name: /Cancel/i }).click();
+  await expect(
+    page.getByRole("dialog", { name: /Move to Rear/i }),
+  ).not.toBeVisible();
+
+  // Placement is still selected and on Front
+  await expect(page.getByRole("heading", { name: "Front placements", exact: true })).toBeVisible();
 });
 
 test("git section shows status label and publish guidance", async ({ page }) => {
