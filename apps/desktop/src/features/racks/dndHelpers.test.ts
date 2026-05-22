@@ -24,6 +24,10 @@ function makePlacement({
     end_u: 1,
     note: null,
     tags: [],
+    model_name: null,
+    model_code: null,
+    target_serial: null,
+    target_asset_tag: null,
     ...rest,
   };
 }

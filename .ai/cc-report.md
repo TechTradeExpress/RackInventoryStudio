@@ -594,3 +594,136 @@ No Rust/Tauri files changed → cargo checks not required for this branch.
 
 **Suggested next step:**
 Branch F — `design/ui-correction-rack-labels`: enrich placement label rendering inside the diagram (1U compact / 2U two-row / 3U+ stacked).
+
+---
+
+## UI correction rack labels — branch design/ui-correction-rack-labels
+
+**Branch:** `design/ui-correction-rack-labels`
+**Base branch:** `design/claude-ui-polish`
+
+Previously merged into base: modal-primitives, location-modal, rack-model-modals, device-modal, rack-single-side.
+
+### What changed
+
+Enriched placement block rendering inside `RackUnitDiagram` with tiered labels. Placement blocks now span their full U height, with text centered both vertically and horizontally. Label content adapts to the number of U occupied:
+
+| U height | Content |
+|---|---|
+| 1U | Compact single line: name + model separated by ` · ` |
+| 2U | Line 1: name; Line 2: model + serial + asset tag |
+| 3U+ | Stacked: name / model / SN: serial / Asset: tag |
+
+A new `derivePlacementLabel()` helper (`rackPlacementLabel.ts`) derives the structured label from a `PlacementDto`. A full tooltip/title is also built combining all available data.
+
+**Backend extended** (small, contained): `PlacementDto` lacked `serial_number`, `asset_tag`, and device model fields needed for enriched labels. Added four optional fields:
+- `model_name` — device model name (device placements only; null for rack objects which carry model name in `target_name`)
+- `model_code` — device model code (device placements only)
+- `target_serial` — device serial number
+- `target_asset_tag` — device asset tag
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `apps/desktop/src-tauri/src/dto.rs` | Added 4 fields to `PlacementDto` struct |
+| `apps/desktop/src-tauri/src/commands/repository.rs` | Populated new fields in `placement_to_dto` |
+| `apps/desktop/src/api/tauriClient.ts` | Added 4 fields to `PlacementDto` TypeScript interface |
+| `apps/desktop/e2e/mocks/tauri-core.ts` | Added new fields to fixture placement |
+| `apps/desktop/src/features/racks/rackPlacementLabel.ts` | New: `derivePlacementLabel()` helper |
+| `apps/desktop/src/features/racks/rackPlacementLabel.test.ts` | New: 11 unit tests |
+| `apps/desktop/src/features/racks/RackUnitDiagram.tsx` | Tiered label rendering, full-span occupied blocks |
+| `apps/desktop/src/app.css` | Added `.rpl-primary`, `.rpl-secondary`, `.rpl-meta`, `.rpl-compact` |
+| `apps/desktop/src/features/racks/rackOccupancy.test.ts` | Updated `makePlacement` helper with null defaults for new fields |
+| `apps/desktop/src/features/racks/dndHelpers.test.ts` | Updated `makePlacement` helper with null defaults for new fields |
+
+### PlacementDto data available / used
+
+| Field | Source | Used for |
+|---|---|---|
+| `target_name` | device.name / model.name | primary label |
+| `target_code` | device.code / model.code | primary fallback |
+| `model_name` | device_model.name (new) | model line |
+| `model_code` | device_model.code (new) | model fallback |
+| `target_serial` | device.serial_number (new) | SN: line |
+| `target_asset_tag` | device.asset_tag (new) | Asset: line |
+| `effective_height_u` | computed | tier selection + block height |
+| `start_u` / `end_u` | placement | U range in tooltip |
+
+### Backend/DTO changes
+
+Rust `PlacementDto` extended with 4 `Option<String>` fields; `placement_to_dto` extended with two additional match blocks for model_name/model_code and target_serial/target_asset_tag. No domain model or persistence changes.
+
+Cargo checks: fmt ✓ · check ✓ · test ✓ · clippy -D warnings ✓
+
+### Label tier rules
+
+- **1U**: `rpl-primary rpl-compact` — name + ` · ` + model in one ellipsized line
+- **2U**: `rpl-primary` (name) + `rpl-secondary` (model · SN: x · Asset: x)
+- **3U+**: `rpl-primary` (name) + `rpl-secondary` (model) + `rpl-meta` (SN: x) + `rpl-meta` (Asset: x)
+- Empty fields suppressed — no `SN:` without a value
+
+### Occupied block centering
+
+Non-top continuation cells of multi-U blocks are rendered as `height: 0; overflow: hidden` invisible spacers. The top (visual-first) cell spans `effective_height_u * ROW_H` with `display: flex; flex-direction: column; align-items: center; justify-content: center`. Total height of the segment equals the sum of U-number gutter rows for the same span, preserving alignment.
+
+### Not changed
+
+- Placement tables (Front/Rear panels) — branch G
+- PlacementInspectorPanel — branch G
+- AddPlacementPanel behavior
+- activeSide / Front–Rear segmented control
+- CRUD panels, CSV Import, Repository/Git
+- Example repository data
+
+### Tests
+
+```
+cargo fmt --all --check  → pass
+cargo check --workspace  → pass
+cargo test --workspace   → pass (ris-core tests)
+cargo clippy -D warnings → pass
+pnpm typecheck           → pass
+pnpm test                → 217/217 (11 new: rackPlacementLabel.test.ts)
+pnpm test:e2e            → 9/9
+pnpm build               → pass
+```
+
+### Risks
+
+- The multi-U span approach (tall top cell + zero-height continuation cells) aligns correctly as long as `effective_height_u` in the DTO matches the actual number of U cells marked `occupied` by `buildOccupancy`. This invariant holds today.
+- WSL2 headless: no visual QA of rendered diagram possible in this environment. Label CSS is validated via unit tests and DOM structure; visual correctness assumed from class/style inspection.
+
+**Suggested next step:**
+Branch G — `design/ui-correction-rack-inspector-table`: placement table integrated into Rack Detail with selection sync and side-safe inspector.
+
+### Repair update (post-ChatGPT review)
+
+**Blocker fixed: model duplication when device has no name**
+
+When `target_name` is null and `model_name` is set, `primary` falls back to `model_name`. The original code also returned `model = model_name`, causing `primary === model`. This produced `PowerEdge R640 · PowerEdge R640` in 1U labels and a redundant model line in 2U/3U+.
+
+Fix in `rackPlacementLabel.ts`:
+```ts
+const modelRaw = p.model_name ?? p.model_code ?? null;
+const model = modelRaw !== null && modelRaw !== primary ? modelRaw : null;
+```
+`model` is now null whenever it would duplicate `primary`. Title building simplified to `if (model)` (redundant `model !== primary` guard removed).
+
+**Tests added:**
+- Updated `"fallback when target_name is null"` — now also asserts `model === null` and title does not repeat the model string.
+- New `"no model duplication: device without name"` — asserts `model === null` and counts exact occurrences in title.
+
+**Review context root-dir fix:**
+Previous generation ran from `apps/desktop/` — the script checks `[[ -f .ai/cc-report.md ]]` relative to CWD, so it looked in the wrong directory. New context generated from repo root (`/home/su-17/projects/RackInventoryStudio`).
+
+**Repair scope:** frontend-only — no Rust/Tauri changes. Cargo checks not repeated.
+
+**Tests after repair:**
+```
+git diff --check           → pass
+pnpm typecheck             → pass
+pnpm test                  → 218/218 (12 label tests, 1 new)
+pnpm test:e2e              → 9/9
+pnpm build                 → pass
+```

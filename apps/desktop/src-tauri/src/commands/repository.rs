@@ -365,6 +365,26 @@ fn placement_to_dto(placement: &ris_core::Placement, session: &RepositorySession
         .filter(|&h| h > 0)
         .and_then(|h| placement.start_u.checked_add(h - 1));
 
+    // model_name / model_code only for device placements; rack-object placements
+    // already carry the model name in target_name, so we omit to avoid duplication.
+    let (model_name, model_code) = match placement.target_kind {
+        PlacementTargetKind::Device => {
+            (model.map(|m| m.name.clone()), model.map(|m| m.code.clone()))
+        }
+        PlacementTargetKind::DeviceModel => (None, None),
+    };
+
+    let (target_serial, target_asset_tag) = match placement.target_kind {
+        PlacementTargetKind::Device => {
+            let dev = session.index.devices_by_id.get(&placement.target_id);
+            (
+                dev.and_then(|d| d.serial_number.clone()),
+                dev.and_then(|d| d.asset_tag.clone()),
+            )
+        }
+        PlacementTargetKind::DeviceModel => (None, None),
+    };
+
     PlacementDto {
         id: placement.id.clone(),
         code: placement.code.clone(),
@@ -382,6 +402,10 @@ fn placement_to_dto(placement: &ris_core::Placement, session: &RepositorySession
         end_u,
         note: placement.note.clone(),
         tags: placement.tags.clone(),
+        model_name,
+        model_code,
+        target_serial,
+        target_asset_tag,
     }
 }
 

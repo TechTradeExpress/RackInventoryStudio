@@ -155,6 +155,10 @@ export interface PlacementDto {
   end_u: number | null;
   note: string | null;
   tags: string[];
+  model_name: string | null;
+  model_code: string | null;
+  target_serial: string | null;
+  target_asset_tag: string | null;
 }
 
 export interface RackDetailDto {
