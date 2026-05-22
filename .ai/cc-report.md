@@ -453,3 +453,73 @@ No Rust/Tauri files changed → cargo checks not required for this branch.
 
 **Suggested next step:**
 Branch D — `design/ui-correction-device-modal`: replace inline Device Add/Edit form with a modal (640 px) with three sections: Identity / Hardware / Metadata.
+
+---
+
+## UI correction device modal — branch design/ui-correction-device-modal
+
+**Branch:** `design/ui-correction-device-modal`
+**Base branch:** `design/claude-ui-polish`
+
+**Prerequisites merged into base:**
+- `design/ui-correction-modal-primitives` — Modal, ConfirmDialog, Field, Segmented, form-grid CSS
+- `design/ui-correction-location-modal` — LocationFormModal (reference CRUD pattern)
+- `design/ui-correction-rack-model-modals` — RackFormModal, DeviceModelFormModal
+
+**What was changed:**
+
+*New files:*
+- `apps/desktop/src/features/devices/DeviceFormModal.tsx` — Add/Edit Device modal (`size="lg"`, 640 px). Uses `Modal` and `Field`. Three sections: Identity, Hardware, Metadata rendered via `.form-section` / `.form-section-title` dividers directly inside `.form-grid`. Fields: device type (select, required), code (disabled in edit — identity), status (select, required), name, device model (filtered by type), serial number, asset tag, external reference, description, tags. `disableBackdropClose` when dirty. Calls `addDevice`/`updateDevice` from tauriClient. Uses `<form id="device-form" onSubmit={handleSave}>` in body with `form="device-form"` on the footer submit button so Enter in text fields saves the form.
+- `apps/desktop/src/features/devices/DeviceFormModal.test.tsx` — 15 Vitest component tests (jsdom): closed state, add mode (title/fields/required footer/Create disabled/identifier-required message/Cancel/Esc/code format error/valid submit/model filtering/model cleared on type change), edit mode (title/pre-populated/code disabled/valid update/form resets on reopen).
+
+*Modified files:*
+- `apps/desktop/src/features/devices/DevicesPanel.tsx` — Removed inline Add/Edit device form and all related state (`showForm`, `form`, `formError`, `formSuccess`, `submitting`, `editingId`). Replaced with `DeviceFormModal` and `ConfirmDialog` for delete. Added internal `reloadToken` for post-save/delete list refresh. `aria-label` added to edit/delete icon buttons. Delete now uses `ConfirmDialog` (danger tone) instead of native `window.confirm`. Success Banner shown after save.
+
+**How Add/Edit Device works after change:**
+- "Add device" button → opens `DeviceFormModal` (add mode, empty fields, code editable)
+- Row "Edit" icon → opens `DeviceFormModal` (edit mode, pre-populated, code disabled)
+- Cancel / Esc → closes modal without saving
+- Backdrop click on clean form → closes; dirty form → blocked
+- Save → calls tauriClient, on success: closes modal, reloads device list, shows dismissible success Banner
+- Row "Delete" icon → opens `ConfirmDialog` (danger) → on confirm: calls deleteDevice, reloads list
+
+**Device model relationship:**
+- `DevicesPanel` loads all non-`rack_object` device models on mount and passes them to `DeviceFormModal`
+- `DeviceFormModal` filters models by selected device type (same logic as before — preserved exactly)
+- When device type changes and the currently selected model is incompatible, model is cleared
+- No backend DTO changes
+
+**Placement flow:**
+- Placement is not part of the Device form — no rack, side, start U, or height U fields
+- `is_placed` status continues to display as a badge in the devices table
+- All placement logic remains in `RackDetailPanel` / `AddPlacementPanel` / `PlacementInspectorPanel` — untouched
+
+**Intentionally NOT changed:**
+- `LocationsPanel` — unchanged
+- `RacksPanel` — unchanged
+- `DeviceModelsPanel` — unchanged
+- `RackDetailPanel`, `RackUnitDiagram` — unchanged (branches E, F, G)
+- `AddPlacementPanel`, `PlacementInspectorPanel` — unchanged
+- CSV Import — unchanged
+- All Rust/Tauri backend files — unchanged
+- Example repository data — unchanged
+
+**Tests run and results:**
+```
+git diff --check                                                        → pass
+pnpm --filter @rack-inventory-studio/desktop typecheck                 → pass
+pnpm --filter @rack-inventory-studio/desktop test                      → 206/206 pass (17 test files)
+  - DeviceFormModal.test.tsx   15/15 (new)
+  + 191 existing tests         pass
+pnpm --filter @rack-inventory-studio/desktop test:e2e                  → 9/9 pass
+pnpm --filter @rack-inventory-studio/desktop build                     → pass (20.9 kB CSS, 264 kB JS)
+```
+No Rust/Tauri files changed → cargo checks not required for this branch.
+
+**Known risks:**
+- `DevicesPanel` passes `models` as a prop to `DeviceFormModal`; models are loaded on mount and on `mutationToken`/`reloadToken` changes. If models are stale (e.g. a model was deleted between page load and form open), the select may show a stale value in edit mode. Acceptable for this iteration.
+- The "at least one of name / serial / asset tag" validation is enforced only in the frontend. The backend may or may not enforce it; if backend allows a device with none of these, a stale edit could remove them all. Frontend prevents this in the normal flow.
+- `externalRef` field is in the Hardware section as "External reference" — previously it was labelled "External Ref" in the inline form. Label is now more descriptive.
+
+**Suggested next step:**
+Branch E — `design/ui-correction-rack-single-side`: add `activeSide: 'front' | 'rear'` state to Rack Detail, render `Segmented` control in PageHeader, render only active side in `RackUnitDiagram`.
