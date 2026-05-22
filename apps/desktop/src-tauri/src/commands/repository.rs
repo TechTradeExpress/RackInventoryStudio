@@ -766,7 +766,11 @@ pub fn import_device_csv_cmd(
                 warning_count: r.warning_count,
             }
         })
-        .map_err(|e| e.to_string())
+        .map_err(|e| {
+            let msg = e.to_string();
+            log::error!("import_device_csv failed: {}", sanitize_error(&msg));
+            msg
+        })
 }
 
 #[tauri::command]

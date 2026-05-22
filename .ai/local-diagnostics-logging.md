@@ -69,8 +69,8 @@ Level `warn` / `error` on failures — error messages are sanitized before loggi
 | Open repository failure | sanitized error message |
 | Create repository | result: code on success |
 | Close repository | ok or sanitized error |
-| Global unhandled error | error message (truncated) |
-| Global unhandled promise rejection | reason (truncated, sanitized) |
+| Global unhandled error | sanitized error message (truncated) |
+| Global unhandled promise rejection | sanitized reason (truncated) |
 
 ---
 
@@ -90,18 +90,31 @@ Level `warn` / `error` on failures — error messages are sanitized before loggi
 A redaction layer (`diagnostics.rs` on the backend, `src/lib/redact.ts` on the frontend)
 is applied before any error message is written to the log.
 
-Rules applied:
-1. **Sensitive pattern check** — if the string contains `token`, `password`, `secret`,
-   `private_key`, `api_key`, or `auth`, the entire value is replaced with
-   `[redacted]` or `[error message redacted: possible credential]`.
-2. **Length cap** — strings are truncated to 300 characters before being logged.
-3. **Path sanitization** — only the basename (last path segment) is logged, not the full path.
+### Backend (`diagnostics.rs`) — applied in this order
+
+1. **Credential pattern check** — if the error string contains any of `token`, `password`,
+   `secret`, `private_key`, `private-key`, `private key`, `api_key`, `api-key`, `api key`,
+   or `auth`, the entire value is replaced with
+   `[error message redacted: possible credential]`.
+2. **Path redaction** — whitespace-delimited tokens that contain `/` or `\` are replaced
+   with `[path:basename]`, where `basename` is the last path segment.
+   Tokens starting with `http://` or `https://` become `[url]`.
+   This is a heuristic and operates on space-separated tokens only.
+3. **Length cap** — strings are truncated to 300 **characters** (UTF-8 safe, not bytes)
+   before being logged; a `…` character is appended when truncated.
+
+### Frontend (`redact.ts`)
+
+The `sanitizeErrorForLog` helper is applied to all global error and promise-rejection
+handlers. It applies the same credential-keyword and path-sanitization heuristics.
 
 ### Limitations
 
-- Redaction is heuristic: it matches known keyword patterns. A credential stored
-  under an unusual key name would not be caught.
-- Basenames of repositories, files, and CSV imports will appear in the log.
+- Redaction is heuristic, not a full DLP system. A credential stored under an unusual
+  key name would not be caught by keyword matching.
+- Path redaction operates on whitespace-delimited tokens; a path embedded in the middle
+  of a word (no surrounding spaces) is not detected.
+- Basenames of repositories, files, and branch names may appear in the log.
   These are technical identifiers, not secrets, but users should be aware.
 - Log files may contain repository codes (e.g. `code=my-rack-repo`),
   item counts, and Git branch names (`branch="main"`).

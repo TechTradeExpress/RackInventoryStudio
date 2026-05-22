@@ -5,12 +5,14 @@ pub fn basename(path: &std::path::Path) -> &str {
         .unwrap_or("<path>")
 }
 
-/// Truncates a string to `max` chars, appending "…" if cut.
+/// Truncates a string to `max` chars (not bytes), appending "…" if cut.
 pub fn truncate(s: &str, max: usize) -> std::borrow::Cow<'_, str> {
-    if s.len() <= max {
+    if s.chars().count() <= max {
         std::borrow::Cow::Borrowed(s)
     } else {
-        std::borrow::Cow::Owned(format!("{}…", &s[..max]))
+        let mut out: String = s.chars().take(max).collect();
+        out.push('…');
+        std::borrow::Cow::Owned(out)
     }
 }
 
@@ -21,17 +23,58 @@ fn has_sensitive_pattern(s: &str) -> bool {
         || lower.contains("password")
         || lower.contains("secret")
         || lower.contains("private_key")
+        || lower.contains("private-key")
+        || lower.contains("private key")
         || lower.contains("api_key")
+        || lower.contains("api-key")
+        || lower.contains("api key")
+        || lower.contains("auth")
 }
 
-/// Sanitizes an error string: truncates and redacts if it looks like a credential.
-pub fn sanitize_error(err: &str) -> std::borrow::Cow<'_, str> {
-    let t = truncate(err, 300);
-    if has_sensitive_pattern(&t) {
-        std::borrow::Cow::Owned("[error message redacted: possible credential]".to_string())
-    } else {
-        t
+/// Returns the last non-empty segment of a slash- or backslash-separated token.
+fn path_basename(tok: &str) -> &str {
+    tok.split(['/', '\\'])
+        .rfind(|s| !s.is_empty())
+        .unwrap_or("?")
+}
+
+/// Replaces path-like whitespace-delimited tokens with `[path:basename]`.
+/// URL tokens (http:// / https://) become `[url]`.
+/// Tokens without `/` or `\` are passed through unchanged.
+pub fn sanitize_paths_in_message(message: &str) -> String {
+    let mut out = String::with_capacity(message.len());
+    let mut first = true;
+    for tok in message.split_ascii_whitespace() {
+        if !first {
+            out.push(' ');
+        }
+        first = false;
+        if tok.starts_with("http://") || tok.starts_with("https://") {
+            out.push_str("[url]");
+        } else if tok.contains('/') || tok.contains('\\') {
+            out.push_str("[path:");
+            out.push_str(path_basename(tok));
+            out.push(']');
+        } else {
+            out.push_str(tok);
+        }
     }
+    out
+}
+
+/// Sanitizes an error string for logging:
+/// 1. Redacts the whole string if it matches a credential pattern.
+/// 2. Replaces path-like tokens with `[path:basename]`.
+/// 3. Truncates to 300 chars (UTF-8 safe).
+pub fn sanitize_error(err: &str) -> std::borrow::Cow<'_, str> {
+    if has_sensitive_pattern(err) {
+        return std::borrow::Cow::Owned(
+            "[error message redacted: possible credential]".to_string(),
+        );
+    }
+    let sanitized = sanitize_paths_in_message(err);
+    let truncated = truncate(&sanitized, 300);
+    std::borrow::Cow::Owned(truncated.into_owned())
 }
 
 #[cfg(test)]
@@ -42,8 +85,6 @@ mod tests {
     #[test]
     fn basename_returns_last_segment() {
         assert_eq!(basename(Path::new("/home/user/repos/my-repo")), "my-repo");
-        // On Windows, Path natively parses backslash separators so
-        // "C:\repos\my-repo" returns "my-repo". That is not testable on Linux.
         #[cfg(windows)]
         assert_eq!(basename(Path::new("C:\\repos\\my-repo")), "my-repo");
     }
@@ -63,8 +104,17 @@ mod tests {
         let long = "x".repeat(400);
         let result = truncate(&long, 300);
         assert!(result.ends_with('…'));
-        // 300 bytes + 3-byte UTF-8 ellipsis
-        assert_eq!(result.len(), 303);
+        // 300 'x' chars + '…' = 301 chars
+        assert_eq!(result.chars().count(), 301);
+    }
+
+    #[test]
+    fn truncate_utf8_multibyte_does_not_panic() {
+        // Polish 'ą' is 2 bytes in UTF-8; 400 repetitions exceed 300-char limit.
+        let long: String = std::iter::repeat('ą').take(400).collect();
+        let result = truncate(&long, 300);
+        assert!(result.ends_with('…'));
+        assert_eq!(result.chars().count(), 301);
     }
 
     #[test]
@@ -80,7 +130,57 @@ mod tests {
     }
 
     #[test]
-    fn sanitize_error_passes_safe_message() {
+    fn sanitize_error_redacts_auth() {
+        let result = sanitize_error("authentication failed");
+        assert_eq!(result, "[error message redacted: possible credential]");
+    }
+
+    #[test]
+    fn sanitize_error_redacts_private_key_variants() {
+        assert_eq!(
+            sanitize_error("private key not found"),
+            "[error message redacted: possible credential]"
+        );
+        assert_eq!(
+            sanitize_error("invalid private-key format"),
+            "[error message redacted: possible credential]"
+        );
+        assert_eq!(
+            sanitize_error("private_key missing"),
+            "[error message redacted: possible credential]"
+        );
+    }
+
+    #[test]
+    fn sanitize_error_redacts_api_key_variants() {
+        assert_eq!(
+            sanitize_error("api key invalid"),
+            "[error message redacted: possible credential]"
+        );
+        assert_eq!(
+            sanitize_error("bad api-key"),
+            "[error message redacted: possible credential]"
+        );
+        assert_eq!(
+            sanitize_error("api_key not set"),
+            "[error message redacted: possible credential]"
+        );
+    }
+
+    #[test]
+    fn sanitize_error_redacts_unix_path() {
+        let result = sanitize_error("failed to read /home/user/repos/my-repo/repository.yaml");
+        assert_eq!(result, "failed to read [path:repository.yaml]");
+    }
+
+    #[test]
+    fn sanitize_error_redacts_windows_path() {
+        let result = sanitize_error("failed C:\\Users\\me\\repo\\devices.yaml");
+        assert_eq!(result, "failed [path:devices.yaml]");
+    }
+
+    #[test]
+    fn sanitize_error_preserves_safe_message() {
         let result = sanitize_error("YAML parse error at line 5");
         assert_eq!(result, "YAML parse error at line 5");
     }

@@ -6,7 +6,7 @@ import { logError, logInfo } from "./lib/diagnosticsLog";
 import { sanitizeErrorForLog } from "./lib/redact";
 
 window.addEventListener("error", (e) => {
-  logError(`Unhandled error: ${e.message ?? "unknown"}`);
+  logError(`Unhandled error: ${sanitizeErrorForLog(e.error ?? e.message ?? "unknown")}`);
 });
 
 window.addEventListener("unhandledrejection", (e: PromiseRejectionEvent) => {

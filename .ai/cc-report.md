@@ -1153,8 +1153,78 @@ The log file path on Windows 11 will be confirmed during installer QA.
 - Full paths are NOT logged (basename only).
 - Heuristic redaction only — unusual credential key names would not be caught.
 
+### Repair update — post-ChatGPT review (privacy/stability blockers)
+
+**Branch:** `chore/local-diagnostics-logging`
+
+**Blockers fixed:**
+
+1. **Frontend global error handler now sanitized** — `window.addEventListener("error", ...)` in
+   `main.tsx` previously logged `e.message` unsanitized. Changed to
+   `sanitizeErrorForLog(e.error ?? e.message ?? "unknown")`, matching the existing
+   `unhandledrejection` handler.
+
+2. **Rust `truncate` is UTF-8 safe** — replaced byte-indexing `&s[..max]` with
+   `s.chars().count() <= max` guard and `s.chars().take(max).collect::<String>()`.
+   Panics on multibyte char boundaries are now impossible. Test updated from byte-len 303
+   to `chars().count() == 301`; new test `truncate_utf8_multibyte_does_not_panic` added
+   (Polish `ą` × 400).
+
+3. **Rust credential redaction extended** — `has_sensitive_pattern` now covers
+   `private-key`, `private key`, `api-key`, `api key`, and `auth` in addition to the
+   existing `token`, `password`, `secret`, `private_key`, `api_key`.
+   Tests added: `sanitize_error_redacts_auth`, `sanitize_error_redacts_private_key_variants`,
+   `sanitize_error_redacts_api_key_variants`.
+
+4. **Rust path redaction added** — new `sanitize_paths_in_message` helper reduces
+   whitespace-delimited tokens containing `/` or `\` to `[path:basename]`. URL tokens
+   (`http://` / `https://`) become `[url]`. `sanitize_error` now applies path redaction
+   after credential check and before truncation.
+   Tests added: `sanitize_error_redacts_unix_path`, `sanitize_error_redacts_windows_path`,
+   `sanitize_error_preserves_safe_message`.
+
+5. **`sanitize_error` ordering fixed** — credential check is now first (preventing
+   partial credential leakage via path token), then path redaction, then UTF-8 safe truncation.
+
+6. **CSV import error now logged** — `import_device_csv_cmd` error path in `repository.rs`
+   now calls `log::error!("import_device_csv failed: {}", sanitize_error(&msg))` before
+   returning the error string.
+
+7. **Documentation updated** — `local-diagnostics-logging.md` now accurately describes
+   the extended credential patterns, path redaction heuristic, UTF-8 safe truncation,
+   and the fact that both frontend global handlers use `sanitizeErrorForLog`.
+
+**Files changed in repair:**
+- `apps/desktop/src/main.tsx` — sanitize window error handler
+- `apps/desktop/src-tauri/src/diagnostics.rs` — UTF-8 truncate, extended patterns, path redaction, new tests
+- `apps/desktop/src-tauri/src/commands/repository.rs` — log::error in import_device_csv_cmd
+- `.ai/local-diagnostics-logging.md` — accurate documentation of redaction rules
+
+**Tests after repair:**
+
+```
+git diff --check                                            → pass
+cargo fmt --all --check                                    → pass
+cargo check --workspace                                    → pass
+cargo test --workspace                                     → pass (18 tests in desktop crate)
+cargo clippy --workspace -- -D warnings                    → pass
+pnpm --filter @rack-inventory-studio/desktop typecheck     → pass
+pnpm --filter @rack-inventory-studio/desktop test          → 236/236 pass
+pnpm --filter @rack-inventory-studio/desktop test:e2e      → 10/10 pass
+pnpm --filter @rack-inventory-studio/desktop build         → pass (270 kB JS, 21 kB CSS)
+```
+
+**Tauri dev smoke (WSL2):** Not run — headless WSL2, no display server.
+All Rust and frontend automated checks confirm no regressions.
+
+**Known limitations (by design):**
+- Path redaction is heuristic: operates on whitespace-delimited tokens only.
+  A path embedded mid-word (no surrounding spaces) is not detected.
+- Basenames of repos, files, and Git branch names still appear in logs.
+- Redaction is not a full DLP system.
+
 ### Suggested next step
 
 Run the app from the Windows NSIS installer on a clean Windows 11 machine, verify
 `%APPDATA%\com.techtradeexpress.rackinventorystudio\logs\` is created on first launch,
-and confirm log entries are written for open/save/git operations.
+and confirm log entries are written for open/save/git operations without full paths.
