@@ -769,7 +769,7 @@ Added a "Change side…" section in the inspector below the move form. A `Move t
 
 - `activePlacements = activeSide === "front" ? detail.front : detail.rear`
 - Title: "Front placements" or "Rear placements" (h2 from Panel)
-- Columns: U · Name (target_name ?? target_code ?? code) · Model (model_name ?? model_code ?? "—") · Serial (target_serial ?? "—") · Asset tag (target_asset_tag ?? "—")
+- Columns: U · Name (target_name ?? target_code ?? code) · Model (model_name ?? model_code ?? "—") · Serial (target_serial ?? "—") · Asset tag (target_asset_tag ?? "—") · Type (device_type or "Rack object" or "—")
 - Empty state: "No front/rear placements."
 - Selection: clicking a row highlights it with `tbl-selected`; clicking again deselects
 
