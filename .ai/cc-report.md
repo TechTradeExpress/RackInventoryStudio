@@ -956,3 +956,94 @@ cargo clippy -D warnings        → pass
 2. ChatGPT code review approval of this branch.
 
 No known functional blockers remain. All automated checks pass.
+
+---
+
+## Windows installer CI — branch ci/windows-installer-build
+
+**Branch:** `ci/windows-installer-build`
+**Base branch:** `design/claude-ui-polish`
+
+### What was added
+
+A GitHub Actions workflow that builds an unsigned Windows installer artifact for the Rack Inventory Studio desktop application.
+
+**File added:** `.github/workflows/windows-installer.yml`
+**Docs added:** `.ai/windows-installer-ci.md`
+
+### When the workflow runs
+
+- `workflow_dispatch` — triggered manually from the GitHub Actions UI (primary use case for internal QA)
+- `pull_request` to `design/claude-ui-polish` with path filter — triggers on changes to `apps/desktop/**`, `Cargo.toml`, `Cargo.lock`, `pnpm-lock.yaml`, `package.json`, `pnpm-workspace.yaml`, or the workflow file itself
+
+Pull-request trigger is kept because `design/claude-ui-polish` is a long-lived feature branch with infrequent PRs. If build times prove excessive in practice, the PR trigger can be removed in a follow-up.
+
+### Checks performed by the workflow
+
+| Step | Command |
+|---|---|
+| Rust toolchain | `dtolnay/rust-toolchain@stable` |
+| Rust cache | `Swatinem/rust-cache@v2` |
+| pnpm + Node 22 | `pnpm/action-setup@v6`, `actions/setup-node@v6` (matching existing CI) |
+| Install deps | `pnpm install --frozen-lockfile` |
+| TypeScript check | `pnpm --filter @rack-inventory-studio/desktop typecheck` |
+| Frontend tests | `pnpm --filter @rack-inventory-studio/desktop test` |
+| Tauri build | `pnpm --filter @rack-inventory-studio/desktop tauri build` |
+| Upload artifact | `actions/upload-artifact@v4`, name: `rack-inventory-studio-windows-installer` |
+
+### Tauri build command
+
+```
+pnpm --filter @rack-inventory-studio/desktop tauri build
+```
+
+`tauri.conf.json` has `beforeBuildCommand: "pnpm build"` which runs the Vite frontend build automatically inside `tauri build`. No separate `pnpm build` step needed before the Tauri step.
+
+### Artifacts uploaded
+
+Both installer formats produced by Tauri v2 on Windows (if present):
+
+| Glob | Format |
+|---|---|
+| `apps/desktop/src-tauri/target/release/bundle/msi/*.msi` | MSI (requires WiX on runner) |
+| `apps/desktop/src-tauri/target/release/bundle/nsis/*.exe` | NSIS self-extracting installer |
+
+`if-no-files-found: error` — CI fails if neither format is produced.
+Retention: 30 days.
+Artifact name: `rack-inventory-studio-windows-installer`
+
+### Code signing
+
+Not configured. The installer is unsigned. Windows SmartScreen will warn on first run — user must click "More info" → "Run anyway". Signing can be added later via GitHub Actions secrets (`TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) following Tauri v2 signing docs. No secrets, certificate paths, or placeholders were added to the repository.
+
+### What was NOT changed
+
+- No application source code changed.
+- No Rust/Tauri backend changed.
+- No `tauri.conf.json` changes (bundle section left as default — Tauri generates both MSI and NSIS by default).
+- No `package.json` / lockfile changes.
+- No `examples/example-repository` changes.
+
+### Local checks
+
+```
+git diff --check                 → pass
+pnpm typecheck                   → pass
+pnpm test                        → 218/218 pass
+pnpm build                       → pass (21.33 kB CSS, 267 kB JS)
+```
+
+No Rust/Tauri code changed → cargo checks not required.
+
+`actionlint` not available locally — YAML syntax verified by manual review only.
+
+### Risks
+
+- `windows-latest` runner may not have WiX Toolset installed, in which case only the NSIS installer is produced. The upload glob covers both; `if-no-files-found: error` catches total failure.
+- Tauri v2 cold build on Windows takes 20–30 minutes. Warm cache (Swatinem) reduces this to ~5–10 min.
+- Unsigned installer triggers SmartScreen on Windows 11 — acceptable for internal QA.
+- Workflow has not been run on GitHub Actions yet; first real run will validate all steps end-to-end.
+
+### Suggested next step
+
+Run the workflow manually on GitHub Actions against `design/claude-ui-polish` and download the artifact. Test the installer on a clean Windows 11 machine.
