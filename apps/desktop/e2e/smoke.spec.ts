@@ -34,7 +34,7 @@ test("app shell loads without console errors", async ({ page }) => {
   await page.goto("/");
 
   await expect(
-    page.getByRole("heading", { name: "Rack Inventory Studio" }),
+    page.getByText("Rack Inventory Studio", { exact: true }),
   ).toBeVisible();
   // Repository tab is the active/visible tab
   await expect(
@@ -52,7 +52,7 @@ test("landing state shows open and create actions", async ({ page }) => {
 
   // Landing heading is visible
   await expect(
-    page.getByRole("heading", { name: /Open or Create/i }),
+    page.getByRole("heading", { name: /Open a repository/i }),
   ).toBeVisible();
   // Open path input and Open button are present
   await expect(page.locator('input[type="text"]').first()).toBeVisible();
@@ -94,11 +94,13 @@ test("global search shows results and navigates to Locations", async ({
   await openFixtureRepo(page);
 
   await page.locator('input[placeholder*="Search"]').fill("server");
-  // Mock returns a location and a rack result
-  await expect(page.getByText("Server Room A")).toBeVisible();
+  // Mock returns a location result — check the accessible option and click it
+  await expect(
+    page.getByRole("option", { name: /Server Room A/ }),
+  ).toBeVisible();
 
   // Click the location result — should navigate to Locations tab
-  await page.getByText("Server Room A").click();
+  await page.getByRole("option", { name: /Server Room A/ }).click();
   await expect(
     page.getByRole("heading", { name: "Locations" }),
   ).toBeVisible();
@@ -127,7 +129,7 @@ test("validation panel shows issues and navigates on click", async ({
   const navBtn = page.getByRole("button", { name: /open device/i });
   await expect(navBtn).toBeVisible();
   await navBtn.click();
-  await expect(page.getByRole("heading", { name: "Devices" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Devices", exact: true })).toBeVisible();
 });
 
 test("CSV import preview and import flow", async ({ page }) => {
@@ -148,7 +150,7 @@ test("CSV import preview and import flow", async ({ page }) => {
   await expect(page.getByRole("cell", { name: "create" })).toBeVisible();
 
   await page
-    .getByRole("button", { name: "Import valid devices", exact: true })
+    .getByRole("button", { name: /^Import \d+ row/ })
     .click();
   await expect(page.getByText(/1 device created/i)).toBeVisible();
 });
@@ -162,12 +164,57 @@ test("rack detail and placement table visible", async ({ page }) => {
   await expect(page.getByText("rack-main")).toBeVisible();
 
   // Click the rack row to open detail
-  await page.getByRole("cell", { name: "Main Rack" }).click();
+  await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: /Rack Detail/i }),
+    page.getByRole("heading", { name: /Main Rack/i }),
   ).toBeVisible();
-  // Placement table contains the fixture placement
-  await expect(page.getByText("plc-srv-01")).toBeVisible();
+
+  // Front/Rear segmented control is visible
+  await expect(page.getByRole("tab", { name: "Front" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Rear" })).toBeVisible();
+
+  // Active side table shows "Front placements" heading and fixture placement (by device name)
+  await expect(page.getByRole("heading", { name: "Front placements", exact: true })).toBeVisible();
+  // fixture device name "srv-01" appears in the Name column
+  await expect(page.getByRole("cell", { name: "srv-01", exact: true })).toBeVisible();
+
+  // Switching to Rear updates tab state and table title; fixture placement disappears
+  await page.getByRole("tab", { name: "Rear" }).click();
+  await expect(page.getByRole("tab", { name: "Rear" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("heading", { name: "Rear placements", exact: true })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "srv-01", exact: true })).not.toBeVisible();
+});
+
+test("rack detail: Change side dialog opens and can be cancelled", async ({ page }) => {
+  await page.goto("/");
+  await openFixtureRepo(page);
+
+  await page.getByRole("button", { name: "Racks", exact: true }).click();
+  await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Front placements", exact: true })).toBeVisible();
+
+  // Select the fixture placement from the table
+  await page.getByRole("cell", { name: "srv-01", exact: true }).click();
+
+  // Inspector should show the "Move to Rear…" change-side button
+  await expect(
+    page.getByRole("button", { name: /Move to Rear/i }),
+  ).toBeVisible();
+
+  // Open the confirmation dialog
+  await page.getByRole("button", { name: /Move to Rear/i }).click();
+  await expect(
+    page.getByRole("dialog", { name: /Move to Rear/i }),
+  ).toBeVisible();
+
+  // Cancel — dialog should close without mutating state
+  await page.getByRole("button", { name: /Cancel/i }).click();
+  await expect(
+    page.getByRole("dialog", { name: /Move to Rear/i }),
+  ).not.toBeVisible();
+
+  // Placement is still selected and on Front
+  await expect(page.getByRole("heading", { name: "Front placements", exact: true })).toBeVisible();
 });
 
 test("git section shows status label and publish guidance", async ({ page }) => {
@@ -185,8 +232,8 @@ test("git section shows status label and publish guidance", async ({ page }) => 
     page.getByRole("listitem").filter({ hasText: /ahead of remote.*push when ready/i }),
   ).toBeVisible();
 
-  // Branch info is visible in the Git status table
-  await expect(page.getByRole("cell", { name: "main", exact: true })).toBeVisible();
+  // Branch info is visible in the Git section (Recent commits panel description)
+  await expect(page.getByText("Branch: main")).toBeVisible();
 
   // Commit step shows "nothing to commit" since tree is clean
   await expect(
@@ -195,12 +242,12 @@ test("git section shows status label and publish guidance", async ({ page }) => 
 
   // Push button is present and enabled (remote available, no unsaved changes)
   await expect(
-    page.getByRole("button", { name: "Push current branch", exact: true }),
+    page.getByRole("button", { name: "Push", exact: true }).first(),
   ).toBeEnabled();
 
-  // Pull latest button is labelled "Pull latest" (not "Pull --ff-only")
+  // Pull button is present and enabled
   await expect(
-    page.getByRole("button", { name: "Pull latest", exact: true }),
+    page.getByRole("button", { name: "Pull", exact: true }).first(),
   ).toBeEnabled();
 });
 

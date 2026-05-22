@@ -120,6 +120,14 @@ pub struct PlacementDto {
     pub end_u: Option<u32>,
     pub note: Option<String>,
     pub tags: Vec<String>,
+    /// Device model name (device placements only; null for rack-object placements)
+    pub model_name: Option<String>,
+    /// Device model code (device placements only; null for rack-object placements)
+    pub model_code: Option<String>,
+    /// Device serial number (device placements only)
+    pub target_serial: Option<String>,
+    /// Device asset tag (device placements only)
+    pub target_asset_tag: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

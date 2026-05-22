@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased — UI polish (branch `design/claude-ui-polish`)
+
+UI polish and design correction work completed on `design/claude-ui-polish`. Not yet merged to `master`. Manual visual QA on Windows 11 required before release.
+
+- **CRUD forms migrated to modals** — all Add/Edit forms for Locations, Racks, Device Models, and Devices replaced with portal-rendered modal dialogs (460–640 px) with dirty-state backdrop protection and `ConfirmDialog` for destructive actions. No inline forms remain in any catalog panel.
+- **Rack Detail single-side flow** — Front/Rear segmented control in PageHeader; diagram renders only the active side; switching side clears selection; drag-to-place targets active side only.
+- **Enriched placement labels** — tiered label rendering in the rack diagram: 1U compact (name · model), 2U two-row (name / model · serial · asset tag), 3U+ stacked (name / model / SN / Asset). Placement blocks span their full U height, text centered vertically and horizontally.
+- **Active placement table** — single table synced to active side with columns: U · Name · Model · Serial · Asset tag · Type. Table and diagram selection are synchronized.
+- **Inspector side-safety** — side is read-only in the move form; a dedicated "Change side…" action with ConfirmDialog handles side reassignment. "Remove placement" also uses ConfirmDialog (danger tone).
+- **CSV import double-count fix** — `deriveCsvImportUiSummary` helper; import button and "Will create" counter no longer double-count warning rows.
+- **Windows installer workflow** — manual-only GitHub Actions workflow (`workflow_dispatch`) builds unsigned NSIS installer on `windows-latest`; artifact retained 30 days. No code signing. See `.ai/windows-installer-ci.md`.
+- **Manual Windows 11 visual QA still required** before PR to `master`.
+
 ## v0.45.0 — Safe publish / Git UX polish (PR #39)
 
 - `gitStatusHelpers.ts`: pure helpers `deriveGitStatusLabel`, `deriveGitActionHints`, `derivePublishChecklist`, `getPushDisabledReason`, `getPullDisabledReason`.

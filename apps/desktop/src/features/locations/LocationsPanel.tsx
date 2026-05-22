@@ -1,13 +1,16 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
-import { common } from "../../lib/styles";
-import { parseTags, joinTags } from "../../lib/tags";
+import { useEffect, useRef, useState } from "react";
 import {
-  addLocation,
   deleteLocation,
   listLocations,
-  updateLocation,
   type LocationDto,
 } from "../../api/tauriClient";
+import { PageHeader } from "../../components/ui/PageHeader";
+import { Panel } from "../../components/ui/Panel";
+import { Banner } from "../../components/ui/Banner";
+import { EmptyState } from "../../components/ui/EmptyState";
+import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
+import { IcPlus, IcEdit, IcTrash, IcMapPin } from "../../components/ui/Icon";
+import { LocationFormModal } from "./LocationFormModal";
 
 interface Props {
   repoPath: string;
@@ -15,48 +18,23 @@ interface Props {
   onRepositoryMutated: () => void;
 }
 
-interface FormState {
-  code: string;
-  name: string;
-  description: string;
-  address: string;
-  tags: string;
-}
-
-const EMPTY_FORM: FormState = {
-  code: "",
-  name: "",
-  description: "",
-  address: "",
-  tags: "",
-};
-
-function locationToForm(loc: LocationDto): FormState {
-  return {
-    code: loc.code,
-    name: loc.name,
-    description: loc.description ?? "",
-    address: loc.address ?? "",
-    tags: joinTags(loc.tags),
-  };
-}
-
 export function LocationsPanel({
   repoPath,
   highlightedLocationId,
   onRepositoryMutated,
 }: Props) {
-  const [locations, setLocations] = useState<LocationDto[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [locations, setLocations]     = useState<LocationDto[]>([]);
+  const [error, setError]             = useState<string | null>(null);
+  const [loading, setLoading]         = useState(false);
+  const [successMsg, setSuccessMsg]   = useState<string | null>(null);
 
-  const [form, setForm] = useState<FormState>(EMPTY_FORM);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [formSuccess, setFormSuccess] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  // Modal state
+  const [modalOpen, setModalOpen]           = useState(false);
+  const [editingLocation, setEditingLocation] = useState<LocationDto | null>(null);
 
-  // null = add mode; string = edit mode (the id being edited)
-  const [editingId, setEditingId] = useState<string | null>(null);
+  // Delete confirm state
+  const [pendingDelete, setPendingDelete] = useState<LocationDto | null>(null);
+  const [deleteError, setDeleteError]     = useState<string | null>(null);
 
   const prevRepoPathRef = useRef<string>("");
 
@@ -65,12 +43,8 @@ export function LocationsPanel({
     const isRepoSwitch = prevRepoPathRef.current !== repoPath;
     prevRepoPathRef.current = repoPath;
     if (isRepoSwitch) {
-      setLocations([]);
-      setError(null);
-      setForm(EMPTY_FORM);
-      setFormError(null);
-      setFormSuccess(null);
-      setEditingId(null);
+      setLocations([]); setError(null); setSuccessMsg(null);
+      setModalOpen(false); setEditingLocation(null); setPendingDelete(null);
     }
     setLoading(true);
     listLocations()
@@ -79,105 +53,43 @@ export function LocationsPanel({
       .finally(() => setLoading(false));
   }, [repoPath]);
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    setFormError(null);
-    setFormSuccess(null);
+  function openAdd() {
+    setEditingLocation(null);
+    setSuccessMsg(null);
+    setModalOpen(true);
+  }
 
-    const code = form.code.trim();
-    const name = form.name.trim();
-    if (!code) { setFormError("Code is required."); return; }
-    if (!name) { setFormError("Name is required."); return; }
+  function openEdit(loc: LocationDto) {
+    setEditingLocation(loc);
+    setSuccessMsg(null);
+    setModalOpen(true);
+  }
 
-    setSubmitting(true);
+  async function handleSaved() {
     try {
-      if (editingId) {
-        await updateLocation({
-          id: editingId,
-          code,
-          name,
-          description: form.description.trim() || undefined,
-          address: form.address.trim() || undefined,
-          tags: parseTags(form.tags),
-        });
-        setFormSuccess(`Location "${code}" updated.`);
-        setEditingId(null);
-        setForm(EMPTY_FORM);
-      } else {
-        await addLocation({
-          code,
-          name,
-          description: form.description.trim() || undefined,
-          address: form.address.trim() || undefined,
-          tags: parseTags(form.tags),
-        });
-        setFormSuccess(`Location "${code}" added.`);
-        setForm(EMPTY_FORM);
-      }
+      const updated = await listLocations();
+      setLocations(updated);
+      onRepositoryMutated();
+      const label = editingLocation ? editingLocation.code : "Location";
+      setSuccessMsg(editingLocation ? `"${label}" updated.` : "Location added.");
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function confirmDelete() {
+    if (!pendingDelete) return;
+    setDeleteError(null);
+    try {
+      await deleteLocation(pendingDelete.id);
+      setPendingDelete(null);
       const updated = await listLocations();
       setLocations(updated);
       onRepositoryMutated();
     } catch (e) {
-      setFormError(String(e));
-    } finally {
-      setSubmitting(false);
+      setDeleteError(String(e));
+      setPendingDelete(null);
     }
-  }
-
-  function handleEdit(loc: LocationDto) {
-    setEditingId(loc.id);
-    setForm(locationToForm(loc));
-    setFormError(null);
-    setFormSuccess(null);
-  }
-
-  function handleCancelEdit() {
-    setEditingId(null);
-    setForm(EMPTY_FORM);
-    setFormError(null);
-    setFormSuccess(null);
-  }
-
-  async function handleDelete(loc: LocationDto) {
-    if (!confirm(`Delete location "${loc.name}"? This cannot be undone.`)) return;
-    setFormError(null);
-    setFormSuccess(null);
-    try {
-      await deleteLocation(loc.id);
-      if (editingId === loc.id) {
-        setEditingId(null);
-        setForm(EMPTY_FORM);
-      }
-      const updated = await listLocations();
-      setLocations(updated);
-      onRepositoryMutated();
-    } catch (e) {
-      setFormError(String(e));
-    }
-  }
-
-  function field(
-    label: string,
-    key: keyof FormState,
-    placeholder?: string,
-    required?: boolean,
-  ) {
-    return (
-      <div style={styles.fieldRow}>
-        <label style={styles.label}>
-          {label}
-          {required && <span style={styles.required}> *</span>}
-        </label>
-        <input
-          style={common.input}
-          value={form[key]}
-          placeholder={placeholder}
-          onChange={(e) =>
-            setForm((f) => ({ ...f, [key]: e.target.value }))
-          }
-        />
-      </div>
-    );
   }
 
   useEffect(() => {
@@ -186,151 +98,110 @@ export function LocationsPanel({
     el?.scrollIntoView({ block: "center" });
   }, [highlightedLocationId, locations]);
 
-  const isEditing = editingId !== null;
-
   return (
-    <section style={common.section}>
-      <h2 style={common.h2}>Locations</h2>
+    <>
+      <PageHeader
+        title="Locations"
+        subtitle="Physical sites that contain racks."
+        actions={
+          <button className="btn btn-primary" onClick={openAdd}>
+            <IcPlus size={12} /> Add location
+          </button>
+        }
+      />
+      <div className="page-content stack-4">
+        {loading && (
+          <p style={{ fontSize: 12, color: "var(--tx-3)", fontStyle: "italic" }}>Loading…</p>
+        )}
+        {error && <Banner tone="err">{error}</Banner>}
+        {deleteError && <Banner tone="err">{deleteError}</Banner>}
+        {successMsg && (
+          <Banner tone="ok" onDismiss={() => setSuccessMsg(null)}>{successMsg}</Banner>
+        )}
 
-      {loading && <p style={common.working}>Loading…</p>}
-      {error && <div style={common.errorBox}>{error}</div>}
+        {!loading && !error && locations.length === 0 && (
+          <EmptyState
+            icon={<IcMapPin size={32} />}
+            title="No locations yet"
+            body="Add a physical location to start building your inventory."
+          />
+        )}
 
-      {!loading && !error && locations.length === 0 && (
-        <p style={common.hint}>No locations found.</p>
-      )}
-
-      {locations.length > 0 && (
-        <table style={common.table}>
-          <thead>
-            <tr>
-              {["Code", "Name", "Racks", "Address", "Description", "Actions"].map((h) => (
-                <th key={h} style={common.th}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {locations.map((loc) => (
-              <tr
-                key={loc.id}
-                data-loc-id={loc.id}
-                style={
-                  loc.id === highlightedLocationId
-                    ? { background: "#fff8c5" }
-                    : undefined
-                }
-              >
-                <td style={{ ...common.td, fontFamily: "monospace" }}>{loc.code}</td>
-                <td style={common.td}>{loc.name}</td>
-                <td style={common.td}>{loc.rack_count}</td>
-                <td style={common.td}>{loc.address ?? ""}</td>
-                <td style={common.td}>{loc.description ?? ""}</td>
-                <td style={{ ...common.td, whiteSpace: "nowrap" }}>
-                  <button
-                    style={styles.actionBtn}
-                    onClick={() => handleEdit(loc)}
+        {locations.length > 0 && (
+          <Panel flush title={`${locations.length} location${locations.length !== 1 ? "s" : ""}`}>
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th className="tbl-mono">Code</th>
+                  <th>Name</th>
+                  <th>Address</th>
+                  <th>Description</th>
+                  <th className="tbl-num">Racks</th>
+                  <th>Tags</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {locations.map((loc) => (
+                  <tr
+                    key={loc.id}
+                    data-loc-id={loc.id}
+                    className={loc.id === highlightedLocationId ? "tbl-selected" : undefined}
                   >
-                    Edit
-                  </button>
-                  <button
-                    style={{ ...styles.actionBtn, ...styles.deleteBtn }}
-                    onClick={() => handleDelete(loc)}
-                  >
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+                    <td className="tbl-mono"><strong>{loc.code}</strong></td>
+                    <td>{loc.name}</td>
+                    <td>{loc.address ?? <span style={{ color: "var(--tx-4)" }}>—</span>}</td>
+                    <td style={{ color: "var(--tx-3)" }}>{loc.description ?? "—"}</td>
+                    <td className="tbl-num tbl-mono">{loc.rack_count}</td>
+                    <td>
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                        {loc.tags.map((t) => <span key={t} className="tag">{t}</span>)}
+                      </div>
+                    </td>
+                    <td className="tbl-actions">
+                      <button
+                        className="btn btn-ghost btn-sm btn-icon"
+                        title="Edit"
+                        aria-label={`Edit ${loc.name}`}
+                        onClick={() => openEdit(loc)}
+                      >
+                        <IcEdit size={12} />
+                      </button>
+                      <button
+                        className="btn btn-ghost btn-sm btn-icon"
+                        title="Delete"
+                        aria-label={`Delete ${loc.name}`}
+                        onClick={() => setPendingDelete(loc)}
+                        style={{ color: "var(--st-err-tx)" }}
+                      >
+                        <IcTrash size={12} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Panel>
+        )}
+      </div>
 
-      <section style={styles.formSection}>
-        <h3 style={common.h3}>{isEditing ? "Edit Location" : "Add Location"}</h3>
-        <form onSubmit={handleSubmit} style={styles.form}>
-          {field("Code", "code", "e.g. warsaw-serverroom-a", true)}
-          {field("Name", "name", "e.g. Warsaw - Server Room A", true)}
-          {field("Description", "description", "optional")}
-          {field("Address", "address", "optional")}
-          {field("Tags", "tags", "comma-separated, e.g. production, warsaw")}
+      <LocationFormModal
+        open={modalOpen}
+        editing={editingLocation}
+        onClose={() => setModalOpen(false)}
+        onSaved={handleSaved}
+      />
 
-          {formError && <div style={common.errorBox}>{formError}</div>}
-          {formSuccess && <div style={styles.successBox}>{formSuccess}</div>}
-
-          <div style={styles.btnRow}>
-            <button type="submit" style={common.btn} disabled={submitting}>
-              {submitting
-                ? isEditing ? "Saving…" : "Adding…"
-                : isEditing ? "Save changes" : "Add location"}
-            </button>
-            {isEditing && (
-              <button
-                type="button"
-                style={{ ...common.btn, ...styles.cancelBtn }}
-                onClick={handleCancelEdit}
-              >
-                Cancel
-              </button>
-            )}
-          </div>
-        </form>
-      </section>
-    </section>
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title={`Delete "${pendingDelete?.name}"?`}
+        body="This will remove the location record from the repository on the next save. Locations with racks cannot be deleted."
+        confirmLabel="Delete location"
+        cancelLabel="Cancel"
+        tone="danger"
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
+    </>
   );
 }
-
-const styles = {
-  formSection: {
-    marginTop: "1.25rem",
-    paddingTop: "0.75rem",
-    borderTop: "1px solid #eee",
-  },
-  form: {
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: "0.5rem",
-    maxWidth: "480px",
-  },
-  fieldRow: {
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: "0.2rem",
-  },
-  label: {
-    fontSize: "0.82rem",
-    color: "#555",
-  },
-  required: {
-    color: "#b00",
-  },
-  successBox: {
-    padding: "0.4rem 0.75rem",
-    background: "#f0fff4",
-    border: "1px solid #5cb85c",
-    color: "#2d6a2d",
-    borderRadius: "3px",
-    fontSize: "0.85rem",
-  },
-  btnRow: {
-    display: "flex",
-    gap: "0.5rem",
-  },
-  actionBtn: {
-    fontSize: "0.78rem",
-    padding: "0.2rem 0.5rem",
-    marginRight: "0.25rem",
-    cursor: "pointer",
-    border: "1px solid #bbb",
-    borderRadius: "3px",
-    background: "#f5f5f5",
-  },
-  deleteBtn: {
-    borderColor: "#d9534f",
-    color: "#b52b27",
-    background: "#fff5f5",
-  },
-  cancelBtn: {
-    background: "#f5f5f5",
-    color: "#555",
-    border: "1px solid #bbb",
-  },
-};

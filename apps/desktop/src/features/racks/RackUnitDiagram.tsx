@@ -8,11 +8,14 @@ import {
   canDropAt,
 } from "./dndHelpers";
 import type { DndPayload } from "./dndTypes";
+import { derivePlacementLabel, type PlacementLabelData } from "./rackPlacementLabel";
 
 interface Props {
   heightU: number;
   front: PlacementDto[];
   rear: PlacementDto[];
+  /** Which side to display in the diagram. */
+  side: "front" | "rear";
   selectedPlacementId: string | null;
   onSelectPlacement: (placement: PlacementDto | null) => void;
   onDropAtCell?: (side: "front" | "rear", startU: number, payload: DndPayload) => void;
@@ -89,16 +92,36 @@ function cellStyle(
   };
 }
 
-function cellLabel(state: UnitState): string {
-  if (state.kind === "empty") return "";
-  if (state.kind === "incomplete") {
-    const p = state.placement;
-    return `⚠ ${p.target_code ?? p.code}`;
+function PlacementLabelContent({ label }: { label: PlacementLabelData }) {
+  const { primary, model, serial, asset, effectiveHeightU } = label;
+
+  if (effectiveHeightU === 1) {
+    return (
+      <span className="rpl-primary rpl-compact">
+        {primary}{model ? ` · ${model}` : ""}
+      </span>
+    );
   }
-  // Show label only at the top row of a grouped placement
-  if (!state.isTop) return "";
-  const p = state.placement;
-  return p.target_code ?? p.target_name ?? p.code;
+
+  if (effectiveHeightU === 2) {
+    const secondary = [model, serial, asset].filter(Boolean).join(" · ");
+    return (
+      <>
+        <span className="rpl-primary">{primary}</span>
+        {secondary && <span className="rpl-secondary">{secondary}</span>}
+      </>
+    );
+  }
+
+  // 3U+: full stacked label
+  return (
+    <>
+      <span className="rpl-primary">{primary}</span>
+      {model  && <span className="rpl-secondary">{model}</span>}
+      {serial && <span className="rpl-meta">{serial}</span>}
+      {asset  && <span className="rpl-meta">{asset}</span>}
+    </>
+  );
 }
 
 interface SideColumnProps {
@@ -123,13 +146,18 @@ function SideColumn({
   return (
     <div style={{ width: SIDE_W, flexShrink: 0 }}>
       {rows.map((state, idx) => {
-        // When reversed: idx 0 = highest U = visual top
-        // rows[idx] = units[units.length - 1 - idx] which is U(units.length - idx)
         const startU = units.length - idx;
+
+        // Non-top continuation cells of a multi-U occupied block: invisible spacer.
+        // Height stays 0 so the top cell can span the full block height without
+        // pushing subsequent rows out of alignment with the U-number gutter.
+        if (state.kind === "occupied" && !state.isTop) {
+          return <div key={idx} style={{ height: 0, overflow: "hidden" }} />;
+        }
+
         const isSelected =
           state.kind !== "empty" &&
           state.placement.id === selectedPlacementId;
-        const label = cellLabel(state);
 
         const baseStyle = cellStyle(
           state,
@@ -137,8 +165,50 @@ function SideColumn({
           isSelected,
         );
 
+        // ── Occupied top cell: span full U height, centered label ──────────────
+        if (state.kind === "occupied" && state.isTop) {
+          const label = derivePlacementLabel(state.placement);
+          const style: CSSProperties = {
+            ...baseStyle,
+            height: label.effectiveHeightU * ROW_H,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            textAlign: "center",
+            gap: 1,
+            overflow: "hidden",
+          };
+          return (
+            <div
+              key={idx}
+              title={label.title}
+              style={style}
+              onClick={() => onSelectPlacement(state.placement)}
+            >
+              <PlacementLabelContent label={label} />
+            </div>
+          );
+        }
+
+        // ── Incomplete cell ─────────────────────────────────────────────────────
+        if (state.kind === "incomplete") {
+          const p = state.placement;
+          return (
+            <div
+              key={idx}
+              title={p.code}
+              style={baseStyle}
+              onClick={() => onSelectPlacement(p)}
+            >
+              {`⚠ ${p.target_code ?? p.code}`}
+            </div>
+          );
+        }
+
+        // ── Empty cell: drop target ─────────────────────────────────────────────
         let style: CSSProperties = baseStyle;
-        if (state.kind === "empty" && hovered?.idx === idx) {
+        if (hovered?.idx === idx) {
           style = hovered.valid
             ? { ...baseStyle, background: "#c8e6c0", outline: "2px dashed #4a7c3f" }
             : { ...baseStyle, background: "#fde8e8", outline: "2px dashed #cc4444" };
@@ -147,18 +217,11 @@ function SideColumn({
         return (
           <div
             key={idx}
-            title={state.kind !== "empty" ? state.placement.code : undefined}
-            data-testid={state.kind === "empty" ? `drop-cell-${side}-${startU}` : undefined}
+            data-testid={`drop-cell-${side}-${startU}`}
             style={style}
-            onClick={() => {
-              if (state.kind === "empty") {
-                onSelectPlacement(null);
-              } else {
-                onSelectPlacement(state.placement);
-              }
-            }}
+            onClick={() => onSelectPlacement(null)}
             onDragOver={
-              state.kind === "empty" && onDropAtCell
+              onDropAtCell
                 ? (e) => {
                     e.preventDefault();
                     const payload = getActiveDragPayload();
@@ -170,13 +233,9 @@ function SideColumn({
                   }
                 : undefined
             }
-            onDragLeave={
-              state.kind === "empty" && onDropAtCell
-                ? () => setHovered(null)
-                : undefined
-            }
+            onDragLeave={onDropAtCell ? () => setHovered(null) : undefined}
             onDrop={
-              state.kind === "empty" && onDropAtCell
+              onDropAtCell
                 ? (e) => {
                     e.preventDefault();
                     setHovered(null);
@@ -187,9 +246,7 @@ function SideColumn({
                   }
                 : undefined
             }
-          >
-            {label}
-          </div>
+          />
         );
       })}
     </div>
@@ -200,17 +257,15 @@ export function RackUnitDiagram({
   heightU,
   front,
   rear,
+  side,
   selectedPlacementId,
   onSelectPlacement,
   onDropAtCell,
 }: Props) {
-  const frontOcc = buildOccupancy(heightU, front);
-  const rearOcc = buildOccupancy(heightU, rear);
+  const activePlacements = side === "front" ? front : rear;
+  const activeOcc = buildOccupancy(heightU, activePlacements);
 
-  const allWarnings = [
-    ...frontOcc.warnings.map((w) => ({ side: "Front", ...w })),
-    ...rearOcc.warnings.map((w) => ({ side: "Rear", ...w })),
-  ];
+  const allWarnings = activeOcc.warnings.map((w) => ({ side: side === "front" ? "Front" : "Rear", ...w }));
 
   // U-number column: rendered top-to-bottom, so heightU down to 1
   const uNumbers = Array.from({ length: heightU }, (_, i) => heightU - i);
@@ -324,7 +379,7 @@ export function RackUnitDiagram({
             ))}
           </div>
 
-          {/* Front column */}
+          {/* Active side column */}
           <div style={{ flexShrink: 0 }}>
             <div
               style={{
@@ -339,40 +394,12 @@ export function RackUnitDiagram({
                 borderLeft: "2px solid #bbb",
               }}
             >
-              Front
+              {side === "front" ? "Front" : "Rear"}
             </div>
             <div style={{ borderLeft: "2px solid #bbb" }}>
               <SideColumn
-                side="front"
-                units={frontOcc.units}
-                selectedPlacementId={selectedPlacementId}
-                onSelectPlacement={onSelectPlacement}
-                onDropAtCell={onDropAtCell}
-              />
-            </div>
-          </div>
-
-          {/* Rear column */}
-          <div style={{ flexShrink: 0 }}>
-            <div
-              style={{
-                height: ROW_H,
-                width: SIDE_W,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontWeight: "bold",
-                background: colors.headerBg,
-                borderBottom: "1px solid #ccc",
-                borderLeft: "1px solid #bbb",
-              }}
-            >
-              Rear
-            </div>
-            <div style={{ borderLeft: "1px solid #bbb" }}>
-              <SideColumn
-                side="rear"
-                units={rearOcc.units}
+                side={side}
+                units={activeOcc.units}
                 selectedPlacementId={selectedPlacementId}
                 onSelectPlacement={onSelectPlacement}
                 onDropAtCell={onDropAtCell}

@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
-import type { CSSProperties } from "react";
 import type { PlacementDto, RackSummaryDto } from "../../api/tauriClient";
 import { listRacks, movePlacement, removePlacement } from "../../api/tauriClient";
-import { common } from "../../lib/styles";
 import { parsePositiveInt } from "./positiveInt";
+import { Banner } from "../../components/ui/Banner";
+import { EmptyState } from "../../components/ui/EmptyState";
+import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
+import { IcServer } from "../../components/ui/Icon";
 
 interface Props {
   placement: PlacementDto | null;
@@ -16,26 +18,8 @@ interface Props {
   onRemoveSuccess: () => void;
 }
 
-const NULL_DISPLAY = "—";
-
-const tdLabel: CSSProperties = {
-  padding: "0.2rem 0.5rem",
-  fontWeight: "bold",
-  whiteSpace: "nowrap",
-  borderBottom: "1px solid #e0e8f0",
-  width: "45%",
-  verticalAlign: "top",
-};
-
-const tdValue: CSSProperties = {
-  padding: "0.2rem 0.5rem",
-  fontFamily: "monospace",
-  borderBottom: "1px solid #e0e8f0",
-  wordBreak: "break-all",
-};
-
 function display(value: string | number | null | undefined): string {
-  if (value === null || value === undefined || value === "") return NULL_DISPLAY;
+  if (value === null || value === undefined || value === "") return "—";
   return String(value);
 }
 
@@ -47,7 +31,6 @@ export function PlacementInspectorPanel({
   onRemoveSuccess,
 }: Props) {
   const [newRackId, setNewRackId] = useState(currentRack.id);
-  const [newSide, setNewSide] = useState<"front" | "rear">("front");
   const [newStartU, setNewStartU] = useState("");
   const [newHeightU, setNewHeightU] = useState("");
   const [working, setWorking] = useState(false);
@@ -59,7 +42,14 @@ export function PlacementInspectorPanel({
   const [racksLoading, setRacksLoading] = useState(false);
   const [racksError, setRacksError] = useState<string | null>(null);
 
-  // Load rack list once when the component mounts.
+  // Change side confirmation dialog
+  const [changeSideOpen, setChangeSideOpen] = useState(false);
+  const [changeSideWorking, setChangeSideWorking] = useState(false);
+  const [changeSideError, setChangeSideError] = useState<string | null>(null);
+
+  // Remove confirmation dialog
+  const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
+
   useEffect(() => {
     setRacksLoading(true);
     setRacksError(null);
@@ -69,15 +59,11 @@ export function PlacementInspectorPanel({
       .finally(() => setRacksLoading(false));
   }, []);
 
-  // Reset move form when the selected placement changes.
   useEffect(() => {
     if (placement) {
       setNewStartU(String(placement.start_u));
-      setNewHeightU(
-        placement.height_u !== null ? String(placement.height_u) : "",
-      );
+      setNewHeightU(placement.height_u !== null ? String(placement.height_u) : "");
       setNewRackId(currentRack.id);
-      setNewSide((side?.toLowerCase() as "front" | "rear") ?? "front");
     } else {
       setNewStartU("");
       setNewHeightU("");
@@ -85,56 +71,46 @@ export function PlacementInspectorPanel({
     setMoveError(null);
     setMoveSuccessMsg(null);
     setRemoveError(null);
+    setChangeSideError(null);
+    setChangeSideOpen(false);
+    setRemoveConfirmOpen(false);
   }, [placement?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!placement) {
     return (
-      <div
-        style={{
-          padding: "0.6rem 0.75rem",
-          background: "#f8f8f8",
-          border: "1px solid #e0e0e0",
-          borderRadius: 3,
-          fontSize: "0.82rem",
-          color: "#888",
-        }}
-      >
-        No placement selected. Click a cell in the diagram or a row in the
-        tables below.
-      </div>
+      <EmptyState
+        icon={<IcServer size={24} />}
+        title="No placement selected"
+        body="Click a unit in the diagram or a row in the placement table."
+      />
     );
   }
 
-  const rows: [string, string | number | null | undefined][] = [
-    ["Code", placement.code],
-    ["Side", side],
-    ["Target kind", placement.target_kind],
-    ["Target code", placement.target_code],
-    ["Target name", placement.target_name],
-    ["Target ID", placement.target_id],
-    ["Device type", placement.device_type],
-    ["Start U", placement.start_u],
-    ["End U", placement.end_u],
-    ["Height U (explicit)", placement.height_u],
-    ["Height U (effective)", placement.effective_height_u],
-    ["Note", placement.note],
-    [
-      "Tags",
-      placement.tags.length > 0 ? placement.tags.join(", ") : null,
-    ],
+  const currentSide = (side?.toLowerCase() ?? "front") as "front" | "rear";
+  const otherSide = currentSide === "front" ? "rear" : "front";
+  const otherSideLabel = otherSide === "front" ? "Front" : "Rear";
+
+  const rows: [string, string | number | null | undefined, boolean?][] = [
+    ["Code",            placement.code,                  true],
+    ["Side",            side,                            false],
+    ["Target kind",     placement.target_kind,           false],
+    ["Target code",     placement.target_code,           true],
+    ["Target name",     placement.target_name,           false],
+    ["Device type",     placement.device_type,           false],
+    ["Start U",         placement.start_u,               true],
+    ["End U",           placement.end_u,                 true],
+    ["Height U",        placement.height_u,              true],
+    ["Eff. height U",   placement.effective_height_u,    true],
+    ["Note",            placement.note,                  false],
+    ["Tags",            placement.tags.length > 0 ? placement.tags.join(", ") : null, false],
   ];
 
   function validateForm(): string | null {
-    const startU = parsePositiveInt(newStartU);
-    if (startU === null) {
-      return "New start U must be a positive integer.";
-    }
+    if (parsePositiveInt(newStartU) === null) return "New start U must be a positive integer.";
     if (newHeightU.trim() !== "" && parsePositiveInt(newHeightU) === null) {
       return "Height U override must be a positive integer if provided.";
     }
-    if (!newRackId) {
-      return "Destination rack is required.";
-    }
+    if (!newRackId) return "Destination rack is required.";
     return null;
   }
 
@@ -142,13 +118,9 @@ export function PlacementInspectorPanel({
     e.preventDefault();
     if (!placement) return;
     const err = validateForm();
-    if (err) {
-      setMoveError(err);
-      return;
-    }
+    if (err) { setMoveError(err); return; }
     const startU = parsePositiveInt(newStartU)!;
-    const heightU =
-      newHeightU.trim() !== "" ? parsePositiveInt(newHeightU) : null;
+    const heightU = newHeightU.trim() !== "" ? parsePositiveInt(newHeightU) : null;
 
     setWorking(true);
     setMoveError(null);
@@ -157,14 +129,12 @@ export function PlacementInspectorPanel({
       await movePlacement({
         placement_id: placement.id,
         new_rack_id: newRackId,
-        new_side: newSide,
+        new_side: currentSide,
         new_start_u: startU,
         new_height_u: heightU,
       });
       const crossRack = newRackId !== currentRack.id;
-      if (!crossRack) {
-        setMoveSuccessMsg("Moved in memory. Use Save to persist changes.");
-      }
+      if (!crossRack) setMoveSuccessMsg("Moved in memory. Use Save to persist changes.");
       onMoveSuccess(placement.id, {
         movedToAnotherRack: crossRack,
         destRackId: crossRack ? newRackId : undefined,
@@ -176,12 +146,30 @@ export function PlacementInspectorPanel({
     }
   }
 
-  async function handleRemove() {
+  async function handleChangeSideConfirm() {
     if (!placement) return;
-    const confirmed = window.confirm(
-      `Remove placement ${placement.code} from this rack? This change is in memory until Save is used.`,
-    );
-    if (!confirmed) return;
+    setChangeSideWorking(true);
+    setChangeSideError(null);
+    try {
+      await movePlacement({
+        placement_id: placement.id,
+        new_rack_id: currentRack.id,
+        new_side: otherSide,
+        new_start_u: placement.start_u,
+        new_height_u: placement.height_u,
+      });
+      setChangeSideOpen(false);
+      onMoveSuccess(placement.id);
+    } catch (e) {
+      setChangeSideError(String(e));
+    } finally {
+      setChangeSideWorking(false);
+    }
+  }
+
+  async function executeRemove() {
+    if (!placement) return;
+    setRemoveConfirmOpen(false);
     setRemoveWorking(true);
     setRemoveError(null);
     try {
@@ -197,242 +185,150 @@ export function PlacementInspectorPanel({
   const moveDisabled = working || racksLoading;
 
   return (
-    <div
-      style={{
-        border: "1px solid #c5d5e8",
-        borderRadius: 3,
-        background: "#f0f5fb",
-        fontSize: "0.82rem",
-      }}
-    >
-      {/* Header */}
-      <div
-        style={{
-          padding: "0.35rem 0.6rem",
-          background: "#d8e6f5",
-          borderBottom: "1px solid #c5d5e8",
-          fontWeight: "bold",
-          fontSize: "0.8rem",
-        }}
-      >
-        Placement Inspector —{" "}
-        <span style={{ fontFamily: "monospace" }}>{placement.code}</span>
-      </div>
-
-      {/* Detail table */}
-      <table style={{ borderCollapse: "collapse", width: "100%" }}>
-        <tbody>
-          {rows.map(([label, value]) => (
-            <tr key={label}>
-              <td style={tdLabel}>{label}</td>
-              <td style={tdValue}>{display(value)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      {/* Move form */}
-      <div
-        style={{
-          padding: "0.6rem 0.75rem",
-          borderTop: "1px solid #c5d5e8",
-          background: "#e8f0fb",
-        }}
-      >
-        <p
-          style={{
-            margin: "0 0 0.4rem",
-            fontWeight: "bold",
-            fontSize: "0.8rem",
-          }}
-        >
-          Move placement
-        </p>
-        {racksError && (
-          <div
-            style={{
-              marginBottom: "0.4rem",
-              padding: "0.25rem 0.5rem",
-              background: "#fff0f0",
-              border: "1px solid #f88",
-              color: "#b00",
-              borderRadius: 3,
-              fontSize: "0.78rem",
-            }}
-          >
-            Failed to load racks: {racksError}
-          </div>
-        )}
-        <form onSubmit={handleSubmit}>
-          <div
-            style={{ display: "flex", gap: "0.5rem", alignItems: "flex-end", flexWrap: "wrap" }}
-          >
-            <label style={{ display: "flex", flexDirection: "column", gap: "0.2rem", flex: 1, minWidth: "160px" }}>
-              <span style={{ fontSize: "0.75rem", color: "#555" }}>Rack</span>
-              <select
-                value={newRackId}
-                onChange={(e) => {
-                  setNewRackId(e.target.value);
-                  setMoveError(null);
-                  setMoveSuccessMsg(null);
-                }}
-                disabled={moveDisabled}
-                style={{ ...common.input, width: "100%" }}
-              >
-                {racksLoading && <option value="">Loading…</option>}
-                {racks.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.code}{r.name ? ` — ${r.name}` : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label style={{ display: "flex", flexDirection: "column", gap: "0.2rem" }}>
-              <span style={{ fontSize: "0.75rem", color: "#555" }}>Side</span>
-              <select
-                value={newSide}
-                onChange={(e) => {
-                  setNewSide(e.target.value as "front" | "rear");
-                  setMoveError(null);
-                  setMoveSuccessMsg(null);
-                }}
-                disabled={moveDisabled}
-                style={{ ...common.input, width: "80px" }}
-              >
-                <option value="front">Front</option>
-                <option value="rear">Rear</option>
-              </select>
-            </label>
-            <label style={{ display: "flex", flexDirection: "column", gap: "0.2rem" }}>
-              <span style={{ fontSize: "0.75rem", color: "#555" }}>
-                New start U
-              </span>
-              <input
-                type="number"
-                min={1}
-                step={1}
-                value={newStartU}
-                onChange={(e) => {
-                  setNewStartU(e.target.value);
-                  setMoveError(null);
-                  setMoveSuccessMsg(null);
-                }}
-                disabled={working}
-                style={{
-                  ...common.input,
-                  width: "90px",
-                  flex: "none",
-                }}
-              />
-            </label>
-            <label style={{ display: "flex", flexDirection: "column", gap: "0.2rem" }}>
-              <span style={{ fontSize: "0.75rem", color: "#555" }}>
-                Height U override{" "}
-                <span style={{ color: "#888" }}>(optional)</span>
-              </span>
-              <input
-                type="number"
-                min={1}
-                step={1}
-                placeholder="—"
-                value={newHeightU}
-                onChange={(e) => {
-                  setNewHeightU(e.target.value);
-                  setMoveError(null);
-                  setMoveSuccessMsg(null);
-                }}
-                disabled={working}
-                style={{
-                  ...common.input,
-                  width: "90px",
-                  flex: "none",
-                }}
-              />
-            </label>
-            <button
-              type="submit"
-              disabled={moveDisabled}
-              style={{ ...common.btn, alignSelf: "flex-end" }}
-            >
-              {working ? "Moving…" : "Move"}
-            </button>
-          </div>
-        </form>
-
-        {moveError && (
-          <div
-            style={{
-              marginTop: "0.4rem",
-              padding: "0.3rem 0.5rem",
-              background: "#fff0f0",
-              border: "1px solid #f88",
-              color: "#b00",
-              borderRadius: 3,
-              fontSize: "0.78rem",
-            }}
-          >
-            {moveError}
-          </div>
-        )}
-        {moveSuccessMsg && (
-          <p
-            style={{
-              marginTop: "0.4rem",
-              fontSize: "0.78rem",
-              color: "#2a7a2a",
-            }}
-          >
-            {moveSuccessMsg}
+    <>
+      <ConfirmDialog
+        open={removeConfirmOpen}
+        title="Remove placement?"
+        body={
+          <p style={{ margin: 0, fontSize: 13 }}>
+            Remove <strong>{placement.code}</strong> from this rack?
+            This is an in-memory change until Save is used.
           </p>
-        )}
-      </div>
+        }
+        confirmLabel="Remove placement"
+        tone="danger"
+        onConfirm={executeRemove}
+        onCancel={() => setRemoveConfirmOpen(false)}
+      />
 
-      {/* Remove section */}
-      <div
-        style={{
-          padding: "0.6rem 0.75rem",
-          borderTop: "1px solid #c5d5e8",
-          background: "#fdf0f0",
-        }}
-      >
-        <p
-          style={{
-            margin: "0 0 0.4rem",
-            fontWeight: "bold",
-            fontSize: "0.8rem",
-          }}
-        >
-          Remove placement
-        </p>
-        <button
-          type="button"
-          onClick={handleRemove}
-          disabled={removeWorking}
-          style={{
-            ...common.btn,
-            background: "#c0392b",
-            color: "#fff",
-            border: "1px solid #a93226",
-          }}
-        >
-          {removeWorking ? "Removing…" : "Remove placement"}
-        </button>
-        {removeError && (
-          <div
-            style={{
-              marginTop: "0.4rem",
-              padding: "0.3rem 0.5rem",
-              background: "#fff0f0",
-              border: "1px solid #f88",
-              color: "#b00",
-              borderRadius: 3,
-              fontSize: "0.78rem",
-            }}
-          >
-            {removeError}
+      <ConfirmDialog
+        open={changeSideOpen}
+        title={`Move to ${otherSideLabel}?`}
+        body={
+          <p style={{ margin: 0, fontSize: 13 }}>
+            Move <strong>{placement.code}</strong> from <strong>{side}</strong> to{" "}
+            <strong>{otherSideLabel}</strong>? It will keep its current U position (U{placement.start_u}).
+            This is an in-memory change until Save is used.
+            {changeSideError && (
+              <span style={{ display: "block", marginTop: 8, color: "var(--st-err-tx)" }}>
+                {changeSideError}
+              </span>
+            )}
+          </p>
+        }
+        confirmLabel={changeSideWorking ? "Moving…" : `Move to ${otherSideLabel}`}
+        onConfirm={handleChangeSideConfirm}
+        onCancel={() => { setChangeSideOpen(false); setChangeSideError(null); }}
+      />
+
+      <div className="stack-3">
+        {/* Detail KV list */}
+        <dl className="kv">
+          {rows.map(([label, value, mono]) => (
+            <div key={label} style={{ display: "contents" }}>
+              <dt>{label}</dt>
+              <dd className={mono ? "mono" : undefined}>{display(value)}</dd>
+            </div>
+          ))}
+        </dl>
+
+        <div className="hr" style={{ margin: 0 }} />
+
+        {/* Move within same side */}
+        <div>
+          <div className="eyebrow" style={{ marginBottom: 6 }}>
+            Move placement <span style={{ color: "var(--tx-3)", fontWeight: 400 }}>(same side)</span>
           </div>
-        )}
+          {racksError && <Banner tone="err">Failed to load racks: {racksError}</Banner>}
+          <form onSubmit={handleSubmit} className="stack-3">
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1, minWidth: 140 }}>
+                <span style={{ fontSize: 11, color: "var(--tx-3)" }}>Rack</span>
+                <select
+                  className="ri-input"
+                  value={newRackId}
+                  onChange={(e) => { setNewRackId(e.target.value); setMoveError(null); setMoveSuccessMsg(null); }}
+                  disabled={moveDisabled}
+                >
+                  {racksLoading && <option value="">Loading…</option>}
+                  {racks.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.code}{r.name ? ` — ${r.name}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 11, color: "var(--tx-3)" }}>Start U</span>
+                <input
+                  className="ri-input"
+                  type="number" min={1} step={1}
+                  style={{ width: 72 }}
+                  value={newStartU}
+                  onChange={(e) => { setNewStartU(e.target.value); setMoveError(null); setMoveSuccessMsg(null); }}
+                  disabled={working}
+                />
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 11, color: "var(--tx-3)" }}>Height U <span style={{ color: "var(--tx-4)" }}>(opt)</span></span>
+                <input
+                  className="ri-input"
+                  type="number" min={1} step={1} placeholder="—"
+                  style={{ width: 72 }}
+                  value={newHeightU}
+                  onChange={(e) => { setNewHeightU(e.target.value); setMoveError(null); setMoveSuccessMsg(null); }}
+                  disabled={working}
+                />
+              </label>
+            </div>
+            <div className="row">
+              <button type="submit" className="btn btn-primary btn-sm" disabled={moveDisabled}>
+                {working ? "Moving…" : "Save move"}
+              </button>
+              <button type="button" className="btn btn-sm" onClick={() => { setMoveError(null); setMoveSuccessMsg(null); }}>
+                Reset
+              </button>
+            </div>
+            {moveError && <Banner tone="err">{moveError}</Banner>}
+            {moveSuccessMsg && <Banner tone="ok">{moveSuccessMsg}</Banner>}
+          </form>
+        </div>
+
+        <div className="hr" style={{ margin: 0 }} />
+
+        {/* Change side */}
+        <div>
+          <div className="eyebrow" style={{ marginBottom: 6 }}>Change side</div>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() => { setChangeSideError(null); setChangeSideOpen(true); }}
+            disabled={working || changeSideWorking}
+          >
+            Move to {otherSideLabel}…
+          </button>
+        </div>
+
+        <div className="hr" style={{ margin: 0 }} />
+
+        {/* Remove */}
+        <div>
+          <div className="eyebrow" style={{ marginBottom: 6 }}>Remove placement</div>
+          <button
+            type="button"
+            className="btn btn-danger btn-sm"
+            onClick={() => setRemoveConfirmOpen(true)}
+            disabled={removeWorking}
+          >
+            {removeWorking ? "Removing…" : "Remove placement"}
+          </button>
+          {removeError && (
+            <div style={{ marginTop: 6 }}>
+              <Banner tone="err">{removeError}</Banner>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
