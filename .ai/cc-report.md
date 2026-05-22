@@ -1142,3 +1142,236 @@ No Rust/Tauri code changed → cargo checks not required.
 ### Suggested next step
 
 Run the workflow manually on GitHub Actions against `design/claude-ui-polish` and download the artifact. Test the installer on a clean Windows 11 machine.
+
+---
+
+## Local diagnostics logging — branch chore/local-diagnostics-logging
+
+**Branch:** `chore/local-diagnostics-logging`
+**Base branch:** `design/claude-ui-polish`
+
+### Technology chosen
+
+**`tauri-plugin-log` v2** (official Tauri v2 logging plugin) + **`log` v0.4** (Rust logging facade).
+
+Chosen because:
+- It is the officially recommended solution for Tauri v2 applications.
+- Writes directly to the platform's app log directory with no external dependencies.
+- Already part of the Tauri ecosystem used by the rest of the project.
+- Provides both file and stdout targets out of the box.
+- Frontend counterpart `@tauri-apps/plugin-log` integrates with the same pipeline.
+
+### Where logs are stored
+
+Logs are written to the platform app log directory managed by Tauri:
+
+- **Windows 11 (QA target):** `%APPDATA%\com.techtradeexpress.rackinventorystudio\logs\`
+- **macOS:** `~/Library/Logs/com.techtradeexpress.rackinventorystudio/`
+- **Linux:** `~/.local/share/com.techtradeexpress.rackinventorystudio/logs/` (XDG)
+
+Exact filename confirmed during Windows QA (Tauri names it by app bundle identifier).
+
+### Logs are local-only / no telemetry
+
+Confirmed: no external endpoints, no analytics, no Sentry, no OpenTelemetry.
+The log plugin writes only to local filesystem and stdout.
+
+### Events logged
+
+**Backend (Rust):** app startup, open/create/save/validate repository (counts only),
+CSV preview/import (byte size + counts), git status/commit/push/pull (result + counts),
+errors for all the above.
+
+**Frontend (TS):** app init, open/create/close repository (success/failure), global
+unhandled errors and promise rejections.
+
+### Data redaction
+
+- Sensitive patterns (`token`, `password`, `secret`, `private_key`, `api_key`, `auth`) →
+  replaced with `[redacted]` / `[error message redacted: possible credential]`
+- Strings capped at 300 characters
+- File system paths reduced to basename only
+- No full YAML/CSV content, no serial numbers, asset tags, or full user paths
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `apps/desktop/src-tauri/Cargo.toml` | Added `tauri-plugin-log = "2"`, `log = "0.4"` |
+| `apps/desktop/src-tauri/src/lib.rs` | Init log plugin in Builder; startup log via `.setup()` hook |
+| `apps/desktop/src-tauri/src/diagnostics.rs` | **New** — `basename`, `truncate`, `sanitize_error` helpers + unit tests |
+| `apps/desktop/src-tauri/src/commands/repository.rs` | Log calls: open, create, save, validate, csv preview/import |
+| `apps/desktop/src-tauri/src/commands/git.rs` | Log calls: git status, commit, push, pull |
+| `apps/desktop/src-tauri/capabilities/default.json` | Added `log:default` permission |
+| `apps/desktop/package.json` | Added `@tauri-apps/plugin-log ^2.0.0` |
+| `apps/desktop/src/lib/diagnosticsLog.ts` | **New** — `logInfo`/`logWarn`/`logError` with Tauri fallback |
+| `apps/desktop/src/lib/redact.ts` | **New** — `redactForLog`, `sanitizePathForLog`, `sanitizeErrorForLog` |
+| `apps/desktop/src/lib/redact.test.ts` | **New** — 18 Vitest tests for redact helpers |
+| `apps/desktop/src/main.tsx` | Global error/rejection handlers; frontend init log |
+| `apps/desktop/src/App.tsx` | Log calls: handleOpen, handleCreateSuccess, handleClose |
+| `apps/desktop/e2e/mocks/tauri-log.ts` | **New** — no-op mock for Playwright e2e |
+| `apps/desktop/vite.config.e2e.ts` | Added alias for `@tauri-apps/plugin-log` mock |
+| `.ai/local-diagnostics-logging.md` | **New** — user-facing documentation |
+| `Cargo.lock` | Updated (tauri-plugin-log v2.8.0 and deps) |
+| `pnpm-lock.yaml` | Updated (@tauri-apps/plugin-log v2.x) |
+
+### Dependencies added
+
+- Rust: `tauri-plugin-log = "2"` → resolved `2.8.0`; `log = "0.4"` → resolved `0.4.29`
+- npm: `@tauri-apps/plugin-log ^2.0.0`
+- Lockfile changes are minimal and contain only the log plugin and its transitive deps.
+
+### Tests and results
+
+| Check | Result |
+|-------|--------|
+| `git diff --check` | pass |
+| `pnpm typecheck` | pass |
+| `pnpm test` | 236/236 pass (18 new tests in `redact.test.ts`) |
+| `pnpm test:e2e` | 10/10 pass |
+| `pnpm build` | pass (270 kB JS, 21 kB CSS) |
+| `cargo fmt --all --check` | pass (auto-applied) |
+| `cargo check --workspace` | pass |
+| `cargo test --workspace` | pass (12 tests in desktop crate, all workspace tests pass) |
+| `cargo clippy --workspace -- -D warnings` | pass (no warnings) |
+
+### Tauri dev smoke
+
+Not run in this session — WSL2 environment has no display/Tauri runtime.
+The log file path on Windows 11 will be confirmed during installer QA.
+
+### Privacy risks
+
+- Repository basenames and codes appear in logs (expected).
+- Git branch names appear in `get_git_status` log entries.
+- Item counts (locations, racks, devices) are logged — no personally identifying data.
+- Full paths are NOT logged (basename only).
+- Heuristic redaction only — unusual credential key names would not be caught.
+
+### Repair update — post-ChatGPT review (privacy/stability blockers)
+
+**Branch:** `chore/local-diagnostics-logging`
+
+**Blockers fixed:**
+
+1. **Frontend global error handler now sanitized** — `window.addEventListener("error", ...)` in
+   `main.tsx` previously logged `e.message` unsanitized. Changed to
+   `sanitizeErrorForLog(e.error ?? e.message ?? "unknown")`, matching the existing
+   `unhandledrejection` handler.
+
+2. **Rust `truncate` is UTF-8 safe** — replaced byte-indexing `&s[..max]` with
+   `s.chars().count() <= max` guard and `s.chars().take(max).collect::<String>()`.
+   Panics on multibyte char boundaries are now impossible. Test updated from byte-len 303
+   to `chars().count() == 301`; new test `truncate_utf8_multibyte_does_not_panic` added
+   (Polish `ą` × 400).
+
+3. **Rust credential redaction extended** — `has_sensitive_pattern` now covers
+   `private-key`, `private key`, `api-key`, `api key`, and `auth` in addition to the
+   existing `token`, `password`, `secret`, `private_key`, `api_key`.
+   Tests added: `sanitize_error_redacts_auth`, `sanitize_error_redacts_private_key_variants`,
+   `sanitize_error_redacts_api_key_variants`.
+
+4. **Rust path redaction added** — new `sanitize_paths_in_message` helper reduces
+   whitespace-delimited tokens containing `/` or `\` to `[path:basename]`. URL tokens
+   (`http://` / `https://`) become `[url]`. `sanitize_error` now applies path redaction
+   after credential check and before truncation.
+   Tests added: `sanitize_error_redacts_unix_path`, `sanitize_error_redacts_windows_path`,
+   `sanitize_error_preserves_safe_message`.
+
+5. **`sanitize_error` ordering fixed** — credential check is now first (preventing
+   partial credential leakage via path token), then path redaction, then UTF-8 safe truncation.
+
+6. **CSV import error now logged** — `import_device_csv_cmd` error path in `repository.rs`
+   now calls `log::error!("import_device_csv failed: {}", sanitize_error(&msg))` before
+   returning the error string.
+
+7. **Documentation updated** — `local-diagnostics-logging.md` now accurately describes
+   the extended credential patterns, path redaction heuristic, UTF-8 safe truncation,
+   and the fact that both frontend global handlers use `sanitizeErrorForLog`.
+
+**Files changed in repair:**
+- `apps/desktop/src/main.tsx` — sanitize window error handler
+- `apps/desktop/src-tauri/src/diagnostics.rs` — UTF-8 truncate, extended patterns, path redaction, new tests
+- `apps/desktop/src-tauri/src/commands/repository.rs` — log::error in import_device_csv_cmd
+- `.ai/local-diagnostics-logging.md` — accurate documentation of redaction rules
+
+**Tests after repair:**
+
+```
+git diff --check                                            → pass
+cargo fmt --all --check                                    → pass
+cargo check --workspace                                    → pass
+cargo test --workspace                                     → pass (18 tests in desktop crate)
+cargo clippy --workspace -- -D warnings                    → pass
+pnpm --filter @rack-inventory-studio/desktop typecheck     → pass
+pnpm --filter @rack-inventory-studio/desktop test          → 236/236 pass
+pnpm --filter @rack-inventory-studio/desktop test:e2e      → 10/10 pass
+pnpm --filter @rack-inventory-studio/desktop build         → pass (270 kB JS, 21 kB CSS)
+```
+
+**Tauri dev smoke (WSL2):** Not run — headless WSL2, no display server.
+All Rust and frontend automated checks confirm no regressions.
+
+**Known limitations (by design):**
+- Path redaction is heuristic: operates on whitespace-delimited tokens only.
+  A path embedded mid-word (no surrounding spaces) is not detected.
+- Basenames of repos, files, and Git branch names still appear in logs.
+- Redaction is not a full DLP system.
+
+### Repair update 2 — frontend path redaction (post-ChatGPT review)
+
+**Branch:** `chore/local-diagnostics-logging`
+
+**Blocker fixed:**
+
+`sanitizeErrorForLog()` in `apps/desktop/src/lib/redact.ts` previously applied only
+credential pattern check and truncation. Path-like tokens in error messages (e.g.
+`Failed to open C:\Users\Jakub\Documents\rack-repo\devices.yaml`) were passed through
+unsanitized if they contained no credential keywords.
+
+**Fix applied — `redact.ts`:**
+
+Added private `sanitizePathsInMessage(message: string): string` function, mirroring
+the Rust `sanitize_paths_in_message` helper:
+- Splits message on whitespace.
+- Tokens starting with `http://` or `https://` → `[url]`.
+- Tokens containing `/` or `\` → `[path:basename]` (last non-empty path segment).
+- Other tokens pass through unchanged.
+
+Updated `sanitizeErrorForLog` ordering:
+1. Credential pattern check on the original string → full redaction if matched.
+2. `sanitizePathsInMessage` — path token redaction.
+3. Truncation to 300 chars.
+
+**No Rust/Tauri files changed in this repair.**
+
+**Tests added (`redact.test.ts` — 5 new tests in `sanitizeErrorForLog` suite):**
+- `redacts unix paths in error messages` — `/home/user/repos/my-repo/repository.yaml` → `[path:repository.yaml]`
+- `redacts windows paths in error messages` — `C:\Users\me\repo\devices.yaml` → `[path:devices.yaml]`
+- `redacts url tokens in error messages` — `https://example.com/repo` → `[url]`
+- `preserves safe messages without paths` — `"YAML parse failed at line 5"` unchanged
+- `credential redaction takes precedence over path redaction` — message with `auth token` and path → credential redaction wins
+
+**Check results after repair:**
+
+```
+git diff --check                                            → pass
+pnpm --filter @rack-inventory-studio/desktop typecheck     → pass
+pnpm --filter @rack-inventory-studio/desktop test          → 241/241 pass (+5 new tests)
+pnpm --filter @rack-inventory-studio/desktop test:e2e      → 10/10 pass
+pnpm --filter @rack-inventory-studio/desktop build         → pass (270 kB JS, 21 kB CSS)
+```
+
+Rust/Tauri not changed → cargo checks not required.
+
+**Known limitations (by design):**
+- Path redaction is heuristic: whitespace-delimited tokens only.
+  A path embedded mid-word (no surrounding spaces) is not detected.
+- Basenames of repos, files, and Git branch names still appear in logs.
+- Redaction is not a full DLP system.
+
+### Suggested next step
+
+Run the app from the Windows NSIS installer on a clean Windows 11 machine, verify
+`%APPDATA%\com.techtradeexpress.rackinventorystudio\logs\` is created on first launch,
+and confirm log entries are written for open/save/git operations without full paths.

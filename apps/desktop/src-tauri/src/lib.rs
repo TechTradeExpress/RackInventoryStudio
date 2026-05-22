@@ -1,4 +1,5 @@
 mod commands;
+mod diagnostics;
 mod dto;
 
 use commands::{
@@ -17,6 +18,17 @@ use std::sync::Mutex;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .targets([
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                        file_name: None,
+                    }),
+                ])
+                .level(log::LevelFilter::Info)
+                .build(),
+        )
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             session: Mutex::new(None),
@@ -62,6 +74,10 @@ pub fn run() {
             read_csv_file,
             search_repository_cmd,
         ])
+        .setup(|_app| {
+            log::info!("Rack Inventory Studio starting");
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

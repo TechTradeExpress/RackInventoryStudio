@@ -1,6 +1,7 @@
 use tauri::State;
 
 use crate::commands::repository::{build_summary, AppState};
+use crate::diagnostics::sanitize_error;
 use crate::dto::{GitCommitDto, GitRemoteDto, GitStatusDto, RepositorySummaryDto};
 
 fn no_session() -> String {
@@ -30,7 +31,19 @@ fn commit_to_dto(c: ris_git::GitCommitSummary) -> GitCommitDto {
 pub fn get_git_status(state: State<AppState>) -> Result<GitStatusDto, String> {
     let guard = lock(&state)?;
     let session = guard.as_ref().ok_or_else(no_session)?;
-    let s = ris_git::status(&session.repo_path).map_err(|e| e.to_string())?;
+    let s = ris_git::status(&session.repo_path).map_err(|e| {
+        let msg = e.to_string();
+        log::warn!("get_git_status failed: {}", sanitize_error(&msg));
+        msg
+    })?;
+    log::info!(
+        "get_git_status: is_repo={} branch={:?} ahead={:?} behind={:?} clean={}",
+        s.is_repository,
+        s.branch,
+        s.ahead,
+        s.behind,
+        s.is_clean,
+    );
     Ok(GitStatusDto {
         is_repository: s.is_repository,
         branch: s.branch,
@@ -69,9 +82,15 @@ pub fn commit_repository_changes(
     message: String,
     state: State<AppState>,
 ) -> Result<GitCommitDto, String> {
+    log::info!("git_commit: start");
     let guard = lock(&state)?;
     let session = guard.as_ref().ok_or_else(no_session)?;
-    let commit = ris_git::commit_all(&session.repo_path, &message).map_err(|e| e.to_string())?;
+    let commit = ris_git::commit_all(&session.repo_path, &message).map_err(|e| {
+        let msg = e.to_string();
+        log::error!("git_commit failed: {}", sanitize_error(&msg));
+        msg
+    })?;
+    log::info!("git_commit ok: short_hash={}", commit.short_hash);
     Ok(commit_to_dto(commit))
 }
 
@@ -98,12 +117,19 @@ pub fn add_git_remote(name: String, url: String, state: State<AppState>) -> Resu
 
 #[tauri::command]
 pub fn push_git_current_branch(remote: String, state: State<AppState>) -> Result<(), String> {
+    log::info!("git_push: remote={remote}");
     let repo_path = {
         let guard = lock(&state)?;
         let session = guard.as_ref().ok_or_else(no_session)?;
         session.repo_path.clone()
     };
-    ris_git::push_current_branch(&repo_path, &remote).map_err(|e| e.to_string())
+    ris_git::push_current_branch(&repo_path, &remote).map_err(|e| {
+        let msg = e.to_string();
+        log::error!("git_push failed: {}", sanitize_error(&msg));
+        msg
+    })?;
+    log::info!("git_push ok");
+    Ok(())
 }
 
 /// Pull from `remote` using `--ff-only`, then reload the repository session from disk.
@@ -127,12 +153,20 @@ pub fn pull_git_ff_only(
         session.repo_path.clone()
     };
 
-    ris_git::pull_ff_only(&repo_path, &remote).map_err(|e| e.to_string())?;
+    log::info!("git_pull: remote={remote}");
+    ris_git::pull_ff_only(&repo_path, &remote).map_err(|e| {
+        let msg = e.to_string();
+        log::error!("git_pull failed: {}", sanitize_error(&msg));
+        msg
+    })?;
 
     // Reload session so in-memory state reflects the newly pulled YAML files.
     // If reload fails, the old session remains unchanged.
-    let new_session = ris_application::open_repository(&repo_path)
-        .map_err(|e| format!("Pull succeeded but failed to reload repository: {e}"))?;
+    let new_session = ris_application::open_repository(&repo_path).map_err(|e| {
+        let msg = format!("Pull succeeded but failed to reload repository: {e}");
+        log::error!("git_pull reload failed: {}", sanitize_error(&msg));
+        msg
+    })?;
     let summary = build_summary(&new_session);
 
     // Only replace the session if the active session is still the same repository.
@@ -151,5 +185,11 @@ pub fn pull_git_ff_only(
         }
     }
 
+    log::info!(
+        "git_pull ok: locations={} racks={} devices={}",
+        summary.locations_count,
+        summary.racks_count,
+        summary.devices_count,
+    );
     Ok(summary)
 }
