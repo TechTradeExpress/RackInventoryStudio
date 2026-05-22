@@ -80,7 +80,7 @@ describe("derivePlacementLabel", () => {
     expect(label.uRange).toBe("U20–U23");
   });
 
-  it("fallback when target_name is null: uses model_name", () => {
+  it("fallback when target_name is null: uses model_name as primary, model is null (no duplication)", () => {
     const label = derivePlacementLabel(make({
       code: "plc-04",
       target_name: null,
@@ -90,6 +90,25 @@ describe("derivePlacementLabel", () => {
       end_u: 3,
     }));
     expect(label.primary).toBe("PowerEdge R640");
+    expect(label.model).toBeNull();
+    expect(label.title).not.toMatch(/PowerEdge R640.*PowerEdge R640/);
+  });
+
+  it("no model duplication: device without name, model_name becomes primary; model field suppressed", () => {
+    const label = derivePlacementLabel(make({
+      code: "plc-noname",
+      target_name: null,
+      model_name: "PowerEdge R640",
+      model_code: "R640",
+      effective_height_u: 1,
+      start_u: 5,
+      end_u: 5,
+    }));
+    expect(label.primary).toBe("PowerEdge R640");
+    expect(label.model).toBeNull();
+    // title must not contain the model string twice
+    const occurrences = (label.title.match(/PowerEdge R640/g) ?? []).length;
+    expect(occurrences).toBe(1);
   });
 
   it("fallback to target_code when name and model missing", () => {

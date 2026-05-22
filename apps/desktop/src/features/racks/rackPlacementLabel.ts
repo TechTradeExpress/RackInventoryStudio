@@ -25,8 +25,10 @@ export function derivePlacementLabel(p: PlacementDto): PlacementLabelData {
     p.model_code ??
     p.code;
 
-  // model only for device placements; rack-object placements carry model name in target_name
-  const model = p.model_name ?? p.model_code ?? null;
+  // Suppress model when it would duplicate primary (e.g. device with no name but has model_name:
+  // primary falls back to model_name, so showing model separately would repeat it).
+  const modelRaw = p.model_name ?? p.model_code ?? null;
+  const model = modelRaw !== null && modelRaw !== primary ? modelRaw : null;
 
   const serial = p.target_serial ? `SN: ${p.target_serial}` : null;
   const asset  = p.target_asset_tag ? `Asset: ${p.target_asset_tag}` : null;
@@ -40,7 +42,7 @@ export function derivePlacementLabel(p: PlacementDto): PlacementLabelData {
       : `U${p.start_u}`;
 
   const titleParts: string[] = [primary];
-  if (model && model !== primary) titleParts.push(model);
+  if (model) titleParts.push(model);
   if (p.target_serial)    titleParts.push(`SN: ${p.target_serial}`);
   if (p.target_asset_tag) titleParts.push(`Asset: ${p.target_asset_tag}`);
   titleParts.push(uRange);

@@ -696,3 +696,34 @@ pnpm build               → pass
 
 **Suggested next step:**
 Branch G — `design/ui-correction-rack-inspector-table`: placement table integrated into Rack Detail with selection sync and side-safe inspector.
+
+### Repair update (post-ChatGPT review)
+
+**Blocker fixed: model duplication when device has no name**
+
+When `target_name` is null and `model_name` is set, `primary` falls back to `model_name`. The original code also returned `model = model_name`, causing `primary === model`. This produced `PowerEdge R640 · PowerEdge R640` in 1U labels and a redundant model line in 2U/3U+.
+
+Fix in `rackPlacementLabel.ts`:
+```ts
+const modelRaw = p.model_name ?? p.model_code ?? null;
+const model = modelRaw !== null && modelRaw !== primary ? modelRaw : null;
+```
+`model` is now null whenever it would duplicate `primary`. Title building simplified to `if (model)` (redundant `model !== primary` guard removed).
+
+**Tests added:**
+- Updated `"fallback when target_name is null"` — now also asserts `model === null` and title does not repeat the model string.
+- New `"no model duplication: device without name"` — asserts `model === null` and counts exact occurrences in title.
+
+**Review context root-dir fix:**
+Previous generation ran from `apps/desktop/` — the script checks `[[ -f .ai/cc-report.md ]]` relative to CWD, so it looked in the wrong directory. New context generated from repo root (`/home/su-17/projects/RackInventoryStudio`).
+
+**Repair scope:** frontend-only — no Rust/Tauri changes. Cargo checks not repeated.
+
+**Tests after repair:**
+```
+git diff --check           → pass
+pnpm typecheck             → pass
+pnpm test                  → 218/218 (12 label tests, 1 new)
+pnpm test:e2e              → 9/9
+pnpm build                 → pass
+```
