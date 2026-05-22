@@ -1043,6 +1043,18 @@ Run the Windows Installer workflow manually on GitHub Actions against `design/cl
 
 ---
 
+### Repair update 2 (post-ChatGPT review)
+
+**Blockers fixed:**
+- README roadmap table still had `Playwright smoke tests (9/9)` while all other README references already said 10 tests. Removed the counter from the roadmap entry — it now reads `Playwright smoke tests` (no number) to avoid future drift.
+- Older "Windows installer CI" section in this report still claimed `tauri.conf.json` was not changed (bundle defaults — MSI + NSIS) and listed a WiX risk bullet saying the upload glob covers both. Both are now inconsistent with the actual state: `tauri.conf.json` has `bundle.active: true, targets: ["nsis"]`, and the workflow uploads only `target/release/bundle/nsis/*.exe`. Updated both bullets accordingly.
+
+**Files changed:** `README.md`, `.ai/cc-report.md`.
+
+**Final documented installer state:** manual-only (`workflow_dispatch`), NSIS artifact only, `target/release/bundle/nsis/*.exe`, unsigned, no MSI/WiX.
+
+---
+
 ## Windows installer CI — branch ci/windows-installer-build
 
 **Branch:** `ci/windows-installer-build`
@@ -1103,7 +1115,7 @@ Not configured. The installer is unsigned. Windows SmartScreen will warn on firs
 
 - No application source code changed.
 - No Rust/Tauri backend changed.
-- No `tauri.conf.json` changes (bundle section left as default — Tauri generates both MSI and NSIS by default).
+- `tauri.conf.json` updated: added `bundle.active: true` and `targets: ["nsis"]` so Tauri produces the NSIS installer. MSI/WiX packaging is intentionally out of scope (WiX is not available on `windows-latest`).
 - No `package.json` / lockfile changes.
 - No `examples/example-repository` changes.
 
@@ -1122,7 +1134,7 @@ No Rust/Tauri code changed → cargo checks not required.
 
 ### Risks
 
-- `windows-latest` runner may not have WiX Toolset installed, in which case only the NSIS installer is produced. The upload glob covers both; `if-no-files-found: error` catches total failure.
+- MSI/WiX packaging is out of scope. The workflow uploads only the NSIS artifact (`target/release/bundle/nsis/*.exe`); `if-no-files-found: error` catches a missing build.
 - Tauri v2 cold build on Windows takes 20–30 minutes. Warm cache (Swatinem) reduces this to ~5–10 min.
 - Unsigned installer triggers SmartScreen on Windows 11 — acceptable for internal QA.
 - Workflow has not been run on GitHub Actions yet; first real run will validate all steps end-to-end.

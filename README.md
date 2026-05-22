@@ -100,7 +100,7 @@ v1.0.0 is the first user-facing release. It is not just a technical MVP — it m
 | Create new repository wizard | Done (PR #33) |
 | Native CSV file picker | Done (PR #33) |
 | Minimal global search | Done (PR #35) |
-| Playwright smoke tests (9/9) | Done (PR #36, #39) |
+| Playwright smoke tests | Done (PR #36, #39) |
 | Drag-and-drop placement | Done (PR #37) |
 | Repository flow polish (landing / open / close / recent repos) | Done (PR #38) |
 | Claude Design / UX audit and design direction | Done (branch `design/claude-ui-polish`) |
