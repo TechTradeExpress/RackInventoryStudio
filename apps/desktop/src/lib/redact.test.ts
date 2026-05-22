@@ -86,4 +86,32 @@ describe("sanitizeErrorForLog", () => {
       "[error message redacted: possible credential]",
     );
   });
+
+  it("redacts unix paths in error messages", () => {
+    expect(
+      sanitizeErrorForLog("failed to read /home/user/repos/my-repo/repository.yaml"),
+    ).toBe("failed to read [path:repository.yaml]");
+  });
+
+  it("redacts windows paths in error messages", () => {
+    expect(sanitizeErrorForLog("failed C:\\Users\\me\\repo\\devices.yaml")).toBe(
+      "failed [path:devices.yaml]",
+    );
+  });
+
+  it("redacts url tokens in error messages", () => {
+    expect(sanitizeErrorForLog("request failed https://example.com/repo")).toBe(
+      "request failed [url]",
+    );
+  });
+
+  it("preserves safe messages without paths", () => {
+    expect(sanitizeErrorForLog("YAML parse failed at line 5")).toBe("YAML parse failed at line 5");
+  });
+
+  it("credential redaction takes precedence over path redaction", () => {
+    expect(
+      sanitizeErrorForLog("failed with auth token at C:\\Users\\me\\repo"),
+    ).toBe("[error message redacted: possible credential]");
+  });
 });

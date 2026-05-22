@@ -1223,6 +1223,58 @@ All Rust and frontend automated checks confirm no regressions.
 - Basenames of repos, files, and Git branch names still appear in logs.
 - Redaction is not a full DLP system.
 
+### Repair update 2 — frontend path redaction (post-ChatGPT review)
+
+**Branch:** `chore/local-diagnostics-logging`
+
+**Blocker fixed:**
+
+`sanitizeErrorForLog()` in `apps/desktop/src/lib/redact.ts` previously applied only
+credential pattern check and truncation. Path-like tokens in error messages (e.g.
+`Failed to open C:\Users\Jakub\Documents\rack-repo\devices.yaml`) were passed through
+unsanitized if they contained no credential keywords.
+
+**Fix applied — `redact.ts`:**
+
+Added private `sanitizePathsInMessage(message: string): string` function, mirroring
+the Rust `sanitize_paths_in_message` helper:
+- Splits message on whitespace.
+- Tokens starting with `http://` or `https://` → `[url]`.
+- Tokens containing `/` or `\` → `[path:basename]` (last non-empty path segment).
+- Other tokens pass through unchanged.
+
+Updated `sanitizeErrorForLog` ordering:
+1. Credential pattern check on the original string → full redaction if matched.
+2. `sanitizePathsInMessage` — path token redaction.
+3. Truncation to 300 chars.
+
+**No Rust/Tauri files changed in this repair.**
+
+**Tests added (`redact.test.ts` — 5 new tests in `sanitizeErrorForLog` suite):**
+- `redacts unix paths in error messages` — `/home/user/repos/my-repo/repository.yaml` → `[path:repository.yaml]`
+- `redacts windows paths in error messages` — `C:\Users\me\repo\devices.yaml` → `[path:devices.yaml]`
+- `redacts url tokens in error messages` — `https://example.com/repo` → `[url]`
+- `preserves safe messages without paths` — `"YAML parse failed at line 5"` unchanged
+- `credential redaction takes precedence over path redaction` — message with `auth token` and path → credential redaction wins
+
+**Check results after repair:**
+
+```
+git diff --check                                            → pass
+pnpm --filter @rack-inventory-studio/desktop typecheck     → pass
+pnpm --filter @rack-inventory-studio/desktop test          → 241/241 pass (+5 new tests)
+pnpm --filter @rack-inventory-studio/desktop test:e2e      → 10/10 pass
+pnpm --filter @rack-inventory-studio/desktop build         → pass (270 kB JS, 21 kB CSS)
+```
+
+Rust/Tauri not changed → cargo checks not required.
+
+**Known limitations (by design):**
+- Path redaction is heuristic: whitespace-delimited tokens only.
+  A path embedded mid-word (no surrounding spaces) is not detected.
+- Basenames of repos, files, and Git branch names still appear in logs.
+- Redaction is not a full DLP system.
+
 ### Suggested next step
 
 Run the app from the Windows NSIS installer on a clean Windows 11 machine, verify

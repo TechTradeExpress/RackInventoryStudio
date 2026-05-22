@@ -21,12 +21,38 @@ export function sanitizePathForLog(path: string): string {
 }
 
 /**
- * Safely stringify an unknown error value, truncated and redacted.
+ * Replaces whitespace-delimited path-like tokens with [path:basename].
+ * URL tokens (http:// / https://) become [url].
+ * Tokens without / or \ are left unchanged.
+ * Mirrors the behaviour of sanitize_paths_in_message() in Rust diagnostics.rs.
+ */
+function sanitizePathsInMessage(message: string): string {
+  const tokens = message.split(/\s+/);
+  const result: string[] = [];
+  for (const tok of tokens) {
+    if (!tok) continue;
+    if (tok.startsWith("http://") || tok.startsWith("https://")) {
+      result.push("[url]");
+    } else if (tok.includes("/") || tok.includes("\\")) {
+      const normalized = tok.replace(/\\/g, "/");
+      const parts = normalized.split("/").filter(Boolean);
+      const base = parts[parts.length - 1] ?? "?";
+      result.push(`[path:${base}]`);
+    } else {
+      result.push(tok);
+    }
+  }
+  return result.join(" ");
+}
+
+/**
+ * Safely stringify an unknown error value, redacted and truncated.
+ * Order: credential check → path redaction → truncation.
  */
 export function sanitizeErrorForLog(err: unknown): string {
   const msg =
     err instanceof Error ? err.message : err === undefined ? "unknown error" : String(err);
-  const trimmed = msg.length > MAX_LENGTH ? msg.slice(0, MAX_LENGTH) + "…" : msg;
-  if (SENSITIVE_PATTERN.test(trimmed)) return "[error message redacted: possible credential]";
-  return trimmed;
+  if (SENSITIVE_PATTERN.test(msg)) return "[error message redacted: possible credential]";
+  const sanitized = sanitizePathsInMessage(msg);
+  return sanitized.length > MAX_LENGTH ? sanitized.slice(0, MAX_LENGTH) + "…" : sanitized;
 }
