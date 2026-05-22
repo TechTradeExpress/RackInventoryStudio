@@ -523,3 +523,74 @@ No Rust/Tauri files changed → cargo checks not required for this branch.
 
 **Suggested next step:**
 Branch E — `design/ui-correction-rack-single-side`: add `activeSide: 'front' | 'rear'` state to Rack Detail, render `Segmented` control in PageHeader, render only active side in `RackUnitDiagram`.
+
+---
+
+## UI correction rack single side — branch design/ui-correction-rack-single-side
+
+**Branch:** `design/ui-correction-rack-single-side`
+**Base branch:** `design/claude-ui-polish`
+
+**Prerequisites merged into base:**
+- `design/ui-correction-modal-primitives` — Modal, ConfirmDialog, Field, Segmented, form-grid CSS
+- `design/ui-correction-location-modal` — LocationFormModal
+- `design/ui-correction-rack-model-modals` — RackFormModal, DeviceModelFormModal
+- `design/ui-correction-device-modal` — DeviceFormModal
+
+**What was changed:**
+
+*Modified files:*
+- `apps/desktop/src/features/racks/RackDetailPanel.tsx` — Added `activeSide: "front" | "rear"` state (default `"front"`). Added `handleSideChange` that sets activeSide and clears `selectedPlacement`. Imported `Segmented` and placed it in `PageHeader` actions alongside the Back button (`ariaLabel="Rack side"`, options: Front / Rear). Passes `activeSide` to `RackUnitDiagram` (new `side` prop) and `AddPlacementPanel` (new `activeSide` prop). On initial navigation to a placement, switches `activeSide` to the side of the found placement. `refreshAfterMutation` also switches `activeSide` after a move/add so the diagram follows the new placement position. Active side stats bolded in the footer.
+- `apps/desktop/src/features/racks/RackUnitDiagram.tsx` — Added `side: "front" | "rear"` prop. Changed from rendering both Front and Rear columns simultaneously to rendering only the active side's column. Warnings filtered to active side only.
+- `apps/desktop/src/features/racks/AddPlacementPanel.tsx` — Added `activeSide: "front" | "rear"` prop. Form's `side` state is initialized from `activeSide` and synced via `useEffect`. Side select is now `disabled` (locked to `activeSide` — the Segmented control in the rack header is the source of truth). Palette title updated to `"Drag to place · Front"` or `"Drag to place · Rear"`.
+- `apps/desktop/e2e/smoke.spec.ts` — Extended "rack detail and placement table visible" test: added assertions that Front and Rear tab controls are visible, and that switching to Rear sets `aria-selected="true"` on the Rear tab.
+
+**How activeSide works:**
+- Default is `"front"` on every rack open.
+- User switches via `Segmented` (Front / Rear) in the PageHeader — this is the single point of side selection.
+- Switching clears the selected placement so the inspector shows empty state (no stale cross-side selection).
+- On programmatic navigation (e.g. cross-rack move), `activeSide` is auto-set to the side of the destination placement.
+
+**Front/Rear Segmented control location:**
+- `PageHeader` actions area, to the left of the Back button.
+- Uses existing `Segmented<"front" | "rear">` component from `components/ui/Segmented.tsx` with `ariaLabel="Rack side"`.
+
+**Single-side rendering:**
+- `RackUnitDiagram` receives `side` prop and renders only one `SideColumn` — front OR rear, never both.
+- Both `front` and `rear` placement arrays are still passed as props (needed for occupancy calculation and the placement tables in the right column).
+- The diagram header row shows "Front" or "Rear" depending on the active side.
+- Warnings shown only for the active side.
+
+**Drag-to-place side targeting:**
+- Because `RackUnitDiagram` only renders one `SideColumn`, all drops naturally target `activeSide` without any extra logic.
+- `AddPlacementPanel` form's `side` select is locked to `activeSide`; palette title says "Drag to place · Front" or "Drag to place · Rear".
+
+**Selection clearing on side switch:**
+- `handleSideChange` calls `setSelectedPlacement(null)` before setting new `activeSide`.
+- Inspector returns to empty state after side switch — no cross-side placement details shown.
+
+**Intentionally NOT changed:**
+- Placement label enrichment (branch F)
+- Placement table redesign / diagram-table sync (branch G)
+- Inspector side read-only / Change side modal (branch G)
+- All CRUD panels (Locations, Racks, DeviceModels, Devices) — unchanged
+- CSV Import, Repository panel — unchanged
+- All Rust/Tauri backend files — unchanged
+- Example repository data — unchanged
+
+**Tests run and results:**
+```
+git diff --check                                                        → pass
+pnpm --filter @rack-inventory-studio/desktop typecheck                 → pass
+pnpm --filter @rack-inventory-studio/desktop test                      → 206/206 pass (17 files)
+pnpm --filter @rack-inventory-studio/desktop test:e2e                  → 9/9 pass (1 test extended)
+pnpm --filter @rack-inventory-studio/desktop build                     → pass (20.9 kB CSS, 265 kB JS)
+```
+No Rust/Tauri files changed → cargo checks not required for this branch.
+
+**Known risks:**
+- The placement tables in the right column (Front placements / Rear placements) still show both sides simultaneously. This is intentional — they're kept as-is pending the branch G redesign. A user can click a placement in the "Rear placements" table while the diagram is on Front: this will set `selectedPlacement` and show it in the inspector, but the diagram will not highlight it (because it shows a different side). This is a known inconsistency to be resolved in branch G.
+- `refreshAfterMutation` switches `activeSide` to follow the placement. If a user moves a front placement to rear, the diagram switches to Rear automatically. This is correct behavior but may surprise users who wanted to stay on Front. Branch G (inspector + table sync) can add explicit UX for this.
+
+**Suggested next step:**
+Branch F — `design/ui-correction-rack-labels`: enrich placement label rendering inside the diagram (1U compact / 2U two-row / 3U+ stacked).

@@ -18,13 +18,20 @@ interface Props {
   onAddSuccess: (newPlacementId: string) => void;
   reloadToken: number;
   mutationToken: number;
+  /** Active side selected in Rack Detail — palette drops and form target this side. */
+  activeSide: "front" | "rear";
 }
 
 type Mode = "device" | "rack_object";
 
-export function AddPlacementPanel({ rack, onAddSuccess, reloadToken, mutationToken }: Props) {
+export function AddPlacementPanel({ rack, onAddSuccess, reloadToken, mutationToken, activeSide }: Props) {
   const [mode, setMode] = useState<Mode>("device");
-  const [side, setSide] = useState<"front" | "rear">("front");
+  const [side, setSide] = useState<"front" | "rear">(activeSide);
+
+  // Sync side with active side when it changes in Rack Detail
+  useEffect(() => {
+    setSide(activeSide);
+  }, [activeSide]);
   const [deviceId, setDeviceId] = useState("");
   const [deviceModelId, setDeviceModelId] = useState("");
   const [startU, setStartU] = useState("");
@@ -218,13 +225,13 @@ export function AddPlacementPanel({ rack, onAddSuccess, reloadToken, mutationTok
             flexWrap: "wrap",
           }}
         >
-          {/* Side */}
+          {/* Side — locked to activeSide; change via the Front/Rear control in the rack header */}
           <label style={{ display: "flex", flexDirection: "column", gap: "0.2rem" }}>
             <span style={{ fontSize: "0.75rem", color: "#555" }}>Side</span>
             <select
               value={side}
               onChange={(e) => setSide(e.target.value as "front" | "rear")}
-              disabled={working}
+              disabled
               style={{ ...common.input, width: "80px" }}
             >
               <option value="front">Front</option>
@@ -393,7 +400,9 @@ export function AddPlacementPanel({ rack, onAddSuccess, reloadToken, mutationTok
       {/* Drag palette */}
       {!targetsLoading && !targetLoadError && (unplacedDevices.length > 0 || rackObjectModels.length > 0) && (
         <div style={{ borderTop: "1px solid var(--bd-1)", padding: "8px 12px" }}>
-          <div className="eyebrow" style={{ marginBottom: 6 }}>Drag to place</div>
+          <div className="eyebrow" style={{ marginBottom: 6 }}>
+            Drag to place · {activeSide === "front" ? "Front" : "Rear"}
+          </div>
           <div className="palette">
             {unplacedDevices.map((d) => {
               const modelHeight =
