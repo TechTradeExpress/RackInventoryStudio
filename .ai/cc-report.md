@@ -2229,7 +2229,7 @@ The Tauri CLI was invoked directly via `node node_modules/@tauri-apps/cli/tauri.
 
 No changes needed. Tauri v2 looks for icons in `src-tauri/icons/` by convention when `bundle.icon` is not explicitly set. The `icon.svg` source file is not consumed by Tauri at build time (only the generated PNGs/ICO/ICNS are used); it is stored in `icons/` as the canonical design source.
 
-### Checks run
+### Checks run (repair pass — cargo/gcc now installed)
 
 | Check | Command | Result |
 |---|---|---|
@@ -2237,12 +2237,20 @@ No changes needed. Tauri v2 looks for icons in `src-tauri/icons/` by convention 
 | TypeScript | `node_modules/.bin/tsc --noEmit` | pass |
 | Unit tests | `node_modules/.bin/vitest run` | 315/315 pass (no test changes) |
 | Production build | `node_modules/.bin/vite build` | pass — 21.33 kB CSS, 273.01 kB JS |
-| E2E smoke | `node_modules/.bin/playwright test` | **10/10 pass** (Firefox, 14.9 s) |
+| E2E smoke | `node_modules/.bin/playwright test` | **10/10 pass** (Firefox, 14.9 s; `libasound2` installed via `playwright install --with-deps`) |
 | `pnpm` availability | `command -v pnpm` | not available — Node 18.19.1, no corepack, no global pnpm. All checks run via `node_modules/.bin/` equivalents. |
-| Local Tauri build | `pnpm tauri build` | **not run** — `cargo` is not installed on this Linux host (`command -v cargo` → not in PATH, `~/.cargo/bin/cargo` absent). The Tauri CLI (`node_modules/.bin/tauri`) requires a Rust toolchain to compile the Rust backend. Without Rust, the build cannot proceed locally. The Windows NSIS installer build is validated end-to-end by the `windows-diagnostic-installer` GitHub Actions workflow on `windows-latest` runners which have Rust pre-installed. |
+| `cargo` availability | `command -v cargo` | `/cache/cargo/bin/cargo` — cargo 1.95.0 |
+| `gcc` availability | `command -v gcc` | `/usr/bin/gcc` — gcc 13.3.0 |
+| `cargo fmt --all --check` | `cargo fmt --all --check` | **pass** |
+| `cargo check --workspace` | `cargo check --workspace` | **pass** |
+| `cargo test --workspace` | `cargo test --workspace` | **pass** — 18 tests in desktop crate, all workspace tests pass |
+| `cargo clippy --workspace` | `cargo clippy --workspace -- -D warnings` | **pass** — no warnings |
+| Rust release compile | `cargo build --release --manifest-path apps/desktop/src-tauri/Cargo.toml` | **pass** — compiled in 3m 29s, `Finished release profile [optimized]`. GTK3 and WebKit2GTK 4.1 (`pkg-config --exists gtk+-3.0 webkit2gtk-4.1`) are available. |
+| Full Tauri CLI build | `node .../tauri.js build` | **not run to completion** — `beforeBuildCommand: "pnpm build"` fails with exit 127 (pnpm not in PATH). Vite production build was run separately via `node_modules/.bin/vite build` (pass). The Rust Tauri backend compiled successfully via `cargo build --release` (see above). A full pnpm-based Tauri installer build must be run on a system with pnpm installed. |
 | `package-lock.json` | `test ! -f apps/desktop/package-lock.json` | confirmed absent — project uses pnpm / pnpm-lock.yaml only |
+| Review-context files | `git diff --name-only integration/post-ui-polish-qa...HEAD \| grep review-context` | **none** — three accidentally committed review-context files (1739, 1753, 2003) removed via interactive rebase; branch history is clean |
 
-No application source code, Rust/Tauri backend, or test files were changed by this branch.
+No application source code or test files were changed by this branch. `Cargo.lock` updated to reflect `ris-git` dev-dependency in `ris-application` (Cargo.toml already declared it; lock file was stale).
 
 ### Known risks
 
