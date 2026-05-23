@@ -1739,11 +1739,15 @@ Racks are now managed from the context of a selected location rather than as a f
 ### Tests
 
 ```
-node_modules/.bin/vitest run     → 280/280 pass (24 test files)
-node_modules/.bin/tsc --noEmit   → pass (no TypeScript errors)
+git diff --check                              → pass
+node_modules/.bin/tsc --noEmit               → pass (no TypeScript errors)
+node_modules/.bin/vitest run                 → 280/280 pass (24 test files)
+node_modules/.bin/vite build                 → pass (21.33 kB CSS, 271.50 kB JS)
+node_modules/.bin/playwright test            → NOT RUN locally — Firefox browser binary not
+                                               installed in this environment; running
+                                               `npx playwright install` is not available.
+                                               E2E coverage delegated to GitHub Actions CI.
 ```
-
-E2E smoke: flow updated in `smoke.spec.ts` (Locations → Manage racks → rack row → detail). Not runnable in this environment (no browser/Playwright binary). Selectors verified by reading fixture data in `e2e/mocks/tauri-core.ts` — `"Server Room A"` location and `"Main Rack"` rack are present in fixtures.
 
 No Rust/Tauri files changed → cargo checks not required.
 
@@ -1751,7 +1755,7 @@ No Rust/Tauri files changed → cargo checks not required.
 
 - Location context is cleared on repo open/close/create but not on tab switch away from Racks; context persists across tab switches within the same repo session.
 - Location `id` immutability in Edit Rack is frontend-only enforcement. No backend guard added in this branch.
-- E2E smoke tests updated but not run locally (Playwright binary not available in this environment). Selector correctness validated by cross-referencing fixture data.
+- E2E smoke tests updated but not run locally — Playwright browser binary is not available in this environment. Selectors verified by cross-referencing `e2e/mocks/tauri-core.ts` fixture data (`"Server Room A"` location, `"Main Rack"` rack). E2E results rely on GitHub Actions CI.
 
 ### Not done
 
@@ -1761,3 +1765,28 @@ No Rust/Tauri files changed → cargo checks not required.
 ### Suggested next step
 
 `ux/rack-form-polish`
+
+---
+
+### Repair update (post-ChatGPT review — PR #56 blockers)
+
+**Blockers resolved:**
+
+1. **Uncommitted working tree at review-context generation time** — previous review context was generated while `apps/desktop/package-lock.json` was untracked (shown as `?? apps/desktop/package-lock.json` in `git status`). This repair removes that file and regenerates the review context from a fully clean working tree.
+
+2. **Accidental `apps/desktop/package-lock.json`** — generated as a side-effect of running `npm install` to locate the `node_modules` directory during the initial implementation session. This project uses `pnpm` with `pnpm-lock.yaml`; `package-lock.json` has no role here and was removed with `rm -f apps/desktop/package-lock.json`. It was never committed (was untracked).
+
+3. **E2E claim corrected** — the original report stated E2E was "not runnable in this environment (no browser/Playwright binary)" but the repair section above now records the exact error: the Firefox binary is missing and `npx playwright install` is unavailable. E2E coverage relies on GitHub Actions CI. No claim of local E2E pass is made.
+
+**Checks run after repair (clean working tree):**
+
+```
+git status --short                            → (empty — clean)
+git diff --check                              → pass
+node_modules/.bin/tsc --noEmit               → pass
+node_modules/.bin/vitest run                 → 280/280 pass (24 test files)
+node_modules/.bin/vite build                 → pass (21.33 kB CSS, 271.50 kB JS)
+node_modules/.bin/playwright test            → NOT RUN — Firefox binary missing
+```
+
+No Rust/Tauri files changed → cargo checks not required.
