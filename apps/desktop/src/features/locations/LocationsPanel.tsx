@@ -9,19 +9,21 @@ import { Panel } from "../../components/ui/Panel";
 import { Banner } from "../../components/ui/Banner";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
-import { IcPlus, IcEdit, IcTrash, IcMapPin } from "../../components/ui/Icon";
+import { IcPlus, IcEdit, IcTrash, IcMapPin, IcServer } from "../../components/ui/Icon";
 import { LocationFormModal } from "./LocationFormModal";
 
 interface Props {
   repoPath: string;
   highlightedLocationId?: string | null;
   onRepositoryMutated: () => void;
+  onManageRacks?: (location: LocationDto) => void;
 }
 
 export function LocationsPanel({
   repoPath,
   highlightedLocationId,
   onRepositoryMutated,
+  onManageRacks,
 }: Props) {
   const [locations, setLocations]     = useState<LocationDto[]>([]);
   const [error, setError]             = useState<string | null>(null);
@@ -159,6 +161,14 @@ export function LocationsPanel({
                       </div>
                     </td>
                     <td className="tbl-actions">
+                      <button
+                        className="btn btn-ghost btn-sm btn-icon"
+                        title="Manage racks"
+                        aria-label={`Manage racks for ${loc.name}`}
+                        onClick={() => onManageRacks?.(loc)}
+                      >
+                        <IcServer size={12} />
+                      </button>
                       <button
                         className="btn btn-ghost btn-sm btn-icon"
                         title="Edit"

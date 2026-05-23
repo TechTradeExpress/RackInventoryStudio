@@ -4,6 +4,7 @@ import {
   getRepositorySummary,
   openRepository,
   selectRepositoryFolder,
+  type LocationDto,
   type OpenRepositoryResultDto,
   type RackSummaryDto,
   type RepositorySummaryDto,
@@ -65,6 +66,7 @@ export function App() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [repositoryMutationToken, setRepositoryMutationToken] = useState(0);
   const [gitRefreshToken, setGitRefreshToken] = useState(0);
+  const [selectedLocationForRacks, setSelectedLocationForRacks] = useState<LocationDto | null>(null);
 
   const [highlightedLocationId, setHighlightedLocationId] = useState<string | null>(null);
   const [highlightedDeviceId, setHighlightedDeviceId] = useState<string | null>(null);
@@ -79,6 +81,11 @@ export function App() {
   function handleSaveSuccess() {
     setHasUnsavedChanges(false);
     setGitRefreshToken((t) => t + 1);
+  }
+
+  function handleManageRacks(location: LocationDto) {
+    setSelectedLocationForRacks(location);
+    setActiveTab("racks");
   }
 
   function handleRepositoryMutated() {
@@ -155,6 +162,7 @@ export function App() {
       setSummary(result.summary);
       setValidationSummary(result.validation_summary);
       setSelectedRack(null);
+      setSelectedLocationForRacks(null);
       setHasUnsavedChanges(false);
       setHighlightedLocationId(null);
       setHighlightedDeviceId(null);
@@ -200,6 +208,7 @@ export function App() {
     setValidationSummary(result.validation_summary);
     setRepoPath(result.summary.repo_path);
     setSelectedRack(null);
+    setSelectedLocationForRacks(null);
     setHasUnsavedChanges(false);
     setHighlightedLocationId(null);
     setHighlightedDeviceId(null);
@@ -220,6 +229,7 @@ export function App() {
       setSummary(null);
       setValidationSummary(null);
       setSelectedRack(null);
+      setSelectedLocationForRacks(null);
       setHasUnsavedChanges(false);
       setRepositoryMutationToken(0);
       setHighlightedLocationId(null);
@@ -441,6 +451,7 @@ export function App() {
               repoPath={summary.repo_path}
               highlightedLocationId={highlightedLocationId}
               onRepositoryMutated={handleRepositoryMutated}
+              onManageRacks={handleManageRacks}
             />
           )}
 
@@ -453,6 +464,7 @@ export function App() {
               pendingRackNavTarget={pendingRackNavTarget}
               onRackNavTargetConsumed={() => setPendingRackNavTarget(null)}
               onRepositoryMutated={handleRepositoryMutated}
+              selectedLocation={selectedLocationForRacks}
             />
           )}
 

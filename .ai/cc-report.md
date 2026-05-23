@@ -1711,3 +1711,53 @@ Two new describe blocks in `RepositoryPanel.test.tsx`:
 ### Suggested next step
 
 `ux/location-scoped-racks`
+
+---
+
+## Location-scoped rack management — branch ux/location-scoped-racks
+
+**Branch:** `ux/location-scoped-racks`
+**Base branch / PR target:** `integration/post-ui-polish-qa`
+
+### Summary
+
+Racks are now managed from the context of a selected location rather than as a flat global list. The Locations panel exposes a "Manage racks" per-row action button; clicking it switches to the Racks tab with that location's context. The Racks panel filters to the selected location only. Add Rack uses the context location; Edit Rack shows it read-only. No location selected → empty state guides the user to Locations.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `apps/desktop/src/App.tsx` | Added `selectedLocationForRacks` state; `handleManageRacks` sets location + switches to Racks tab; context cleared on open/close/create repo; `onManageRacks` + `selectedLocation` props wired to panels |
+| `apps/desktop/src/features/locations/LocationsPanel.tsx` | Added `onManageRacks` optional prop; added "Manage racks" icon button (IcServer) before Edit in each row |
+| `apps/desktop/src/features/racks/RacksPanel.tsx` | Added `selectedLocation` prop; removed own `listLocations` call; added no-location empty state; filters to `visibleRacks` by location; updated PageHeader subtitle; removed Location column from table; updated `RackFormModal` call to pass `locationId`/`locationLabel` |
+| `apps/desktop/src/features/racks/RackFormModal.tsx` | Replaced `locations: LocationDto[]` prop with `locationId: string` + `locationLabel: string`; removed editable location select; shows location as read-only disabled input; `locationId` now flows from prop into `addRack`/`updateRack`; removed `missingLocation` validation |
+| `apps/desktop/src/features/racks/RackFormModal.test.tsx` | Rewrote to use `locationId`/`locationLabel` props; removed location-select interaction; updated "required footer" test to exclude "location"; added tests for read-only location field and edit-mode help text |
+| `apps/desktop/src/features/locations/LocationsPanel.test.tsx` | **New** — tests Manage racks button render and click callback |
+| `apps/desktop/src/features/racks/RacksPanel.test.tsx` | **New** — tests no-location empty state, filtered rack list, Add rack button visibility |
+| `apps/desktop/e2e/smoke.spec.ts` | Rack detail + Change side dialog tests now navigate via Locations → Manage racks instead of directly to Racks tab |
+
+### Tests
+
+```
+node_modules/.bin/vitest run     → 280/280 pass (24 test files)
+node_modules/.bin/tsc --noEmit   → pass (no TypeScript errors)
+```
+
+E2E smoke: flow updated in `smoke.spec.ts` (Locations → Manage racks → rack row → detail). Not runnable in this environment (no browser/Playwright binary). Selectors verified by reading fixture data in `e2e/mocks/tauri-core.ts` — `"Server Room A"` location and `"Main Rack"` rack are present in fixtures.
+
+No Rust/Tauri files changed → cargo checks not required.
+
+### Known risks
+
+- Location context is cleared on repo open/close/create but not on tab switch away from Racks; context persists across tab switches within the same repo session.
+- Location `id` immutability in Edit Rack is frontend-only enforcement. No backend guard added in this branch.
+- E2E smoke tests updated but not run locally (Playwright binary not available in this environment). Selector correctness validated by cross-referencing fixture data.
+
+### Not done
+
+- Backend guard preventing `location_id` change on `update_rack` — deferred, frontend-only enforcement for this branch.
+- Breadcrumb or "back to location" navigation in Racks list view — not requested in spec.
+
+### Suggested next step
+
+`ux/rack-form-polish`

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
   deleteRack,
-  listLocations,
   listRacks,
   type LocationDto,
   type RackSummaryDto,
@@ -29,6 +28,7 @@ interface Props {
   pendingRackNavTarget?: RackNavTarget | null;
   onRackNavTargetConsumed?: () => void;
   onRepositoryMutated: () => void;
+  selectedLocation?: LocationDto | null;
 }
 
 interface PendingNavigation {
@@ -87,6 +87,7 @@ export function RacksPanel({
   pendingRackNavTarget,
   onRackNavTargetConsumed,
   onRepositoryMutated,
+  selectedLocation = null,
 }: Props) {
   const [racks, setRacks] = useState<RackSummaryDto[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -98,8 +99,6 @@ export function RacksPanel({
   >(null);
   const [racksReloadToken, setRacksReloadToken] = useState(0);
   const prevRepoPathRef = useRef<string>("");
-
-  const [locations, setLocations] = useState<LocationDto[]>([]);
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -134,13 +133,6 @@ export function RacksPanel({
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
   }, [repoPath, racksReloadToken]);
-
-  useEffect(() => {
-    if (!repoPath) return;
-    listLocations()
-      .then(setLocations)
-      .catch(() => setLocations([]));
-  }, [repoPath]);
 
   useEffect(() => {
     if (!pendingRackNavTarget || racks.length === 0) return;
@@ -237,12 +229,35 @@ export function RacksPanel({
     );
   }
 
-  // List view
+  // No location context — guide user to select one from Locations
+  if (!selectedLocation) {
+    return (
+      <>
+        <PageHeader
+          title="Racks"
+          subtitle="Physical rack cabinets, managed per location."
+        />
+        <div className="page-content">
+          <EmptyState
+            icon={<IcServer size={32} />}
+            title="Select a location to manage its racks"
+            body="Go to Locations and click the Manage racks button for the location you want to work with."
+          />
+        </div>
+      </>
+    );
+  }
+
+  // Location-scoped list view
+  const visibleRacks = racks.filter((r) => r.location_id === selectedLocation.id);
+
+  const locationLabel = `${selectedLocation.code} — ${selectedLocation.name}`;
+
   return (
     <>
       <PageHeader
         title="Racks"
-        subtitle="Physical rack cabinets, grouped by location."
+        subtitle={`Racks in ${selectedLocation.name} (${selectedLocation.code})`}
         actions={
           <button className="btn btn-primary" onClick={openAdd}>
             <IcPlus size={12} /> Add rack
@@ -263,25 +278,24 @@ export function RacksPanel({
           </Banner>
         )}
 
-        {!loading && !error && racks.length === 0 && (
+        {!loading && !error && visibleRacks.length === 0 && (
           <EmptyState
             icon={<IcServer size={32} />}
-            title="No racks yet"
-            body="Add a rack cabinet to start building your inventory."
+            title="No racks in this location"
+            body="Add a rack cabinet to start building the inventory for this location."
           />
         )}
 
-        {racks.length > 0 && (
+        {visibleRacks.length > 0 && (
           <Panel
             flush
-            title={`${racks.length} rack${racks.length !== 1 ? "s" : ""}`}
+            title={`${visibleRacks.length} rack${visibleRacks.length !== 1 ? "s" : ""}`}
           >
             <table className="tbl">
               <thead>
                 <tr>
                   <th className="tbl-mono">Code</th>
                   <th>Name</th>
-                  <th className="tbl-mono">Location</th>
                   <th className="tbl-mono">Row</th>
                   <th className="tbl-num">Height</th>
                   <th>Front</th>
@@ -291,7 +305,7 @@ export function RacksPanel({
                 </tr>
               </thead>
               <tbody>
-                {racks.map((rack) => {
+                {visibleRacks.map((rack) => {
                   const isNavHighlight = rack.id === recentlyNavigatedRackId;
                   const util =
                     rack.height_u > 0
@@ -307,24 +321,15 @@ export function RacksPanel({
                         <strong>{rack.code}</strong>
                       </td>
                       <td>{rack.name}</td>
-                      <td className="tbl-mono">{rack.location_code}</td>
                       <td className="tbl-mono">{rack.row ?? "—"}</td>
                       <td className="tbl-num tbl-mono">{rack.height_u}U</td>
                       <td>
-                        <Badge
-                          tone={
-                            rack.front_placement_count === 0 ? "muted" : "info"
-                          }
-                        >
+                        <Badge tone={rack.front_placement_count === 0 ? "muted" : "info"}>
                           {rack.front_placement_count} placed
                         </Badge>
                       </td>
                       <td>
-                        <Badge
-                          tone={
-                            rack.rear_placement_count === 0 ? "muted" : "info"
-                          }
-                        >
+                        <Badge tone={rack.rear_placement_count === 0 ? "muted" : "info"}>
                           {rack.rear_placement_count} placed
                         </Badge>
                       </td>
@@ -365,7 +370,8 @@ export function RacksPanel({
       <RackFormModal
         open={modalOpen}
         editing={editingRack}
-        locations={locations}
+        locationId={editingRack?.location_id ?? selectedLocation.id}
+        locationLabel={editingRack ? editingRack.location_code : locationLabel}
         onClose={() => setModalOpen(false)}
         onSaved={handleSaved}
       />
