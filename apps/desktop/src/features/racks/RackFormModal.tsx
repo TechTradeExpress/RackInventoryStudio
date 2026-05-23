@@ -9,6 +9,8 @@ import {
   type RackSummaryDto,
 } from "../../api/tauriClient";
 
+const DEFAULT_RACK_HEIGHT_U = 42;
+
 interface FormState {
   code: string;
   name: string;
@@ -21,7 +23,7 @@ interface FormState {
 const EMPTY: FormState = {
   code: "",
   name: "",
-  heightU: "",
+  heightU: String(DEFAULT_RACK_HEIGHT_U),
   row: "",
   description: "",
   tags: "",
@@ -40,7 +42,9 @@ function rackToForm(rack: RackSummaryDto): FormState {
 
 function isDirty(form: FormState, editing: RackSummaryDto | null): boolean {
   if (!editing) {
-    return Object.values(form).some((v) => v !== "");
+    return (Object.keys(EMPTY) as (keyof FormState)[]).some(
+      (k) => form[k] !== EMPTY[k],
+    );
   }
   const orig = rackToForm(editing);
   return (
@@ -214,7 +218,7 @@ export function RackFormModal({
           required={!isEdit}
           help={
             !isEdit
-              ? "Lowercase letters, digits, hyphens, underscores, dots."
+              ? "Lowercase letters, digits, hyphens, underscores, dots. Immutable after creation."
               : undefined
           }
           error={codeFormatErr}
@@ -240,23 +244,32 @@ export function RackFormModal({
             data-testid="field-name"
           />
         </Field>
-        <Field className="col-4" label="Height (U)" required>
+        <Field
+          className="col-4"
+          label="Height (U)"
+          required
+          help="Standard full-height racks are often 42U. Use the actual usable rack height."
+        >
           <input
             className="input mono"
             value={form.heightU}
             onChange={set("heightU")}
-            placeholder="e.g. 42"
             disabled={submitting}
             data-testid="field-height-u"
           />
         </Field>
-        <Field className="col-8" label="Row">
+        <Field
+          className="col-8"
+          label="Row / aisle"
+          help="Optional physical row, aisle or zone label within the location."
+        >
           <input
             className="input"
             value={form.row}
             onChange={set("row")}
             placeholder="optional"
             disabled={submitting}
+            data-testid="field-row"
           />
         </Field>
         <Field label="Description">

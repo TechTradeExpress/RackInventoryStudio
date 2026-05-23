@@ -67,10 +67,14 @@ describe("LocationsPanel — Manage racks button", () => {
     });
   });
 
-  it("does not call onManageRacks when prop is not provided", async () => {
-    const { onManageRacks: _omit, ...propsWithoutHandler } = BASE_PROPS;
-    render(<LocationsPanel {...propsWithoutHandler} />);
-    const btn = await screen.findByRole("button", { name: "Manage racks for Warsaw A" });
-    expect(() => fireEvent.click(btn)).not.toThrow();
+  it("clicking Manage racks for the second location calls onManageRacks with the correct location", async () => {
+    const onManageRacks = vi.fn();
+    render(<LocationsPanel {...BASE_PROPS} onManageRacks={onManageRacks} />);
+    const btn = await screen.findByRole("button", { name: "Manage racks for Berlin B" });
+    fireEvent.click(btn);
+    await waitFor(() => {
+      expect(onManageRacks).toHaveBeenCalledOnce();
+      expect(onManageRacks.mock.calls[0][0].id).toBe("loc-2");
+    });
   });
 });

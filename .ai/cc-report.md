@@ -1786,3 +1786,119 @@ node_modules/.bin/playwright test            → 10/10 pass (firefox, 14.6s)
 ```
 
 No Rust/Tauri files changed → cargo checks not required.
+
+---
+
+## Rack form polish — branch ux/rack-form-polish
+
+**Branch:** `ux/rack-form-polish`
+**Base branch / PR target:** `integration/post-ui-polish-qa`
+
+### Summary
+
+Polished the Rack Add/Edit modal after the location-scoped racks change. Default height pre-fill, clearer field labels, improved help text, and a minor LocationsPanel API cleanup. No backend, YAML schema, or DTO field names changed.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `apps/desktop/src/features/racks/RackFormModal.tsx` | Added `DEFAULT_RACK_HEIGHT_U = 42`; pre-fills height in add mode; updated `isDirty` for add mode; "Row / aisle" label + help text; height help text; code help text adds "Immutable after creation."; added `data-testid="field-row"` |
+| `apps/desktop/src/features/racks/RackFormModal.test.tsx` | Full rewrite: tests for default height, dirty behavior, row label, help text, default-height submit, override-height submit, edit-mode height preservation, row payload field name |
+| `apps/desktop/src/features/locations/LocationsPanel.tsx` | `onManageRacks` made required (was optional) |
+| `apps/desktop/src/features/locations/LocationsPanel.test.tsx` | Removed "prop not provided" test (no longer applicable); added "second location" click test |
+
+### Exact UX changes
+
+**A. Default rack height in add mode**
+- `DEFAULT_RACK_HEIGHT_U = 42` constant added.
+- `EMPTY.heightU` set to `"42"` so the height field starts pre-filled.
+- `isDirty` in add mode now compares the form against `EMPTY` key-by-key instead of checking all-empty: a form with only the default height is not dirty. Cancel and Escape work correctly on a fresh modal.
+- Edit mode is unaffected: `rackToForm` always reads `rack.height_u`.
+
+**B. Height field**
+- Label: `Height (U)` (unchanged, already correct).
+- Help text added: "Standard full-height racks are often 42U. Use the actual usable rack height."
+- Placeholder removed (field starts pre-filled with "42").
+- Positive integer validation unchanged.
+
+**C. Row label**
+- Visible label changed from `"Row"` → `"Row / aisle"`.
+- Help text added: "Optional physical row, aisle or zone label within the location."
+- Persisted DTO field `row` unchanged. YAML key `row` unchanged. Backend unchanged.
+- Table column header in RacksPanel list view left as `"Row"` (not in scope).
+
+**D. Code help text**
+- Add mode help text extended: "Lowercase letters, digits, hyphens, underscores, dots. Immutable after creation."
+
+**E. LocationsPanel `onManageRacks` required**
+- Changed from optional `onManageRacks?` to required `onManageRacks`.
+- Manage racks is the primary rack workflow; the prop is always provided by `App.tsx`.
+- Removed the "does not throw when prop not provided" test; added a second-location click test.
+
+### Default rack height behavior
+
+- Add mode: height field pre-filled with `"42"`. Fresh modal → not dirty.
+- Edit mode: height field populated from `rack.height_u`. Default 42 is not applied. Existing heights (e.g. 24U, 48U) are preserved.
+- User can override either way before saving.
+
+### Row label behavior
+
+- Visible form label: `"Row / aisle"`.
+- Persisted field (DTO/YAML/backend): `row` — **unchanged**.
+- `addRack` and `updateRack` payloads still use `row:` key.
+
+### Location read-only behavior
+
+- Add mode: location shown as read-only disabled input displaying `locationLabel` prop.
+- Edit mode: same, plus help text "Location is fixed and cannot be changed."
+- No editable select; no location dropdown. Behavior unchanged from previous branch.
+
+### Tests
+
+```
+node_modules/.bin/vitest run  →  287/287 pass (24 test files)
+```
+
+New/updated tests in `RackFormModal.test.tsx`:
+- Add mode pre-fills height with 42
+- Add modal is not dirty when only the default height is set
+- Required footer shows "code, name" but not "height" (height pre-filled)
+- Row field labelled "Row / aisle"
+- Height help text about 42U visible
+- Calls addRack with default height 42 when user does not change it
+- Calls addRack with overridden height when user changes it
+- Edit mode preserves existing height (24) — does not replace with 42
+- Row payload maps to the `row` field (persisted field name unchanged)
+- updateRack called with locationId prop and original height
+
+Updated `LocationsPanel.test.tsx`:
+- Removed "prop not provided" test (onManageRacks now required)
+- Added second-location click test
+
+### Checks run
+
+```
+git diff --check                              → pass
+node_modules/.bin/tsc --noEmit               → pass
+node_modules/.bin/vitest run                 → 287/287 pass (24 test files)
+node_modules/.bin/vite build                 → pass (21.33 kB CSS, 271.71 kB JS)
+node_modules/.bin/playwright test            → 10/10 pass (firefox, 14.6s)
+```
+
+No Rust/Tauri files changed → cargo checks not required.
+
+### Known risks
+
+- The `DEFAULT_RACK_HEIGHT_U = 42` constant is frontend-only. It does not prevent a user from entering a different height; the field is still editable. No backend validation was added for this default.
+- Table column header "Row" in RacksPanel list view was intentionally left unchanged (only the form label was updated to "Row / aisle"). The two labels are now inconsistent across views — acceptable for this phase, can be unified in a future pass.
+- `locationLabel` in edit mode comes from `editing.location_code` passed via `RacksPanel`. If a rack's location code differs from name, the label shows code only. This is unchanged from the previous branch.
+
+### Not done
+
+- Renaming the "Row" column header in the rack list table — kept as-is to minimise scope.
+- Adding a location-level default height to YAML/DTO — explicitly excluded per task spec.
+- Backend guard for `location_id` immutability on `update_rack` — deferred from previous branch.
+
+### Suggested next step
+
+`ux/csv-sample-import`

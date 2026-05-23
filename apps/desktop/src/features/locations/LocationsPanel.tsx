@@ -16,7 +16,7 @@ interface Props {
   repoPath: string;
   highlightedLocationId?: string | null;
   onRepositoryMutated: () => void;
-  onManageRacks?: (location: LocationDto) => void;
+  onManageRacks: (location: LocationDto) => void;
 }
 
 export function LocationsPanel({
