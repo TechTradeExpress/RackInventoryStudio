@@ -1417,3 +1417,115 @@ the integration branch for the next work series.
 - No prerequisite branches needed before `ci/windows-diagnostic-installer`
 
 **Suggested next step:** `repo/force-git-init`
+
+---
+
+## Force Git init on repository creation — branch repo/force-git-init
+
+**Branch:** `repo/force-git-init`
+**Base branch:** `integration/post-ui-polish-qa`
+
+### Problem
+
+The Create Repository wizard exposed a checkbox `Initialize Git repository` defaulted to `false`.
+Users could create a repository without a `.git` directory, breaking Safe Publish and change history.
+Even when checked, a `git init` failure was logged as a warning and silently ignored — the repository
+was created in a broken state.
+
+### Frontend changes
+
+- **`CreateRepositoryWizard.tsx`** — Removed `initializeGit` state variable, removed the checkbox
+  and its label. Added a read-only info note in place of the checkbox:
+  `"Git repository will be initialized automatically. Git is required for change history and Safe Publish."`
+  The `createRepository` call no longer passes `initialize_git` in the payload.
+- **`wizardHelpers.ts`** — Removed `initializeGit: boolean` from `WizardFormState` interface (the field
+  was never validated; removing it simplifies the type).
+
+### Backend changes
+
+- **`apps/desktop/src-tauri/src/commands/repository.rs`** — Replaced the conditional
+  `if input.initialize_git { git init }` (which silently skipped git on false and ignored errors on true)
+  with an unconditional call to `ris_git::init_repository`. Failure now returns an error to the UI:
+  `"Failed to initialize Git repository: <sanitized message>"`.  
+  Removed `init_git={}` from the log line (field no longer exists in the DTO).
+- **`apps/desktop/src-tauri/src/dto.rs`** — Removed `initialize_git: bool` from
+  `CreateRepositoryInputDto`.
+- **`apps/desktop/src/api/tauriClient.ts`** — Removed `initialize_git: boolean` from
+  `CreateRepositoryInput` interface.
+
+### initialize_git field disposition
+
+**Removed** from both TypeScript and Rust DTO. All usages were local (one call site in the wizard,
+one handler in the command). No backwards-compatibility shim was needed.
+
+### git init failure handling
+
+If `ris_git::init_repository` fails, `create_repository_cmd` returns an `Err` to the UI.
+The error message is sanitized and user-facing: "Failed to initialize Git repository: …".
+The scaffolded repository files remain on disk but no session is opened and the UI shows
+the error. The user can delete the directory and retry.
+
+No cleanup of partially-created files is performed — this is intentional to keep the error
+path simple and avoid deleting user data.
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `apps/desktop/src/features/repository/CreateRepositoryWizard.tsx` | Removed checkbox; added read-only git note; removed `initializeGit` state; removed `initialize_git` from API call |
+| `apps/desktop/src/features/repository/wizardHelpers.ts` | Removed `initializeGit` from `WizardFormState` |
+| `apps/desktop/src/features/repository/wizardHelpers.test.ts` | Removed `initializeGit` from base fixture; replaced test |
+| `apps/desktop/src/features/repository/CreateRepositoryWizard.test.tsx` | **New** — 4 component tests |
+| `apps/desktop/src/api/tauriClient.ts` | Removed `initialize_git` from `CreateRepositoryInput` |
+| `apps/desktop/src-tauri/src/dto.rs` | Removed `initialize_git` from `CreateRepositoryInputDto` |
+| `apps/desktop/src-tauri/src/commands/repository.rs` | Unconditional `git init`; error on failure |
+| `crates/ris-application/Cargo.toml` | Added `ris-git` dev dependency |
+| `crates/ris-application/tests/create_tests.rs` | Added `create_repository_followed_by_git_init_produces_dot_git` test |
+
+### Tests
+
+**Frontend (Vitest):**
+- `wizardHelpers.test.ts` — updated to remove `initializeGit` fixture (13 tests)
+- `CreateRepositoryWizard.test.tsx` — **new**, 4 tests:
+  1. No "Initialize Git repository" checkbox rendered
+  2. Info note "Git repository will be initialized automatically." visible
+  3. `createRepository` called without `initialize_git` field
+  4. `onSuccess` called with backend result
+
+**Rust:**
+- `crates/ris-application/tests/create_tests.rs` — new test
+  `create_repository_followed_by_git_init_produces_dot_git`: calls `create_repository` then
+  `ris_git::init_repository` and asserts `.git` exists. Skipped if `git` binary is unavailable.
+
+**Local check results:**
+- `git diff --check` → pass
+- `cargo fmt/check/test/clippy`: **not runnable** — Rust toolchain not installed in this CI environment.
+  The changes are syntactically verified by Python inspection scripts: no stale `initialize_git`
+  references in the Rust DTO or command handler, unconditional `ris_git::init_repository` present,
+  user-facing error message present.
+- `pnpm typecheck/test/build`: **not runnable** — `pnpm`/`node_modules` not installed in this environment.
+  TypeScript changes verified by Python inspection scripts: no `initialize_git` in tauriClient,
+  no `initializeGit` in wizard or helpers.
+
+**Note on git init failure path:** A direct unit test that simulates `git init` failure is not added
+because it would require either a process mock or a fake git binary, which is disproportionate for this
+scope. The failure path is covered by the unconditional error propagation in the command handler —
+if `ris_git::init_repository` returns `Err`, the `?` operator short-circuits and the user-facing
+error is returned.
+
+### Risks
+
+- Scaffolded files remain on disk if `git init` fails. The user must delete the directory manually and retry.
+  A cleanup step was not added to avoid deleting existing user data.
+- `git` must be installed on the host machine. If `git` is not on `PATH`, `ris_git::init_repository`
+  returns an error and the user sees "Failed to initialize Git repository: …". This is the expected
+  behavior — the application requires Git.
+
+### Not done
+
+- Opening existing repositories without `.git` — not changed; this is a separate topic.
+- Cleanup of partially-created directory on `git init` failure — intentionally deferred.
+
+### Suggested next step
+
+`repo/unsaved-guard-recent-open`

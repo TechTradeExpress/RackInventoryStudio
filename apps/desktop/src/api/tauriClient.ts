@@ -504,7 +504,6 @@ export interface CreateRepositoryInput {
   path: string;
   code: string;
   name: string;
-  initialize_git: boolean;
 }
 
 export function createRepository(
