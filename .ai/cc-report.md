@@ -1955,3 +1955,95 @@ No Rust/Tauri files changed → cargo checks not required.
 ### Suggested next step
 
 `ux/validation-save-copy`
+
+---
+
+## Validation and save copy polish — branch ux/validation-save-copy
+
+**Branch:** `ux/validation-save-copy`
+**Base branch / PR target:** `integration/post-ui-polish-qa`
+
+### Summary
+
+UX copy-only pass clarifying the difference between validation (in-memory checks), saving (writing YAML to disk), and Git commit/push. No behavior changes. No new dependencies.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `apps/desktop/src/features/validation/ValidationPanel.tsx` | Subtitle, button labels, empty-state body |
+| `apps/desktop/src/App.tsx` | Unsaved callout: "Save repository" → "Save changes" |
+| `apps/desktop/e2e/smoke.spec.ts` | Updated "Validate" button selector to "Validate repository" |
+| `apps/desktop/src/features/validation/ValidationPanel.test.tsx` | **New** — 6 tests for the updated copy |
+
+### Exact copy changes
+
+**ValidationPanel.tsx:**
+
+| Location | Before | After |
+|---|---|---|
+| Page subtitle | `"VAL-* checks run against the in-memory inventory."` | `"Check the repository for errors and warnings before saving or publishing."` |
+| Validate button | `"Validate"` | `"Validate repository"` |
+| Save button | `"Save inventory"` | `"Save changes"` |
+| Pre-validation empty state body | `"Click Validate to validate the current inventory."` | `"Validation reads the current in-memory data — it does not write files to disk."` |
+
+**App.tsx:**
+
+| Location | Before | After |
+|---|---|---|
+| Unsaved callout hint | `"Use Save repository in the Repository tab."` | `"Use Save changes in the Repository tab."` |
+
+### Validation vs save vs commit/push wording rationale
+
+- **Validate repository** — runs VAL-* checks on the current in-memory state. Does not write to disk. Renamed from generic "Validate" to make the scope explicit.
+- **Save changes** — writes YAML files locally. No Git involvement. Renamed from "Save inventory" for consistency with Safe Publish stepper Step 1 label ("Save changes to disk").
+- **Commit / Push** — Git operations in the Safe Publish stepper. Labels unchanged; stepper already uses unambiguous step names (Step 3: "Commit local changes", Step 5: "Push to remote").
+- The empty-state body for unvalidated state now explicitly states validation does not write files to disk, reducing the most common user confusion.
+
+### Behavior preserved
+
+- `validateCurrentRepository()` Tauri command — unchanged, same call site.
+- `saveCurrentRepository()` Tauri command — unchanged, same call site.
+- Git commit/push/pull flow — unchanged.
+- Unsaved changes state, guard logic, `UNSAVED_MSG` constants — unchanged.
+- Git status cache refresh behavior — unchanged.
+- No new backend calls, no new Tauri commands, no new npm deps.
+
+### Tests added/updated
+
+- **New** `ValidationPanel.test.tsx` — 6 Vitest tests:
+  - Renders "Validate repository" button
+  - Renders "Save changes" button
+  - Subtitle contains "saving or publishing"
+  - Pre-validation empty state body contains "does not write files to disk"
+  - Clicking "Validate repository" calls `validateCurrentRepository`
+  - Clicking "Save changes" calls `saveCurrentRepository`
+- **Updated** `e2e/smoke.spec.ts` — updated selector from `"Validate"` (exact) to `"Validate repository"` (exact) in the validation panel smoke test.
+- All existing tests unchanged and passing.
+
+### Checks run
+
+```
+git diff --check                              → pass
+node_modules/.bin/tsc --noEmit               → pass
+node_modules/.bin/vitest run                 → 315/315 pass (27 test files, +6 new)
+node_modules/.bin/vite build                 → pass (21.33 kB CSS, 272.95 kB JS)
+node_modules/.bin/playwright test            → 10/10 pass (firefox, 14.9s)
+```
+
+No Rust/Tauri files changed → cargo checks not required.
+
+### Known risks
+
+- The Save button in ValidationPanel was "Save inventory" — renaming to "Save changes" is more consistent but means the same save action now has the same label in both ValidationPanel and the Repository Safe Publish stepper. This is the intended outcome (consistent wording), not a bug.
+- The pre-validation empty-state body no longer directs the user to click the button by name. Users must find the "Validate repository" button in the header. This is acceptable — the empty state is inside the Issues panel which is adjacent to the header.
+
+### Not done
+
+- ValidationPanel empty state for all-clear (zero issues) has a two-case design: "Nothing to report" covers both "no issues at all" and "issues filtered out". No copy change needed — the filter context makes both cases clear.
+- RepositoryPanel Safe Publish step 2 meta text ("Run validation before committing.") was intentionally left unchanged — the stepper flow makes the ordering clear and the step title "Validate inventory" is sufficiently descriptive.
+- No auto-save, no new Git operations, no YAML schema changes.
+
+### Suggested next step
+
+`assets/app-icon`

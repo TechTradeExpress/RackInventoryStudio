@@ -394,7 +394,7 @@ export function App() {
               <span>
                 <strong>Unsaved inventory changes</strong> — data modified in memory, not yet written to YAML files.
                 {activeTab !== "repository" && (
-                  <> Use <strong>Save repository</strong> in the Repository tab.</>
+                  <> Use <strong>Save changes</strong> in the Repository tab.</>
                 )}
               </span>
               {activeTab !== "repository" && (

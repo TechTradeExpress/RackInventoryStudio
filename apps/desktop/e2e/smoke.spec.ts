@@ -119,8 +119,8 @@ test("validation panel shows issues and navigates on click", async ({
     page.getByRole("heading", { name: /Validation/i }),
   ).toBeVisible();
 
-  // Click Validate to trigger the mock call
-  await page.getByRole("button", { name: "Validate", exact: true }).click();
+  // Click Validate repository to trigger the mock call
+  await page.getByRole("button", { name: "Validate repository", exact: true }).click();
   await expect(
     page.getByText("Smoke test: device has no placement"),
   ).toBeVisible();
