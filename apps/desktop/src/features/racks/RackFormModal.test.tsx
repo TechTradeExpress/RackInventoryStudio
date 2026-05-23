@@ -19,7 +19,7 @@ const FIXTURE_RACK: RackSummaryDto = {
   name: "Rack A01",
   location_id: "loc-1",
   location_code: "warsaw-a",
-  height_u: 42,
+  height_u: 24,
   row: "A",
   description: "Main rack",
   tags: ["production"],
@@ -53,21 +53,39 @@ describe("RackFormModal — closed", () => {
 });
 
 describe("RackFormModal — add mode", () => {
-  it("shows Add rack title and empty fields", () => {
+  it("shows Add rack title", () => {
     render(<RackFormModal open editing={null} {...BASE_PROPS} />);
     expect(screen.getByText("Add rack")).toBeTruthy();
+  });
+
+  it("pre-fills height with 42 in add mode", () => {
+    render(<RackFormModal open editing={null} {...BASE_PROPS} />);
+    expect((screen.getByTestId("field-height-u") as HTMLInputElement).value).toBe("42");
+  });
+
+  it("code and name fields are empty in add mode", () => {
+    render(<RackFormModal open editing={null} {...BASE_PROPS} />);
     expect((screen.getByTestId("field-code") as HTMLInputElement).value).toBe("");
     expect((screen.getByTestId("field-name") as HTMLInputElement).value).toBe("");
-    expect((screen.getByTestId("field-height-u") as HTMLInputElement).value).toBe("");
   });
 
-  it("shows required footer message when fields are empty", () => {
+  it("add modal is not dirty when only the default height is set", () => {
+    const onClose = vi.fn();
+    render(<RackFormModal open editing={null} {...BASE_PROPS} onClose={onClose} />);
+    // backdrop click should close (not dirty) — the backdrop click is tested via Escape key
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("shows required footer message for code and name when empty (height pre-filled)", () => {
     render(<RackFormModal open editing={null} {...BASE_PROPS} />);
-    expect(screen.getByText(/Required:/)).toBeTruthy();
-    expect(screen.getByText(/Required:/).textContent).not.toContain("location");
+    const msg = screen.getByText(/Required:/).textContent ?? "";
+    expect(msg).toContain("code");
+    expect(msg).toContain("name");
+    expect(msg).not.toContain("height");
   });
 
-  it("Create rack button is disabled when required fields are empty", () => {
+  it("Create rack button is disabled when code and name are empty", () => {
     render(<RackFormModal open editing={null} {...BASE_PROPS} />);
     const btn = screen.getByText("Create rack") as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
@@ -81,17 +99,20 @@ describe("RackFormModal — add mode", () => {
     expect(field.disabled).toBe(true);
   });
 
+  it("row field is labelled 'Row / aisle'", () => {
+    render(<RackFormModal open editing={null} {...BASE_PROPS} />);
+    expect(screen.getByText("Row / aisle")).toBeTruthy();
+  });
+
+  it("height field shows help text about 42U", () => {
+    render(<RackFormModal open editing={null} {...BASE_PROPS} />);
+    expect(screen.getByText(/Standard full-height racks are often 42U/i)).toBeTruthy();
+  });
+
   it("calls onClose when Cancel is clicked", () => {
     const onClose = vi.fn();
     render(<RackFormModal open editing={null} {...BASE_PROPS} onClose={onClose} />);
     fireEvent.click(screen.getByText("Cancel"));
-    expect(onClose).toHaveBeenCalledOnce();
-  });
-
-  it("calls onClose when Escape is pressed", () => {
-    const onClose = vi.fn();
-    render(<RackFormModal open editing={null} {...BASE_PROPS} onClose={onClose} />);
-    fireEvent.keyDown(window, { key: "Escape" });
     expect(onClose).toHaveBeenCalledOnce();
   });
 
@@ -103,7 +124,7 @@ describe("RackFormModal — add mode", () => {
     expect(screen.getByText(/lowercase letters/i)).toBeTruthy();
   });
 
-  it("calls addRack with locationId prop, onSaved, onClose on valid submit", async () => {
+  it("calls addRack with default height 42 when user does not change it", async () => {
     const onClose = vi.fn();
     const onSaved = vi.fn();
     render(
@@ -116,9 +137,7 @@ describe("RackFormModal — add mode", () => {
     fireEvent.change(screen.getByTestId("field-name"), {
       target: { value: "Test Rack" },
     });
-    fireEvent.change(screen.getByTestId("field-height-u"), {
-      target: { value: "42" },
-    });
+    // height left at default 42
 
     fireEvent.click(screen.getByText("Create rack"));
 
@@ -135,6 +154,26 @@ describe("RackFormModal — add mode", () => {
       expect(onClose).toHaveBeenCalledOnce();
     });
   });
+
+  it("calls addRack with overridden height when user changes it", async () => {
+    const onClose = vi.fn();
+    const onSaved = vi.fn();
+    render(
+      <RackFormModal open editing={null} {...BASE_PROPS} onClose={onClose} onSaved={onSaved} />,
+    );
+
+    fireEvent.change(screen.getByTestId("field-code"), { target: { value: "rack-test" } });
+    fireEvent.change(screen.getByTestId("field-name"), { target: { value: "Test Rack" } });
+    fireEvent.change(screen.getByTestId("field-height-u"), { target: { value: "12" } });
+
+    fireEvent.click(screen.getByText("Create rack"));
+
+    await waitFor(() => {
+      expect(mockAdd).toHaveBeenCalledWith(
+        expect.objectContaining({ height_u: 12 }),
+      );
+    });
+  });
 });
 
 describe("RackFormModal — edit mode", () => {
@@ -143,7 +182,11 @@ describe("RackFormModal — edit mode", () => {
     expect(screen.getByText("Edit rack")).toBeTruthy();
     expect((screen.getByTestId("field-code") as HTMLInputElement).value).toBe("rack-a01");
     expect((screen.getByTestId("field-name") as HTMLInputElement).value).toBe("Rack A01");
-    expect((screen.getByTestId("field-height-u") as HTMLInputElement).value).toBe("42");
+  });
+
+  it("edit mode preserves existing height (24) and does not replace with 42", () => {
+    render(<RackFormModal open editing={FIXTURE_RACK} {...BASE_PROPS} />);
+    expect((screen.getByTestId("field-height-u") as HTMLInputElement).value).toBe("24");
   });
 
   it("disables code field in edit mode", () => {
@@ -159,7 +202,7 @@ describe("RackFormModal — edit mode", () => {
     expect(screen.getByText(/Location is fixed/i)).toBeTruthy();
   });
 
-  it("calls updateRack with locationId prop, onSaved, onClose on valid edit", async () => {
+  it("calls updateRack with locationId prop and original height on save", async () => {
     const onClose = vi.fn();
     const onSaved = vi.fn();
     render(
@@ -178,11 +221,31 @@ describe("RackFormModal — edit mode", () => {
           location_id: "loc-1",
           code: "rack-a01",
           name: "Renamed Rack",
-          height_u: 42,
+          height_u: 24,
         }),
       );
       expect(onSaved).toHaveBeenCalledOnce();
       expect(onClose).toHaveBeenCalledOnce();
+    });
+  });
+
+  it("row payload maps to the row field (persisted field name unchanged)", async () => {
+    const onClose = vi.fn();
+    const onSaved = vi.fn();
+    render(
+      <RackFormModal open editing={FIXTURE_RACK} {...BASE_PROPS} onClose={onClose} onSaved={onSaved} />,
+    );
+
+    // FIXTURE_RACK has row: "A"; verify it is passed through as row: "A"
+    fireEvent.change(screen.getByTestId("field-name"), {
+      target: { value: "Renamed Rack" },
+    });
+    fireEvent.click(screen.getByText("Save changes"));
+
+    await waitFor(() => {
+      expect(mockUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ row: "A" }),
+      );
     });
   });
 
@@ -195,11 +258,11 @@ describe("RackFormModal — edit mode", () => {
       id: "rack-2",
       code: "rack-b01",
       name: "Rack B01",
-      height_u: 24,
+      height_u: 48,
     };
     rerender(<RackFormModal open editing={other} {...BASE_PROPS} />);
     expect((screen.getByTestId("field-code") as HTMLInputElement).value).toBe("rack-b01");
     expect((screen.getByTestId("field-name") as HTMLInputElement).value).toBe("Rack B01");
-    expect((screen.getByTestId("field-height-u") as HTMLInputElement).value).toBe("24");
+    expect((screen.getByTestId("field-height-u") as HTMLInputElement).value).toBe("48");
   });
 });
