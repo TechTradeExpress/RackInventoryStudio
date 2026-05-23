@@ -2,7 +2,6 @@ export interface WizardFormState {
   path: string;
   code: string;
   name: string;
-  initializeGit: boolean;
 }
 
 export interface WizardFormErrors {

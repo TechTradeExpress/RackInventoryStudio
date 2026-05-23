@@ -1375,3 +1375,1127 @@ Rust/Tauri not changed → cargo checks not required.
 Run the app from the Windows NSIS installer on a clean Windows 11 machine, verify
 `%APPDATA%\com.techtradeexpress.rackinventorystudio\logs\` is created on first launch,
 and confirm log entries are written for open/save/git operations without full paths.
+
+---
+
+## Post UI Polish QA integration plan — branch integration/post-ui-polish-qa
+
+**Branch:** `integration/post-ui-polish-qa`
+**Base branch:** `master`
+
+`design/claude-ui-polish` has been merged to `master`. This section records the setup of
+the integration branch for the next work series.
+
+**What was done in this step:**
+- Created branch `integration/post-ui-polish-qa` from current `master` (`6ff2ef4`).
+- No application code was changed — docs/plan only.
+- Plan saved to `.ai/post-ui-polish-qa-plan.md`.
+
+**Planned working branches (in order):**
+1. `repo/force-git-init` — enforce Git on repo creation
+2. `repo/unsaved-guard-recent-open` — unsaved-changes guard + Recent open UX
+3. `perf/git-status-cache` — cache Git status, no auto-poll
+4. `ux/location-scoped-racks` — manage racks from location context
+5. `ux/rack-form-polish` — rack form label and default value polish
+6. `ux/csv-sample-import` — sample CSV download
+7. `ux/validation-save-copy` — clarify Validation and Save copy
+8. `assets/app-icon` — app icon preparation and deployment
+9. `ci/windows-diagnostic-installer` — diagnostic Windows installer with verbose logging
+10. `qa/post-ui-polish-final` — final QA, checks, Windows test, final PR
+
+**PR rules:**
+- Working branch PRs → `integration/post-ui-polish-qa`
+- Final PR → `master` (after full series approved)
+
+**Review context rules:**
+- Working branches: generate relative to `integration/post-ui-polish-qa`
+- Integration branch (final): generate relative to `master`
+
+**Baseline detected:**
+- Windows installer workflow (`.github/workflows/windows-installer.yml`): **present** — manual-only `workflow_dispatch`
+- Local diagnostics logging (`tauri-plugin-log` + `@tauri-apps/plugin-log`): **present**
+- No prerequisite branches needed before `ci/windows-diagnostic-installer`
+
+**Suggested next step:** `repo/force-git-init`
+
+---
+
+## Force Git init on repository creation — branch repo/force-git-init
+
+**Branch:** `repo/force-git-init`
+**Base branch:** `integration/post-ui-polish-qa`
+
+### Problem
+
+The Create Repository wizard exposed a checkbox `Initialize Git repository` defaulted to `false`.
+Users could create a repository without a `.git` directory, breaking Safe Publish and change history.
+Even when checked, a `git init` failure was logged as a warning and silently ignored — the repository
+was created in a broken state.
+
+### Frontend changes
+
+- **`CreateRepositoryWizard.tsx`** — Removed `initializeGit` state variable, removed the checkbox
+  and its label. Added a read-only info note in place of the checkbox:
+  `"Git repository will be initialized automatically. Git is required for change history and Safe Publish."`
+  The `createRepository` call no longer passes `initialize_git` in the payload.
+- **`wizardHelpers.ts`** — Removed `initializeGit: boolean` from `WizardFormState` interface (the field
+  was never validated; removing it simplifies the type).
+
+### Backend changes
+
+- **`apps/desktop/src-tauri/src/commands/repository.rs`** — Replaced the conditional
+  `if input.initialize_git { git init }` (which silently skipped git on false and ignored errors on true)
+  with an unconditional call to `ris_git::init_repository`. Failure now returns an error to the UI:
+  `"Failed to initialize Git repository: <sanitized message>"`.  
+  Removed `init_git={}` from the log line (field no longer exists in the DTO).
+- **`apps/desktop/src-tauri/src/dto.rs`** — Removed `initialize_git: bool` from
+  `CreateRepositoryInputDto`.
+- **`apps/desktop/src/api/tauriClient.ts`** — Removed `initialize_git: boolean` from
+  `CreateRepositoryInput` interface.
+
+### initialize_git field disposition
+
+**Removed** from both TypeScript and Rust DTO. All usages were local (one call site in the wizard,
+one handler in the command). No backwards-compatibility shim was needed.
+
+### git init failure handling
+
+If `ris_git::init_repository` fails, `create_repository_cmd` returns an `Err` to the UI.
+The error message is sanitized and user-facing: "Failed to initialize Git repository: …".
+The scaffolded repository files remain on disk but no session is opened and the UI shows
+the error. The user can delete the directory and retry.
+
+No cleanup of partially-created files is performed — this is intentional to keep the error
+path simple and avoid deleting user data.
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `apps/desktop/src/features/repository/CreateRepositoryWizard.tsx` | Removed checkbox; added read-only git note; removed `initializeGit` state; removed `initialize_git` from API call |
+| `apps/desktop/src/features/repository/wizardHelpers.ts` | Removed `initializeGit` from `WizardFormState` |
+| `apps/desktop/src/features/repository/wizardHelpers.test.ts` | Removed `initializeGit` from base fixture; replaced test |
+| `apps/desktop/src/features/repository/CreateRepositoryWizard.test.tsx` | **New** — 4 component tests |
+| `apps/desktop/src/api/tauriClient.ts` | Removed `initialize_git` from `CreateRepositoryInput` |
+| `apps/desktop/src-tauri/src/dto.rs` | Removed `initialize_git` from `CreateRepositoryInputDto` |
+| `apps/desktop/src-tauri/src/commands/repository.rs` | Unconditional `git init`; error on failure |
+| `crates/ris-application/Cargo.toml` | Added `ris-git` dev dependency |
+| `crates/ris-application/tests/create_tests.rs` | Added `create_repository_followed_by_git_init_produces_dot_git` test |
+
+### Tests
+
+**Frontend (Vitest):**
+- `wizardHelpers.test.ts` — updated to remove `initializeGit` fixture (13 tests)
+- `CreateRepositoryWizard.test.tsx` — **new**, 4 tests:
+  1. No "Initialize Git repository" checkbox rendered
+  2. Info note "Git repository will be initialized automatically." visible
+  3. `createRepository` called without `initialize_git` field
+  4. `onSuccess` called with backend result
+
+**Rust:**
+- `crates/ris-application/tests/create_tests.rs` — new test
+  `create_repository_followed_by_git_init_produces_dot_git`: calls `create_repository` then
+  `ris_git::init_repository` and asserts `.git` exists. Skipped if `git` binary is unavailable.
+
+**Local check results:**
+- `git diff --check` → pass
+- `cargo fmt/check/test/clippy`: **not runnable** — Rust toolchain not installed in this CI environment.
+  The changes are syntactically verified by Python inspection scripts: no stale `initialize_git`
+  references in the Rust DTO or command handler, unconditional `ris_git::init_repository` present,
+  user-facing error message present.
+- `pnpm typecheck/test/build`: **not runnable** — `pnpm`/`node_modules` not installed in this environment.
+  TypeScript changes verified by Python inspection scripts: no `initialize_git` in tauriClient,
+  no `initializeGit` in wizard or helpers.
+
+**Note on git init failure path:** A direct unit test that simulates `git init` failure is not added
+because it would require either a process mock or a fake git binary, which is disproportionate for this
+scope. The failure path is covered by the unconditional error propagation in the command handler —
+if `ris_git::init_repository` returns `Err`, the `?` operator short-circuits and the user-facing
+error is returned.
+
+### Risks
+
+- Scaffolded files remain on disk if `git init` fails. The user must delete the directory manually and retry.
+  A cleanup step was not added to avoid deleting existing user data.
+- `git` must be installed on the host machine. If `git` is not on `PATH`, `ris_git::init_repository`
+  returns an error and the user sees "Failed to initialize Git repository: …". This is the expected
+  behavior — the application requires Git.
+
+### Not done
+
+- Opening existing repositories without `.git` — not changed; this is a separate topic.
+- Cleanup of partially-created directory on `git init` failure — intentionally deferred.
+
+### Suggested next step
+
+`repo/unsaved-guard-recent-open`
+
+---
+
+## Guard unsaved changes and fix recent open flow — branch repo/unsaved-guard-recent-open
+
+**Branch:** `repo/unsaved-guard-recent-open`
+**Base branch:** `integration/post-ui-polish-qa`
+
+### Problem
+
+Two related issues:
+
+1. **No unsaved-changes guard on Open.** `handleOpen` opened a new repository unconditionally. If the user had unsaved in-memory changes, they were silently discarded. Only `handleClose` had a guard (using a raw `window.confirm` with an inconsistent message).
+
+2. **Recent repositories "Open" button only filled the path field.** Clicking "Open" in the Recent repositories panel called `onRepoPathChange(path)`, which just populated the path input. The user had to separately click the "Open" button in the "Open by path" section.
+
+### Behavior changes
+
+**Guarded actions:**
+- `handleOpen` (Open by path + Enter key) — now guarded with `confirmUnsavedDiscard` + `UNSAVED_MSG.open`
+- `handleClose` (Close button) — was already guarded; message updated to `UNSAVED_MSG.close`
+- `handleOpenPath` (new) — used by Recent repos "Open"; guarded with `confirmUnsavedDiscard` + `UNSAVED_MSG.open`
+
+**Actions intentionally NOT guarded:**
+- `handleCreateSuccess` — wizard only shown on landing state where `hasUnsavedChanges` is always `false`
+- `handleBrowse` — only sets the path field, does not replace repository session
+- Window close (`beforeunload`) — left unchanged
+
+**Recent repositories fix:**
+- "Open" button calls `onOpenPath(path)` → `handleOpenPath(path)` in App (guarded + direct open)
+- Row click (path text) still only fills the path field (existing behavior preserved)
+- `aria-label={`Open ${path}`}` added for accessibility and test selectability
+
+### Shared helper: `unsavedGuard.ts`
+
+`apps/desktop/src/lib/unsavedGuard.ts`:
+- `UNSAVED_MSG` — named constants for open / close / create messages
+- `confirmUnsavedDiscard(hasUnsavedChanges, message)` — returns `true` immediately if no unsaved changes; otherwise calls `window.confirm` and returns the result
+
+### Code deduplication: `doOpen`
+
+`doOpen(path: string)` extracted as internal helper. Both `handleOpen` and `handleOpenPath` call `doOpen` after the guard — consistent state update for both paths.
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `apps/desktop/src/lib/unsavedGuard.ts` | **New** — `confirmUnsavedDiscard` + `UNSAVED_MSG` |
+| `apps/desktop/src/lib/unsavedGuard.test.ts` | **New** — 10 unit tests |
+| `apps/desktop/src/App.tsx` | Extracted `doOpen`; added `handleOpenPath`; guarded `handleOpen` and `handleClose`; added `onOpenPath` to RepositoryPanel |
+| `apps/desktop/src/features/repository/RepositoryPanel.tsx` | Added `onOpenPath?` prop; Recent repos "Open" calls `onOpenPath(path)`; `aria-label` added |
+| `apps/desktop/src/features/repository/RepositoryPanel.test.tsx` | **New** — 7 integration tests |
+| `apps/desktop/vite.config.ts` | Added `unsavedGuard.test.ts` to jsdom environment |
+
+### Tests
+
+**`unsavedGuard.test.ts`** (10 tests):
+- No `window.confirm` when no unsaved changes
+- Returns true/false based on confirm result
+- Correct message passed to `window.confirm`
+- `UNSAVED_MSG` content verified
+
+**`RepositoryPanel.test.tsx`** (7 tests):
+- Recent "Open" button calls `onOpenPath(path)`, not `onOpen`
+- Row click calls `onRepoPathChange(path)`, not `onOpenPath`
+- "Open by path" button calls `onOpen`
+- Safe when `onOpenPath` is absent
+- Each path button carries its own path
+
+**Note on test coverage:** Guard cases 1–4 (Open/Recent blocked/allowed) are tested at unit level. At App component level these paths are only reachable from the landing state where `hasUnsavedChanges` is always `false`, so the guard condition cannot fire in practice — wiring is verified by panel integration tests. `window.confirm` mocked with `vi.spyOn` and restored in `afterEach`.
+
+**Local check results:**
+- `git diff --check` → pass
+- No Rust/Tauri files changed → cargo checks not required
+- `pnpm typecheck/test/build/test:e2e`: not runnable in this environment (no `pnpm`/`node_modules`). Changes verified by Python inspection scripts.
+
+### Risks
+
+- Guard uses `window.confirm` (blocking native dialog). Acceptable for this step; a future pass can replace with `ConfirmDialog`.
+- Guard on Recent open never fires in current app flow (landing state → `hasUnsavedChanges` always false). Wired in for correctness and future-proofing.
+
+### Not done
+
+- Replacing `window.confirm` with `ConfirmDialog` — deferred
+- Window `beforeunload` guard — left unchanged
+- Opening existing repositories without `.git` — not touched
+
+### Suggested next step
+
+`perf/git-status-cache`
+
+---
+
+## Git status cache and manual refresh — branch perf/git-status-cache
+
+**Branch:** `perf/git-status-cache`
+**Base branch:** `integration/post-ui-polish-qa`
+
+### Summary
+
+Eliminated repeated `getGitStatus` / `getGitLog` / `listGitRemotes` calls caused by `RepositoryPanel` unmounting every time the user switches away from the Repository tab. Added a `Refresh Git status` button in the Git panel and an external refresh token mechanism so saves from the Validation tab also invalidate the cached status.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `apps/desktop/src/App.tsx` | Add `gitRefreshToken` state; extract `handleSaveSuccess` (clears unsaved flag + bumps token); keep `RepositoryPanel` always-mounted (`display:none` when other tab active); pass `gitRefreshToken` to `RepositoryPanel`; use `handleSaveSuccess` for both `RepositoryPanel` and `ValidationPanel` |
+| `apps/desktop/src/features/repository/RepositoryPanel.tsx` | Add `gitRefreshToken?` to `Props` and `GitSectionProps`; forward into `GitSection`; add `gitRefreshToken` to `useEffect` dependency array; add `Refresh Git status` button (with `aria-label`) to the Git panel actions, disabled while loading |
+| `apps/desktop/src/features/repository/RepositoryPanel.test.tsx` | Import `waitFor` and mocked API functions; add two new describe blocks (8 tests) covering cache behavior and Refresh button |
+
+### Git status loading — before this change
+
+`GitSection` is a child of `RepositoryPanel`. `RepositoryPanel` was conditionally rendered with `{activeTab === "repository" && <RepositoryPanel ... />}`. Every tab switch unmounted `RepositoryPanel` and its child `GitSection`, discarding all state. On return to the Repository tab, a fresh `GitSection` mounted and the `useEffect` immediately called `getGitStatus`, `getGitLog(5)`, and `listGitRemotes` in parallel — even if nothing had changed.
+
+### New cache behavior
+
+`RepositoryPanel` is now always mounted (wrapped in `<div style={activeTab !== "repository" ? { display: "none" } : undefined}>`). `GitSection` stays mounted throughout the session as long as a repository is open. Its internal state (`gitStatus`, `gitCommits`, `remotes`) persists across tab switches. The `useEffect` only re-fires when `repoPath`, `refreshKey`, or `gitRefreshToken` changes.
+
+### Cache invalidation and refresh rules
+
+| Trigger | Mechanism |
+|---|---|
+| Open new repository | `repoPath` (= `summary.repo_path`) changes → `useEffect` fires |
+| Close repository | `summary` becomes `null` → `GitSection` unmounts → state cleared |
+| Create repository success | New `repoPath` via `handleCreateSuccess` → same as open |
+| Save from Repository tab (GitSection) | `handleSaveFromGit` calls `onSaveSuccess()` → App increments `gitRefreshToken`; also calls `setRefreshKey(k+1)` internally |
+| Save from Validation tab | `handleSaveSuccess` in App increments `gitRefreshToken` → prop change propagates to `GitSection` → `useEffect` fires |
+| Commit | `handleCommit` calls `setRefreshKey(k+1)` |
+| Pull | `handlePull` calls `setRefreshKey(k+1)` |
+| Push | `handlePush` calls `setRefreshKey(k+1)` |
+| Git init | `handleInit` calls `setRefreshKey(k+1)` |
+| Add remote | `handleAddRemote` calls `setRefreshKey(k+1)` |
+| Manual refresh | `Refresh Git status` button calls `setRefreshKey(k+1)` |
+
+Note: save from the Repository tab causes two fetches (one from `onSaveSuccess` → `gitRefreshToken`, one from `setRefreshKey` internally). Both resolve to identical data; no correctness issue. This is a minor Tauri-local API overhead only on save.
+
+### Manual Refresh Git status button
+
+- Located in the Git panel header actions (same panel that shows Branch, Status, Upstream)
+- Label: `Refresh Git status` (also `aria-label` for test selectability)
+- Calls `setRefreshKey(k+1)` — same mechanism as all internal mutation refreshes
+- Disabled when `loading === true` (i.e., a fetch is already in progress)
+- Does not trigger save, commit, pull, push, validate, or any other side effect
+- Because `getGitStatus`, `getGitLog`, and `listGitRemotes` are fetched together in a single `Promise.all`, clicking Refresh also refreshes recent commits and remotes list — documented here as intended, consistent with existing behavior
+
+### Tests added
+
+Two new describe blocks in `RepositoryPanel.test.tsx`:
+
+**Git status cache:**
+1. Fetches Git status exactly once on initial mount
+2. Does not fetch again when unrelated props change (`hasUnsavedChanges`)
+3. Fetches again when repo path changes (new repo opened)
+4. Fetches again when `gitRefreshToken` changes (external mutation)
+5. Clears Git status when repo is closed (`summary` becomes null)
+
+**Refresh Git status button:**
+6. Button is present after initial load
+7. Clicking Refresh triggers another `getGitStatus` call
+8. Button is disabled while refresh is running (pending Promise)
+
+### Checks run and results
+
+- `git diff --check` → pass
+- No Rust/Tauri files changed → cargo checks not required
+- `pnpm typecheck / test / build / test:e2e`: not runnable in this environment (no `pnpm` / `node_modules`). Changes statically verified by reading modified files and cross-checking TypeScript types.
+
+### Known risks
+
+- Double fetch on save from GitSection (`gitRefreshToken` bump + `setRefreshKey` both fire). Harmless — backend is local Tauri; no visible UX impact.
+- `RepositoryPanel` is now always mounted even when other tabs are active. Any future expensive effects added to `RepositoryPanel`'s landing state would run while hidden. This is unlikely but worth noting for future contributors.
+- `display:none` hides the panel visually but it remains in the DOM. Accessibility tools scanning the DOM can still find hidden elements; `inert` attribute would be stricter but is a future improvement.
+
+### Not done
+
+- Replacing the Retry / Refresh buttons with a unified control — out of scope
+- Polling / auto-refresh on interval — explicitly excluded per task
+- `RepositoryPanel` landing state caching — not needed (no expensive calls on landing state)
+
+### Suggested next step
+
+`ux/location-scoped-racks`
+
+---
+
+## Location-scoped rack management — branch ux/location-scoped-racks
+
+**Branch:** `ux/location-scoped-racks`
+**Base branch / PR target:** `integration/post-ui-polish-qa`
+
+### Summary
+
+Racks are now managed from the context of a selected location rather than as a flat global list. The Locations panel exposes a "Manage racks" per-row action button; clicking it switches to the Racks tab with that location's context. The Racks panel filters to the selected location only. Add Rack uses the context location; Edit Rack shows it read-only. No location selected → empty state guides the user to Locations.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `apps/desktop/src/App.tsx` | Added `selectedLocationForRacks` state; `handleManageRacks` sets location + switches to Racks tab; context cleared on open/close/create repo; `onManageRacks` + `selectedLocation` props wired to panels |
+| `apps/desktop/src/features/locations/LocationsPanel.tsx` | Added `onManageRacks` optional prop; added "Manage racks" icon button (IcServer) before Edit in each row |
+| `apps/desktop/src/features/racks/RacksPanel.tsx` | Added `selectedLocation` prop; removed own `listLocations` call; added no-location empty state; filters to `visibleRacks` by location; updated PageHeader subtitle; removed Location column from table; updated `RackFormModal` call to pass `locationId`/`locationLabel` |
+| `apps/desktop/src/features/racks/RackFormModal.tsx` | Replaced `locations: LocationDto[]` prop with `locationId: string` + `locationLabel: string`; removed editable location select; shows location as read-only disabled input; `locationId` now flows from prop into `addRack`/`updateRack`; removed `missingLocation` validation |
+| `apps/desktop/src/features/racks/RackFormModal.test.tsx` | Rewrote to use `locationId`/`locationLabel` props; removed location-select interaction; updated "required footer" test to exclude "location"; added tests for read-only location field and edit-mode help text |
+| `apps/desktop/src/features/locations/LocationsPanel.test.tsx` | **New** — tests Manage racks button render and click callback |
+| `apps/desktop/src/features/racks/RacksPanel.test.tsx` | **New** — tests no-location empty state, filtered rack list, Add rack button visibility |
+| `apps/desktop/e2e/smoke.spec.ts` | Rack detail + Change side dialog tests now navigate via Locations → Manage racks instead of directly to Racks tab |
+
+### Tests
+
+```
+git diff --check                              → pass
+node_modules/.bin/tsc --noEmit               → pass (no TypeScript errors)
+node_modules/.bin/vitest run                 → 280/280 pass (24 test files)
+node_modules/.bin/vite build                 → pass (21.33 kB CSS, 271.50 kB JS)
+node_modules/.bin/playwright test            → 10/10 pass (firefox, 14.6s)
+```
+
+No Rust/Tauri files changed → cargo checks not required.
+
+### Known risks
+
+- Location context is cleared on repo open/close/create but not on tab switch away from Racks; context persists across tab switches within the same repo session.
+- Location `id` immutability in Edit Rack is frontend-only enforcement. No backend guard added in this branch.
+
+### Not done
+
+- Backend guard preventing `location_id` change on `update_rack` — deferred, frontend-only enforcement for this branch.
+- Breadcrumb or "back to location" navigation in Racks list view — not requested in spec.
+
+### Suggested next step
+
+`ux/rack-form-polish`
+
+---
+
+### Repair update (post-ChatGPT review — PR #56 blockers)
+
+**Blockers resolved:**
+
+1. **Uncommitted working tree at review-context generation time** — previous review context was generated while `apps/desktop/package-lock.json` was untracked (shown as `?? apps/desktop/package-lock.json` in `git status`). This repair removes that file and regenerates the review context from a fully clean working tree.
+
+2. **Accidental `apps/desktop/package-lock.json`** — generated as a side-effect of running `npm install` to locate the `node_modules` directory during the initial implementation session. This project uses `pnpm` with `pnpm-lock.yaml`; `package-lock.json` has no role here and was removed with `rm -f apps/desktop/package-lock.json`. It was never committed (was untracked).
+
+3. **E2E now run locally** — `node_modules/.bin/playwright install --with-deps` succeeded (downloaded Chromium + Firefox + system deps via apt). All 10 smoke tests pass. The earlier claim that Playwright was unavailable was incorrect — the correct command uses the local `node_modules/.bin/playwright`, not `npx playwright`.
+
+**Checks run after repair (clean working tree):**
+
+```
+git status --short                            → (empty — clean)
+git diff --check                              → pass
+node_modules/.bin/tsc --noEmit               → pass
+node_modules/.bin/vitest run                 → 280/280 pass (24 test files)
+node_modules/.bin/vite build                 → pass (21.33 kB CSS, 271.50 kB JS)
+node_modules/.bin/playwright test            → 10/10 pass (firefox, 14.6s)
+```
+
+No Rust/Tauri files changed → cargo checks not required.
+
+---
+
+## Rack form polish — branch ux/rack-form-polish
+
+**Branch:** `ux/rack-form-polish`
+**Base branch / PR target:** `integration/post-ui-polish-qa`
+
+### Summary
+
+Polished the Rack Add/Edit modal after the location-scoped racks change. Default height pre-fill, clearer field labels, improved help text, and a minor LocationsPanel API cleanup. No backend, YAML schema, or DTO field names changed.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `apps/desktop/src/features/racks/RackFormModal.tsx` | Added `DEFAULT_RACK_HEIGHT_U = 42`; pre-fills height in add mode; updated `isDirty` for add mode; "Row / aisle" label + help text; height help text; code help text adds "Immutable after creation."; added `data-testid="field-row"` |
+| `apps/desktop/src/features/racks/RackFormModal.test.tsx` | Full rewrite: tests for default height, dirty behavior, row label, help text, default-height submit, override-height submit, edit-mode height preservation, row payload field name |
+| `apps/desktop/src/features/locations/LocationsPanel.tsx` | `onManageRacks` made required (was optional) |
+| `apps/desktop/src/features/locations/LocationsPanel.test.tsx` | Removed "prop not provided" test (no longer applicable); added "second location" click test |
+
+### Exact UX changes
+
+**A. Default rack height in add mode**
+- `DEFAULT_RACK_HEIGHT_U = 42` constant added.
+- `EMPTY.heightU` set to `"42"` so the height field starts pre-filled.
+- `isDirty` in add mode now compares the form against `EMPTY` key-by-key instead of checking all-empty: a form with only the default height is not dirty. Cancel and Escape work correctly on a fresh modal.
+- Edit mode is unaffected: `rackToForm` always reads `rack.height_u`.
+
+**B. Height field**
+- Label: `Height (U)` (unchanged, already correct).
+- Help text added: "Standard full-height racks are often 42U. Use the actual usable rack height."
+- Placeholder removed (field starts pre-filled with "42").
+- Positive integer validation unchanged.
+
+**C. Row label**
+- Visible label changed from `"Row"` → `"Row / aisle"`.
+- Help text added: "Optional physical row, aisle or zone label within the location."
+- Persisted DTO field `row` unchanged. YAML key `row` unchanged. Backend unchanged.
+- Table column header in RacksPanel list view left as `"Row"` (not in scope).
+
+**D. Code help text**
+- Add mode help text extended: "Lowercase letters, digits, hyphens, underscores, dots. Immutable after creation."
+
+**E. LocationsPanel `onManageRacks` required**
+- Changed from optional `onManageRacks?` to required `onManageRacks`.
+- Manage racks is the primary rack workflow; the prop is always provided by `App.tsx`.
+- Removed the "does not throw when prop not provided" test; added a second-location click test.
+
+### Default rack height behavior
+
+- Add mode: height field pre-filled with `"42"`. Fresh modal → not dirty.
+- Edit mode: height field populated from `rack.height_u`. Default 42 is not applied. Existing heights (e.g. 24U, 48U) are preserved.
+- User can override either way before saving.
+
+### Row label behavior
+
+- Visible form label: `"Row / aisle"`.
+- Persisted field (DTO/YAML/backend): `row` — **unchanged**.
+- `addRack` and `updateRack` payloads still use `row:` key.
+
+### Location read-only behavior
+
+- Add mode: location shown as read-only disabled input displaying `locationLabel` prop.
+- Edit mode: same, plus help text "Location is fixed and cannot be changed."
+- No editable select; no location dropdown. Behavior unchanged from previous branch.
+
+### Tests
+
+```
+node_modules/.bin/vitest run  →  287/287 pass (24 test files)
+```
+
+New/updated tests in `RackFormModal.test.tsx`:
+- Add mode pre-fills height with 42
+- Add modal is not dirty when only the default height is set
+- Required footer shows "code, name" but not "height" (height pre-filled)
+- Row field labelled "Row / aisle"
+- Height help text about 42U visible
+- Calls addRack with default height 42 when user does not change it
+- Calls addRack with overridden height when user changes it
+- Edit mode preserves existing height (24) — does not replace with 42
+- Row payload maps to the `row` field (persisted field name unchanged)
+- updateRack called with locationId prop and original height
+
+Updated `LocationsPanel.test.tsx`:
+- Removed "prop not provided" test (onManageRacks now required)
+- Added second-location click test
+
+### Checks run
+
+```
+git diff --check                              → pass
+node_modules/.bin/tsc --noEmit               → pass
+node_modules/.bin/vitest run                 → 287/287 pass (24 test files)
+node_modules/.bin/vite build                 → pass (21.33 kB CSS, 271.71 kB JS)
+node_modules/.bin/playwright test            → 10/10 pass (firefox, 14.6s)
+```
+
+No Rust/Tauri files changed → cargo checks not required.
+
+### Known risks
+
+- The `DEFAULT_RACK_HEIGHT_U = 42` constant is frontend-only. It does not prevent a user from entering a different height; the field is still editable. No backend validation was added for this default.
+- Table column header "Row" in RacksPanel list view was intentionally left unchanged (only the form label was updated to "Row / aisle"). The two labels are now inconsistent across views — acceptable for this phase, can be unified in a future pass.
+- `locationLabel` in edit mode comes from `editing.location_code` passed via `RacksPanel`. If a rack's location code differs from name, the label shows code only. This is unchanged from the previous branch.
+
+### Not done
+
+- Renaming the "Row" column header in the rack list table — kept as-is to minimise scope.
+- Adding a location-level default height to YAML/DTO — explicitly excluded per task spec.
+- Backend guard for `location_id` immutability on `update_rack` — deferred from previous branch.
+
+### Suggested next step
+
+`ux/csv-sample-import`
+
+---
+
+## CSV import sample template — branch ux/csv-sample-import
+
+**Branch:** `ux/csv-sample-import`
+**Base branch:** `integration/post-ui-polish-qa`
+
+### What changed
+
+Added a "Download sample CSV" button to `CsvImportPanel` so users can download a ready-to-use template CSV that matches the actual importer schema.
+
+**New files:**
+- `apps/desktop/src/features/csvImport/csvSample.ts` — `SAMPLE_CSV_FILENAME`, `escapeCsvField`, `SAMPLE_CSV_CONTENT` (header row + 4 realistic sample rows), `downloadSampleCsv` (Blob download via anchor element; no Tauri dialog, no new npm deps).
+- `apps/desktop/src/features/csvImport/csvSample.test.tsx` — 24 Vitest tests covering filename, content structure, `escapeCsvField` edge cases, and `downloadSampleCsv` browser API interactions.
+- `apps/desktop/src/features/csvImport/CsvImportPanel.test.tsx` — 3 Vitest tests: button renders, click calls `downloadSampleCsv`, help text visible.
+
+**Modified files:**
+- `apps/desktop/src/features/csvImport/CsvImportPanel.tsx` — Imported `downloadSampleCsv` from `./csvSample`; added "Download sample CSV" button (btn-ghost + IcDownload icon) with help text "Use this template as a starting point, then preview it before importing." placed between the paste textarea and the Preview/Import button row.
+
+### CSV schema
+
+Columns mirror `KNOWN_COLUMNS` / `REQUIRED_COLUMNS` in `crates/ris-import/src/csv_reader.rs`:
+- Required: `code`, `device_type`, `status`
+- Optional: `name`, `device_model_code`, `serial_number`, `asset_tag`, `external_ref`, `tags`
+- `device_model_code` left empty in sample rows to avoid VAL-CSV-012 errors (unknown model) during preview.
+- `rack_object` excluded from sample device types (VAL-CSV-011).
+- Tags use `;` as separator (e.g. `access;switch`).
+
+### Checks run
+
+```
+git diff --check                          → pass
+node_modules/.bin/tsc --noEmit           → pass
+node_modules/.bin/vitest run             → 309/309 pass (26 test files)
+node_modules/.bin/vite build             → pass (21.33 kB CSS, 272.95 kB JS)
+```
+
+No Rust/Tauri files changed → cargo checks not required.
+
+### Known risks
+
+- `downloadSampleCsv` appends and removes an anchor from `document.body` — harmless in production, covered by jsdom tests.
+- `device_model_code` is empty in all sample rows; users with device models must fill it in manually.
+
+### Not done
+
+- No backend or Tauri changes.
+- No Playwright smoke test for the download button (Blob download in headless browser returns nothing useful; unit tests cover the function directly).
+
+### Suggested next step
+
+`ux/validation-save-copy`
+
+---
+
+## Validation and save copy polish — branch ux/validation-save-copy
+
+**Branch:** `ux/validation-save-copy`
+**Base branch / PR target:** `integration/post-ui-polish-qa`
+
+### Summary
+
+UX copy-only pass clarifying the difference between validation (in-memory checks), saving (writing YAML to disk), and Git commit/push. No behavior changes. No new dependencies.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `apps/desktop/src/features/validation/ValidationPanel.tsx` | Subtitle, button labels, empty-state body |
+| `apps/desktop/src/App.tsx` | Unsaved callout: "Save repository" → "Save changes" |
+| `apps/desktop/e2e/smoke.spec.ts` | Updated "Validate" button selector to "Validate repository" |
+| `apps/desktop/src/features/validation/ValidationPanel.test.tsx` | **New** — 6 tests for the updated copy |
+
+### Exact copy changes
+
+**ValidationPanel.tsx:**
+
+| Location | Before | After |
+|---|---|---|
+| Page subtitle | `"VAL-* checks run against the in-memory inventory."` | `"Check the repository for errors and warnings before saving or publishing."` |
+| Validate button | `"Validate"` | `"Validate repository"` |
+| Save button | `"Save inventory"` | `"Save changes"` |
+| Pre-validation empty state body | `"Click Validate to validate the current inventory."` | `"Validation reads the current in-memory data — it does not write files to disk."` |
+
+**App.tsx:**
+
+| Location | Before | After |
+|---|---|---|
+| Unsaved callout hint | `"Use Save repository in the Repository tab."` | `"Use Save changes in the Repository tab."` |
+
+### Validation vs save vs commit/push wording rationale
+
+- **Validate repository** — runs VAL-* checks on the current in-memory state. Does not write to disk. Renamed from generic "Validate" to make the scope explicit.
+- **Save changes** — writes YAML files locally. No Git involvement. Renamed from "Save inventory" for consistency with Safe Publish stepper Step 1 label ("Save changes to disk").
+- **Commit / Push** — Git operations in the Safe Publish stepper. Labels unchanged; stepper already uses unambiguous step names (Step 3: "Commit local changes", Step 5: "Push to remote").
+- The empty-state body for unvalidated state now explicitly states validation does not write files to disk, reducing the most common user confusion.
+
+### Behavior preserved
+
+- `validateCurrentRepository()` Tauri command — unchanged, same call site.
+- `saveCurrentRepository()` Tauri command — unchanged, same call site.
+- Git commit/push/pull flow — unchanged.
+- Unsaved changes state, guard logic, `UNSAVED_MSG` constants — unchanged.
+- Git status cache refresh behavior — unchanged.
+- No new backend calls, no new Tauri commands, no new npm deps.
+
+### Tests added/updated
+
+- **New** `ValidationPanel.test.tsx` — 6 Vitest tests:
+  - Renders "Validate repository" button
+  - Renders "Save changes" button
+  - Subtitle contains "saving or publishing"
+  - Pre-validation empty state body contains "does not write files to disk"
+  - Clicking "Validate repository" calls `validateCurrentRepository`
+  - Clicking "Save changes" calls `saveCurrentRepository`
+- **Updated** `e2e/smoke.spec.ts` — updated selector from `"Validate"` (exact) to `"Validate repository"` (exact) in the validation panel smoke test.
+- All existing tests unchanged and passing.
+
+### Checks run
+
+```
+git diff --check                              → pass
+node_modules/.bin/tsc --noEmit               → pass
+node_modules/.bin/vitest run                 → 315/315 pass (27 test files, +6 new)
+node_modules/.bin/vite build                 → pass (21.33 kB CSS, 272.95 kB JS)
+node_modules/.bin/playwright test            → 10/10 pass (firefox, 14.9s)
+```
+
+No Rust/Tauri files changed → cargo checks not required.
+
+### Known risks
+
+- The Save button in ValidationPanel was "Save inventory" — renaming to "Save changes" is more consistent but means the same save action now has the same label in both ValidationPanel and the Repository Safe Publish stepper. This is the intended outcome (consistent wording), not a bug.
+- The pre-validation empty-state body no longer directs the user to click the button by name. Users must find the "Validate repository" button in the header. This is acceptable — the empty state is inside the Issues panel which is adjacent to the header.
+
+### Not done
+
+- ValidationPanel empty state for all-clear (zero issues) has a two-case design: "Nothing to report" covers both "no issues at all" and "issues filtered out". No copy change needed — the filter context makes both cases clear.
+- RepositoryPanel Safe Publish step 2 meta text ("Run validation before committing.") was intentionally left unchanged — the stepper flow makes the ordering clear and the step title "Validate inventory" is sufficiently descriptive.
+- No auto-save, no new Git operations, no YAML schema changes.
+
+### Suggested next step
+
+`assets/app-icon`
+
+---
+
+## Windows diagnostic installer — branch ci/windows-diagnostic-installer
+
+**Branch:** `ci/windows-diagnostic-installer`
+**Base branch / PR target:** `integration/post-ui-polish-qa`
+
+### Summary
+
+Added a separate `workflow_dispatch`-only GitHub Actions workflow that builds an unsigned Windows NSIS installer specifically for QA and diagnostics verification. The artifact is named `rack-inventory-studio-windows-diagnostic-installer` (vs `rack-inventory-studio-windows-installer` for the standard workflow) and includes a `diagnostic-readme.txt` with log location, QA checklist, expected log entries, and what must not appear in logs.
+
+No application code was changed. The existing diagnostics logging (tauri-plugin-log, `diagnostics.rs`, `diagnosticsLog.ts`, `redact.ts`) is already comprehensive for QA purposes and required no modification.
+
+### Implementation shape
+
+**Separate workflow** — added `.github/workflows/windows-diagnostic-installer.yml` rather than modifying the existing `windows-installer.yml`. Reasons:
+- Keeps the standard installer workflow clean and unchanged.
+- Allows different artifact names without conditional logic.
+- A named "Diagnostic Installer" entry in the Actions sidebar is clearer for QA.
+
+### Files changed/added
+
+| File | Change |
+|---|---|
+| `.github/workflows/windows-diagnostic-installer.yml` | **New** — diagnostic installer workflow |
+| `.ai/windows-diagnostic-installer.md` | **New** — full QA documentation |
+| `.ai/windows-installer-ci.md` | Updated — added "See also" section pointing to diagnostic workflow |
+| `.ai/cc-report.md` | Updated — this section |
+
+### Workflow details
+
+| Property | Value |
+|---|---|
+| Trigger | `workflow_dispatch` only |
+| Runner | `windows-latest` |
+| Steps | checkout → Rust stable → Rust cache → pnpm → Node 22 → install deps → typecheck → frontend tests → tauri build → prepare artifact dir → upload |
+| Artifact name | `rack-inventory-studio-windows-diagnostic-installer` |
+| Artifact contents | `*.exe` NSIS installer + `diagnostic-readme.txt` |
+| Installer path inside runner | `target/release/bundle/nsis/*.exe` |
+| `if-no-files-found` | `error` |
+| Retention | 30 days |
+
+The `diagnostic-readme.txt` is generated inline by a PowerShell step in the workflow using GitHub Actions context variables (`${{ github.ref_name }}`, `${{ github.run_number }}`, `${{ github.run_id }}`).
+
+### App code changed
+
+No. Application source files, Tauri configuration, Rust backend, and frontend are unchanged.
+
+### Logging behavior changed
+
+No. The existing logging is already sufficient for diagnostic QA:
+- Startup, open/create/save/validate repository, CSV preview/import, Git status/commit/push/pull
+- Error sanitization via `diagnostics.rs` (Rust) and `redact.ts` (TypeScript)
+- All events logged at `Info` level or higher, written to local log file only
+
+### Logs remain local-only
+
+Confirmed. `tauri-plugin-log` writes to `LogDir` and `Stdout` only. No external endpoints, no telemetry, no analytics, no Sentry, no OpenTelemetry.
+
+### Documentation
+
+- `.ai/windows-diagnostic-installer.md` — comprehensive: purpose, trigger steps, artifact details, SmartScreen guidance, Windows 11 log location, QA checklist, expected log entries, what must not appear in logs, bug-report log collection, known limitations, comparison table with standard workflow, logging implementation reference.
+- `.ai/windows-installer-ci.md` — "See also" section added pointing to the diagnostic workflow and documentation.
+- README.md — not updated (change would be cosmetic only; CI docs are in `.ai/`).
+- CHANGELOG.md — not updated (no versioned release; convention reserves it for feature/domain changes).
+
+### How to run the diagnostic workflow
+
+1. GitHub repository → **Actions** tab.
+2. Select **Windows Diagnostic Installer** from the left sidebar.
+3. **Run workflow** → choose branch → **Run workflow**.
+4. After completion, download artifact `rack-inventory-studio-windows-diagnostic-installer.zip`.
+5. Extract — contains `*.exe` and `diagnostic-readme.txt`.
+
+### Windows 11 QA checklist summary
+
+1. Install the app (SmartScreen → More info → Run anyway).
+2. Launch — verify no error dialog.
+3. Open the example repository.
+4. Validate repository, Save changes, CSV Import preview, Git section.
+5. Check `%APPDATA%\com.techtradeexpress.rackinventorystudio\logs\` for log entries.
+6. Confirm no passwords / full paths / raw YAML/CSV in log.
+7. Close app — verify no crash.
+
+### Checks run
+
+```
+git diff --check                                   → pass
+node_modules/.bin/tsc --noEmit                    → pass
+node_modules/.bin/vitest run                      → 315/315 pass (27 test files, unchanged)
+node_modules/.bin/vite build                      → pass (21.33 kB CSS, 272.95 kB JS)
+node_modules/.bin/playwright test                 → 10/10 pass (firefox, unchanged)
+cargo fmt / check / test / clippy                 → NOT RUN (cargo not in PATH on this host; no Rust files changed)
+actionlint                                         → NOT AVAILABLE (not installed); workflow YAML verified by manual inspection
+Local Tauri build (pnpm tauri build)              → NOT RUN (Linux host, no display server, target is Windows)
+```
+
+No Rust files were modified — cargo checks are not needed to validate this branch. The real workflow build must be triggered manually in GitHub Actions to validate the Windows Tauri build end-to-end.
+
+### Known risks
+
+- The `diagnostic-readme.txt` is generated by a PowerShell step during CI. If the PowerShell here-string or file path changes (e.g. Tauri changes output directory), the step will fail at CI time. The `if-no-files-found: error` on the upload step catches a missing installer.
+- The workflow has not been run on GitHub Actions yet; first real run will validate all steps end-to-end.
+- App icon is still the default Tauri icon (the `assets/app-icon` stage is intentionally postponed). This is documented in `diagnostic-readme.txt`.
+- The exact log filename produced by `tauri-plugin-log` on Windows must be confirmed on first QA run.
+
+### Not done
+
+- Code signing — deferred (no EV/OV certificate; signing adds paid-service dependency).
+- App icon — deferred (separate `assets/app-icon` stage intentionally postponed).
+- MSI/WiX format — excluded (WiX not available on `windows-latest`; NSIS only).
+- Log rotation strategy — single rolling file (Tauri KeepOne default); acceptable for QA.
+- Automated actionlint check — not available locally; YAML verified by inspection.
+- Log filename exact value — to be confirmed on first Windows QA run.
+
+### Suggested next step
+
+`qa/post-ui-polish-final`
+
+---
+
+## App icon — branch assets/app-icon
+
+**Branch:** `assets/app-icon`
+**Base branch / PR target:** `integration/post-ui-polish-qa`
+
+### Summary
+
+Created a clean, repository-owned source SVG for the Rack Inventory Studio app icon (Bay direction) and regenerated all Tauri platform icon assets from it. The default Tauri placeholder icons are replaced in every required format.
+
+### Design origin
+
+The Bay direction was selected from the Claude Design bundle (`RIS Icon-print.html`, hero SVG at 256×256). The final visual: a frontal rack cabinet with two vertical mounting rails, top/bottom cross-plates, seven U-slot equipment rows, one accent (blue) row representing a tracked/selected device, and a small white status dot on the accent row indicating an asset is present.
+
+**CSS variable → hex mapping applied:**
+
+| Variable | Hex | Role |
+|---|---|---|
+| `var(--paper)` | `#fefdfb` | Background, status dot |
+| `var(--ink)` | `#1c2026` | Rails, cross-plates, equipment rows |
+| `var(--accent)` | `#3a6fc5` | Selected device row |
+| `var(--line)` | `#dfe1e5` | Container border stroke |
+
+**Design note:** The spec text described "six U-slot equipment rows" and "Row 4 of 6". The final design SVG has **seven rows** (y positions: 66, 86, 106, 126-accent, 146, 166, 186). The final SVG visual is the source of truth per the task specification ("preserve the selected final visual unless there is a technical reason not to"). The discrepancy is between the spec prose and the final production SVG; the SVG is correct.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `apps/desktop/src-tauri/icons/icon.svg` | **New** — clean source SVG with explicit hex colors, no CSS variables |
+| `apps/desktop/src-tauri/icons/icon.icns` | Regenerated — macOS ICNS |
+| `apps/desktop/src-tauri/icons/icon.ico` | Regenerated — Windows ICO |
+| `apps/desktop/src-tauri/icons/icon.png` | Regenerated — 512 px PNG |
+| `apps/desktop/src-tauri/icons/32x32.png` | Regenerated |
+| `apps/desktop/src-tauri/icons/64x64.png` | Regenerated |
+| `apps/desktop/src-tauri/icons/128x128.png` | Regenerated |
+| `apps/desktop/src-tauri/icons/128x128@2x.png` | Regenerated |
+| `apps/desktop/src-tauri/icons/Square*.png` (10 files) | Regenerated — Windows APPX/UWP sizes |
+| `apps/desktop/src-tauri/icons/StoreLogo.png` | Regenerated |
+| `apps/desktop/src-tauri/icons/ios/*.png` (17 files) | Regenerated — iOS sizes |
+| `apps/desktop/src-tauri/icons/android/**/*.png` (15 files) | Regenerated — Android mipmap sizes |
+| `.github/workflows/windows-diagnostic-installer.yml` | Removed "App icon may be default Tauri icon" limitation line |
+| `.ai/windows-diagnostic-installer.md` | Removed App icon limitation row from Known limitations table |
+
+### How icons were generated
+
+```
+cd apps/desktop
+node node_modules/@tauri-apps/cli/tauri.js icon src-tauri/icons/icon.svg -o src-tauri/icons
+```
+
+`tauri-cli 2.11.2` — same version as the project's existing `@tauri-apps/cli` devDependency.
+Output directory defaulted to `src-tauri/icons/`. All platform formats generated in one pass.
+
+`pnpm` was not available in the current host environment (Node 18, no corepack, no global pnpm).
+The Tauri CLI was invoked directly via `node node_modules/@tauri-apps/cli/tauri.js`. Identical result to `pnpm tauri icon`.
+
+### tauri.conf.json
+
+No changes needed. Tauri v2 looks for icons in `src-tauri/icons/` by convention when `bundle.icon` is not explicitly set. The `icon.svg` source file is not consumed by Tauri at build time (only the generated PNGs/ICO/ICNS are used); it is stored in `icons/` as the canonical design source.
+
+### Checks run (repair pass — cargo/gcc now installed)
+
+| Check | Command | Result |
+|---|---|---|
+| Whitespace | `git diff --check` | pass — no trailing whitespace or CRLF issues |
+| TypeScript | `node_modules/.bin/tsc --noEmit` | pass |
+| Unit tests | `node_modules/.bin/vitest run` | 315/315 pass (no test changes) |
+| Production build | `node_modules/.bin/vite build` | pass — 21.33 kB CSS, 273.01 kB JS |
+| E2E smoke | `node_modules/.bin/playwright test` | **10/10 pass** (Firefox, 14.9 s; `libasound2` installed via `playwright install --with-deps`) |
+| `pnpm` availability | `command -v pnpm` | not available — Node 18.19.1, no corepack, no global pnpm. All checks run via `node_modules/.bin/` equivalents. |
+| `cargo` availability | `command -v cargo` | `/cache/cargo/bin/cargo` — cargo 1.95.0 |
+| `gcc` availability | `command -v gcc` | `/usr/bin/gcc` — gcc 13.3.0 |
+| `cargo fmt --all --check` | `cargo fmt --all --check` | **pass** |
+| `cargo check --workspace` | `cargo check --workspace` | **pass** |
+| `cargo test --workspace` | `cargo test --workspace` | **pass** — 18 tests in desktop crate, all workspace tests pass |
+| `cargo clippy --workspace` | `cargo clippy --workspace -- -D warnings` | **pass** — no warnings |
+| Rust release compile | `cargo build --release --manifest-path apps/desktop/src-tauri/Cargo.toml` | **pass** — compiled in 3m 29s, `Finished release profile [optimized]`. GTK3 and WebKit2GTK 4.1 (`pkg-config --exists gtk+-3.0 webkit2gtk-4.1`) are available. |
+| Full Tauri CLI build | `node .../tauri.js build` | **not run to completion** — `beforeBuildCommand: "pnpm build"` fails with exit 127 (pnpm not in PATH). Vite production build was run separately via `node_modules/.bin/vite build` (pass). The Rust Tauri backend compiled successfully via `cargo build --release` (see above). A full pnpm-based Tauri installer build must be run on a system with pnpm installed. |
+| `package-lock.json` | `test ! -f apps/desktop/package-lock.json` | confirmed absent — project uses pnpm / pnpm-lock.yaml only |
+| Review-context files | `git diff --name-only integration/post-ui-polish-qa...HEAD \| grep review-context` | **none** — three accidentally committed review-context files (1739, 1753, 2003) removed via interactive rebase; branch history is clean |
+
+No application source code or test files were changed by this branch. `Cargo.lock` updated to reflect `ris-git` dev-dependency in `ris-application` (Cargo.toml already declared it; lock file was stale).
+
+### Known risks
+
+- App icon visual correctness requires rendering on a real desktop (Windows, macOS). The SVG geometry and hex colors match the final Claude Design output, but pixel-level rendering at small sizes (32 px, 44 px) has not been verified with a GUI.
+- `tauri-plugin-log` log filename exact value still unconfirmed (Windows QA pending). Unrelated to this branch.
+- Code signing still not configured. NSIS installer still unsigned — SmartScreen warning on first run. Unchanged from previous branches.
+- Android adaptive icon uses the full composition (not a separate foreground layer with transparent background). This is acceptable for internal QA builds.
+
+### Not done
+
+- Code signing — separate concern, out of scope.
+- App name / identifier updates — not requested.
+- NSIS installer splash/header image — Tauri generates these from icon assets automatically; no additional images required.
+
+### Suggested next step
+
+`qa/post-ui-polish-final`
+
+---
+
+## Post UI polish final QA — branch qa/post-ui-polish-final
+
+**Branch:** `qa/post-ui-polish-final`
+**Base branch / PR target:** `integration/post-ui-polish-qa`
+
+### Summary
+
+Final automated and code-review QA pass over the complete `integration/post-ui-polish-qa` series after all nine working branches were merged. No application blockers found. Two stale documentation items fixed (README test counts, CHANGELOG missing entry). All automated checks pass. Windows 11 manual QA not yet performed — documented as required before final PR to `master`.
+
+### Integrated branches verified
+
+| Branch | Merged |
+|---|---|
+| `repo/force-git-init` | ✓ |
+| `repo/unsaved-guard-recent-open` | ✓ |
+| `perf/git-status-cache` | ✓ |
+| `ux/location-scoped-racks` | ✓ |
+| `ux/rack-form-polish` | ✓ |
+| `ux/csv-sample-import` | ✓ |
+| `ux/validation-save-copy` | ✓ |
+| `ci/windows-diagnostic-installer` | ✓ |
+| `assets/app-icon` | ✓ |
+
+### QA checklist
+
+**Repository / Git:**
+- Force Git init: `CreateRepositoryWizard.tsx` has no `initializeGit` checkbox; backend calls `ris_git::init_repository` unconditionally — ✓
+- Unsaved guard: `confirmUnsavedDiscard` called in `handleOpen`, `handleOpenPath`, and `handleClose` — ✓
+- Recent open: `handleOpenPath` opens directly (no fill-only behavior) — ✓
+- Git status cache: `RepositoryPanel` always mounted, `GitSection` state persists; `display:none` hides it when inactive — ✓
+- Manual refresh: "Refresh Git status" button present in `RepositoryPanel` — ✓
+- Save invalidation: `handleSaveSuccess` increments `gitRefreshToken` — ✓
+
+**Locations / Racks:**
+- "Manage racks" per-row action in `LocationsPanel` — ✓
+- `RacksPanel` filters to `selectedLocation`, shows empty state when none — ✓
+- Add Rack passes `locationId` from context; Edit Rack shows it read-only — ✓
+- Default height 42U, "Row / aisle" label with help text — ✓
+
+**Rack Detail:**
+- Front/Rear `Segmented` control in `RackDetailPanel` PageHeader — ✓
+- `RackUnitDiagram` receives `side` prop, renders only active side — ✓
+- Placement table and inspector synced via `handleSelectPlacement` — ✓
+- Change side `ConfirmDialog` wired in `PlacementInspectorPanel` — ✓
+- Remove placement uses `ConfirmDialog` (danger tone) — ✓
+
+**CSV Import:**
+- "Download sample CSV" button in `CsvImportPanel` — ✓
+- `csvSample.ts` columns match importer-supported schema — ✓
+- `deriveCsvImportUiSummary` used; no double-counting — ✓
+
+**Validation / Save:**
+- "Validate repository" / "Save changes" button copy — ✓
+- Empty state: "Validation reads the current in-memory data — it does not write files to disk." — ✓
+- Unsaved callout uses "Save changes" wording — ✓
+
+**Installer / diagnostics:**
+- Both workflows: `on: workflow_dispatch:` only — ✓
+- Diagnostic docs: no stale "app icon may be default" limitation text — ✓
+- Logs remain local-only — ✓
+
+**App icon:**
+- `icon.svg`, `icon.ico`, `icon.icns`, `icon.png` all present in `src-tauri/icons/` — ✓
+- All platform sizes (Windows, iOS, Android mipmap) regenerated — ✓
+- `tauri.conf.json` unchanged; icons picked up by convention — ✓
+- Visual desktop verification still listed as a required Windows/macOS QA step — ✓
+
+**Artifacts / lockfiles:**
+- No `.ai/review-context-*.md` files tracked in git (gitignored, only on disk) — ✓
+- No `apps/desktop/package-lock.json` — ✓
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `README.md` | Updated stale test counts: 218 Vitest → 315, 258 Rust → 358 |
+| `CHANGELOG.md` | Added "Unreleased — post-UI polish QA series" section covering all 9 merged branches |
+| `.ai/cc-report.md` | This section |
+
+### Bugs found and fixed
+
+None. No application code changes required.
+
+### Frontend check results
+
+| Check | Command | Result |
+|---|---|---|
+| Whitespace | `git diff --check` | pass |
+| TypeScript | `node_modules/.bin/tsc --noEmit` | pass |
+| Unit tests | `node_modules/.bin/vitest run` | **315/315 pass** (27 test files) |
+| Production build | `node_modules/.bin/vite build` | pass — 21.33 kB CSS, 273.01 kB JS |
+| E2E smoke | `node_modules/.bin/playwright test` | **10/10 pass** (Firefox, 15.0 s) |
+| `pnpm` availability | `command -v pnpm` | not available — node_modules/.bin equivalents used |
+
+### Rust check results
+
+| Check | Command | Result |
+|---|---|---|
+| Format | `cargo fmt --all --check` | **pass** |
+| Type check | `cargo check --workspace` | **pass** |
+| Tests | `cargo test --workspace` | **pass — 358 tests** across all workspace crates |
+| Lints | `cargo clippy --workspace -- -D warnings` | **pass** — no warnings |
+
+### Tauri build result
+
+**Full Tauri CLI build:** `node .../tauri.js build` — fails at `beforeBuildCommand: "pnpm build"` (exit 127: pnpm not in PATH in this container). Vite frontend build verified separately (pass). Rust Tauri backend compiled in release mode via `cargo build --release` (pass, 42 s — incremental).
+
+**Tauri dev smoke:** not attempted — headless Linux container, no display server.
+
+### GitHub workflow status
+
+| Workflow | Status |
+|---|---|
+| CI (standard PR checks) | Last run on `assets/app-icon` PR — **success** (2026-05-23) |
+| Windows Installer (manual) | Not triggered — `workflow_dispatch` only; requires manual GitHub Actions run |
+| Windows Diagnostic Installer (manual) | Not triggered — `workflow_dispatch` only; requires manual GitHub Actions run |
+
+### Windows 11 manual QA status
+
+**Not completed.** Headless Linux container — no GUI environment available.
+
+Required before final PR to `master`:
+1. Run "Windows Diagnostic Installer" workflow manually on GitHub Actions against `integration/post-ui-polish-qa`
+2. Install resulting NSIS artifact on a clean Windows 11 machine
+3. Verify: app launches without crash, SmartScreen warning expected (unsigned), custom app icon visible in taskbar and installer
+4. Open example repository, validate, save changes, CSV import preview, Git section
+5. Check `%APPDATA%\com.techtradeexpress.rackinventorystudio\logs\` — entries present, no full paths or credentials
+6. Verify recent-open flow and unsaved-changes guard from the UI
+7. Verify location-scoped rack management, add rack with default 42U height
+8. Verify Front/Rear side selector in rack detail
+9. Verify "Download sample CSV" button downloads a usable file
+10. Close app — no crash
+
+### Confirmation: no review artifacts committed
+
+- `git diff --name-only integration/post-ui-polish-qa...HEAD | grep review-context` → empty — no review-context files in PR diff
+- `test ! -f apps/desktop/package-lock.json` → confirmed absent
+
+### Risks
+
+- Windows 11 manual QA not yet performed — custom icon, installer, logging, and full UI flow not verified on a real Windows machine.
+- Full `pnpm tauri build` not run locally because pnpm is unavailable in this container. NSIS packaging still requires validation by manually running the Windows Diagnostic Installer or Windows Installer workflow on GitHub Actions — neither workflow has been triggered for this integration state yet.
+- Code signing not configured — SmartScreen warning on first Windows run expected.
+- `RepositoryPanel` always-mounted approach: future expensive effects added while panel is hidden would run silently; currently harmless.
+- `window.confirm` still used for unsaved-changes guard (not `ConfirmDialog`) — acceptable for this iteration.
+
+### Not done
+
+- Windows 11 manual QA — requires a Windows machine.
+- Triggering Windows installer / diagnostic installer workflows — manual, requires human action.
+- Code signing — separate concern requiring EV/OV certificate.
+- Responsive layout, dark mode, accessibility audit — out of scope for this series.
+- Replacing `window.confirm` guards with `ConfirmDialog` — deferred.
+
+### Suggested next step
+
+Open final PR from `integration/post-ui-polish-qa` to `master` after Windows 11 manual QA is complete and approved.
+
+---
+
+## Final PR to master preparation — integration/post-ui-polish-qa
+
+**Branch:** `integration/post-ui-polish-qa`
+**PR target:** `master`
+
+### Branch state
+
+- All 9 working branches merged. PR #62 (`qa/post-ui-polish-final`) confirmed merged (top commit: `f7e85b9`).
+- No `apps/desktop/package-lock.json`.
+- No tracked `.ai/review-context-*.md` files.
+- 29 commits ahead of `master`.
+
+### Final diff scope (vs master)
+
+| Area | Files |
+|---|---|
+| Docs / AI reports | `.ai/cc-report.md`, `.ai/post-ui-polish-qa-plan.md`, `.ai/windows-diagnostic-installer.md`, `.ai/windows-installer-ci.md` |
+| Workflow | `.github/workflows/windows-diagnostic-installer.yml` (new) |
+| Changelog / README | `CHANGELOG.md`, `README.md` |
+| Cargo.lock | Updated (`ris-git` dev-dep for `ris-application`) |
+| App icon | `icon.svg` (new), all platform icon PNGs/ICO/ICNS regenerated |
+| Frontend source | `App.tsx`, repository/location/racks/csvImport/validation features, e2e smoke |
+| Rust backend | `dto.rs`, `commands/repository.rs`, `commands/git.rs`, `diagnostics.rs`, `lib.rs`, `Cargo.toml` |
+
+### Final sanity check results
+
+| Check | Command | Result |
+|---|---|---|
+| Whitespace | `git diff --check` | pass |
+| TypeScript | `tsc --noEmit` | pass |
+| Unit tests | `vitest run` | **315/315 pass** (27 test files) |
+| Production build | `vite build` | pass — 21.33 kB CSS, 273.01 kB JS |
+| E2E smoke | `playwright test` | **10/10 pass** (Firefox, 14.5 s) |
+| `pnpm` | `command -v pnpm` | not available — all checks via `node_modules/.bin/` |
+| `cargo fmt --all --check` | — | pass |
+| `cargo check --workspace` | — | pass |
+| `cargo test --workspace` | — | **358 tests pass** |
+| `cargo clippy -D warnings` | — | pass |
+| `cargo build --release` | — | pass (incremental, 0.42 s) |
+| Full `tauri build` CLI | `node .../tauri.js build` | not run — `beforeBuildCommand: "pnpm build"` fails (pnpm not in PATH) |
+
+### Windows Diagnostic Installer workflow
+
+Triggered via `gh workflow run` on `integration/post-ui-polish-qa`. See workflow run details in final report section below (populated after run completes).
+
+### Windows 11 manual QA status
+
+**Not completed.** Requires:
+1. Manual Windows Diagnostic Installer GitHub Actions run on `integration/post-ui-polish-qa`
+2. Download NSIS artifact, install on Windows 11
+3. Verify: app icon, logs, open/save/validate/CSV/Git flows
+4. Confirm no crashes, no credential leaks in logs
+
+### Risks
+
+- Windows 11 manual QA not yet performed — installer, icon, logging, and full UI not verified on real hardware.
+- NSIS packaging validated by CI on Windows runners only (standard Windows Installer run passed on 2026-05-23).
+- Code signing not configured — SmartScreen warning on first Windows run.
+- `window.confirm` used for unsaved-changes guard — acceptable for this iteration.
+
+### Not done
+
+- Windows 11 manual QA — requires a real Windows machine.
+- Code signing — out of scope.
+
+### Suggested next step
+
+Merge final PR from `integration/post-ui-polish-qa` to `master` once Windows 11 manual QA is approved.

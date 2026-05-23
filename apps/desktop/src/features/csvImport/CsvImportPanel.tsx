@@ -8,6 +8,7 @@ import {
   type CsvImportPreviewRowDto,
 } from "../../api/tauriClient";
 import { deriveCsvImportUiSummary } from "./csvImportSummary";
+import { downloadSampleCsv } from "./csvSample";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { Panel } from "../../components/ui/Panel";
 import { Badge } from "../../components/ui/Badge";
@@ -202,6 +203,20 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
                     }}
                     disabled={previewing || importing}
                   />
+                </div>
+
+                <div>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={downloadSampleCsv}
+                    data-testid="btn-download-sample"
+                  >
+                    <IcDownload size={12} /> Download sample CSV
+                  </button>
+                  <p style={{ fontSize: 11, color: "var(--tx-3)", margin: "4px 0 0" }}>
+                    Use this template as a starting point, then preview it before importing.
+                  </p>
                 </div>
 
                 {previewError && <Banner tone="err">{previewError}</Banner>}

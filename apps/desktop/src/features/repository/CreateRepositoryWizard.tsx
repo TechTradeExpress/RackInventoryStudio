@@ -15,11 +15,10 @@ export function CreateRepositoryWizard({ onSuccess }: Props) {
   const [path, setPath] = useState("");
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
-  const [initializeGit, setInitializeGit] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const validationErrors = validateWizardForm({ path, code, name, initializeGit });
+  const validationErrors = validateWizardForm({ path, code, name });
   const formHasErrors = hasWizardErrors(validationErrors);
 
   async function handleBrowse() {
@@ -41,7 +40,6 @@ export function CreateRepositoryWizard({ onSuccess }: Props) {
         path: path.trim(),
         code: code.trim(),
         name: name.trim(),
-        initialize_git: initializeGit,
       });
       onSuccess(result);
     } catch (e) {
@@ -108,17 +106,11 @@ export function CreateRepositoryWizard({ onSuccess }: Props) {
         )}
       </div>
 
-      <div style={styles.checkboxRow}>
-        <input
-          type="checkbox"
-          id="wizard-init-git"
-          checked={initializeGit}
-          onChange={(e) => setInitializeGit(e.target.checked)}
-          disabled={creating}
-        />
-        <label htmlFor="wizard-init-git" style={styles.checkboxLabel}>
-          Initialize Git repository
-        </label>
+      <div style={styles.gitNote}>
+        Git repository will be initialized automatically.
+        <span style={styles.gitNoteHint}>
+          {" "}Git is required for change history and Safe Publish.
+        </span>
       </div>
 
       <button
@@ -157,14 +149,12 @@ const styles = {
     color: "#b00020",
     marginTop: "0.15rem",
   } as CSSProperties,
-  checkboxRow: {
-    display: "flex",
-    gap: "0.45rem",
-    alignItems: "center",
+  gitNote: {
+    fontSize: "0.82rem",
+    color: "#444",
     marginBottom: "0.75rem",
   } as CSSProperties,
-  checkboxLabel: {
-    fontSize: "0.85rem",
-    cursor: "pointer",
+  gitNoteHint: {
+    color: "#888",
   } as CSSProperties,
 };

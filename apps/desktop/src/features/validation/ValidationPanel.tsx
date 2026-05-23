@@ -110,14 +110,14 @@ export function ValidationPanel({
     <>
       <PageHeader
         title="Validation"
-        subtitle="VAL-* checks run against the in-memory inventory."
+        subtitle="Check the repository for errors and warnings before saving or publishing."
         actions={
           <>
             <button className="btn" onClick={handleValidate} disabled={working}>
-              <IcRefresh size={12} /> Validate
+              <IcRefresh size={12} /> Validate repository
             </button>
             <button className="btn btn-primary" onClick={handleSave} disabled={working}>
-              <IcSave size={12} /> Save inventory
+              <IcSave size={12} /> Save changes
             </button>
           </>
         }
@@ -159,7 +159,7 @@ export function ValidationPanel({
                 <EmptyState
                   icon={<IcCheckCircle size={28} />}
                   title="No results yet"
-                  body="Click Validate to validate the current inventory."
+                  body="Validation reads the current in-memory data — it does not write files to disk."
                 />
               ) : filtered.length === 0 ? (
                 <EmptyState

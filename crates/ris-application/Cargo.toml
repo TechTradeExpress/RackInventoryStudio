@@ -16,4 +16,5 @@ thiserror = "1"
 
 [dev-dependencies]
 tempfile = "3"
+ris-git = { path = "../ris-git" }
 

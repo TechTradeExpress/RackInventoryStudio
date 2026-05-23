@@ -71,3 +71,15 @@ repository at this stage.
 A clean build (cold Rust cache) takes approximately **20–30 minutes**.
 With a warm Rust cache (`Swatinem/rust-cache@v2`) subsequent builds take
 approximately **5–10 minutes**.
+
+## See also
+
+A separate **Windows Diagnostic Installer** workflow exists for QA and diagnostics
+verification:
+
+- Workflow: `.github/workflows/windows-diagnostic-installer.yml`
+- Artifact name: `rack-inventory-studio-windows-diagnostic-installer`
+- Documentation: `.ai/windows-diagnostic-installer.md`
+
+The diagnostic workflow is identical in build steps but produces a clearly-named
+QA artifact and includes a `diagnostic-readme.txt` with log locations and QA checklist.

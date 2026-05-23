@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased — post-UI polish QA series (integration branch `integration/post-ui-polish-qa`)
+
+Nine working branches merged into `integration/post-ui-polish-qa`. Full automated QA passes. Windows 11 manual QA required before final PR to `master`.
+
+- **Force Git init on repository creation** (`repo/force-git-init`) — `Initialize Git repository` checkbox removed; `git init` is now unconditional and hard-failure on error; repository creation blocks if Git is unavailable.
+- **Unsaved-changes guard + Recent open fix** (`repo/unsaved-guard-recent-open`) — `handleOpen` and `handleClose` both guarded via `confirmUnsavedDiscard`; Recent repositories "Open" button now opens immediately (was: fill-path only).
+- **Git status cache + manual refresh** (`perf/git-status-cache`) — `RepositoryPanel` always mounted (`display:none` when hidden); `GitSection` state persists across tab switches; explicit "Refresh Git status" button added; save invalidates cache via `gitRefreshToken`.
+- **Location-scoped rack management** (`ux/location-scoped-racks`) — Racks managed from Location context via "Manage racks" per-row action; Racks panel filters to selected location; Add Rack uses context location.
+- **Rack form polish** (`ux/rack-form-polish`) — Default rack height pre-filled to 42U; field label "Row / aisle" with help text; code field help text notes immutability.
+- **CSV sample template download** (`ux/csv-sample-import`) — "Download sample CSV" button in CSV Import panel; template matches importer-supported columns; no double-counting of warning rows.
+- **Validation and save copy** (`ux/validation-save-copy`) — Button copy: "Validate repository", "Save changes"; empty state explains validation does not write to disk.
+- **Windows diagnostic installer** (`ci/windows-diagnostic-installer`) — Separate manual-only `workflow_dispatch` workflow builds unsigned NSIS installer with a `diagnostic-readme.txt` for QA log verification; named artifact `rack-inventory-studio-windows-diagnostic-installer`.
+- **App icon** (`assets/app-icon`) — Bay-direction rack cabinet SVG (`icon.svg`) added; all Tauri platform icon formats regenerated (Windows ICO, macOS ICNS, PNG set, Windows APPX, iOS, Android); default Tauri placeholder icons replaced.
+
+**Test totals after integration:** 358 Rust workspace tests · 315 Vitest frontend tests · 10 Playwright smoke tests.
+
 ## Unreleased — UI polish (branch `design/claude-ui-polish`)
 
 UI polish and design correction work completed on `design/claude-ui-polish`. Not yet merged to `master`. Manual visual QA on Windows 11 required before release.

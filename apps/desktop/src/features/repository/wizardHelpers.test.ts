@@ -5,7 +5,6 @@ const base = {
   path: "/some/path",
   code: "my-repo",
   name: "My Repository",
-  initializeGit: false,
 };
 
 describe("validateWizardForm", () => {
@@ -53,8 +52,8 @@ describe("validateWizardForm", () => {
     expect(validateWizardForm({ ...base, name: "   " }).name).toBeDefined();
   });
 
-  it("accepts initializeGit true with otherwise valid input", () => {
-    expect(validateWizardForm({ ...base, initializeGit: true })).toEqual({});
+  it("returns no errors when all required fields are provided", () => {
+    expect(validateWizardForm({ path: "/a", code: "a", name: "A" })).toEqual({});
   });
 });
 

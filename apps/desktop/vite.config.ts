@@ -21,6 +21,7 @@ export default defineConfig({
     environmentMatchGlobs: [
       ["src/components/ui/*.test.tsx", "jsdom"],
       ["src/features/**/*.test.tsx", "jsdom"],
+      ["src/lib/unsavedGuard.test.ts", "jsdom"],
     ],
   },
 });

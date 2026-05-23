@@ -313,7 +313,6 @@ pub struct CreateRepositoryInputDto {
     pub path: String,
     pub code: String,
     pub name: String,
-    pub initialize_git: bool,
 }
 
 // ── Search DTOs ───────────────────────────────────────────────────────────────

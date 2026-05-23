@@ -4,6 +4,7 @@ import {
   getRepositorySummary,
   openRepository,
   selectRepositoryFolder,
+  type LocationDto,
   type OpenRepositoryResultDto,
   type RackSummaryDto,
   type RepositorySummaryDto,
@@ -42,6 +43,7 @@ import {
 import type { ValidationNavigationTarget } from "./features/validation/navigation";
 import { logError, logInfo, logWarn } from "./lib/diagnosticsLog";
 import { sanitizeErrorForLog, sanitizePathForLog } from "./lib/redact";
+import { confirmUnsavedDiscard, UNSAVED_MSG } from "./lib/unsavedGuard";
 
 type Tab =
   | "repository"
@@ -63,6 +65,8 @@ export function App() {
   const [selectedRack, setSelectedRack] = useState<RackSummaryDto | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [repositoryMutationToken, setRepositoryMutationToken] = useState(0);
+  const [gitRefreshToken, setGitRefreshToken] = useState(0);
+  const [selectedLocationForRacks, setSelectedLocationForRacks] = useState<LocationDto | null>(null);
 
   const [highlightedLocationId, setHighlightedLocationId] = useState<string | null>(null);
   const [highlightedDeviceId, setHighlightedDeviceId] = useState<string | null>(null);
@@ -73,6 +77,16 @@ export function App() {
   } | null>(null);
 
   const isOpen = summary !== null;
+
+  function handleSaveSuccess() {
+    setHasUnsavedChanges(false);
+    setGitRefreshToken((t) => t + 1);
+  }
+
+  function handleManageRacks(location: LocationDto) {
+    setSelectedLocationForRacks(location);
+    setActiveTab("racks");
+  }
 
   function handleRepositoryMutated() {
     setHasUnsavedChanges(true);
@@ -138,23 +152,24 @@ export function App() {
     }
   }
 
-  async function handleOpen() {
-    if (!repoPath.trim()) return;
+  async function doOpen(path: string) {
     setWorking(true);
     setError(null);
-    logInfo(`Opening repository: ${sanitizePathForLog(repoPath.trim())}`);
+    logInfo(`Opening repository: ${sanitizePathForLog(path)}`);
     try {
-      const result: OpenRepositoryResultDto = await openRepository(repoPath.trim());
+      const result: OpenRepositoryResultDto = await openRepository(path);
+      setRepoPath(path);
       setSummary(result.summary);
       setValidationSummary(result.validation_summary);
       setSelectedRack(null);
+      setSelectedLocationForRacks(null);
       setHasUnsavedChanges(false);
       setHighlightedLocationId(null);
       setHighlightedDeviceId(null);
       setHighlightedDeviceModelId(null);
       setPendingRackNavTarget(null);
       setActiveTab("repository");
-      addRecentRepository(repoPath.trim());
+      addRecentRepository(path);
       setRecentRepos(getRecentRepositories());
       logInfo(
         `Repository opened: code=${result.summary.repository_code} locations=${result.summary.locations_count} racks=${result.summary.racks_count} devices=${result.summary.devices_count}`,
@@ -165,6 +180,18 @@ export function App() {
     } finally {
       setWorking(false);
     }
+  }
+
+  async function handleOpen() {
+    const path = repoPath.trim();
+    if (!path) return;
+    if (!confirmUnsavedDiscard(hasUnsavedChanges, UNSAVED_MSG.open)) return;
+    await doOpen(path);
+  }
+
+  async function handleOpenPath(path: string) {
+    if (!confirmUnsavedDiscard(hasUnsavedChanges, UNSAVED_MSG.open)) return;
+    await doOpen(path);
   }
 
   async function handleBrowse() {
@@ -181,6 +208,7 @@ export function App() {
     setValidationSummary(result.validation_summary);
     setRepoPath(result.summary.repo_path);
     setSelectedRack(null);
+    setSelectedLocationForRacks(null);
     setHasUnsavedChanges(false);
     setHighlightedLocationId(null);
     setHighlightedDeviceId(null);
@@ -193,12 +221,7 @@ export function App() {
   }
 
   async function handleClose() {
-    if (
-      hasUnsavedChanges &&
-      !confirm("You have unsaved in-memory changes. Close anyway? Changes not saved to disk will be lost.")
-    ) {
-      return;
-    }
+    if (!confirmUnsavedDiscard(hasUnsavedChanges, UNSAVED_MSG.close)) return;
     setWorking(true);
     setError(null);
     try {
@@ -206,6 +229,7 @@ export function App() {
       setSummary(null);
       setValidationSummary(null);
       setSelectedRack(null);
+      setSelectedLocationForRacks(null);
       setHasUnsavedChanges(false);
       setRepositoryMutationToken(0);
       setHighlightedLocationId(null);
@@ -370,7 +394,7 @@ export function App() {
               <span>
                 <strong>Unsaved inventory changes</strong> — data modified in memory, not yet written to YAML files.
                 {activeTab !== "repository" && (
-                  <> Use <strong>Save repository</strong> in the Repository tab.</>
+                  <> Use <strong>Save changes</strong> in the Repository tab.</>
                 )}
               </span>
               {activeTab !== "repository" && (
@@ -387,11 +411,12 @@ export function App() {
           )}
 
           {/* Panel content */}
-          {activeTab === "repository" && (
+          <div style={activeTab !== "repository" ? { display: "none" } : undefined}>
             <RepositoryPanel
               repoPath={repoPath}
               onRepoPathChange={setRepoPath}
               onOpen={handleOpen}
+              onOpenPath={handleOpenPath}
               onBrowse={handleBrowse}
               onClose={handleClose}
               working={working}
@@ -403,19 +428,20 @@ export function App() {
                 setRecentRepos(getRecentRepositories());
               }}
               hasUnsavedChanges={hasUnsavedChanges}
-              onSaveSuccess={() => setHasUnsavedChanges(false)}
+              onSaveSuccess={handleSaveSuccess}
               onPullSuccess={(s) => setSummary(s)}
               onPullRunning={(v) => setWorking(v)}
               onCreateSuccess={handleCreateSuccess}
+              gitRefreshToken={gitRefreshToken}
             />
-          )}
+          </div>
 
           {activeTab === "validation" && isOpen && (
             <ValidationPanel
               working={working}
               setWorking={setWorking}
               setError={setError}
-              onSaveSuccess={() => setHasUnsavedChanges(false)}
+              onSaveSuccess={handleSaveSuccess}
               onNavigate={handleNavigateFromValidation}
             />
           )}
@@ -425,6 +451,7 @@ export function App() {
               repoPath={summary.repo_path}
               highlightedLocationId={highlightedLocationId}
               onRepositoryMutated={handleRepositoryMutated}
+              onManageRacks={handleManageRacks}
             />
           )}
 
@@ -437,6 +464,7 @@ export function App() {
               pendingRackNavTarget={pendingRackNavTarget}
               onRackNavTargetConsumed={() => setPendingRackNavTarget(null)}
               onRepositoryMutated={handleRepositoryMutated}
+              selectedLocation={selectedLocationForRacks}
             />
           )}
 

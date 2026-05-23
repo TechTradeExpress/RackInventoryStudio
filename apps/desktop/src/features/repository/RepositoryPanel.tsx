@@ -54,6 +54,7 @@ interface Props {
   repoPath: string;
   onRepoPathChange: (v: string) => void;
   onOpen: () => void;
+  onOpenPath?: (path: string) => void;
   onBrowse: () => void;
   onClose: () => void;
   working: boolean;
@@ -66,6 +67,7 @@ interface Props {
   onPullSuccess: (summary: RepositorySummaryDto) => void;
   onPullRunning: (running: boolean) => void;
   onCreateSuccess: (result: OpenRepositoryResultDto) => void;
+  gitRefreshToken?: number;
 }
 
 const EXAMPLE_HINT = "examples/example-repository";
@@ -194,6 +196,7 @@ interface GitSectionProps {
   onSaveSuccess: () => void;
   onPullSuccess: (summary: RepositorySummaryDto) => void;
   onPullRunning: (running: boolean) => void;
+  gitRefreshToken?: number;
 }
 
 function GitSection({
@@ -202,6 +205,7 @@ function GitSection({
   onSaveSuccess,
   onPullSuccess,
   onPullRunning,
+  gitRefreshToken,
 }: GitSectionProps) {
   const [gitStatus, setGitStatus] = useState<GitStatusDto | null>(null);
   const [gitCommits, setGitCommits] = useState<GitCommitDto[]>([]);
@@ -287,7 +291,7 @@ function GitSection({
       })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
-  }, [repoPath, refreshKey]);
+  }, [repoPath, refreshKey, gitRefreshToken]);
 
   // Reset publish validation whenever unsaved in-memory changes appear.
   useEffect(() => {
@@ -719,7 +723,19 @@ function GitSection({
       )}
 
       {/* Git status + action hints sidebar content */}
-      <Panel title="Git">
+      <Panel
+        title="Git"
+        actions={
+          <button
+            className="btn btn-sm"
+            aria-label="Refresh Git status"
+            onClick={() => setRefreshKey((k) => k + 1)}
+            disabled={loading}
+          >
+            <IcRefresh size={11} /> Refresh Git status
+          </button>
+        }
+      >
         <div className="stack-3">
           <dl className="kv">
             <dt>Branch</dt>
@@ -849,6 +865,7 @@ export function RepositoryPanel({
   repoPath,
   onRepoPathChange,
   onOpen,
+  onOpenPath,
   onBrowse,
   onClose,
   working,
@@ -861,6 +878,7 @@ export function RepositoryPanel({
   onPullSuccess,
   onPullRunning,
   onCreateSuccess,
+  gitRefreshToken,
 }: Props) {
   // ── Landing state (no repository open) ──────────────────────────────────────
   if (!summary) {
@@ -892,7 +910,7 @@ export function RepositoryPanel({
                           <td
                             className="tbl-mono"
                             onClick={() => onRepoPathChange(path)}
-                            title={`Click to fill path: ${path}`}
+                            title={`Click to fill path field: ${path}`}
                             style={{ color: "var(--ac-text)", cursor: "pointer" }}
                           >
                             {path}
@@ -900,8 +918,9 @@ export function RepositoryPanel({
                           <td className="tbl-actions">
                             <button
                               className="btn btn-sm btn-primary"
-                              onClick={() => { onRepoPathChange(path); }}
+                              onClick={() => onOpenPath?.(path)}
                               disabled={working}
+                              aria-label={`Open ${path}`}
                             >
                               Open
                             </button>
@@ -1018,6 +1037,7 @@ export function RepositoryPanel({
               onSaveSuccess={onSaveSuccess}
               onPullSuccess={onPullSuccess}
               onPullRunning={onPullRunning}
+              gitRefreshToken={gitRefreshToken}
             />
           </div>
           <div className="stack-4" style={{ minWidth: 0 }}>
