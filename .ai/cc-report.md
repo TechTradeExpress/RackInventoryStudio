@@ -1711,3 +1711,78 @@ Two new describe blocks in `RepositoryPanel.test.tsx`:
 ### Suggested next step
 
 `ux/location-scoped-racks`
+
+---
+
+## Location-scoped rack management — branch ux/location-scoped-racks
+
+**Branch:** `ux/location-scoped-racks`
+**Base branch / PR target:** `integration/post-ui-polish-qa`
+
+### Summary
+
+Racks are now managed from the context of a selected location rather than as a flat global list. The Locations panel exposes a "Manage racks" per-row action button; clicking it switches to the Racks tab with that location's context. The Racks panel filters to the selected location only. Add Rack uses the context location; Edit Rack shows it read-only. No location selected → empty state guides the user to Locations.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `apps/desktop/src/App.tsx` | Added `selectedLocationForRacks` state; `handleManageRacks` sets location + switches to Racks tab; context cleared on open/close/create repo; `onManageRacks` + `selectedLocation` props wired to panels |
+| `apps/desktop/src/features/locations/LocationsPanel.tsx` | Added `onManageRacks` optional prop; added "Manage racks" icon button (IcServer) before Edit in each row |
+| `apps/desktop/src/features/racks/RacksPanel.tsx` | Added `selectedLocation` prop; removed own `listLocations` call; added no-location empty state; filters to `visibleRacks` by location; updated PageHeader subtitle; removed Location column from table; updated `RackFormModal` call to pass `locationId`/`locationLabel` |
+| `apps/desktop/src/features/racks/RackFormModal.tsx` | Replaced `locations: LocationDto[]` prop with `locationId: string` + `locationLabel: string`; removed editable location select; shows location as read-only disabled input; `locationId` now flows from prop into `addRack`/`updateRack`; removed `missingLocation` validation |
+| `apps/desktop/src/features/racks/RackFormModal.test.tsx` | Rewrote to use `locationId`/`locationLabel` props; removed location-select interaction; updated "required footer" test to exclude "location"; added tests for read-only location field and edit-mode help text |
+| `apps/desktop/src/features/locations/LocationsPanel.test.tsx` | **New** — tests Manage racks button render and click callback |
+| `apps/desktop/src/features/racks/RacksPanel.test.tsx` | **New** — tests no-location empty state, filtered rack list, Add rack button visibility |
+| `apps/desktop/e2e/smoke.spec.ts` | Rack detail + Change side dialog tests now navigate via Locations → Manage racks instead of directly to Racks tab |
+
+### Tests
+
+```
+git diff --check                              → pass
+node_modules/.bin/tsc --noEmit               → pass (no TypeScript errors)
+node_modules/.bin/vitest run                 → 280/280 pass (24 test files)
+node_modules/.bin/vite build                 → pass (21.33 kB CSS, 271.50 kB JS)
+node_modules/.bin/playwright test            → 10/10 pass (firefox, 14.6s)
+```
+
+No Rust/Tauri files changed → cargo checks not required.
+
+### Known risks
+
+- Location context is cleared on repo open/close/create but not on tab switch away from Racks; context persists across tab switches within the same repo session.
+- Location `id` immutability in Edit Rack is frontend-only enforcement. No backend guard added in this branch.
+
+### Not done
+
+- Backend guard preventing `location_id` change on `update_rack` — deferred, frontend-only enforcement for this branch.
+- Breadcrumb or "back to location" navigation in Racks list view — not requested in spec.
+
+### Suggested next step
+
+`ux/rack-form-polish`
+
+---
+
+### Repair update (post-ChatGPT review — PR #56 blockers)
+
+**Blockers resolved:**
+
+1. **Uncommitted working tree at review-context generation time** — previous review context was generated while `apps/desktop/package-lock.json` was untracked (shown as `?? apps/desktop/package-lock.json` in `git status`). This repair removes that file and regenerates the review context from a fully clean working tree.
+
+2. **Accidental `apps/desktop/package-lock.json`** — generated as a side-effect of running `npm install` to locate the `node_modules` directory during the initial implementation session. This project uses `pnpm` with `pnpm-lock.yaml`; `package-lock.json` has no role here and was removed with `rm -f apps/desktop/package-lock.json`. It was never committed (was untracked).
+
+3. **E2E now run locally** — `node_modules/.bin/playwright install --with-deps` succeeded (downloaded Chromium + Firefox + system deps via apt). All 10 smoke tests pass. The earlier claim that Playwright was unavailable was incorrect — the correct command uses the local `node_modules/.bin/playwright`, not `npx playwright`.
+
+**Checks run after repair (clean working tree):**
+
+```
+git status --short                            → (empty — clean)
+git diff --check                              → pass
+node_modules/.bin/tsc --noEmit               → pass
+node_modules/.bin/vitest run                 → 280/280 pass (24 test files)
+node_modules/.bin/vite build                 → pass (21.33 kB CSS, 271.50 kB JS)
+node_modules/.bin/playwright test            → 10/10 pass (firefox, 14.6s)
+```
+
+No Rust/Tauri files changed → cargo checks not required.

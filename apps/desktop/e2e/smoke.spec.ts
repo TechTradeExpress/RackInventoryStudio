@@ -159,7 +159,9 @@ test("rack detail and placement table visible", async ({ page }) => {
   await page.goto("/");
   await openFixtureRepo(page);
 
-  await page.getByRole("button", { name: "Racks", exact: true }).click();
+  // Navigate to Racks via Locations → Manage racks
+  await page.getByRole("button", { name: "Locations", exact: true }).click();
+  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
   await expect(page.getByRole("heading", { name: "Racks" })).toBeVisible();
   await expect(page.getByText("rack-main")).toBeVisible();
 
@@ -189,7 +191,9 @@ test("rack detail: Change side dialog opens and can be cancelled", async ({ page
   await page.goto("/");
   await openFixtureRepo(page);
 
-  await page.getByRole("button", { name: "Racks", exact: true }).click();
+  // Navigate to Racks via Locations → Manage racks
+  await page.getByRole("button", { name: "Locations", exact: true }).click();
+  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
   await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Front placements", exact: true })).toBeVisible();
 

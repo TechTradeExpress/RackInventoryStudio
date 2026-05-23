@@ -6,12 +6,10 @@ import { parsePositiveInt } from "./positiveInt";
 import {
   addRack,
   updateRack,
-  type LocationDto,
   type RackSummaryDto,
 } from "../../api/tauriClient";
 
 interface FormState {
-  locationId: string;
   code: string;
   name: string;
   heightU: string;
@@ -21,7 +19,6 @@ interface FormState {
 }
 
 const EMPTY: FormState = {
-  locationId: "",
   code: "",
   name: "",
   heightU: "",
@@ -32,7 +29,6 @@ const EMPTY: FormState = {
 
 function rackToForm(rack: RackSummaryDto): FormState {
   return {
-    locationId: rack.location_id,
     code: rack.code,
     name: rack.name,
     heightU: String(rack.height_u),
@@ -48,7 +44,6 @@ function isDirty(form: FormState, editing: RackSummaryDto | null): boolean {
   }
   const orig = rackToForm(editing);
   return (
-    form.locationId !== orig.locationId ||
     form.name !== orig.name ||
     form.heightU !== orig.heightU ||
     form.row !== orig.row ||
@@ -61,7 +56,8 @@ export interface RackFormModalProps {
   open: boolean;
   /** null → add mode, RackSummaryDto → edit mode */
   editing: RackSummaryDto | null;
-  locations: LocationDto[];
+  locationId: string;
+  locationLabel: string;
   onClose: () => void;
   onSaved: () => void;
 }
@@ -69,7 +65,8 @@ export interface RackFormModalProps {
 export function RackFormModal({
   open,
   editing,
-  locations,
+  locationId,
+  locationLabel,
   onClose,
   onSaved,
 }: RackFormModalProps) {
@@ -102,7 +99,6 @@ export function RackFormModal({
       ? "Use lowercase letters, digits, hyphens, underscores or dots."
       : null;
 
-  const missingLocation = !form.locationId;
   const missingCode = !codeVal;
   const missingName = !form.name.trim();
   const missingHeight = !form.heightU.trim();
@@ -110,7 +106,6 @@ export function RackFormModal({
     !missingHeight && parsePositiveInt(form.heightU) === null;
 
   const canSave =
-    !missingLocation &&
     !missingCode &&
     !missingName &&
     !missingHeight &&
@@ -121,7 +116,6 @@ export function RackFormModal({
   const footerMsg: string | null = (() => {
     if (error) return error;
     const missing = [
-      ...(missingLocation ? ["location"] : []),
       ...(missingCode ? ["code"] : []),
       ...(missingName ? ["name"] : []),
       ...(missingHeight ? ["height"] : []),
@@ -141,7 +135,7 @@ export function RackFormModal({
       if (isEdit) {
         await updateRack({
           id: editing.id,
-          location_id: form.locationId,
+          location_id: locationId,
           code: editing.code,
           name: form.name.trim(),
           height_u: heightU,
@@ -151,7 +145,7 @@ export function RackFormModal({
         });
       } else {
         await addRack({
-          location_id: form.locationId,
+          location_id: locationId,
           code: codeVal,
           name: form.name.trim(),
           height_u: heightU,
@@ -202,21 +196,17 @@ export function RackFormModal({
       }
     >
       <div className="form-grid">
-        <Field label="Location" required>
-          <select
+        <Field
+          label="Location"
+          help={isEdit ? "Location is fixed and cannot be changed." : undefined}
+        >
+          <input
             className="input"
-            value={form.locationId}
-            onChange={set("locationId")}
-            disabled={submitting}
+            value={locationLabel}
+            readOnly
+            disabled
             data-testid="field-location"
-          >
-            <option value="">— select location —</option>
-            {locations.map((loc) => (
-              <option key={loc.id} value={loc.id}>
-                {loc.code} — {loc.name}
-              </option>
-            ))}
-          </select>
+          />
         </Field>
         <Field
           className="col-6"
