@@ -64,6 +64,7 @@ export function App() {
   const [selectedRack, setSelectedRack] = useState<RackSummaryDto | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [repositoryMutationToken, setRepositoryMutationToken] = useState(0);
+  const [gitRefreshToken, setGitRefreshToken] = useState(0);
 
   const [highlightedLocationId, setHighlightedLocationId] = useState<string | null>(null);
   const [highlightedDeviceId, setHighlightedDeviceId] = useState<string | null>(null);
@@ -74,6 +75,11 @@ export function App() {
   } | null>(null);
 
   const isOpen = summary !== null;
+
+  function handleSaveSuccess() {
+    setHasUnsavedChanges(false);
+    setGitRefreshToken((t) => t + 1);
+  }
 
   function handleRepositoryMutated() {
     setHasUnsavedChanges(true);
@@ -395,7 +401,7 @@ export function App() {
           )}
 
           {/* Panel content */}
-          {activeTab === "repository" && (
+          <div style={activeTab !== "repository" ? { display: "none" } : undefined}>
             <RepositoryPanel
               repoPath={repoPath}
               onRepoPathChange={setRepoPath}
@@ -412,19 +418,20 @@ export function App() {
                 setRecentRepos(getRecentRepositories());
               }}
               hasUnsavedChanges={hasUnsavedChanges}
-              onSaveSuccess={() => setHasUnsavedChanges(false)}
+              onSaveSuccess={handleSaveSuccess}
               onPullSuccess={(s) => setSummary(s)}
               onPullRunning={(v) => setWorking(v)}
               onCreateSuccess={handleCreateSuccess}
+              gitRefreshToken={gitRefreshToken}
             />
-          )}
+          </div>
 
           {activeTab === "validation" && isOpen && (
             <ValidationPanel
               working={working}
               setWorking={setWorking}
               setError={setError}
-              onSaveSuccess={() => setHasUnsavedChanges(false)}
+              onSaveSuccess={handleSaveSuccess}
               onNavigate={handleNavigateFromValidation}
             />
           )}

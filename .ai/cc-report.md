@@ -1619,3 +1619,95 @@ Two related issues:
 ### Suggested next step
 
 `perf/git-status-cache`
+
+---
+
+## Git status cache and manual refresh — branch perf/git-status-cache
+
+**Branch:** `perf/git-status-cache`
+**Base branch:** `integration/post-ui-polish-qa`
+
+### Summary
+
+Eliminated repeated `getGitStatus` / `getGitLog` / `listGitRemotes` calls caused by `RepositoryPanel` unmounting every time the user switches away from the Repository tab. Added a `Refresh Git status` button in the Git panel and an external refresh token mechanism so saves from the Validation tab also invalidate the cached status.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `apps/desktop/src/App.tsx` | Add `gitRefreshToken` state; extract `handleSaveSuccess` (clears unsaved flag + bumps token); keep `RepositoryPanel` always-mounted (`display:none` when other tab active); pass `gitRefreshToken` to `RepositoryPanel`; use `handleSaveSuccess` for both `RepositoryPanel` and `ValidationPanel` |
+| `apps/desktop/src/features/repository/RepositoryPanel.tsx` | Add `gitRefreshToken?` to `Props` and `GitSectionProps`; forward into `GitSection`; add `gitRefreshToken` to `useEffect` dependency array; add `Refresh Git status` button (with `aria-label`) to the Git panel actions, disabled while loading |
+| `apps/desktop/src/features/repository/RepositoryPanel.test.tsx` | Import `waitFor` and mocked API functions; add two new describe blocks (8 tests) covering cache behavior and Refresh button |
+
+### Git status loading — before this change
+
+`GitSection` is a child of `RepositoryPanel`. `RepositoryPanel` was conditionally rendered with `{activeTab === "repository" && <RepositoryPanel ... />}`. Every tab switch unmounted `RepositoryPanel` and its child `GitSection`, discarding all state. On return to the Repository tab, a fresh `GitSection` mounted and the `useEffect` immediately called `getGitStatus`, `getGitLog(5)`, and `listGitRemotes` in parallel — even if nothing had changed.
+
+### New cache behavior
+
+`RepositoryPanel` is now always mounted (wrapped in `<div style={activeTab !== "repository" ? { display: "none" } : undefined}>`). `GitSection` stays mounted throughout the session as long as a repository is open. Its internal state (`gitStatus`, `gitCommits`, `remotes`) persists across tab switches. The `useEffect` only re-fires when `repoPath`, `refreshKey`, or `gitRefreshToken` changes.
+
+### Cache invalidation and refresh rules
+
+| Trigger | Mechanism |
+|---|---|
+| Open new repository | `repoPath` (= `summary.repo_path`) changes → `useEffect` fires |
+| Close repository | `summary` becomes `null` → `GitSection` unmounts → state cleared |
+| Create repository success | New `repoPath` via `handleCreateSuccess` → same as open |
+| Save from Repository tab (GitSection) | `handleSaveFromGit` calls `onSaveSuccess()` → App increments `gitRefreshToken`; also calls `setRefreshKey(k+1)` internally |
+| Save from Validation tab | `handleSaveSuccess` in App increments `gitRefreshToken` → prop change propagates to `GitSection` → `useEffect` fires |
+| Commit | `handleCommit` calls `setRefreshKey(k+1)` |
+| Pull | `handlePull` calls `setRefreshKey(k+1)` |
+| Push | `handlePush` calls `setRefreshKey(k+1)` |
+| Git init | `handleInit` calls `setRefreshKey(k+1)` |
+| Add remote | `handleAddRemote` calls `setRefreshKey(k+1)` |
+| Manual refresh | `Refresh Git status` button calls `setRefreshKey(k+1)` |
+
+Note: save from the Repository tab causes two fetches (one from `onSaveSuccess` → `gitRefreshToken`, one from `setRefreshKey` internally). Both resolve to identical data; no correctness issue. This is a minor Tauri-local API overhead only on save.
+
+### Manual Refresh Git status button
+
+- Located in the Git panel header actions (same panel that shows Branch, Status, Upstream)
+- Label: `Refresh Git status` (also `aria-label` for test selectability)
+- Calls `setRefreshKey(k+1)` — same mechanism as all internal mutation refreshes
+- Disabled when `loading === true` (i.e., a fetch is already in progress)
+- Does not trigger save, commit, pull, push, validate, or any other side effect
+- Because `getGitStatus`, `getGitLog`, and `listGitRemotes` are fetched together in a single `Promise.all`, clicking Refresh also refreshes recent commits and remotes list — documented here as intended, consistent with existing behavior
+
+### Tests added
+
+Two new describe blocks in `RepositoryPanel.test.tsx`:
+
+**Git status cache:**
+1. Fetches Git status exactly once on initial mount
+2. Does not fetch again when unrelated props change (`hasUnsavedChanges`)
+3. Fetches again when repo path changes (new repo opened)
+4. Fetches again when `gitRefreshToken` changes (external mutation)
+5. Clears Git status when repo is closed (`summary` becomes null)
+
+**Refresh Git status button:**
+6. Button is present after initial load
+7. Clicking Refresh triggers another `getGitStatus` call
+8. Button is disabled while refresh is running (pending Promise)
+
+### Checks run and results
+
+- `git diff --check` → pass
+- No Rust/Tauri files changed → cargo checks not required
+- `pnpm typecheck / test / build / test:e2e`: not runnable in this environment (no `pnpm` / `node_modules`). Changes statically verified by reading modified files and cross-checking TypeScript types.
+
+### Known risks
+
+- Double fetch on save from GitSection (`gitRefreshToken` bump + `setRefreshKey` both fire). Harmless — backend is local Tauri; no visible UX impact.
+- `RepositoryPanel` is now always mounted even when other tabs are active. Any future expensive effects added to `RepositoryPanel`'s landing state would run while hidden. This is unlikely but worth noting for future contributors.
+- `display:none` hides the panel visually but it remains in the DOM. Accessibility tools scanning the DOM can still find hidden elements; `inert` attribute would be stricter but is a future improvement.
+
+### Not done
+
+- Replacing the Retry / Refresh buttons with a unified control — out of scope
+- Polling / auto-refresh on interval — explicitly excluded per task
+- `RepositoryPanel` landing state caching — not needed (no expensive calls on landing state)
+
+### Suggested next step
+
+`ux/location-scoped-racks`
