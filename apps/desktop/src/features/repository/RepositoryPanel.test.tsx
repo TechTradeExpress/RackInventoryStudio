@@ -256,6 +256,6 @@ describe("RepositoryPanel — Refresh Git status button", () => {
     vi.mocked(getGitLog).mockReturnValueOnce(new Promise(() => {}));
     vi.mocked(listGitRemotes).mockReturnValueOnce(new Promise(() => {}));
     fireEvent.click(btn);
-    await waitFor(() => expect(btn).toBeDisabled());
+    await waitFor(() => expect((btn as HTMLButtonElement).disabled).toBe(true));
   });
 });
