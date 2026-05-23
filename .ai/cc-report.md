@@ -1529,3 +1529,93 @@ error is returned.
 ### Suggested next step
 
 `repo/unsaved-guard-recent-open`
+
+---
+
+## Guard unsaved changes and fix recent open flow — branch repo/unsaved-guard-recent-open
+
+**Branch:** `repo/unsaved-guard-recent-open`
+**Base branch:** `integration/post-ui-polish-qa`
+
+### Problem
+
+Two related issues:
+
+1. **No unsaved-changes guard on Open.** `handleOpen` opened a new repository unconditionally. If the user had unsaved in-memory changes, they were silently discarded. Only `handleClose` had a guard (using a raw `window.confirm` with an inconsistent message).
+
+2. **Recent repositories "Open" button only filled the path field.** Clicking "Open" in the Recent repositories panel called `onRepoPathChange(path)`, which just populated the path input. The user had to separately click the "Open" button in the "Open by path" section.
+
+### Behavior changes
+
+**Guarded actions:**
+- `handleOpen` (Open by path + Enter key) — now guarded with `confirmUnsavedDiscard` + `UNSAVED_MSG.open`
+- `handleClose` (Close button) — was already guarded; message updated to `UNSAVED_MSG.close`
+- `handleOpenPath` (new) — used by Recent repos "Open"; guarded with `confirmUnsavedDiscard` + `UNSAVED_MSG.open`
+
+**Actions intentionally NOT guarded:**
+- `handleCreateSuccess` — wizard only shown on landing state where `hasUnsavedChanges` is always `false`
+- `handleBrowse` — only sets the path field, does not replace repository session
+- Window close (`beforeunload`) — left unchanged
+
+**Recent repositories fix:**
+- "Open" button calls `onOpenPath(path)` → `handleOpenPath(path)` in App (guarded + direct open)
+- Row click (path text) still only fills the path field (existing behavior preserved)
+- `aria-label={`Open ${path}`}` added for accessibility and test selectability
+
+### Shared helper: `unsavedGuard.ts`
+
+`apps/desktop/src/lib/unsavedGuard.ts`:
+- `UNSAVED_MSG` — named constants for open / close / create messages
+- `confirmUnsavedDiscard(hasUnsavedChanges, message)` — returns `true` immediately if no unsaved changes; otherwise calls `window.confirm` and returns the result
+
+### Code deduplication: `doOpen`
+
+`doOpen(path: string)` extracted as internal helper. Both `handleOpen` and `handleOpenPath` call `doOpen` after the guard — consistent state update for both paths.
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `apps/desktop/src/lib/unsavedGuard.ts` | **New** — `confirmUnsavedDiscard` + `UNSAVED_MSG` |
+| `apps/desktop/src/lib/unsavedGuard.test.ts` | **New** — 10 unit tests |
+| `apps/desktop/src/App.tsx` | Extracted `doOpen`; added `handleOpenPath`; guarded `handleOpen` and `handleClose`; added `onOpenPath` to RepositoryPanel |
+| `apps/desktop/src/features/repository/RepositoryPanel.tsx` | Added `onOpenPath?` prop; Recent repos "Open" calls `onOpenPath(path)`; `aria-label` added |
+| `apps/desktop/src/features/repository/RepositoryPanel.test.tsx` | **New** — 7 integration tests |
+| `apps/desktop/vite.config.ts` | Added `unsavedGuard.test.ts` to jsdom environment |
+
+### Tests
+
+**`unsavedGuard.test.ts`** (10 tests):
+- No `window.confirm` when no unsaved changes
+- Returns true/false based on confirm result
+- Correct message passed to `window.confirm`
+- `UNSAVED_MSG` content verified
+
+**`RepositoryPanel.test.tsx`** (7 tests):
+- Recent "Open" button calls `onOpenPath(path)`, not `onOpen`
+- Row click calls `onRepoPathChange(path)`, not `onOpenPath`
+- "Open by path" button calls `onOpen`
+- Safe when `onOpenPath` is absent
+- Each path button carries its own path
+
+**Note on test coverage:** Guard cases 1–4 (Open/Recent blocked/allowed) are tested at unit level. At App component level these paths are only reachable from the landing state where `hasUnsavedChanges` is always `false`, so the guard condition cannot fire in practice — wiring is verified by panel integration tests. `window.confirm` mocked with `vi.spyOn` and restored in `afterEach`.
+
+**Local check results:**
+- `git diff --check` → pass
+- No Rust/Tauri files changed → cargo checks not required
+- `pnpm typecheck/test/build/test:e2e`: not runnable in this environment (no `pnpm`/`node_modules`). Changes verified by Python inspection scripts.
+
+### Risks
+
+- Guard uses `window.confirm` (blocking native dialog). Acceptable for this step; a future pass can replace with `ConfirmDialog`.
+- Guard on Recent open never fires in current app flow (landing state → `hasUnsavedChanges` always false). Wired in for correctness and future-proofing.
+
+### Not done
+
+- Replacing `window.confirm` with `ConfirmDialog` — deferred
+- Window `beforeunload` guard — left unchanged
+- Opening existing repositories without `.git` — not touched
+
+### Suggested next step
+
+`perf/git-status-cache`
