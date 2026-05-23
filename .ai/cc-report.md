@@ -2428,3 +2428,74 @@ Required before final PR to `master`:
 ### Suggested next step
 
 Open final PR from `integration/post-ui-polish-qa` to `master` after Windows 11 manual QA is complete and approved.
+
+---
+
+## Final PR to master preparation — integration/post-ui-polish-qa
+
+**Branch:** `integration/post-ui-polish-qa`
+**PR target:** `master`
+
+### Branch state
+
+- All 9 working branches merged. PR #62 (`qa/post-ui-polish-final`) confirmed merged (top commit: `f7e85b9`).
+- No `apps/desktop/package-lock.json`.
+- No tracked `.ai/review-context-*.md` files.
+- 29 commits ahead of `master`.
+
+### Final diff scope (vs master)
+
+| Area | Files |
+|---|---|
+| Docs / AI reports | `.ai/cc-report.md`, `.ai/post-ui-polish-qa-plan.md`, `.ai/windows-diagnostic-installer.md`, `.ai/windows-installer-ci.md` |
+| Workflow | `.github/workflows/windows-diagnostic-installer.yml` (new) |
+| Changelog / README | `CHANGELOG.md`, `README.md` |
+| Cargo.lock | Updated (`ris-git` dev-dep for `ris-application`) |
+| App icon | `icon.svg` (new), all platform icon PNGs/ICO/ICNS regenerated |
+| Frontend source | `App.tsx`, repository/location/racks/csvImport/validation features, e2e smoke |
+| Rust backend | `dto.rs`, `commands/repository.rs`, `commands/git.rs`, `diagnostics.rs`, `lib.rs`, `Cargo.toml` |
+
+### Final sanity check results
+
+| Check | Command | Result |
+|---|---|---|
+| Whitespace | `git diff --check` | pass |
+| TypeScript | `tsc --noEmit` | pass |
+| Unit tests | `vitest run` | **315/315 pass** (27 test files) |
+| Production build | `vite build` | pass — 21.33 kB CSS, 273.01 kB JS |
+| E2E smoke | `playwright test` | **10/10 pass** (Firefox, 14.5 s) |
+| `pnpm` | `command -v pnpm` | not available — all checks via `node_modules/.bin/` |
+| `cargo fmt --all --check` | — | pass |
+| `cargo check --workspace` | — | pass |
+| `cargo test --workspace` | — | **358 tests pass** |
+| `cargo clippy -D warnings` | — | pass |
+| `cargo build --release` | — | pass (incremental, 0.42 s) |
+| Full `tauri build` CLI | `node .../tauri.js build` | not run — `beforeBuildCommand: "pnpm build"` fails (pnpm not in PATH) |
+
+### Windows Diagnostic Installer workflow
+
+Triggered via `gh workflow run` on `integration/post-ui-polish-qa`. See workflow run details in final report section below (populated after run completes).
+
+### Windows 11 manual QA status
+
+**Not completed.** Requires:
+1. Manual Windows Diagnostic Installer GitHub Actions run on `integration/post-ui-polish-qa`
+2. Download NSIS artifact, install on Windows 11
+3. Verify: app icon, logs, open/save/validate/CSV/Git flows
+4. Confirm no crashes, no credential leaks in logs
+
+### Risks
+
+- Windows 11 manual QA not yet performed — installer, icon, logging, and full UI not verified on real hardware.
+- NSIS packaging validated by CI on Windows runners only (standard Windows Installer run passed on 2026-05-23).
+- Code signing not configured — SmartScreen warning on first Windows run.
+- `window.confirm` used for unsaved-changes guard — acceptable for this iteration.
+
+### Not done
+
+- Windows 11 manual QA — requires a real Windows machine.
+- Code signing — out of scope.
+
+### Suggested next step
+
+Merge final PR from `integration/post-ui-polish-qa` to `master` once Windows 11 manual QA is approved.
