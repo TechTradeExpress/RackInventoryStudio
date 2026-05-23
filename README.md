@@ -46,7 +46,7 @@ tests/                  Shared test fixtures
 | Placement use cases — place, move, remove device and rack objects | Done |
 | Tauri commands — open, save, validate, close, list entities, move placement, remove placement | Done |
 
-258 workspace tests pass. 218 frontend (Vitest) tests pass. 10 Playwright smoke tests pass.
+358 workspace tests pass. 315 frontend (Vitest) tests pass. 10 Playwright smoke tests pass.
 
 ## Current desktop UI capabilities
 

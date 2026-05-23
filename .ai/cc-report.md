@@ -2268,3 +2268,163 @@ No application source code or test files were changed by this branch. `Cargo.loc
 ### Suggested next step
 
 `qa/post-ui-polish-final`
+
+---
+
+## Post UI polish final QA — branch qa/post-ui-polish-final
+
+**Branch:** `qa/post-ui-polish-final`
+**Base branch / PR target:** `integration/post-ui-polish-qa`
+
+### Summary
+
+Final automated and code-review QA pass over the complete `integration/post-ui-polish-qa` series after all nine working branches were merged. No application blockers found. Two stale documentation items fixed (README test counts, CHANGELOG missing entry). All automated checks pass. Windows 11 manual QA not yet performed — documented as required before final PR to `master`.
+
+### Integrated branches verified
+
+| Branch | Merged |
+|---|---|
+| `repo/force-git-init` | ✓ |
+| `repo/unsaved-guard-recent-open` | ✓ |
+| `perf/git-status-cache` | ✓ |
+| `ux/location-scoped-racks` | ✓ |
+| `ux/rack-form-polish` | ✓ |
+| `ux/csv-sample-import` | ✓ |
+| `ux/validation-save-copy` | ✓ |
+| `ci/windows-diagnostic-installer` | ✓ |
+| `assets/app-icon` | ✓ |
+
+### QA checklist
+
+**Repository / Git:**
+- Force Git init: `CreateRepositoryWizard.tsx` has no `initializeGit` checkbox; backend calls `ris_git::init_repository` unconditionally — ✓
+- Unsaved guard: `confirmUnsavedDiscard` called in `handleOpen`, `handleOpenPath`, and `handleClose` — ✓
+- Recent open: `handleOpenPath` opens directly (no fill-only behavior) — ✓
+- Git status cache: `RepositoryPanel` always mounted, `GitSection` state persists; `display:none` hides it when inactive — ✓
+- Manual refresh: "Refresh Git status" button present in `RepositoryPanel` — ✓
+- Save invalidation: `handleSaveSuccess` increments `gitRefreshToken` — ✓
+
+**Locations / Racks:**
+- "Manage racks" per-row action in `LocationsPanel` — ✓
+- `RacksPanel` filters to `selectedLocation`, shows empty state when none — ✓
+- Add Rack passes `locationId` from context; Edit Rack shows it read-only — ✓
+- Default height 42U, "Row / aisle" label with help text — ✓
+
+**Rack Detail:**
+- Front/Rear `Segmented` control in `RackDetailPanel` PageHeader — ✓
+- `RackUnitDiagram` receives `side` prop, renders only active side — ✓
+- Placement table and inspector synced via `handleSelectPlacement` — ✓
+- Change side `ConfirmDialog` wired in `PlacementInspectorPanel` — ✓
+- Remove placement uses `ConfirmDialog` (danger tone) — ✓
+
+**CSV Import:**
+- "Download sample CSV" button in `CsvImportPanel` — ✓
+- `csvSample.ts` columns match importer-supported schema — ✓
+- `deriveCsvImportUiSummary` used; no double-counting — ✓
+
+**Validation / Save:**
+- "Validate repository" / "Save changes" button copy — ✓
+- Empty state: "Validation reads the current in-memory data — it does not write files to disk." — ✓
+- Unsaved callout uses "Save changes" wording — ✓
+
+**Installer / diagnostics:**
+- Both workflows: `on: workflow_dispatch:` only — ✓
+- Diagnostic docs: no stale "app icon may be default" limitation text — ✓
+- Logs remain local-only — ✓
+
+**App icon:**
+- `icon.svg`, `icon.ico`, `icon.icns`, `icon.png` all present in `src-tauri/icons/` — ✓
+- All platform sizes (Windows, iOS, Android mipmap) regenerated — ✓
+- `tauri.conf.json` unchanged; icons picked up by convention — ✓
+- Visual desktop verification still listed as a required Windows/macOS QA step — ✓
+
+**Artifacts / lockfiles:**
+- No `.ai/review-context-*.md` files tracked in git (gitignored, only on disk) — ✓
+- No `apps/desktop/package-lock.json` — ✓
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `README.md` | Updated stale test counts: 218 Vitest → 315, 258 Rust → 358 |
+| `CHANGELOG.md` | Added "Unreleased — post-UI polish QA series" section covering all 9 merged branches |
+| `.ai/cc-report.md` | This section |
+
+### Bugs found and fixed
+
+None. No application code changes required.
+
+### Frontend check results
+
+| Check | Command | Result |
+|---|---|---|
+| Whitespace | `git diff --check` | pass |
+| TypeScript | `node_modules/.bin/tsc --noEmit` | pass |
+| Unit tests | `node_modules/.bin/vitest run` | **315/315 pass** (27 test files) |
+| Production build | `node_modules/.bin/vite build` | pass — 21.33 kB CSS, 273.01 kB JS |
+| E2E smoke | `node_modules/.bin/playwright test` | **10/10 pass** (Firefox, 15.0 s) |
+| `pnpm` availability | `command -v pnpm` | not available — node_modules/.bin equivalents used |
+
+### Rust check results
+
+| Check | Command | Result |
+|---|---|---|
+| Format | `cargo fmt --all --check` | **pass** |
+| Type check | `cargo check --workspace` | **pass** |
+| Tests | `cargo test --workspace` | **pass — 358 tests** across all workspace crates |
+| Lints | `cargo clippy --workspace -- -D warnings` | **pass** — no warnings |
+
+### Tauri build result
+
+**Full Tauri CLI build:** `node .../tauri.js build` — fails at `beforeBuildCommand: "pnpm build"` (exit 127: pnpm not in PATH in this container). Vite frontend build verified separately (pass). Rust Tauri backend compiled in release mode via `cargo build --release` (pass, 42 s — incremental).
+
+**Tauri dev smoke:** not attempted — headless Linux container, no display server.
+
+### GitHub workflow status
+
+| Workflow | Status |
+|---|---|
+| CI (standard PR checks) | Last run on `assets/app-icon` PR — **success** (2026-05-23) |
+| Windows Installer (manual) | Not triggered — `workflow_dispatch` only; requires manual GitHub Actions run |
+| Windows Diagnostic Installer (manual) | Not triggered — `workflow_dispatch` only; requires manual GitHub Actions run |
+
+### Windows 11 manual QA status
+
+**Not completed.** Headless Linux container — no GUI environment available.
+
+Required before final PR to `master`:
+1. Run "Windows Diagnostic Installer" workflow manually on GitHub Actions against `integration/post-ui-polish-qa`
+2. Install resulting NSIS artifact on a clean Windows 11 machine
+3. Verify: app launches without crash, SmartScreen warning expected (unsigned), custom app icon visible in taskbar and installer
+4. Open example repository, validate, save changes, CSV import preview, Git section
+5. Check `%APPDATA%\com.techtradeexpress.rackinventorystudio\logs\` — entries present, no full paths or credentials
+6. Verify recent-open flow and unsaved-changes guard from the UI
+7. Verify location-scoped rack management, add rack with default 42U height
+8. Verify Front/Rear side selector in rack detail
+9. Verify "Download sample CSV" button downloads a usable file
+10. Close app — no crash
+
+### Confirmation: no review artifacts committed
+
+- `git diff --name-only integration/post-ui-polish-qa...HEAD | grep review-context` → empty — no review-context files in PR diff
+- `test ! -f apps/desktop/package-lock.json` → confirmed absent
+
+### Risks
+
+- Windows 11 manual QA not yet performed — custom icon, installer, logging, and full UI flow not verified on a real Windows machine.
+- Full `pnpm tauri build` not run locally — NSIS packaging step only validated by CI on Windows runners.
+- Code signing not configured — SmartScreen warning on first Windows run expected.
+- `RepositoryPanel` always-mounted approach: future expensive effects added while panel is hidden would run silently; currently harmless.
+- `window.confirm` still used for unsaved-changes guard (not `ConfirmDialog`) — acceptable for this iteration.
+
+### Not done
+
+- Windows 11 manual QA — requires a Windows machine.
+- Triggering Windows installer / diagnostic installer workflows — manual, requires human action.
+- Code signing — separate concern requiring EV/OV certificate.
+- Responsive layout, dark mode, accessibility audit — out of scope for this series.
+- Replacing `window.confirm` guards with `ConfirmDialog` — deferred.
+
+### Suggested next step
+
+Open final PR from `integration/post-ui-polish-qa` to `master` after Windows 11 manual QA is complete and approved.
