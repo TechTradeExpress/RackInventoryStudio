@@ -2047,3 +2047,122 @@ No Rust/Tauri files changed → cargo checks not required.
 ### Suggested next step
 
 `assets/app-icon`
+
+---
+
+## Windows diagnostic installer — branch ci/windows-diagnostic-installer
+
+**Branch:** `ci/windows-diagnostic-installer`
+**Base branch / PR target:** `integration/post-ui-polish-qa`
+
+### Summary
+
+Added a separate `workflow_dispatch`-only GitHub Actions workflow that builds an unsigned Windows NSIS installer specifically for QA and diagnostics verification. The artifact is named `rack-inventory-studio-windows-diagnostic-installer` (vs `rack-inventory-studio-windows-installer` for the standard workflow) and includes a `diagnostic-readme.txt` with log location, QA checklist, expected log entries, and what must not appear in logs.
+
+No application code was changed. The existing diagnostics logging (tauri-plugin-log, `diagnostics.rs`, `diagnosticsLog.ts`, `redact.ts`) is already comprehensive for QA purposes and required no modification.
+
+### Implementation shape
+
+**Separate workflow** — added `.github/workflows/windows-diagnostic-installer.yml` rather than modifying the existing `windows-installer.yml`. Reasons:
+- Keeps the standard installer workflow clean and unchanged.
+- Allows different artifact names without conditional logic.
+- A named "Diagnostic Installer" entry in the Actions sidebar is clearer for QA.
+
+### Files changed/added
+
+| File | Change |
+|---|---|
+| `.github/workflows/windows-diagnostic-installer.yml` | **New** — diagnostic installer workflow |
+| `.ai/windows-diagnostic-installer.md` | **New** — full QA documentation |
+| `.ai/windows-installer-ci.md` | Updated — added "See also" section pointing to diagnostic workflow |
+| `.ai/cc-report.md` | Updated — this section |
+
+### Workflow details
+
+| Property | Value |
+|---|---|
+| Trigger | `workflow_dispatch` only |
+| Runner | `windows-latest` |
+| Steps | checkout → Rust stable → Rust cache → pnpm → Node 22 → install deps → typecheck → frontend tests → tauri build → prepare artifact dir → upload |
+| Artifact name | `rack-inventory-studio-windows-diagnostic-installer` |
+| Artifact contents | `*.exe` NSIS installer + `diagnostic-readme.txt` |
+| Installer path inside runner | `target/release/bundle/nsis/*.exe` |
+| `if-no-files-found` | `error` |
+| Retention | 30 days |
+
+The `diagnostic-readme.txt` is generated inline by a PowerShell step in the workflow using GitHub Actions context variables (`${{ github.ref_name }}`, `${{ github.run_number }}`, `${{ github.run_id }}`).
+
+### App code changed
+
+No. Application source files, Tauri configuration, Rust backend, and frontend are unchanged.
+
+### Logging behavior changed
+
+No. The existing logging is already sufficient for diagnostic QA:
+- Startup, open/create/save/validate repository, CSV preview/import, Git status/commit/push/pull
+- Error sanitization via `diagnostics.rs` (Rust) and `redact.ts` (TypeScript)
+- All events logged at `Info` level or higher, written to local log file only
+
+### Logs remain local-only
+
+Confirmed. `tauri-plugin-log` writes to `LogDir` and `Stdout` only. No external endpoints, no telemetry, no analytics, no Sentry, no OpenTelemetry.
+
+### Documentation
+
+- `.ai/windows-diagnostic-installer.md` — comprehensive: purpose, trigger steps, artifact details, SmartScreen guidance, Windows 11 log location, QA checklist, expected log entries, what must not appear in logs, bug-report log collection, known limitations, comparison table with standard workflow, logging implementation reference.
+- `.ai/windows-installer-ci.md` — "See also" section added pointing to the diagnostic workflow and documentation.
+- README.md — not updated (change would be cosmetic only; CI docs are in `.ai/`).
+- CHANGELOG.md — not updated (no versioned release; convention reserves it for feature/domain changes).
+
+### How to run the diagnostic workflow
+
+1. GitHub repository → **Actions** tab.
+2. Select **Windows Diagnostic Installer** from the left sidebar.
+3. **Run workflow** → choose branch → **Run workflow**.
+4. After completion, download artifact `rack-inventory-studio-windows-diagnostic-installer.zip`.
+5. Extract — contains `*.exe` and `diagnostic-readme.txt`.
+
+### Windows 11 QA checklist summary
+
+1. Install the app (SmartScreen → More info → Run anyway).
+2. Launch — verify no error dialog.
+3. Open the example repository.
+4. Validate repository, Save changes, CSV Import preview, Git section.
+5. Check `%APPDATA%\com.techtradeexpress.rackinventorystudio\logs\` for log entries.
+6. Confirm no passwords / full paths / raw YAML/CSV in log.
+7. Close app — verify no crash.
+
+### Checks run
+
+```
+git diff --check                                   → pass
+node_modules/.bin/tsc --noEmit                    → pass
+node_modules/.bin/vitest run                      → 315/315 pass (27 test files, unchanged)
+node_modules/.bin/vite build                      → pass (21.33 kB CSS, 272.95 kB JS)
+node_modules/.bin/playwright test                 → 10/10 pass (firefox, unchanged)
+cargo fmt / check / test / clippy                 → NOT RUN (cargo not in PATH on this host; no Rust files changed)
+actionlint                                         → NOT AVAILABLE (not installed); workflow YAML verified by manual inspection
+Local Tauri build (pnpm tauri build)              → NOT RUN (Linux host, no display server, target is Windows)
+```
+
+No Rust files were modified — cargo checks are not needed to validate this branch. The real workflow build must be triggered manually in GitHub Actions to validate the Windows Tauri build end-to-end.
+
+### Known risks
+
+- The `diagnostic-readme.txt` is generated by a PowerShell step during CI. If the PowerShell here-string or file path changes (e.g. Tauri changes output directory), the step will fail at CI time. The `if-no-files-found: error` on the upload step catches a missing installer.
+- The workflow has not been run on GitHub Actions yet; first real run will validate all steps end-to-end.
+- App icon is still the default Tauri icon (the `assets/app-icon` stage is intentionally postponed). This is documented in `diagnostic-readme.txt`.
+- The exact log filename produced by `tauri-plugin-log` on Windows must be confirmed on first QA run.
+
+### Not done
+
+- Code signing — deferred (no EV/OV certificate; signing adds paid-service dependency).
+- App icon — deferred (separate `assets/app-icon` stage intentionally postponed).
+- MSI/WiX format — excluded (WiX not available on `windows-latest`; NSIS only).
+- Log rotation strategy — single rolling file (Tauri KeepOne default); acceptable for QA.
+- Automated actionlint check — not available locally; YAML verified by inspection.
+- Log filename exact value — to be confirmed on first Windows QA run.
+
+### Suggested next step
+
+`qa/post-ui-polish-final`
