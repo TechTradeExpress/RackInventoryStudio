@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import { RepositoryPanel } from "./RepositoryPanel";
-import type { OpenRepositoryResultDto } from "../../api/tauriClient";
+import type { GitStatusDto, OpenRepositoryResultDto, RepositorySummaryDto } from "../../api/tauriClient";
+import { getGitStatus, getGitLog, listGitRemotes } from "../../api/tauriClient";
 
 vi.mock("../../api/tauriClient", () => ({
   addGitRemote: vi.fn(),
@@ -147,5 +148,118 @@ describe("RepositoryPanel — Open by path", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Open" }));
     expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── Git status cache behaviour ────────────────────────────────────────────────
+
+const GIT_STATUS_OK: GitStatusDto = {
+  is_repository: true,
+  branch: "main",
+  upstream: "origin/main",
+  ahead: 0,
+  behind: 0,
+  is_clean: true,
+  staged_count: 0,
+  unstaged_count: 0,
+  untracked_count: 0,
+  message: null,
+};
+
+const REPO_SUMMARY: RepositorySummaryDto = {
+  repo_path: "/repos/test",
+  repository_code: "TEST",
+  repository_name: "Test Repository",
+  locations_count: 0,
+  racks_count: 0,
+  device_models_count: 0,
+  devices_count: 0,
+  placement_files_count: 0,
+  placements_count: 0,
+  unplaced_devices_count: 0,
+};
+
+const OPEN_PROPS = {
+  ...BASE_PROPS,
+  summary: REPO_SUMMARY,
+  repoPath: "/repos/test",
+};
+
+describe("RepositoryPanel — Git status cache", () => {
+  beforeEach(() => {
+    vi.mocked(getGitStatus).mockResolvedValue(GIT_STATUS_OK);
+    vi.mocked(getGitLog).mockResolvedValue([]);
+    vi.mocked(listGitRemotes).mockResolvedValue([]);
+  });
+
+  it("fetches Git status exactly once on initial mount", async () => {
+    render(<RepositoryPanel {...OPEN_PROPS} />);
+    await waitFor(() => expect(getGitStatus).toHaveBeenCalledTimes(1));
+  });
+
+  it("does not fetch Git status again when unrelated props change", async () => {
+    const { rerender } = render(<RepositoryPanel {...OPEN_PROPS} />);
+    await waitFor(() => expect(getGitStatus).toHaveBeenCalledTimes(1));
+    rerender(<RepositoryPanel {...OPEN_PROPS} hasUnsavedChanges={true} />);
+    expect(getGitStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it("fetches Git status again when repo path changes (new repo opened)", async () => {
+    const newSummary: RepositorySummaryDto = { ...REPO_SUMMARY, repo_path: "/repos/other" };
+    const { rerender } = render(<RepositoryPanel {...OPEN_PROPS} />);
+    await waitFor(() => expect(getGitStatus).toHaveBeenCalledTimes(1));
+    rerender(<RepositoryPanel {...OPEN_PROPS} summary={newSummary} repoPath="/repos/other" />);
+    await waitFor(() => expect(getGitStatus).toHaveBeenCalledTimes(2));
+  });
+
+  it("fetches Git status again when gitRefreshToken changes (external mutation e.g. save from another tab)", async () => {
+    const { rerender } = render(<RepositoryPanel {...OPEN_PROPS} />);
+    await waitFor(() => expect(getGitStatus).toHaveBeenCalledTimes(1));
+    rerender(<RepositoryPanel {...OPEN_PROPS} gitRefreshToken={1} />);
+    await waitFor(() => expect(getGitStatus).toHaveBeenCalledTimes(2));
+  });
+
+  it("clears Git status when repo is closed (summary becomes null)", async () => {
+    const { rerender } = render(<RepositoryPanel {...OPEN_PROPS} />);
+    await waitFor(() => expect(getGitStatus).toHaveBeenCalledTimes(1));
+    rerender(<RepositoryPanel {...OPEN_PROPS} summary={null} />);
+    expect(getGitStatus).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Refresh Git status" })).toBeNull();
+  });
+});
+
+describe("RepositoryPanel — Refresh Git status button", () => {
+  beforeEach(() => {
+    vi.mocked(getGitStatus).mockResolvedValue(GIT_STATUS_OK);
+    vi.mocked(getGitLog).mockResolvedValue([]);
+    vi.mocked(listGitRemotes).mockResolvedValue([]);
+  });
+
+  it("Refresh Git status button is present after initial load", async () => {
+    render(<RepositoryPanel {...OPEN_PROPS} />);
+    expect(await screen.findByRole("button", { name: "Refresh Git status" })).toBeTruthy();
+  });
+
+  it("clicking Refresh Git status triggers another getGitStatus call", async () => {
+    render(<RepositoryPanel {...OPEN_PROPS} />);
+    const btn = await screen.findByRole("button", { name: "Refresh Git status" });
+    fireEvent.click(btn);
+    await waitFor(() => expect(getGitStatus).toHaveBeenCalledTimes(2));
+  });
+
+  it("Refresh Git status button is absent (loading placeholder shown) while refresh is running", async () => {
+    render(<RepositoryPanel {...OPEN_PROPS} />);
+    const btn = await screen.findByRole("button", { name: "Refresh Git status" });
+
+    // Hang subsequent fetches so loading stays true and the placeholder replaces the panel
+    vi.mocked(getGitStatus).mockReturnValueOnce(new Promise(() => {}));
+    vi.mocked(getGitLog).mockReturnValueOnce(new Promise(() => {}));
+    vi.mocked(listGitRemotes).mockReturnValueOnce(new Promise(() => {}));
+    fireEvent.click(btn);
+    // When loading=true, GitSection renders a loading placeholder (early return),
+    // which removes the Git panel content including the Refresh button from the DOM.
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Refresh Git status" })).toEqual(null),
+    );
   });
 });
