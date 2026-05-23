@@ -54,6 +54,7 @@ interface Props {
   repoPath: string;
   onRepoPathChange: (v: string) => void;
   onOpen: () => void;
+  onOpenPath?: (path: string) => void;
   onBrowse: () => void;
   onClose: () => void;
   working: boolean;
@@ -849,6 +850,7 @@ export function RepositoryPanel({
   repoPath,
   onRepoPathChange,
   onOpen,
+  onOpenPath,
   onBrowse,
   onClose,
   working,
@@ -892,7 +894,7 @@ export function RepositoryPanel({
                           <td
                             className="tbl-mono"
                             onClick={() => onRepoPathChange(path)}
-                            title={`Click to fill path: ${path}`}
+                            title={`Click to fill path field: ${path}`}
                             style={{ color: "var(--ac-text)", cursor: "pointer" }}
                           >
                             {path}
@@ -900,8 +902,9 @@ export function RepositoryPanel({
                           <td className="tbl-actions">
                             <button
                               className="btn btn-sm btn-primary"
-                              onClick={() => { onRepoPathChange(path); }}
+                              onClick={() => onOpenPath?.(path)}
                               disabled={working}
+                              aria-label={`Open ${path}`}
                             >
                               Open
                             </button>
