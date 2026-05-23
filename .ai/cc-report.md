@@ -2412,7 +2412,7 @@ Required before final PR to `master`:
 ### Risks
 
 - Windows 11 manual QA not yet performed — custom icon, installer, logging, and full UI flow not verified on a real Windows machine.
-- Full `pnpm tauri build` not run locally — NSIS packaging step only validated by CI on Windows runners.
+- Full `pnpm tauri build` not run locally because pnpm is unavailable in this container. NSIS packaging still requires validation by manually running the Windows Diagnostic Installer or Windows Installer workflow on GitHub Actions — neither workflow has been triggered for this integration state yet.
 - Code signing not configured — SmartScreen warning on first Windows run expected.
 - `RepositoryPanel` always-mounted approach: future expensive effects added while panel is hidden would run silently; currently harmless.
 - `window.confirm` still used for unsaved-changes guard (not `ConfirmDialog`) — acceptable for this iteration.
