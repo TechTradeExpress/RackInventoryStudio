@@ -2474,15 +2474,30 @@ Open final PR from `integration/post-ui-polish-qa` to `master` after Windows 11 
 
 ### Windows Diagnostic Installer workflow
 
-Triggered via `gh workflow run` on `integration/post-ui-polish-qa`. See workflow run details in final report section below (populated after run completes).
+Run triggered on `master` (after PR #63 merged) via `gh workflow run "Windows Diagnostic Installer" --ref master`.
+
+| Field | Value |
+|---|---|
+| Run ID | 26342762547 |
+| Branch | master |
+| Status | **completed — success** |
+| Duration | 7m 45s |
+| Built | 2026-05-23 20:35 UTC |
+
+Artifact downloaded and verified locally (`/tmp/diagnostic-artifact-check`):
+
+| File | Present |
+|---|---|
+| `Rack Inventory Studio_0.1.0_x64-setup.exe` | yes (2.8 MB NSIS installer) |
+| `diagnostic-readme.txt` | yes (QA checklist, log path, expected/forbidden log content) |
 
 ### Windows 11 manual QA status
 
-**Not completed.** Requires:
-1. Manual Windows Diagnostic Installer GitHub Actions run on `integration/post-ui-polish-qa`
-2. Download NSIS artifact, install on Windows 11
-3. Verify: app icon, logs, open/save/validate/CSV/Git flows
-4. Confirm no crashes, no credential leaks in logs
+**Not completed.** CI artifact is ready — Windows 11 manual install required:
+1. Download artifact from run 26342762547 on GitHub Actions
+2. Install on Windows 11 — accept SmartScreen warning
+3. Verify: custom app icon, logs at `%APPDATA%\com.techtradeexpress.rackinventorystudio\logs\`, open/save/validate/CSV/Git flows
+4. Confirm no crashes, no credential or path leaks in logs
 
 ### Risks
 
