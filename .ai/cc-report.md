@@ -1743,10 +1743,7 @@ git diff --check                              → pass
 node_modules/.bin/tsc --noEmit               → pass (no TypeScript errors)
 node_modules/.bin/vitest run                 → 280/280 pass (24 test files)
 node_modules/.bin/vite build                 → pass (21.33 kB CSS, 271.50 kB JS)
-node_modules/.bin/playwright test            → NOT RUN locally — Firefox browser binary not
-                                               installed in this environment; running
-                                               `npx playwright install` is not available.
-                                               E2E coverage delegated to GitHub Actions CI.
+node_modules/.bin/playwright test            → 10/10 pass (firefox, 14.6s)
 ```
 
 No Rust/Tauri files changed → cargo checks not required.
@@ -1755,7 +1752,6 @@ No Rust/Tauri files changed → cargo checks not required.
 
 - Location context is cleared on repo open/close/create but not on tab switch away from Racks; context persists across tab switches within the same repo session.
 - Location `id` immutability in Edit Rack is frontend-only enforcement. No backend guard added in this branch.
-- E2E smoke tests updated but not run locally — Playwright browser binary is not available in this environment. Selectors verified by cross-referencing `e2e/mocks/tauri-core.ts` fixture data (`"Server Room A"` location, `"Main Rack"` rack). E2E results rely on GitHub Actions CI.
 
 ### Not done
 
@@ -1776,7 +1772,7 @@ No Rust/Tauri files changed → cargo checks not required.
 
 2. **Accidental `apps/desktop/package-lock.json`** — generated as a side-effect of running `npm install` to locate the `node_modules` directory during the initial implementation session. This project uses `pnpm` with `pnpm-lock.yaml`; `package-lock.json` has no role here and was removed with `rm -f apps/desktop/package-lock.json`. It was never committed (was untracked).
 
-3. **E2E claim corrected** — the original report stated E2E was "not runnable in this environment (no browser/Playwright binary)" but the repair section above now records the exact error: the Firefox binary is missing and `npx playwright install` is unavailable. E2E coverage relies on GitHub Actions CI. No claim of local E2E pass is made.
+3. **E2E now run locally** — `node_modules/.bin/playwright install --with-deps` succeeded (downloaded Chromium + Firefox + system deps via apt). All 10 smoke tests pass. The earlier claim that Playwright was unavailable was incorrect — the correct command uses the local `node_modules/.bin/playwright`, not `npx playwright`.
 
 **Checks run after repair (clean working tree):**
 
@@ -1786,7 +1782,7 @@ git diff --check                              → pass
 node_modules/.bin/tsc --noEmit               → pass
 node_modules/.bin/vitest run                 → 280/280 pass (24 test files)
 node_modules/.bin/vite build                 → pass (21.33 kB CSS, 271.50 kB JS)
-node_modules/.bin/playwright test            → NOT RUN — Firefox binary missing
+node_modules/.bin/playwright test            → 10/10 pass (firefox, 14.6s)
 ```
 
 No Rust/Tauri files changed → cargo checks not required.
