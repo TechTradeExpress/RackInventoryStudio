@@ -247,15 +247,19 @@ describe("RepositoryPanel — Refresh Git status button", () => {
     await waitFor(() => expect(getGitStatus).toHaveBeenCalledTimes(2));
   });
 
-  it("Refresh Git status button is disabled while the refresh is running", async () => {
+  it("Refresh Git status button is absent (loading placeholder shown) while refresh is running", async () => {
     render(<RepositoryPanel {...OPEN_PROPS} />);
     const btn = await screen.findByRole("button", { name: "Refresh Git status" });
 
-    // Hang subsequent fetches so loading stays true
+    // Hang subsequent fetches so loading stays true and the placeholder replaces the panel
     vi.mocked(getGitStatus).mockReturnValueOnce(new Promise(() => {}));
     vi.mocked(getGitLog).mockReturnValueOnce(new Promise(() => {}));
     vi.mocked(listGitRemotes).mockReturnValueOnce(new Promise(() => {}));
     fireEvent.click(btn);
-    await waitFor(() => expect((btn as HTMLButtonElement).disabled).toBe(true));
+    // When loading=true, GitSection renders a loading placeholder (early return),
+    // which removes the Git panel content including the Refresh button from the DOM.
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Refresh Git status" })).toEqual(null),
+    );
   });
 });
