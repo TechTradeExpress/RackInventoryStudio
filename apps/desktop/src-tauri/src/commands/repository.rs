@@ -144,9 +144,8 @@ pub fn create_repository_cmd(
         return Err("Target path cannot be blank".to_string());
     }
     log::info!(
-        "create_repository: {} init_git={}",
+        "create_repository: {}",
         basename(std::path::Path::new(&path)),
-        input.initialize_git,
     );
 
     let session = create_repository(CreateRepositoryInput {
@@ -161,16 +160,17 @@ pub fn create_repository_cmd(
         msg
     })?;
 
-    if input.initialize_git {
-        ris_git::init_repository(&session.repo_path).map_err(|e| {
-            let msg = e.to_string();
-            log::warn!(
-                "create_repository: git init failed: {}",
-                sanitize_error(&msg)
-            );
-            msg
-        })?;
-    }
+    ris_git::init_repository(&session.repo_path).map_err(|e| {
+        let msg = e.to_string();
+        log::error!(
+            "create_repository: git init failed: {}",
+            sanitize_error(&msg)
+        );
+        format!(
+            "Failed to initialize Git repository: {}",
+            sanitize_error(&msg)
+        )
+    })?;
 
     let issues = session.validate();
     let summary = build_summary(&session);

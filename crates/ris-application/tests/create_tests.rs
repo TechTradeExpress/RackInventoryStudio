@@ -211,3 +211,32 @@ fn name_with_quotes_and_backslash_round_trips() {
 fn name_with_newline_round_trips() {
     assert_name_round_trips("dc-newline", "Main DC\nWarsaw");
 }
+
+// ── git init integration ──────────────────────────────────────────────────────
+
+fn git_available() -> bool {
+    std::process::Command::new("git")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+#[test]
+fn create_repository_followed_by_git_init_produces_dot_git() {
+    if !git_available() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let session = create_repository(make_input(tmp.path(), "git-test", "Git Test")).unwrap();
+    let init_result = ris_git::init_repository(&session.repo_path);
+    assert!(
+        init_result.is_ok(),
+        "git init should succeed: {:?}",
+        init_result.err()
+    );
+    assert!(
+        session.repo_path.join(".git").exists(),
+        ".git directory must exist after mandatory git init"
+    );
+}
