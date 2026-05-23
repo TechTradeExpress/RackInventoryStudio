@@ -2231,14 +2231,18 @@ No changes needed. Tauri v2 looks for icons in `src-tauri/icons/` by convention 
 
 ### Checks run
 
-```
-node_modules/.bin/tsc --noEmit    → pass (no TypeScript changes)
-node_modules/.bin/vitest run      → 315/315 pass (no test changes)
-```
+| Check | Command | Result |
+|---|---|---|
+| Whitespace | `git diff --check` | pass — no trailing whitespace or CRLF issues |
+| TypeScript | `node_modules/.bin/tsc --noEmit` | pass |
+| Unit tests | `node_modules/.bin/vitest run` | 315/315 pass (no test changes) |
+| Production build | `node_modules/.bin/vite build` | pass — 21.33 kB CSS, 273.01 kB JS |
+| E2E smoke | `node_modules/.bin/playwright test` | **10/10 pass** (Firefox, 14.9 s) |
+| `pnpm` availability | `command -v pnpm` | not available — Node 18.19.1, no corepack, no global pnpm. All checks run via `node_modules/.bin/` equivalents. |
+| Local Tauri build | `pnpm tauri build` | **not run** — `cargo` is not installed on this Linux host (`command -v cargo` → not in PATH, `~/.cargo/bin/cargo` absent). The Tauri CLI (`node_modules/.bin/tauri`) requires a Rust toolchain to compile the Rust backend. Without Rust, the build cannot proceed locally. The Windows NSIS installer build is validated end-to-end by the `windows-diagnostic-installer` GitHub Actions workflow on `windows-latest` runners which have Rust pre-installed. |
+| `package-lock.json` | `test ! -f apps/desktop/package-lock.json` | confirmed absent — project uses pnpm / pnpm-lock.yaml only |
 
-No application source code, Rust/Tauri backend, or test files were changed.
-Cargo checks not required.
-Playwright e2e tests not re-run (no UI changes).
+No application source code, Rust/Tauri backend, or test files were changed by this branch.
 
 ### Known risks
 
