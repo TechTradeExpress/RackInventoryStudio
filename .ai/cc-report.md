@@ -1902,3 +1902,56 @@ No Rust/Tauri files changed → cargo checks not required.
 ### Suggested next step
 
 `ux/csv-sample-import`
+
+---
+
+## CSV import sample template — branch ux/csv-sample-import
+
+**Branch:** `ux/csv-sample-import`
+**Base branch:** `integration/post-ui-polish-qa`
+
+### What changed
+
+Added a "Download sample CSV" button to `CsvImportPanel` so users can download a ready-to-use template CSV that matches the actual importer schema.
+
+**New files:**
+- `apps/desktop/src/features/csvImport/csvSample.ts` — `SAMPLE_CSV_FILENAME`, `escapeCsvField`, `SAMPLE_CSV_CONTENT` (header row + 4 realistic sample rows), `downloadSampleCsv` (Blob download via anchor element; no Tauri dialog, no new npm deps).
+- `apps/desktop/src/features/csvImport/csvSample.test.tsx` — 24 Vitest tests covering filename, content structure, `escapeCsvField` edge cases, and `downloadSampleCsv` browser API interactions.
+- `apps/desktop/src/features/csvImport/CsvImportPanel.test.tsx` — 3 Vitest tests: button renders, click calls `downloadSampleCsv`, help text visible.
+
+**Modified files:**
+- `apps/desktop/src/features/csvImport/CsvImportPanel.tsx` — Imported `downloadSampleCsv` from `./csvSample`; added "Download sample CSV" button (btn-ghost + IcDownload icon) with help text "Use this template as a starting point, then preview it before importing." placed between the paste textarea and the Preview/Import button row.
+
+### CSV schema
+
+Columns mirror `KNOWN_COLUMNS` / `REQUIRED_COLUMNS` in `crates/ris-import/src/csv_reader.rs`:
+- Required: `code`, `device_type`, `status`
+- Optional: `name`, `device_model_code`, `serial_number`, `asset_tag`, `external_ref`, `tags`
+- `device_model_code` left empty in sample rows to avoid VAL-CSV-012 errors (unknown model) during preview.
+- `rack_object` excluded from sample device types (VAL-CSV-011).
+- Tags use `;` as separator (e.g. `access;switch`).
+
+### Checks run
+
+```
+git diff --check                          → pass
+node_modules/.bin/tsc --noEmit           → pass
+node_modules/.bin/vitest run             → 309/309 pass (26 test files)
+node_modules/.bin/vite build             → pass (21.33 kB CSS, 272.95 kB JS)
+```
+
+No Rust/Tauri files changed → cargo checks not required.
+
+### Known risks
+
+- `downloadSampleCsv` appends and removes an anchor from `document.body` — harmless in production, covered by jsdom tests.
+- `device_model_code` is empty in all sample rows; users with device models must fill it in manually.
+
+### Not done
+
+- No backend or Tauri changes.
+- No Playwright smoke test for the download button (Blob download in headless browser returns nothing useful; unit tests cover the function directly).
+
+### Suggested next step
+
+`ux/validation-save-copy`

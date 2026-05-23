@@ -1,0 +1,170 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import {
+  SAMPLE_CSV_FILENAME,
+  SAMPLE_CSV_CONTENT,
+  escapeCsvField,
+  downloadSampleCsv,
+} from "./csvSample";
+
+// ── filename ──────────────────────────────────────────────────────────────────
+
+describe("SAMPLE_CSV_FILENAME", () => {
+  it("ends with .csv", () => {
+    expect(SAMPLE_CSV_FILENAME.endsWith(".csv")).toBe(true);
+  });
+
+  it("is a non-empty string", () => {
+    expect(SAMPLE_CSV_FILENAME.length).toBeGreaterThan(0);
+  });
+});
+
+// ── content ───────────────────────────────────────────────────────────────────
+
+const EXPECTED_HEADERS = [
+  "code",
+  "device_type",
+  "name",
+  "device_model_code",
+  "serial_number",
+  "asset_tag",
+  "external_ref",
+  "status",
+  "tags",
+];
+
+describe("SAMPLE_CSV_CONTENT", () => {
+  const lines = SAMPLE_CSV_CONTENT.split("\n").filter((l) => l.trim() !== "");
+
+  it("starts with the expected header row", () => {
+    expect(lines[0]).toBe(EXPECTED_HEADERS.join(","));
+  });
+
+  it("header row contains all importer-supported columns", () => {
+    const headers = lines[0].split(",");
+    for (const col of EXPECTED_HEADERS) {
+      expect(headers).toContain(col);
+    }
+  });
+
+  it("contains at least 2 data rows after the header", () => {
+    expect(lines.length - 1).toBeGreaterThanOrEqual(2);
+  });
+
+  it("ends with a newline (LF line ending)", () => {
+    expect(SAMPLE_CSV_CONTENT.endsWith("\n")).toBe(true);
+  });
+
+  it("all data rows have the correct number of columns", () => {
+    // Quick check: each non-empty row should have 8 commas (9 fields)
+    for (const line of lines.slice(1)) {
+      // Count top-level commas (not inside quotes)
+      let commas = 0;
+      let inQuotes = false;
+      for (const ch of line) {
+        if (ch === '"') inQuotes = !inQuotes;
+        else if (ch === "," && !inQuotes) commas++;
+      }
+      expect(commas).toBe(8);
+    }
+  });
+
+  it("data rows use valid device types (not rack_object)", () => {
+    const validTypes = new Set(["server", "network", "storage", "ups", "appliance", "other"]);
+    for (const line of lines.slice(1)) {
+      const deviceType = line.split(",")[1];
+      expect(validTypes.has(deviceType)).toBe(true);
+    }
+  });
+
+  it("data rows use valid status values", () => {
+    const validStatuses = new Set([
+      "planned", "in_stock", "installed", "to_remove", "removed", "disposed", "unknown",
+    ]);
+    for (const line of lines.slice(1)) {
+      const status = line.split(",")[7];
+      expect(validStatuses.has(status)).toBe(true);
+    }
+  });
+});
+
+// ── escapeCsvField ────────────────────────────────────────────────────────────
+
+describe("escapeCsvField", () => {
+  it("returns plain value unchanged when no special chars", () => {
+    expect(escapeCsvField("hello")).toBe("hello");
+  });
+
+  it("wraps in double-quotes when value contains a comma", () => {
+    expect(escapeCsvField("a,b")).toBe('"a,b"');
+  });
+
+  it("wraps in double-quotes and doubles internal double-quotes", () => {
+    expect(escapeCsvField('say "hello"')).toBe('"say ""hello"""');
+  });
+
+  it("wraps in double-quotes when value contains a newline", () => {
+    expect(escapeCsvField("line1\nline2")).toBe('"line1\nline2"');
+  });
+
+  it("wraps in double-quotes when value contains a carriage return", () => {
+    expect(escapeCsvField("line1\rline2")).toBe('"line1\rline2"');
+  });
+
+  it("handles empty string without wrapping", () => {
+    expect(escapeCsvField("")).toBe("");
+  });
+});
+
+// ── downloadSampleCsv ─────────────────────────────────────────────────────────
+
+describe("downloadSampleCsv", () => {
+  let createObjectURLMock: ReturnType<typeof vi.fn>;
+  let revokeObjectURLMock: ReturnType<typeof vi.fn>;
+  let clickSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    createObjectURLMock = vi.fn().mockReturnValue("blob:mock-url");
+    revokeObjectURLMock = vi.fn();
+    Object.defineProperty(globalThis.URL, "createObjectURL", {
+      value: createObjectURLMock,
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(globalThis.URL, "revokeObjectURL", {
+      value: revokeObjectURLMock,
+      configurable: true,
+      writable: true,
+    });
+    clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("calls URL.createObjectURL with a Blob", () => {
+    downloadSampleCsv();
+    expect(createObjectURLMock).toHaveBeenCalledOnce();
+    expect(createObjectURLMock.mock.calls[0][0]).toBeInstanceOf(Blob);
+  });
+
+  it("revokes the object URL after the click", () => {
+    downloadSampleCsv();
+    expect(revokeObjectURLMock).toHaveBeenCalledWith("blob:mock-url");
+  });
+
+  it("triggers an anchor click", () => {
+    downloadSampleCsv();
+    expect(clickSpy).toHaveBeenCalledOnce();
+  });
+
+  it("sets download attribute to the sample filename", () => {
+    let capturedAnchor: HTMLAnchorElement | null = null;
+    clickSpy.mockImplementation(function (this: HTMLAnchorElement) {
+      capturedAnchor = this;
+    });
+    downloadSampleCsv();
+    expect(capturedAnchor).not.toBeNull();
+    expect((capturedAnchor as unknown as HTMLAnchorElement).download).toBe(SAMPLE_CSV_FILENAME);
+  });
+});
