@@ -2166,3 +2166,93 @@ No Rust files were modified — cargo checks are not needed to validate this bra
 ### Suggested next step
 
 `qa/post-ui-polish-final`
+
+---
+
+## App icon — branch assets/app-icon
+
+**Branch:** `assets/app-icon`
+**Base branch / PR target:** `integration/post-ui-polish-qa`
+
+### Summary
+
+Created a clean, repository-owned source SVG for the Rack Inventory Studio app icon (Bay direction) and regenerated all Tauri platform icon assets from it. The default Tauri placeholder icons are replaced in every required format.
+
+### Design origin
+
+The Bay direction was selected from the Claude Design bundle (`RIS Icon-print.html`, hero SVG at 256×256). The final visual: a frontal rack cabinet with two vertical mounting rails, top/bottom cross-plates, seven U-slot equipment rows, one accent (blue) row representing a tracked/selected device, and a small white status dot on the accent row indicating an asset is present.
+
+**CSS variable → hex mapping applied:**
+
+| Variable | Hex | Role |
+|---|---|---|
+| `var(--paper)` | `#fefdfb` | Background, status dot |
+| `var(--ink)` | `#1c2026` | Rails, cross-plates, equipment rows |
+| `var(--accent)` | `#3a6fc5` | Selected device row |
+| `var(--line)` | `#dfe1e5` | Container border stroke |
+
+**Design note:** The spec text described "six U-slot equipment rows" and "Row 4 of 6". The final design SVG has **seven rows** (y positions: 66, 86, 106, 126-accent, 146, 166, 186). The final SVG visual is the source of truth per the task specification ("preserve the selected final visual unless there is a technical reason not to"). The discrepancy is between the spec prose and the final production SVG; the SVG is correct.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `apps/desktop/src-tauri/icons/icon.svg` | **New** — clean source SVG with explicit hex colors, no CSS variables |
+| `apps/desktop/src-tauri/icons/icon.icns` | Regenerated — macOS ICNS |
+| `apps/desktop/src-tauri/icons/icon.ico` | Regenerated — Windows ICO |
+| `apps/desktop/src-tauri/icons/icon.png` | Regenerated — 512 px PNG |
+| `apps/desktop/src-tauri/icons/32x32.png` | Regenerated |
+| `apps/desktop/src-tauri/icons/64x64.png` | Regenerated |
+| `apps/desktop/src-tauri/icons/128x128.png` | Regenerated |
+| `apps/desktop/src-tauri/icons/128x128@2x.png` | Regenerated |
+| `apps/desktop/src-tauri/icons/Square*.png` (10 files) | Regenerated — Windows APPX/UWP sizes |
+| `apps/desktop/src-tauri/icons/StoreLogo.png` | Regenerated |
+| `apps/desktop/src-tauri/icons/ios/*.png` (17 files) | Regenerated — iOS sizes |
+| `apps/desktop/src-tauri/icons/android/**/*.png` (15 files) | Regenerated — Android mipmap sizes |
+| `.github/workflows/windows-diagnostic-installer.yml` | Removed "App icon may be default Tauri icon" limitation line |
+| `.ai/windows-diagnostic-installer.md` | Removed App icon limitation row from Known limitations table |
+
+### How icons were generated
+
+```
+cd apps/desktop
+node node_modules/@tauri-apps/cli/tauri.js icon src-tauri/icons/icon.svg -o src-tauri/icons
+```
+
+`tauri-cli 2.11.2` — same version as the project's existing `@tauri-apps/cli` devDependency.
+Output directory defaulted to `src-tauri/icons/`. All platform formats generated in one pass.
+
+`pnpm` was not available in the current host environment (Node 18, no corepack, no global pnpm).
+The Tauri CLI was invoked directly via `node node_modules/@tauri-apps/cli/tauri.js`. Identical result to `pnpm tauri icon`.
+
+### tauri.conf.json
+
+No changes needed. Tauri v2 looks for icons in `src-tauri/icons/` by convention when `bundle.icon` is not explicitly set. The `icon.svg` source file is not consumed by Tauri at build time (only the generated PNGs/ICO/ICNS are used); it is stored in `icons/` as the canonical design source.
+
+### Checks run
+
+```
+node_modules/.bin/tsc --noEmit    → pass (no TypeScript changes)
+node_modules/.bin/vitest run      → 315/315 pass (no test changes)
+```
+
+No application source code, Rust/Tauri backend, or test files were changed.
+Cargo checks not required.
+Playwright e2e tests not re-run (no UI changes).
+
+### Known risks
+
+- App icon visual correctness requires rendering on a real desktop (Windows, macOS). The SVG geometry and hex colors match the final Claude Design output, but pixel-level rendering at small sizes (32 px, 44 px) has not been verified with a GUI.
+- `tauri-plugin-log` log filename exact value still unconfirmed (Windows QA pending). Unrelated to this branch.
+- Code signing still not configured. NSIS installer still unsigned — SmartScreen warning on first run. Unchanged from previous branches.
+- Android adaptive icon uses the full composition (not a separate foreground layer with transparent background). This is acceptable for internal QA builds.
+
+### Not done
+
+- Code signing — separate concern, out of scope.
+- App name / identifier updates — not requested.
+- NSIS installer splash/header image — Tauri generates these from icon assets automatically; no additional images required.
+
+### Suggested next step
+
+`qa/post-ui-polish-final`

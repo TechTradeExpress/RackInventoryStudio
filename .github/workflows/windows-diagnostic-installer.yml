@@ -118,8 +118,6 @@ jobs:
             "KNOWN LIMITATIONS",
             "  - Unsigned installer: SmartScreen warning on first run.",
             "  - Logs are local-only. No telemetry or external upload.",
-            "  - App icon may be the default Tauri icon.",
-            "    (The assets/app-icon stage is intentionally postponed.)",
             "  - Log filename is managed by Tauri; exact name confirmed on first QA run.",
             "",
             "FULL DOCUMENTATION",
