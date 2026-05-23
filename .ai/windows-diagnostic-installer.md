@@ -161,7 +161,6 @@ Error messages containing credential keywords are replaced with `[error message 
 | Unsigned installer | SmartScreen warning on every machine that has not seen the binary before. Expected for diagnostic builds. |
 | Local-only logs | No telemetry, no external upload. Log retention is local and manual. |
 | No log rotation | Tauri's default `KeepOne` policy. A single rolling log file. |
-| App icon | The app icon may still be the default Tauri icon. The `assets/app-icon` stage is intentionally postponed and not part of this workflow. |
 | Log filename | The exact `.log` filename is managed by Tauri and will be confirmed during first QA run. |
 | MSI/WiX not supported | Only NSIS format is built (`bundle.targets: ["nsis"]`). WiX is not installed on `windows-latest` runners. |
 | Visual QA | App visual layout and UX correctness requires a Windows 11 machine with a GUI. Cannot be verified in headless CI. |

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Rack Inventory Studio app icon">
+  <!-- rounded square container -->
+  <rect x="16" y="16" width="224" height="224" rx="48" fill="#fefdfb" stroke="#dfe1e5"/>
+  <!-- mounting rails -->
+  <rect x="60" y="48" width="12" height="160" rx="2" fill="#1c2026"/>
+  <rect x="184" y="48" width="12" height="160" rx="2" fill="#1c2026"/>
+  <!-- top / bottom cross-plates -->
+  <rect x="48" y="44" width="160" height="12" rx="2" fill="#1c2026"/>
+  <rect x="48" y="200" width="160" height="12" rx="2" fill="#1c2026"/>
+  <!-- U-slot equipment rows -->
+  <rect x="76" y="66" width="104" height="14" rx="2" fill="#1c2026" opacity=".9"/>
+  <rect x="76" y="86" width="104" height="14" rx="2" fill="#1c2026" opacity=".9"/>
+  <rect x="76" y="106" width="104" height="14" rx="2" fill="#1c2026" opacity=".9"/>
+  <!-- selected / tracked unit (accent row) -->
+  <rect x="76" y="126" width="104" height="14" rx="2" fill="#3a6fc5"/>
+  <!-- status dot — asset present -->
+  <circle cx="168" cy="133" r="2.5" fill="#fefdfb"/>
+  <rect x="76" y="146" width="104" height="14" rx="2" fill="#1c2026" opacity=".9"/>
+  <rect x="76" y="166" width="104" height="14" rx="2" fill="#1c2026" opacity=".9"/>
+  <rect x="76" y="186" width="104" height="14" rx="2" fill="#1c2026" opacity=".9"/>
+</svg>
