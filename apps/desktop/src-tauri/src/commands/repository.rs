@@ -166,7 +166,10 @@ pub fn create_repository_cmd(
             "create_repository: git init failed: {}",
             sanitize_error(&msg)
         );
-        format!("Failed to initialize Git repository: {}", sanitize_error(&msg))
+        format!(
+            "Failed to initialize Git repository: {}",
+            sanitize_error(&msg)
+        )
     })?;
 
     let issues = session.validate();
