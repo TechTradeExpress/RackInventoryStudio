@@ -2612,3 +2612,74 @@ CREATE_NO_WINDOW cannot be unit-tested on Linux CI without mocking OS calls. No 
 8. Trigger a deliberate error (e.g. push without upstream) — confirm overlay clears and error appears in the panel; confirm navigation is usable afterwards.
 9. Navigate between tabs while a Git action is pending (if possible) — confirm overlay blocks the click.
 10. Run CSV import with sample CSV — confirm "Previewing CSV…" and "Importing CSV…" overlays appear.
+
+---
+
+## Milestone 2: Versioning and beta release process — branch `release/versioning-beta-process`
+
+**Branch:** `release/versioning-beta-process`
+**Base branch:** `master`
+
+### Summary
+
+Added version consistency enforcement (script + CI job), versioned CI artifact names, and the beta release process documentation.
+
+### Version audit result
+
+All four canonical version sources were confirmed consistent at `0.1.0` before starting — no version file changes were needed.
+
+| Source | Version |
+|---|---|
+| `package.json` (workspace root) | 0.1.0 |
+| `apps/desktop/package.json` | 0.1.0 |
+| `apps/desktop/src-tauri/Cargo.toml` | 0.1.0 |
+| `apps/desktop/src-tauri/tauri.conf.json` | 0.1.0 |
+
+### What was changed
+
+**`scripts/check-version-consistency.mjs`** (new) — Node ESM script, no new dependencies. Reads all four version files, prints a formatted table, exits 0 on match / non-zero on mismatch. Accessible as `pnpm check:version` (root script added to `package.json`).
+
+**`package.json`** — Added `"check:version": "node scripts/check-version-consistency.mjs"` to root scripts.
+
+**`.github/workflows/ci.yml`** — Added `version-check` job (Ubuntu, no setup overhead beyond checkout). Runs `node scripts/check-version-consistency.mjs`. Runs on every push and pull request alongside the existing `rust` and `frontend` jobs.
+
+**`.github/workflows/windows-installer.yml`** — Added "Extract app version" step (PowerShell, `id: version`) before the Tauri build. Reads version from `tauri.conf.json` via `ConvertFrom-Json`. Writes `APP_VERSION` to `$env:GITHUB_OUTPUT`. Artifact name changed from `rack-inventory-studio-windows-installer` to `rack-inventory-studio-v${{ steps.version.outputs.APP_VERSION }}-windows-installer`.
+
+**`.github/workflows/windows-diagnostic-installer.yml`** — Same version extraction step added. Artifact name changed from `rack-inventory-studio-windows-diagnostic-installer` to `rack-inventory-studio-v${{ steps.version.outputs.APP_VERSION }}-windows-diagnostic-installer`.
+
+**`docs/BETA_RELEASE_PROCESS_EN.md`** (new) — Purpose, version policy, beta naming convention, full release checklist (verify consistency → merge → trigger workflow → smoke test → distribute), version bump procedure (all four files), protected-master recommendation. Links to BETA_HARDENING_PLAN_EN.md and windows-diagnostic-installer.md.
+
+**`README.md`** — Added link to `BETA_RELEASE_PROCESS_EN.md` in the "Current release direction" section. Added "Version consistency check" section with `pnpm check:version` snippet and link to release process doc.
+
+**`CHANGELOG.md`** — Added unreleased entry for Milestone 2 (this branch) at top. Also added missing unreleased entry for Milestone 1 (PR #65, which did not include a CHANGELOG update).
+
+### Tests
+
+| Check | Result |
+|---|---|
+| `git diff --check` | pass |
+| `node scripts/check-version-consistency.mjs` | pass — all 0.1.0 |
+| `tsc --noEmit` | pass |
+| `vitest run` (desktop) | **320/320 pass** |
+| `vite build` | pass — 273.86 kB JS, 22.22 kB CSS |
+| `cargo fmt --all --check` | pass |
+| `cargo test --workspace` | pass (all Rust tests) |
+| `cargo clippy --workspace -- -D warnings` | pass |
+| `actionlint` | not available — YAML verified by manual review |
+
+### Risks
+
+- The `check-version-consistency.mjs` script uses `ConvertFrom-Json` in PowerShell in the workflows to extract version from `tauri.conf.json`. This assumes `"version": "X.Y.Z"` is at the top level of the JSON, which it is. The script itself uses a regex for `Cargo.toml` which is correct for the standard `version = "X.Y.Z"` format.
+- The version-check CI job runs on `ubuntu-latest` with only `checkout` — no pnpm/Node setup required since `node` is available by default. Script uses only Node built-ins.
+- Changing artifact names breaks any external scripts or CI pipelines that download artifacts by exact name. Acceptable for this project (no known external consumers at this stage).
+- `actionlint` not available locally — YAML validated by inspection only.
+
+### Not done
+
+- Version bump is not automated — it requires updating all four files manually. A future scripted bump helper could be added.
+- No git tag is created in this branch (out of scope per milestone instructions).
+- No PR protection rules configured — the `BETA_RELEASE_PROCESS_EN.md` recommends them but they require GitHub Settings access.
+
+### Suggested next step
+
+Merge this PR, then proceed to Milestone 3: navigation/Settings/terminology cleanup per `docs/BETA_HARDENING_PLAN_EN.md`.

@@ -46,6 +46,17 @@ jobs:
       - name: Check workspace
         run: cargo check --workspace
 
+  version-check:
+    name: Version consistency
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Check version consistency
+        run: node scripts/check-version-consistency.mjs
+
   frontend:
     name: Frontend checks
     runs-on: ubuntu-latest
