@@ -74,6 +74,14 @@ Follow the QA checklist in `.ai/windows-diagnostic-installer.md`:
 7. Inspect the log file — no paths, secrets, or raw data should appear.
 8. Close the app — verify no crash.
 
+### 5a. Complete Windows 11 manual QA
+
+Before distributing, complete the full Windows 11 QA checklist:
+
+- Follow [`docs/BETA_WINDOWS_11_QA_EN.md`](BETA_WINDOWS_11_QA_EN.md) for the complete checklist.
+- Windows 11 manual QA **must be completed** before a beta release is announced or distributed.
+- Record results in the summary table in the runbook.
+
 ### 6. Distribute
 
 Share the `.exe` directly with testers. Include the `diagnostic-readme.txt` from the diagnostic artifact as a companion note.

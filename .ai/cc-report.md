@@ -2992,3 +2992,61 @@ Note: Playwright e2e was not re-run in this session (unchanged mock infrastructu
 - `AddPlacementPanel.tsx` file still exists in the filesystem (not deleted). It is no longer imported by any component. It could be deleted in a future cleanup pass to avoid confusion.
 - `PlacementPalettePanel` does its own data loading (listDevices/listDeviceModels) independently from the parent's `availableDevices` state. This means two separate fetches on each reload. Both stay in sync via the same `mutationToken`/`reloadToken` signals. Could be consolidated in a future refactor.
 - Visual: "Place…" button layout inside palette cards not visually QA'd (headless environment).
+
+---
+
+## Beta hardening milestone 5 — Beta QA and Windows installer validation
+
+**Branch:** qa/beta-windows-installer-validation
+**App version:** v0.1.0
+**Date:** 2026-05-24
+
+### PR #68 baseline confirmation
+- PlacePlacementModal.tsx: present
+- EditPlacementModal.tsx: present (with Height U override)
+- PlacementPalettePanel.tsx: present
+- AddPlacementPanel imported by RackDetailPanel: NO
+- Settings page: present
+- Racks context-aware nav: present
+
+### AddPlacementPanel.tsx cleanup
+Removed — file was not imported anywhere.
+
+### Docs added/updated
+- docs/BETA_WINDOWS_11_QA_EN.md (new) — Windows 11 manual QA runbook
+- docs/BETA_RELEASE_PROCESS_EN.md (updated) — added Windows 11 QA step (5a) before Distribute
+- README.md (updated) — link to Windows 11 QA runbook added to beta release direction section
+- CHANGELOG.md (updated) — milestone 5 unreleased entries (Added + Changed sections)
+
+### Installer workflow verification
+Both installer workflows exist and are workflow_dispatch-only:
+- .github/workflows/windows-installer.yml — produces rack-inventory-studio-v0.1.0-windows-installer
+- .github/workflows/windows-diagnostic-installer.yml — produces rack-inventory-studio-v0.1.0-windows-diagnostic-installer with diagnostic-readme.txt
+Workflow triggering deferred until after commit/push (see Remaining manual steps).
+
+### Automated checks
+- git diff --check: PASS
+- version consistency: PASS (v0.1.0)
+- TypeScript: PASS
+- Vitest: PASS (360/360 tests)
+- Vite build: PASS (22.22 kB CSS, 277.92 kB JS)
+- Playwright e2e: PASS (12/12)
+- cargo fmt: PASS
+- cargo check: PASS
+- cargo test: PASS (358 tests)
+- cargo clippy: PASS
+- No package-lock.json: PASS
+- No tracked review-context: PASS
+
+### Windows 11 manual QA status
+Windows 11 manual QA was not completed in this environment and remains required before beta release.
+
+### Known risks
+- Windows 11 manual QA pending
+- Installer signing not implemented (SmartScreen warning expected on Windows 11)
+
+### Remaining manual steps
+1. Trigger Windows installer workflows from GitHub Actions UI (or via gh CLI after branch is pushed)
+2. Download and smoke-test installer on Windows 11
+3. Complete BETA_WINDOWS_11_QA_EN.md checklist
+4. Merge PR after review
