@@ -118,6 +118,31 @@ describe("DeviceModelFormModal — add mode", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  it('shows "Manufacturer model / SKU" label instead of "Model number"', () => {
+    render(
+      <DeviceModelFormModal
+        open
+        editing={null}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Manufacturer model / SKU")).toBeTruthy();
+    expect(screen.queryByText("Model number")).toBeNull();
+  });
+
+  it("shows vendor/SKU help text for the model field", () => {
+    render(
+      <DeviceModelFormModal
+        open
+        editing={null}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/Vendor or catalog model identifier/i)).toBeTruthy();
+  });
+
   it("shows code format error for invalid code", () => {
     render(
       <DeviceModelFormModal
@@ -231,6 +256,40 @@ describe("DeviceModelFormModal — edit mode", () => {
       );
       expect(onSaved).toHaveBeenCalledOnce();
       expect(onClose).toHaveBeenCalledOnce();
+    });
+  });
+
+  it("pre-populates model number field from fixture", () => {
+    render(
+      <DeviceModelFormModal
+        open
+        editing={FIXTURE_MODEL}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+    expect((screen.getByTestId("field-model-sku") as HTMLInputElement).value).toBe("R750-001");
+  });
+
+  it("submitted payload still uses model_number key", async () => {
+    const onClose = vi.fn();
+    const onSaved = vi.fn();
+    render(
+      <DeviceModelFormModal
+        open
+        editing={FIXTURE_MODEL}
+        onClose={onClose}
+        onSaved={onSaved}
+      />,
+    );
+    fireEvent.change(screen.getByTestId("field-model-sku"), {
+      target: { value: "R750-XL" },
+    });
+    fireEvent.click(screen.getByText("Save changes"));
+    await waitFor(() => {
+      expect(mockUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ model: "R750-XL" }),
+      );
     });
   });
 

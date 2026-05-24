@@ -151,7 +151,7 @@ export function DeviceModelsPanel({
                   <th>Type</th>
                   <th>Name</th>
                   <th>Vendor</th>
-                  <th className="tbl-mono">Model number</th>
+                  <th className="tbl-mono">Model / SKU</th>
                   <th className="tbl-num">Height</th>
                   <th />
                 </tr>

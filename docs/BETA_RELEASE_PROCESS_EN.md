@@ -101,7 +101,7 @@ When ready to increment the version (e.g. for the next beta milestone):
 To prevent accidental direct pushes, enable branch protection on `master` in **Settings → Branches**:
 
 - Require a pull request before merging
-- Require status checks to pass (CI: `rust`, `frontend`, `version-check`)
+- Require status checks to pass (CI: `Rust workspace`, `Frontend checks`, `Version consistency`)
 - Do not allow bypassing the above settings
 
 This ensures every merge is reviewed and all checks are green.

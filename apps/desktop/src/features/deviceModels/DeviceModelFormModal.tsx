@@ -287,13 +287,18 @@ export function DeviceModelFormModal({
             disabled={submitting}
           />
         </Field>
-        <Field className="col-6" label="Model number">
+        <Field
+          className="col-6"
+          label="Manufacturer model / SKU"
+          help="Vendor or catalog model identifier, for example PowerEdge R640, ICX 7150, or another SKU printed by the manufacturer."
+        >
           <input
             className="input mono"
             value={form.modelNumber}
             onChange={set("modelNumber")}
-            placeholder="e.g. R750-001"
+            placeholder="e.g. PowerEdge R640"
             disabled={submitting}
+            data-testid="field-model-sku"
           />
         </Field>
         <Field className="col-4" label="Height (U)" required>
