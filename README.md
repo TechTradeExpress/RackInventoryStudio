@@ -77,7 +77,7 @@ tests/                  Shared test fixtures
 
 **V1 release is paused.** The next target is a beta hardening release (Beta 0.2.x). The focus is on UX stability, operational reliability (global busy overlay, no flashing Windows console windows), consistent versioning, installer artifact naming, navigation cleanup, and rack placement UX redesign — before committing to a V1 milestone.
 
-See [`docs/BETA_HARDENING_PLAN_EN.md`](docs/BETA_HARDENING_PLAN_EN.md) for the full plan.
+See [`docs/BETA_HARDENING_PLAN_EN.md`](docs/BETA_HARDENING_PLAN_EN.md) for the full plan and [`docs/BETA_RELEASE_PROCESS_EN.md`](docs/BETA_RELEASE_PROCESS_EN.md) for the release checklist and version bump procedure.
 
 ### What is implemented (MVP Core)
 
@@ -155,6 +155,16 @@ cargo check --workspace
 ```
 
 Or via Makefile targets: `make fmt`, `make test`, `make lint`, `make check`.
+
+## Version consistency check
+
+All four version files (`package.json`, `apps/desktop/package.json`, `Cargo.toml`, `tauri.conf.json`) must always match. Run:
+
+```bash
+pnpm check:version
+```
+
+CI enforces this automatically on every push and pull request. See [`docs/BETA_RELEASE_PROCESS_EN.md`](docs/BETA_RELEASE_PROCESS_EN.md) for the version bump procedure.
 
 ## Running the Tauri desktop app
 

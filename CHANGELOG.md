@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased — beta hardening milestone 2: versioning and release process (branch `release/versioning-beta-process`)
+
+- **Version consistency check script** (`scripts/check-version-consistency.mjs`) — Node ESM script that reads the app version from all four canonical sources (`package.json`, `apps/desktop/package.json`, `Cargo.toml`, `tauri.conf.json`), prints a formatted table, and exits non-zero on mismatch. Available as `pnpm check:version`.
+- **CI: version-check job** (`.github/workflows/ci.yml`) — new lightweight job that runs the consistency check on every push and pull request; catches version drift before it reaches a build.
+- **Versioned artifact names** — both installer workflows now extract the version from `tauri.conf.json` (PowerShell `ConvertFrom-Json` step) and embed it in the artifact name: `rack-inventory-studio-vX.Y.Z-windows-installer` / `rack-inventory-studio-vX.Y.Z-windows-diagnostic-installer`. Artifact names are unambiguous across builds.
+- **Beta release process documentation** (`docs/BETA_RELEASE_PROCESS_EN.md`) — version policy, beta naming convention, full release checklist (verify consistency → merge → trigger workflow → smoke test → distribute), version bump procedure, and protected-master recommendation.
+
+## Unreleased — beta hardening milestone 1: global busy overlay and Windows Git console hiding (branch `ux/global-busy-git-no-console`, PR #65)
+
+- **Global application busy overlay** — `AppBusyProvider` / `useBusy` / `runBusy` React context pattern wraps all async operations (open repository, close, save, validate, CSV preview/import, all Git operations). `BusyOverlay` component fades in after 150 ms with a spinner and operation label; pointer events are blocked immediately. Local loading/working state variables removed from all feature panels.
+- **Windows Git console window hiding** — `run_git` helper in `crates/ris-git/src/lib.rs` sets `CREATE_NO_WINDOW` (`0x0800_0000`) via `CommandExt::creation_flags` on Windows-only `#[cfg(windows)]` block; eliminates the flashing console window on every Git operation.
+- **5 Vitest tests** in `apps/desktop/src/lib/appBusy.test.tsx` covering: default state, sets label while running, clears after success, clears after error, re-throws for callers.
+
 ## Unreleased — beta hardening planning (branch `planning/beta-hardening-plan`)
 
 V1 release paused. Next target is a beta hardening release (Beta 0.2.x).

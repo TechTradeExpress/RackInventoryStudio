@@ -48,6 +48,13 @@ jobs:
       - name: Frontend tests
         run: pnpm --filter @rack-inventory-studio/desktop test
 
+      - name: Extract app version
+        id: version
+        shell: pwsh
+        run: |
+          $version = (Get-Content apps/desktop/src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          echo "APP_VERSION=$version" >> $env:GITHUB_OUTPUT
+
       - name: Build Tauri Windows installer
         # tauri.conf.json beforeBuildCommand ("pnpm build") runs automatically.
         # No signing keys configured — produces an unsigned NSIS installer.
@@ -128,7 +135,7 @@ jobs:
       - name: Upload diagnostic artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rack-inventory-studio-windows-diagnostic-installer
+          name: rack-inventory-studio-v${{ steps.version.outputs.APP_VERSION }}-windows-diagnostic-installer
           path: diagnostic-artifact/
           if-no-files-found: error
           retention-days: 30
