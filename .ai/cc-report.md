@@ -2790,3 +2790,141 @@ Audit confirmed the current left rail has no duplicate brand block (no logo or "
 8. Verify Device Models table column says "Model / SKU".
 9. Use search/validation to navigate to a rack target → confirm Racks nav appears and either shows the location-filtered list or the "select a location" empty state (no crash).
 10. Close repository → confirm Racks nav disappears from the left rail.
+
+---
+
+## Beta hardening milestone 4 — Rack detail and placement UX redesign
+
+**Branch:** `ux/rack-placement-workflow-redesign`
+**Base branch:** `master`
+
+### Audit findings
+
+Commands available:
+- `placeDevice({ rack_id, device_id, side, start_u, height_u? })` → placement_id — height_u is `number | null`, optional override
+- `placeRackObject({ rack_id, device_model_id, side, start_u, height_u? })` → placement_id — same height pattern
+- `movePlacement({ placement_id, new_rack_id?, new_side?, new_start_u, new_height_u })` → void
+- `removePlacement({ placement_id })` → void
+
+PlacementDto fields confirmed: `id`, `code`, `target_kind`, `target_id`, `target_code`, `target_name`, `device_type`, `start_u`, `height_u` (explicit override or null), `effective_height_u`, `end_u`, `note`, `tags`, `model_name`, `model_code`, `target_serial`, `target_asset_tag`.
+
+Height override: `height_u?: number | null` is accepted by both `placeDevice` and `placeRackObject` — full height override support confirmed.
+
+Drag/drop: DndPayload stored in singleton via `setActiveDragPayload`/`getActiveDragPayload`. `canDropAt()` validates occupancy. Drop handler was direct `placeDevice`/`placeRackObject` — changed to open modal.
+
+### Layout changes
+
+Old: 3-column grid `[260px palette | 1fr diagram | 320px inspector]`
+
+New: 2-column grid `[1fr diagram + placement table below | 280px palette + inspector below]`
+
+- Left column: rack diagram (full-width) + active-side placement table below
+- Right column: AddPlacementPanel (palette mode) + PlacementInspectorPanel (conditional, shown only when a placement is selected)
+- Inspector is now compact (details + action buttons only)
+
+### What happened to AddPlacementPanel
+
+Retained as palette + add form, now in the right 280px column. The form is still present (user can still type start_u + select device + click Add). The drag palette is preserved. No functionality removed — just repositioned from left 260px column to right 280px column.
+
+### PlacePlacementModal
+
+New file: `apps/desktop/src/features/racks/PlacePlacementModal.tsx`
+
+Trigger paths:
+1. Click an empty U-slot in the diagram → `onEmptySlotClick(startU)` → modal opens with startU prefilled
+2. Drag from palette and drop on empty slot → modal opens with startU prefilled (payload stored for context)
+
+Behavior: target type selector (Device / Rack Object), device dropdown (unplaced only), rack object dropdown, start U input (prefilled), optional height U override. All mutations via `runBusy("Placing equipment…", ...)`. Error in modal footer. On success: `onPlaced(id)` + `onClose()`.
+
+### EditPlacementModal
+
+New file: `apps/desktop/src/features/racks/EditPlacementModal.tsx`
+
+Trigger paths:
+1. "Edit" button in placement table row
+2. "Edit placement…" button in PlacementInspectorPanel
+
+Shows: placement code (subtitle), rack code, side (read-only), target name, type, model, effective height (read-only). Editable: Start U. "Remove placement…" → ConfirmDialog (danger). Save → `movePlacement({ new_start_u })` via `runBusy("Updating placement…", ...)`. Error in modal footer.
+
+### Drag/drop behavior
+
+Existing DnD infrastructure kept intact. Drop handler changed: `handleDropAtCell(side, startU, payload)` → opens `PlacePlacementModal` with `startU` prefilled. Payload is stored for context but the modal still shows the full available device/rack-object lists (user can change selection in the modal).
+
+### Non-drag fallback
+
+`RackUnitDiagram` now has `onEmptySlotClick?: (startU: number) => void` prop. Empty cell onClick calls both `onSelectPlacement(null)` and `onEmptySlotClick(startU)`. The empty slot cursor changes to `pointer` when the callback is provided.
+
+### Placement table changes
+
+New columns: U · Name · Type · Model/SKU · Serial · Asset tag · Actions (Edit button per row). Edit button opens `EditPlacementModal`. Remove is via the EditPlacementModal (not directly from the table — user must open edit modal first).
+
+### Inspector changes
+
+Simplified: inline move form (start U input, rack select, height U, Move button) removed. Now shows: KV detail list + "Edit placement…" button (opens EditPlacementModal) + "Move to [Other]Side…" button (ConfirmDialog) + "Remove placement…" button (ConfirmDialog danger). Inspector is now conditional — only visible when a placement is selected.
+
+### Global busy overlay integration
+
+Labels used:
+- `"Placing equipment…"` — PlacePlacementModal placeDevice/placeRackObject
+- `"Updating placement…"` — EditPlacementModal movePlacement
+- `"Removing placement…"` — EditPlacementModal removePlacement, PlacementInspectorPanel removePlacement
+- `"Moving to Rear…"` / `"Moving to Front…"` — PlacementInspectorPanel movePlacement (change side)
+
+### Backend changes
+
+None. All changes are frontend-only. DTOs unchanged.
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `apps/desktop/src/features/racks/PlacePlacementModal.tsx` | New — modal for placing device/rack-object |
+| `apps/desktop/src/features/racks/EditPlacementModal.tsx` | New — modal for editing/removing a placement |
+| `apps/desktop/src/features/racks/PlacePlacementModal.test.tsx` | New — 11 unit tests |
+| `apps/desktop/src/features/racks/EditPlacementModal.test.tsx` | New — 11 unit tests |
+| `apps/desktop/src/features/racks/RackDetailPanel.tsx` | New 2-col layout, wire both modals, table actions |
+| `apps/desktop/src/features/racks/PlacementInspectorPanel.tsx` | Simplified to details + action buttons; useBusy |
+| `apps/desktop/src/features/racks/RackUnitDiagram.tsx` | Added onEmptySlotClick prop; drop→modal |
+| `apps/desktop/e2e/smoke.spec.ts` | Added "click empty slot opens modal" test; updated layout assertion |
+| `apps/desktop/e2e/mocks/tauri-core.ts` | Added move_placement + remove_placement mock stubs |
+
+### Tests
+
+| Check | Result |
+|-------|--------|
+| `git diff --check` | pass |
+| `node scripts/check-version-consistency.mjs` | pass (all 0.1.0) |
+| `tsc --noEmit` | pass |
+| `vitest run` | 352/352 pass (31 test files, +22 new from PlacePlacementModal.test + EditPlacementModal.test) |
+| `vite build` | pass (22.22 kB CSS, 281 kB JS) |
+| `playwright test` | 12/12 pass (+1 new: click empty slot opens modal) |
+| `cargo fmt --all --check` | pass |
+| `cargo test --workspace` | pass (all Rust tests) |
+| `cargo clippy --workspace -- -D warnings` | pass |
+
+### Known risks
+
+- `PlacementInspectorPanel` no longer has the inline move form — the only way to move a placement to a different U on the same side is via EditPlacementModal. This is intentional per the design. The Change side flow remains in the inspector.
+- When drag-and-drop is used, the modal opens with startU prefilled but the DndPayload (device/model pre-selection) is stored but not used to pre-select the device in the modal dropdown. User must select the device again in the modal. This is a minor UX friction.
+- The right palette column (280px) may feel narrow on very small viewports. No responsive breakpoints added.
+- Inspector is now conditional (hidden when nothing selected). Users accustomed to always seeing it may be confused. The empty-state message in the placement table guides them.
+
+### Manual QA checklist
+
+1. Open repository
+2. Locations → Manage racks
+3. Open rack detail
+4. Confirm diagram is larger (1fr), right panel is palette sidebar (280px)
+5. Confirm placement table below diagram has columns: U · Name · Type · Model/SKU · Serial · Asset tag · Actions
+6. Click empty U-slot → PlacePlacementModal opens
+7. Select a device and start U → Place → placement appears in diagram and table
+8. Click "Edit" in table row → EditPlacementModal opens with correct data
+9. Change start U → Save move → placement moves
+10. Open EditPlacementModal → Remove placement… → ConfirmDialog → confirm → placement removed
+11. Click a placement in table → inspector appears in right column
+12. Inspector shows "Move to Rear…" → ConfirmDialog opens → Cancel
+13. Inspector shows "Edit placement…" button → opens EditPlacementModal
+14. Drag from palette → drop on empty slot → modal opens prefilled with startU
+15. Switch Front/Rear → inspector clears
+16. Confirm busy overlay appears/clears during all mutations
+17. No console errors throughout

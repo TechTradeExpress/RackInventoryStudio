@@ -369,6 +369,14 @@ export function invoke<T>(command: string, args?: unknown): Promise<T> {
       return Promise.resolve(FIXTURE_NEW_PLACEMENT_ID as unknown as T);
     }
 
+    case "move_placement":
+      // In-memory mutation — return void success
+      return Promise.resolve(undefined as unknown as T);
+
+    case "remove_placement":
+      // In-memory mutation — return void success
+      return Promise.resolve(undefined as unknown as T);
+
     default:
       if (command in COMMANDS) {
         return Promise.resolve(COMMANDS[command] as T);
