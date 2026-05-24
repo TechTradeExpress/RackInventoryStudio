@@ -20,6 +20,10 @@ export interface PlacePlacementModalProps {
   startU: number | null;
   availableDevices: DeviceDto[];
   availableRackObjects: DeviceModelDto[];
+  /** Preselect a target type when opened from the palette "Place…" button. */
+  initialTargetKind?: "device" | "rack_object" | null;
+  /** Preselect a specific device/model ID when opened from the palette "Place…" button. */
+  initialTargetId?: string | null;
   onClose: () => void;
   onPlaced: (placementId: string) => void;
 }
@@ -31,6 +35,8 @@ export function PlacePlacementModal({
   startU,
   availableDevices,
   availableRackObjects,
+  initialTargetKind,
+  initialTargetId,
   onClose,
   onPlaced,
 }: PlacePlacementModalProps) {
@@ -43,17 +49,24 @@ export function PlacePlacementModal({
   const [heightUStr, setHeightUStr] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  // Reset form when modal opens
+  // Reset form when modal opens; apply initial preselection if provided
   useEffect(() => {
     if (open) {
-      setTargetType("device");
-      setDeviceId("");
-      setDeviceModelId("");
+      const kind: TargetType =
+        initialTargetKind === "rack_object" ? "rack_object" : "device";
+      setTargetType(kind);
+      if (kind === "device") {
+        setDeviceId(initialTargetId ?? "");
+        setDeviceModelId("");
+      } else {
+        setDeviceModelId(initialTargetId ?? "");
+        setDeviceId("");
+      }
       setStartUStr(startU !== null ? String(startU) : "");
       setHeightUStr("");
       setError(null);
     }
-  }, [open, startU]);
+  }, [open, startU, initialTargetKind, initialTargetId]);
 
   // Derive effective height display for selected rack object
   const selectedModel =

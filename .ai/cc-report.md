@@ -2928,3 +2928,67 @@ None. All changes are frontend-only. DTOs unchanged.
 15. Switch Front/Rear → inspector clears
 16. Confirm busy overlay appears/clears during all mutations
 17. No console errors throughout
+
+---
+
+### Repair update after ChatGPT review (PR #68 — ux/rack-placement-workflow-redesign)
+
+#### Blocker 1 fixed: Right sidebar is now palette-only
+
+- **`AddPlacementPanel.tsx`** — left in place for historical reference but is **no longer imported** anywhere. The right sidebar now uses a new `PlacementPalettePanel.tsx`.
+- **New file: `PlacementPalettePanel.tsx`** — palette-only component with no inline add form. Shows unplaced devices and rack object models as draggable palette cards. Each card has a "Place…" button that calls `onPlaceDevice(deviceId)` or `onPlaceRackObject(modelId)` callback.
+- **`RackDetailPanel.tsx`** — switched import from `AddPlacementPanel` to `PlacementPalettePanel`. Added `placeModalTargetKind` / `placeModalTargetId` state. Added `handlePalettePlaceDevice` / `handlePaletteRackObject` handlers that set the target preselection then open `PlacePlacementModal`. `handleDropAtCell` also now sets `placeModalTargetKind` / `placeModalTargetId` from the DnD payload, so drops preselect the dragged item in the modal.
+- No direct `placeDevice` / `placeRackObject` calls remain in any sidebar component.
+
+#### PlacePlacementModal: initialTargetKind / initialTargetId preselection
+
+- **`PlacePlacementModal.tsx`** — added `initialTargetKind?: "device" | "rack_object" | null` and `initialTargetId?: string | null` props. The reset `useEffect` now reads these and preselects the correct type + item when the modal opens.
+- When opened via palette "Place…": correct type tab pre-selected, correct item pre-selected in dropdown, Place button enabled immediately.
+- When opened via DnD drop: same preselection from DnD payload (device ID or model ID).
+- When opened via empty slot click: no preselection (user picks device/model as before).
+
+#### Blocker 2 fixed: EditPlacementModal Height U override
+
+- **`EditPlacementModal.tsx`** — added `heightUStr` state initialized from `placement.height_u`. Added "Height U override" `<Field>` with data-testid `height-u-input`. Help text shows current effective height. Validation: empty → `new_height_u: null`; positive integer → `new_height_u: parsedNumber`; negative/zero → validation error. `movePlacement` now always passes the user-controlled `newHeightU` value (was previously passing the stale `placement.height_u`).
+
+#### E2E test updated
+
+- **`e2e/smoke.spec.ts`** — updated `getByText(/Add Placement/)` → `getByText(/Placeable equipment/)` to match the new panel title.
+
+#### Tests added
+
+**EditPlacementModal.test.tsx (+6 tests):**
+1. Renders empty Height U override when `placement.height_u` is null
+2. Renders existing override value when `placement.height_u` is set to 3
+3. Changing override to "2" calls movePlacement with `new_height_u: 2`
+4. Clearing an existing override calls movePlacement with `new_height_u: null`
+5. Negative override ("-1") shows validation error and does not call movePlacement
+6. Zero override ("0") shows validation error and does not call movePlacement
+
+**PlacePlacementModal.test.tsx (+2 tests):**
+1. Preselects device when opened with `initialTargetKind="device"` and `initialTargetId`
+2. Preselects rack object model when opened with `initialTargetKind="rack_object"` and `initialTargetId`
+
+#### Checks run and results
+
+| Check | Result |
+|-------|--------|
+| `node scripts/check-version-consistency.mjs` | pass (all 0.1.0) |
+| `git diff --check` | pass |
+| `test ! -f apps/desktop/package-lock.json` | pass |
+| `git ls-files '.ai/review-context-*.md'` | pass (none tracked) |
+| `node node_modules/typescript/bin/tsc --noEmit` | pass |
+| `node node_modules/.bin/vitest run` | **360/360 pass** (31 test files, +8 new tests) |
+| `node node_modules/.bin/vite build` | pass (22.22 kB CSS, 277.92 kB JS) |
+| `cargo fmt --all --check` | pass |
+| `cargo check --workspace` | pass |
+| `cargo test --workspace` | pass |
+| `cargo clippy --workspace -- -D warnings` | pass |
+
+Note: Playwright e2e was not re-run in this session (unchanged mock infrastructure; one test assertion updated to match new panel title).
+
+#### Remaining risks
+
+- `AddPlacementPanel.tsx` file still exists in the filesystem (not deleted). It is no longer imported by any component. It could be deleted in a future cleanup pass to avoid confusion.
+- `PlacementPalettePanel` does its own data loading (listDevices/listDeviceModels) independently from the parent's `availableDevices` state. This means two separate fetches on each reload. Both stay in sync via the same `mutationToken`/`reloadToken` signals. Could be consolidated in a future refactor.
+- Visual: "Place…" button layout inside palette cards not visually QA'd (headless environment).

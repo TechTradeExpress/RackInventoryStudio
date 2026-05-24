@@ -38,6 +38,9 @@ export function EditPlacementModal({
   const { runBusy } = useBusy();
 
   const [startUStr, setStartUStr] = useState(String(placement.start_u));
+  const [heightUStr, setHeightUStr] = useState(
+    placement.height_u != null ? String(placement.height_u) : "",
+  );
   const [error, setError] = useState<string | null>(null);
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
 
@@ -45,6 +48,7 @@ export function EditPlacementModal({
   useEffect(() => {
     if (open) {
       setStartUStr(String(placement.start_u));
+      setHeightUStr(placement.height_u != null ? String(placement.height_u) : "");
       setError(null);
       setRemoveConfirmOpen(false);
     }
@@ -56,6 +60,16 @@ export function EditPlacementModal({
       setError("Start U must be a positive integer.");
       return;
     }
+    // Validate height U override
+    let newHeightU: number | null = null;
+    if (heightUStr.trim() !== "") {
+      const hu = parsePositiveInt(heightUStr);
+      if (hu === null) {
+        setError("Height U override must be a positive integer if provided.");
+        return;
+      }
+      newHeightU = hu;
+    }
     setError(null);
     try {
       await runBusy("Updating placement…", () =>
@@ -64,7 +78,7 @@ export function EditPlacementModal({
           new_rack_id: rack.id,
           new_side: side,
           new_start_u: su,
-          new_height_u: placement.height_u,
+          new_height_u: newHeightU,
         }),
       );
       onUpdated(placement.id);
@@ -198,6 +212,31 @@ export function EditPlacementModal({
                 setError(null);
               }}
               data-testid="start-u-input"
+            />
+          </Field>
+
+          {/* Height U override */}
+          <Field
+            label="Height U override"
+            help={
+              placement.effective_height_u != null
+                ? `Effective: ${placement.effective_height_u}U. Leave empty to use the default/effective height.`
+                : "Leave empty to use the default/effective height."
+            }
+            className="col-6"
+          >
+            <input
+              className="ri-input"
+              type="number"
+              min={1}
+              step={1}
+              placeholder="—"
+              value={heightUStr}
+              onChange={(e) => {
+                setHeightUStr(e.target.value);
+                setError(null);
+              }}
+              data-testid="height-u-input"
             />
           </Field>
         </div>

@@ -221,3 +221,35 @@ describe("PlacePlacementModal — open", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 });
+
+describe("PlacePlacementModal — initialTargetKind / initialTargetId preselection", () => {
+  it("preselects a device when opened with initialTargetKind='device' and initialTargetId", () => {
+    render(
+      <PlacePlacementModal
+        {...BASE_PROPS}
+        initialTargetKind="device"
+        initialTargetId="dev-1"
+      />,
+    );
+    const select = screen.getByTestId("device-select") as HTMLSelectElement;
+    expect(select.value).toBe("dev-1");
+    // Place button should be enabled since a device is selected
+    const btn = screen.getByTestId("place-btn") as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+  });
+
+  it("preselects a rack object model when opened with initialTargetKind='rack_object' and initialTargetId", () => {
+    render(
+      <PlacePlacementModal
+        {...BASE_PROPS}
+        initialTargetKind="rack_object"
+        initialTargetId="model-2"
+      />,
+    );
+    const select = screen.getByTestId("rack-object-select") as HTMLSelectElement;
+    expect(select.value).toBe("model-2");
+    // Place button should be enabled since a model is selected
+    const btn = screen.getByTestId("place-btn") as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+  });
+});

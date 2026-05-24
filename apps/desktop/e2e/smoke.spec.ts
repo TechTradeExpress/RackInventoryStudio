@@ -184,8 +184,8 @@ test("rack detail and placement table visible", async ({ page }) => {
   // fixture device name "srv-01" appears in the Name column
   await expect(page.getByRole("cell", { name: "srv-01", exact: true })).toBeVisible();
 
-  // Palette sidebar is visible (new 2-column layout — right column has Add Placement panel)
-  await expect(page.getByText(/Add Placement/)).toBeVisible();
+  // Palette sidebar is visible (new 2-column layout — right column has Placeable equipment panel)
+  await expect(page.getByText(/Placeable equipment/)).toBeVisible();
 
   // Switching to Rear updates tab state and table title; fixture placement disappears
   await page.getByRole("tab", { name: "Rear" }).click();

@@ -198,3 +198,86 @@ describe("EditPlacementModal — open", () => {
     expect(input.value).toBe("20");
   });
 });
+
+describe("EditPlacementModal — Height U override", () => {
+  it("renders empty Height U override when placement.height_u is null", () => {
+    render(<EditPlacementModal {...BASE_PROPS} />);
+    const input = screen.getByTestId("height-u-input") as HTMLInputElement;
+    expect(input.value).toBe("");
+  });
+
+  it("renders existing override value when placement.height_u is set to 3", () => {
+    const placementWithHeight: PlacementDto = { ...FIXTURE_PLACEMENT, height_u: 3 };
+    render(<EditPlacementModal {...BASE_PROPS} placement={placementWithHeight} />);
+    const input = screen.getByTestId("height-u-input") as HTMLInputElement;
+    expect(input.value).toBe("3");
+  });
+
+  it("calls movePlacement with new_height_u: 2 when override is set to '2'", async () => {
+    const onUpdated = vi.fn();
+    render(<EditPlacementModal {...BASE_PROPS} onUpdated={onUpdated} />);
+
+    fireEvent.change(screen.getByTestId("height-u-input"), {
+      target: { value: "2" },
+    });
+    fireEvent.click(screen.getByTestId("save-btn"));
+
+    await waitFor(() => {
+      expect(mockMovePlacement).toHaveBeenCalledWith(
+        expect.objectContaining({
+          new_height_u: 2,
+        }),
+      );
+    });
+  });
+
+  it("calls movePlacement with new_height_u: null when override is cleared", async () => {
+    const placementWithHeight: PlacementDto = { ...FIXTURE_PLACEMENT, height_u: 3 };
+    const onUpdated = vi.fn();
+    render(
+      <EditPlacementModal {...BASE_PROPS} placement={placementWithHeight} onUpdated={onUpdated} />,
+    );
+
+    // Clear the existing override
+    fireEvent.change(screen.getByTestId("height-u-input"), {
+      target: { value: "" },
+    });
+    fireEvent.click(screen.getByTestId("save-btn"));
+
+    await waitFor(() => {
+      expect(mockMovePlacement).toHaveBeenCalledWith(
+        expect.objectContaining({
+          new_height_u: null,
+        }),
+      );
+    });
+  });
+
+  it("shows validation error and does not call movePlacement when override is '-1' (negative)", async () => {
+    render(<EditPlacementModal {...BASE_PROPS} />);
+
+    fireEvent.change(screen.getByTestId("height-u-input"), {
+      target: { value: "-1" },
+    });
+    fireEvent.click(screen.getByTestId("save-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Height U override must be a positive integer/)).toBeTruthy();
+    });
+    expect(mockMovePlacement).not.toHaveBeenCalled();
+  });
+
+  it("shows validation error and does not call movePlacement when override is '0'", async () => {
+    render(<EditPlacementModal {...BASE_PROPS} />);
+
+    fireEvent.change(screen.getByTestId("height-u-input"), {
+      target: { value: "0" },
+    });
+    fireEvent.click(screen.getByTestId("save-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Height U override must be a positive integer/)).toBeTruthy();
+    });
+    expect(mockMovePlacement).not.toHaveBeenCalled();
+  });
+});

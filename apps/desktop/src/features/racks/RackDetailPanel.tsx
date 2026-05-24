@@ -11,7 +11,7 @@ import {
 } from "../../api/tauriClient";
 import { RackUnitDiagram } from "./RackUnitDiagram";
 import { PlacementInspectorPanel } from "./PlacementInspectorPanel";
-import { AddPlacementPanel } from "./AddPlacementPanel";
+import { PlacementPalettePanel } from "./PlacementPalettePanel";
 import { PlacePlacementModal } from "./PlacePlacementModal";
 import { EditPlacementModal } from "./EditPlacementModal";
 import type { DndPayload } from "./dndTypes";
@@ -70,6 +70,8 @@ export function RackDetailPanel({
   const [placePlacementOpen, setPlacePlacementOpen] = useState(false);
   const [placeModalStartU, setPlaceModalStartU] = useState<number | null>(null);
   const [placeModalDndPayload, setPlaceModalDndPayload] = useState<DndPayload | null>(null);
+  const [placeModalTargetKind, setPlaceModalTargetKind] = useState<"device" | "rack_object" | null>(null);
+  const [placeModalTargetId, setPlaceModalTargetId] = useState<string | null>(null);
 
   // Edit placement modal state
   const [editPlacementOpen, setEditPlacementOpen] = useState(false);
@@ -116,7 +118,7 @@ export function RackDetailPanel({
         setAvailableRackObjects(models.filter((m) => m.device_type === "rack_object"));
       })
       .catch(() => {
-        // silently ignore — AddPlacementPanel shows its own load error
+        // silently ignore — PlacementPalettePanel shows its own load error
       });
     return () => { cancelled = true; };
   }, [rack.id, targetReloadToken, mutationToken]);
@@ -184,11 +186,18 @@ export function RackDetailPanel({
     refreshAfterMutation({ selectId: null, bumpTargets: true });
   }
 
-  // Drop handler: instead of direct place, open modal pre-filled with startU
+  // Drop handler: open modal pre-filled with startU and target from DnD payload
   function handleDropAtCell(side: "front" | "rear", startU: number, payload: DndPayload) {
     setPlaceModalDndPayload(payload);
     setPlaceModalStartU(startU);
-    // Pre-select the device/rack_object from the payload if possible — modal handles it
+    // Preselect target from the drag payload
+    if (payload.kind === "device") {
+      setPlaceModalTargetKind("device");
+      setPlaceModalTargetId(payload.deviceId);
+    } else {
+      setPlaceModalTargetKind("rack_object");
+      setPlaceModalTargetId(payload.deviceModelId);
+    }
     setPlacePlacementOpen(true);
     // Sync active side so modal shows the correct side
     if (side !== activeSide) setActiveSide(side);
@@ -198,6 +207,25 @@ export function RackDetailPanel({
   function handleEmptySlotClick(startU: number) {
     setPlaceModalDndPayload(null);
     setPlaceModalStartU(startU);
+    setPlaceModalTargetKind(null);
+    setPlaceModalTargetId(null);
+    setPlacePlacementOpen(true);
+  }
+
+  // Palette "Place…" button handlers — open modal with item preselected
+  function handlePalettePlaceDevice(deviceId: string) {
+    setPlaceModalDndPayload(null);
+    setPlaceModalStartU(null);
+    setPlaceModalTargetKind("device");
+    setPlaceModalTargetId(deviceId);
+    setPlacePlacementOpen(true);
+  }
+
+  function handlePaletteRackObject(modelId: string) {
+    setPlaceModalDndPayload(null);
+    setPlaceModalStartU(null);
+    setPlaceModalTargetKind("rack_object");
+    setPlaceModalTargetId(modelId);
     setPlacePlacementOpen(true);
   }
 
@@ -220,18 +248,21 @@ export function RackDetailPanel({
         rack={rack}
         side={activeSide}
         startU={placeModalStartU}
-        availableDevices={
-          // If opened from a drag, pre-filter to the dragged device (UX hint — full list still shown)
-          availableDevices
-        }
+        availableDevices={availableDevices}
         availableRackObjects={availableRackObjects}
+        initialTargetKind={placeModalTargetKind}
+        initialTargetId={placeModalTargetId}
         onClose={() => {
           setPlacePlacementOpen(false);
           setPlaceModalDndPayload(null);
+          setPlaceModalTargetKind(null);
+          setPlaceModalTargetId(null);
         }}
         onPlaced={(newId) => {
           setPlacePlacementOpen(false);
           setPlaceModalDndPayload(null);
+          setPlaceModalTargetKind(null);
+          setPlaceModalTargetId(null);
           handleAddSuccess(newId);
         }}
       />
@@ -430,14 +461,15 @@ export function RackDetailPanel({
               })()}
             </div>
 
-            {/* Right — palette (add placement) + inspector */}
+            {/* Right — palette + inspector */}
             <div className="stack-4" style={{ minWidth: 0 }}>
-              <AddPlacementPanel
+              <PlacementPalettePanel
                 rack={rack}
-                onAddSuccess={handleAddSuccess}
                 reloadToken={targetReloadToken}
                 mutationToken={mutationToken}
                 activeSide={activeSide}
+                onPlaceDevice={handlePalettePlaceDevice}
+                onPlaceRackObject={handlePaletteRackObject}
               />
 
               {selectedPlacement && (
