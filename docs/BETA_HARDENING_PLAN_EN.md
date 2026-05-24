@@ -313,3 +313,8 @@ The following are explicitly out of scope for this beta hardening release:
   ```
 - Attach or paste the review context to the code review session before approving.
 - Do not commit generated `.ai/review-context-*.md` files.
+
+## Follow-up action plan
+
+After milestones 1–5, beta QA identified additional issues.
+See [`docs/BETA_QA_FINDINGS_ACTION_PLAN_EN.md`](BETA_QA_FINDINGS_ACTION_PLAN_EN.md) for the findings, proposed follow-up milestones (A–F), and beta blocking classification.
