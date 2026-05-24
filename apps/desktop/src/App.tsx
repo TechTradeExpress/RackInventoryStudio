@@ -23,6 +23,7 @@ import { RacksPanel } from "./features/racks/RacksPanel";
 import { DevicesPanel } from "./features/devices/DevicesPanel";
 import { DeviceModelsPanel } from "./features/deviceModels/DeviceModelsPanel";
 import { CsvImportPanel } from "./features/csvImport/CsvImportPanel";
+import { SettingsPanel } from "./features/settings/SettingsPanel";
 import {
   GlobalSearch,
   type SearchNavigationEvent,
@@ -40,6 +41,7 @@ import {
   IcSave,
   IcAlertCircle,
   IcGitBranch,
+  IcSettings,
 } from "./components/ui/Icon";
 import type { ValidationNavigationTarget } from "./features/validation/navigation";
 import { logError, logInfo, logWarn } from "./lib/diagnosticsLog";
@@ -53,7 +55,8 @@ type Tab =
   | "racks"
   | "devices"
   | "device_models"
-  | "csv_import";
+  | "csv_import"
+  | "settings";
 
 export function App() {
   const { isBusy, runBusy } = useBusy();
@@ -242,8 +245,9 @@ export function App() {
     }
   }
 
-  function navItem(tab: Tab, icon: React.ReactNode, label: string, badge?: React.ReactNode) {
-    const disabled = !isOpen && tab !== "repository";
+  function navItem(tab: Tab, icon: React.ReactNode, label: string, badge?: React.ReactNode, subtitle?: string) {
+    const alwaysEnabled = tab === "repository" || tab === "settings";
+    const disabled = !isOpen && !alwaysEnabled;
     const active = activeTab === tab;
     return (
       <div
@@ -258,7 +262,14 @@ export function App() {
         aria-disabled={disabled ? true : undefined}
       >
         <span className="nav-ic">{icon}</span>
-        <span>{label}</span>
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ display: "block" }}>{label}</span>
+          {subtitle && (
+            <span style={{ display: "block", fontSize: 10, color: "var(--tx-4)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {subtitle}
+            </span>
+          )}
+        </span>
         {badge}
       </div>
     );
@@ -346,7 +357,15 @@ export function App() {
 
             <div className="nav-section">Inventory</div>
             {navItem("locations",    <IcMapPin size={13} />,        "Locations")}
-            {navItem("racks",        <IcServer size={13} />,        "Racks")}
+            {(selectedLocationForRacks !== null || activeTab === "racks") && navItem(
+              "racks",
+              <IcServer size={13} />,
+              "Racks",
+              undefined,
+              selectedLocationForRacks
+                ? `${selectedLocationForRacks.code} — ${selectedLocationForRacks.name}`
+                : undefined,
+            )}
             {navItem("devices",      <IcBox size={13} />,           "Devices",
               isOpen && summary.unplaced_devices_count > 0
                 ? <span className="nav-count nc-warn">{summary.unplaced_devices_count}</span>
@@ -356,16 +375,10 @@ export function App() {
 
             <div className="nav-section">Data</div>
             {navItem("csv_import",   <IcUpload size={13} />,        "CSV Import")}
-          </div>
 
-          {/* Repo card */}
-          {isOpen && (
-            <div className="repo-card">
-              <div className="rc-label">Current repo</div>
-              <div className="rc-name">{summary.repository_name}</div>
-              <div className="rc-path">{summary.repo_path}</div>
-            </div>
-          )}
+            <div className="nav-section">System</div>
+            {navItem("settings",     <IcSettings size={13} />,      "Settings")}
+          </div>
         </aside>
 
         <main className="main">
@@ -483,6 +496,10 @@ export function App() {
             <CsvImportPanel
               onRepositoryMutated={handleRepositoryMutated}
             />
+          )}
+
+          {activeTab === "settings" && (
+            <SettingsPanel />
           )}
         </main>
       </div>

@@ -2683,3 +2683,110 @@ All four canonical version sources were confirmed consistent at `0.1.0` before s
 ### Suggested next step
 
 Merge this PR, then proceed to Milestone 3: navigation/Settings/terminology cleanup per `docs/BETA_HARDENING_PLAN_EN.md`.
+
+---
+
+## Beta hardening milestone 3 — Navigation, Settings, and terminology cleanup
+
+**Branch:** `ux/navigation-settings-terminology`
+**Base branch:** `master`
+
+### Summary
+
+Added a Settings page to the app navigation, made the Racks navigation item context-aware (hidden until a location is selected), added a location subtitle to the Racks nav item, and clarified Device Model "Model number" terminology. Also applied a small docs correction from PR #66 review.
+
+### Settings page and navigation (Part A)
+
+**Files:** `apps/desktop/src/features/settings/SettingsPanel.tsx` (new), `apps/desktop/src/components/ui/Icon.tsx` (+`IcSettings`), `apps/desktop/src/App.tsx`
+
+- Added `IcSettings` (gear/sun icon) to `Icon.tsx`.
+- Created `SettingsPanel.tsx` with three panels:
+  - **Application** — placeholder text: "preferences will appear here in a future beta."
+  - **Diagnostics and logs** — explains local-only logging, shows Windows and Linux log paths, links to `.ai/local-diagnostics-logging.md`.
+  - **About** — shows app name, version (imported from `apps/desktop/package.json`), and build type.
+- Added `"settings"` to the `Tab` union type.
+- Added Settings nav item in a new "System" section at the bottom of the left rail.
+- Modified `navItem()` to allow Settings to be enabled even without a repository open (alongside Repository).
+- SettingsPanel renders when `activeTab === "settings"`.
+
+### Racks navigation visibility (Part B)
+
+**File:** `apps/desktop/src/App.tsx`
+
+- Racks nav item is now rendered conditionally: visible only when `selectedLocationForRacks !== null` OR `activeTab === "racks"`.
+  - The `activeTab === "racks"` condition ensures the nav item is visible during programmatic navigation (from search/validation), even without explicit location context.
+- When `selectedLocationForRacks` is set, the nav item shows a subtitle with `{code} — {name}` for the selected location.
+- `navItem()` updated to accept an optional `subtitle` string rendered below the label.
+- When programmatic navigation navigates to racks without location context, `RacksPanel` already shows the empty state: "Select a location to manage its racks" — no crash, clear message.
+- `selectedLocationForRacks` continues to be cleared on open, create, and close repository.
+
+### Left rail branding cleanup (Part C)
+
+Audit confirmed the current left rail has no duplicate brand block (no logo or "Rack Inventory Studio" text in the rail). The `repo-card` at the bottom of the rail was the only candidate — it shows the repository name and path — but the path is unique context not shown elsewhere. The `repo-card` was removed since the titlebar `repo-pill` already shows the repository name and code. This removes the duplication of repository name between the rail card and the titlebar.
+
+### Device Model terminology (Part D)
+
+**Files:** `apps/desktop/src/features/deviceModels/DeviceModelFormModal.tsx`, `apps/desktop/src/features/deviceModels/DeviceModelsPanel.tsx`
+
+- Form label changed: `"Model number"` → `"Manufacturer model / SKU"`.
+- Help text added: `"Vendor or catalog model identifier, for example PowerEdge R640, ICX 7150, or another SKU printed by the manufacturer."`.
+- Input `placeholder` updated to `"e.g. PowerEdge R640"`.
+- `data-testid="field-model-sku"` added for test targeting.
+- Table column header changed: `"Model number"` → `"Model / SKU"`.
+- Internal field names (`modelNumber` in FormState, `model_number` in DTO, YAML) unchanged.
+
+### Docs follow-up from PR #66 (Part E)
+
+**File:** `docs/BETA_RELEASE_PROCESS_EN.md`
+
+- Updated branch protection CI job names from `rust`, `frontend`, `version-check` to match actual GitHub Actions job names: `Rust workspace`, `Frontend checks`, `Version consistency`.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `apps/desktop/src/App.tsx` | Settings tab, conditional Racks nav, location subtitle, Settings render, removed repo-card |
+| `apps/desktop/src/App.nav.test.tsx` | New: 6 unit tests for Settings and Racks nav visibility |
+| `apps/desktop/src/components/ui/Icon.tsx` | Added `IcSettings` |
+| `apps/desktop/src/features/settings/SettingsPanel.tsx` | New: Settings page with 3 panels |
+| `apps/desktop/src/features/deviceModels/DeviceModelFormModal.tsx` | Terminology: label, help text, placeholder, test-id |
+| `apps/desktop/src/features/deviceModels/DeviceModelsPanel.tsx` | Table column: "Model number" → "Model / SKU" |
+| `apps/desktop/src/features/deviceModels/DeviceModelFormModal.test.tsx` | 4 new tests: label, help text, pre-populated field, payload key |
+| `apps/desktop/e2e/smoke.spec.ts` | Updated tab-enabled test; added Settings smoke test (11th test) |
+| `docs/BETA_RELEASE_PROCESS_EN.md` | CI job names correction |
+
+### Tests
+
+| Check | Result |
+|---|---|
+| `git diff --check` | pass |
+| `node scripts/check-version-consistency.mjs` | pass — all 0.1.0 |
+| `tsc --noEmit` | pass |
+| `vitest run` | **330/330 pass** (29 test files — 10 new tests) |
+| `vite build` | pass — 22.22 kB CSS, 276.37 kB JS |
+| `playwright test` | **11/11 pass** (1 new Settings smoke test) |
+| `cargo fmt --all --check` | pass |
+| `cargo test --workspace` | pass |
+| `cargo clippy --workspace -- -D warnings` | pass |
+
+### Known risks
+
+- Settings is accessible without a repository open, meaning it renders even in the "no repo" state. This is intentional per the milestone spec.
+- Racks nav is hidden by default; tests that navigate to Racks must go via Locations → Manage racks. The e2e smoke test for "open repository enables all tabs" was updated accordingly.
+- For programmatic navigation to racks (from search/validation) when no location context is set, the Racks nav item becomes visible (`activeTab === "racks"` condition) but the RacksPanel shows the "select a location" empty state. No crash.
+- The `repo-card` was removed from the left rail. Any user who expected the path to be visible in the rail will need to use the Repository tab for the full path.
+- `SettingsPanel` imports `package.json` directly (Vite JSON import). TypeScript and Vite both handle this natively; it's the canonical way to expose version without extra build steps.
+- `actionlint` not available locally — workflow files were not changed in this branch.
+
+### Manual QA checklist
+
+1. Open repository → confirm Racks is **not** visible in the left nav.
+2. Go to Locations → click "Manage racks" for a location → confirm Racks appears in nav with the location code/name as a subtitle.
+3. Confirm Racks panel shows racks filtered to the selected location.
+4. Click Settings (bottom of nav) → confirm Settings page opens with Application, Diagnostics and logs, and About panels.
+5. Confirm Settings is clickable **before** opening any repository.
+6. Confirm the left rail has **no duplicate app branding** (no "Rack Inventory Studio" text in the rail; it appears only in the titlebar).
+7. Open Device Models → Add model → verify the field shows "Manufacturer model / SKU" label and help text.
+8. Verify Device Models table column says "Model / SKU".
+9. Use search/validation to navigate to a rack target → confirm Racks nav appears and either shows the location-filtered list or the "select a location" empty state (no crash).
+10. Close repository → confirm Racks nav disappears from the left rail.

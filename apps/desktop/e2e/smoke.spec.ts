@@ -65,15 +65,15 @@ test("landing state shows open and create actions", async ({ page }) => {
   ).toBeVisible();
 });
 
-test("open repository enables all tabs", async ({ page }) => {
+test("open repository enables navigation tabs", async ({ page }) => {
   await page.goto("/");
   await openFixtureRepo(page);
 
+  // Tabs that are always enabled after repo open (Racks is location-scoped — hidden by default)
   const tabNames = [
     "Repository",
     "Validation",
     "Locations",
-    "Racks",
     "Devices",
     "Device Models",
     "CSV Import",
@@ -83,6 +83,10 @@ test("open repository enables all tabs", async ({ page }) => {
       page.getByRole("button", { name, exact: true }),
     ).toBeEnabled();
   }
+  // Racks nav is hidden until a location is selected
+  await expect(page.getByRole("button", { name: "Racks", exact: true })).not.toBeVisible();
+  // Settings is always visible
+  await expect(page.getByRole("button", { name: "Settings", exact: true })).toBeVisible();
   // Search bar is visible after repo is open
   await expect(page.locator('input[placeholder*="Search"]')).toBeVisible();
 });
@@ -253,6 +257,21 @@ test("git section shows status label and publish guidance", async ({ page }) => 
   await expect(
     page.getByRole("button", { name: "Pull", exact: true }).first(),
   ).toBeEnabled();
+});
+
+test("settings page is accessible without a repository", async ({ page }) => {
+  await page.goto("/");
+
+  // Settings nav item is visible before opening any repo
+  await expect(page.getByRole("button", { name: "Settings", exact: true })).toBeVisible();
+
+  // Clicking opens the Settings page
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+
+  // About panel and diagnostics are present
+  await expect(page.getByRole("heading", { name: "About" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Diagnostics and logs" })).toBeVisible();
 });
 
 test("global search handles short and no-result queries", async ({ page }) => {
