@@ -101,11 +101,18 @@ pub struct GitRemoteSummary {
 // ── internal helpers ──────────────────────────────────────────────────────────
 
 fn run_git(repo_path: &Path, args: &[&str]) -> Result<std::process::Output, GitError> {
-    Command::new("git")
-        .args(args)
-        .current_dir(repo_path)
-        .output()
-        .map_err(GitError::from)
+    let mut cmd = Command::new("git");
+    cmd.args(args).current_dir(repo_path);
+
+    // Suppress the transient console/cmd window that would otherwise flash on
+    // Windows when spawning git.exe from a GUI process.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+
+    cmd.output().map_err(GitError::from)
 }
 
 fn command_error(output: &std::process::Output) -> GitError {

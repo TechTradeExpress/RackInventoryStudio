@@ -2514,3 +2514,101 @@ Artifact downloaded and verified locally (`/tmp/diagnostic-artifact-check`):
 ### Suggested next step
 
 Merge final PR from `integration/post-ui-polish-qa` to `master` once Windows 11 manual QA is approved.
+
+---
+
+## Beta hardening milestone 1 — Global busy overlay and Git console hiding
+
+**Branch:** `ux/global-busy-git-no-console`
+
+### Frontend busy overlay
+
+Added `apps/desktop/src/lib/appBusy.tsx` — a React context/provider (`AppBusyProvider`) and `useBusy()` hook. The `runBusy(label, fn)` helper:
+1. Sets `isBusy = true` and stores the operation label.
+2. Yields one `setTimeout(0)` tick so React flushes the overlay render before the long operation starts.
+3. Awaits `fn()`, then clears busy state in `finally` — always cleans up on success or failure.
+
+`BusyOverlay` (`apps/desktop/src/components/ui/BusyOverlay.tsx`) renders on top of all content via `position: fixed; z-index: 500`. Pointer events are blocked **immediately** when `isBusy` becomes true (before any visual animation). The spinner and label fade in after a 150 ms delay — fast operations (<150 ms) produce no visible flash. CSS uses existing design tokens.
+
+`AppBusyProvider` and `BusyOverlay` are mounted once in `main.tsx` wrapping the whole app.
+
+### Operations covered by the overlay
+
+| Operation | Label |
+|---|---|
+| Open repository (path or recent) | Opening repository… |
+| Close repository | Closing repository… |
+| Create repository (wizard) | Creating repository… |
+| Git status/log/remotes refresh | Checking Git status… |
+| Manual Refresh Git status button | Checking Git status… |
+| Initialize Git repository | Initializing Git repository… |
+| Save changes (Repository panel + Validation panel) | Saving changes… |
+| Validate repository (Repository panel + Validation panel) | Validating repository… |
+| Commit | Committing changes… |
+| Push | Pushing to remote… |
+| Pull | Pulling from remote… |
+| Add remote | Adding remote… |
+| CSV preview | Previewing CSV… |
+| CSV import | Importing CSV… |
+
+### Error cleanup behavior
+
+`runBusy` uses `try/finally` — busy state clears whether the operation succeeds or throws. Each component catches the re-thrown error locally and displays it in its existing error Banner/state. The overlay never gets stuck.
+
+### Removed redundant local busy state
+
+`working`/`saving`/`pulling`/`pushing`/`initing`/`addingRemote`/`fileLoading`/`previewing`/`importing` local states in GitSection and CsvImportPanel removed where the global overlay supersedes them. Local `committing` state kept to disable the commit button while overlay is active (belt-and-suspenders). `ValidationPanel` `working`/`setWorking`/`setError` props removed; panel uses context and local error state directly.
+
+### Rust/Tauri async and session-lock review (Part B)
+
+Reviewed `apps/desktop/src-tauri/src/commands/git.rs` and `commands/repository.rs`.
+
+- All Tauri commands are synchronous (`fn`, not `async fn`). Tauri runs them on a blocking thread pool — equivalent to `spawn_blocking`. This is correct.
+- `pull_git_ff_only` already releases the session lock before the slow network call and re-acquires after. No change needed.
+- No session lock is held longer than necessary for any command.
+- **No Rust async/session-lock changes were made.**
+
+### Git CREATE_NO_WINDOW (Part C)
+
+Modified `run_git` in `crates/ris-git/src/lib.rs`:
+- Uses a mutable `cmd` variable.
+- On Windows only (`#[cfg(windows)]`), calls `cmd.creation_flags(0x0800_0000)` (CREATE_NO_WINDOW) via `std::os::windows::process::CommandExt`.
+- All production Git operations inherit this — they all go through `run_git`.
+- stdout/stderr capture and `GitError` behavior unchanged.
+- Non-Windows behavior is identical to before (cfg block is compiled away).
+
+CREATE_NO_WINDOW cannot be unit-tested on Linux CI without mocking OS calls. No brittle test added; the flag is verified by Windows 11 manual QA.
+
+### Tests
+
+| Check | Result |
+|---|---|
+| `git diff --check` | pass |
+| `tsc --noEmit` | pass |
+| `vitest run` | **320/320 pass** (28 files — 5 new tests in appBusy.test.tsx) |
+| `vite build` | pass — 22.22 kB CSS, 273.86 kB JS |
+| `playwright test` | **10/10 pass** (Firefox) |
+| `cargo fmt --all --check` | pass |
+| `cargo test --workspace` | **358 tests pass** |
+| `cargo clippy --workspace -- -D warnings` | pass |
+| `cargo build --release` | pass (43 s incremental) |
+| Full `tauri build` | not run — pnpm unavailable |
+
+### Known risks
+
+- `CREATE_NO_WINDOW` hides console windows only on Windows. The behavior requires Windows 11 manual QA to confirm.
+- Overlay flicker delay (150 ms) is a UX judgment call. Very fast operations (<150 ms) show no overlay — intended behavior.
+- `runBusyRef.current` pattern in GitSection's useEffect avoids infinite re-run but bypasses exhaustive-deps lint. This is the established pattern for stable callback refs.
+
+### Windows manual QA checklist for this milestone
+
+1. Run Windows Diagnostic Installer workflow and install on Windows 11.
+2. Open an example repository — confirm a spinner/label overlay appears briefly during load.
+3. Click "Refresh Git status" — confirm UI shows busy overlay with label "Checking Git status…".
+4. Commit with a message — confirm "Committing changes…" overlay appears.
+5. Push to a test remote (or try and fail) — confirm "Pushing to remote…" overlay.
+6. Pull — confirm "Pulling from remote…" overlay.
+7. During any Git action: confirm **no transient cmd/console window** flashes on screen.
+8. Trigger a deliberate error (e.g. push without upstream) — confirm overlay clears and error appears in the panel; confirm navigation is usable afterwards.
+9. Navigate between tabs while a Git action is pending (if possible) — confirm overlay blocks the click.
+10. Run CSV import with sample CSV — confirm "Previewing CSV…" and "Importing CSV…" overlays appear.
