@@ -6,16 +6,18 @@ import {
   type OpenRepositoryResultDto,
 } from "../../api/tauriClient";
 import { hasWizardErrors, validateWizardForm } from "./wizardHelpers";
+import { useBusy } from "../../lib/appBusy";
 
 interface Props {
   onSuccess: (result: OpenRepositoryResultDto) => void;
 }
 
 export function CreateRepositoryWizard({ onSuccess }: Props) {
+  const { isBusy, runBusy } = useBusy();
+
   const [path, setPath] = useState("");
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
-  const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const validationErrors = validateWizardForm({ path, code, name });
@@ -33,19 +35,14 @@ export function CreateRepositoryWizard({ onSuccess }: Props) {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (formHasErrors) return;
-    setCreating(true);
     setError(null);
     try {
-      const result = await createRepository({
-        path: path.trim(),
-        code: code.trim(),
-        name: name.trim(),
-      });
+      const result = await runBusy("Creating repository…", () =>
+        createRepository({ path: path.trim(), code: code.trim(), name: name.trim() }),
+      );
       onSuccess(result);
     } catch (e) {
       setError(String(e));
-    } finally {
-      setCreating(false);
     }
   }
 
@@ -59,13 +56,13 @@ export function CreateRepositoryWizard({ onSuccess }: Props) {
             value={path}
             onChange={(e) => setPath(e.target.value)}
             placeholder="Path to new repository directory…"
-            disabled={creating}
+            disabled={isBusy}
           />
           <button
             type="button"
             style={common.btn}
             onClick={handleBrowse}
-            disabled={creating}
+            disabled={isBusy}
           >
             Browse…
           </button>
@@ -82,7 +79,7 @@ export function CreateRepositoryWizard({ onSuccess }: Props) {
           value={code}
           onChange={(e) => setCode(e.target.value)}
           placeholder="e.g. my-datacenter"
-          disabled={creating}
+          disabled={isBusy}
         />
         <div style={styles.fieldHint}>
           Lowercase letters, digits, hyphens, dots, underscores. No spaces.
@@ -99,7 +96,7 @@ export function CreateRepositoryWizard({ onSuccess }: Props) {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g. My Datacenter"
-          disabled={creating}
+          disabled={isBusy}
         />
         {validationErrors.name && (
           <div style={styles.fieldError}>{validationErrors.name}</div>
@@ -116,9 +113,9 @@ export function CreateRepositoryWizard({ onSuccess }: Props) {
       <button
         type="submit"
         style={common.btn}
-        disabled={creating || formHasErrors}
+        disabled={isBusy || formHasErrors}
       >
-        {creating ? "Creating…" : "Create repository"}
+        Create repository
       </button>
 
       {error && (

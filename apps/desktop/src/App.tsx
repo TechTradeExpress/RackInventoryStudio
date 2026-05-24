@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useBusy } from "./lib/appBusy";
 import {
   closeRepository,
   getRepositorySummary,
@@ -55,12 +56,13 @@ type Tab =
   | "csv_import";
 
 export function App() {
+  const { isBusy, runBusy } = useBusy();
+
   const [repoPath, setRepoPath] = useState("");
   const [summary, setSummary] = useState<RepositorySummaryDto | null>(null);
   const [validationSummary, setValidationSummary] = useState<ValidationSummaryDto | null>(null);
   const [recentRepos, setRecentRepos] = useState<string[]>(() => getRecentRepositories());
   const [error, setError] = useState<string | null>(null);
-  const [working, setWorking] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("repository");
   const [selectedRack, setSelectedRack] = useState<RackSummaryDto | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -153,11 +155,10 @@ export function App() {
   }
 
   async function doOpen(path: string) {
-    setWorking(true);
     setError(null);
     logInfo(`Opening repository: ${sanitizePathForLog(path)}`);
     try {
-      const result: OpenRepositoryResultDto = await openRepository(path);
+      const result = await runBusy("Opening repository…", () => openRepository(path));
       setRepoPath(path);
       setSummary(result.summary);
       setValidationSummary(result.validation_summary);
@@ -177,8 +178,6 @@ export function App() {
     } catch (e) {
       setError(String(e));
       logWarn(`Open repository failed: ${sanitizeErrorForLog(e)}`);
-    } finally {
-      setWorking(false);
     }
   }
 
@@ -222,10 +221,9 @@ export function App() {
 
   async function handleClose() {
     if (!confirmUnsavedDiscard(hasUnsavedChanges, UNSAVED_MSG.close)) return;
-    setWorking(true);
     setError(null);
     try {
-      await closeRepository();
+      await runBusy("Closing repository…", () => closeRepository());
       setSummary(null);
       setValidationSummary(null);
       setSelectedRack(null);
@@ -241,8 +239,6 @@ export function App() {
     } catch (e) {
       setError(String(e));
       logError(`Close repository failed: ${sanitizeErrorForLog(e)}`);
-    } finally {
-      setWorking(false);
     }
   }
 
@@ -373,8 +369,8 @@ export function App() {
         </aside>
 
         <main className="main">
-          {/* Working indicator */}
-          {working && (
+          {/* Working indicator — kept for button-disabled feedback; visual overlay is handled by BusyOverlay */}
+          {isBusy && (
             <div style={{ padding: "6px 16px", fontSize: 12, color: "var(--tx-3)", fontStyle: "italic", borderBottom: "1px solid var(--bd-1)", background: "var(--bg-surface)" }}>
               Working…
             </div>
@@ -419,7 +415,7 @@ export function App() {
               onOpenPath={handleOpenPath}
               onBrowse={handleBrowse}
               onClose={handleClose}
-              working={working}
+              working={isBusy}
               summary={summary}
               validationSummary={validationSummary}
               recentRepos={recentRepos}
@@ -430,7 +426,7 @@ export function App() {
               hasUnsavedChanges={hasUnsavedChanges}
               onSaveSuccess={handleSaveSuccess}
               onPullSuccess={(s) => setSummary(s)}
-              onPullRunning={(v) => setWorking(v)}
+              onPullRunning={() => {}}
               onCreateSuccess={handleCreateSuccess}
               gitRefreshToken={gitRefreshToken}
             />
@@ -438,9 +434,6 @@ export function App() {
 
           {activeTab === "validation" && isOpen && (
             <ValidationPanel
-              working={working}
-              setWorking={setWorking}
-              setError={setError}
               onSaveSuccess={handleSaveSuccess}
               onNavigate={handleNavigateFromValidation}
             />
