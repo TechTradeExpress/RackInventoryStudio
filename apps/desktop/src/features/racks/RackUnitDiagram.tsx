@@ -19,6 +19,8 @@ interface Props {
   selectedPlacementId: string | null;
   onSelectPlacement: (placement: PlacementDto | null) => void;
   onDropAtCell?: (side: "front" | "rear", startU: number, payload: DndPayload) => void;
+  /** Called when an empty slot is clicked. Opens the place modal. */
+  onEmptySlotClick?: (startU: number) => void;
 }
 
 const ROW_H = 22; // px per U row
@@ -130,6 +132,7 @@ interface SideColumnProps {
   selectedPlacementId: string | null;
   onSelectPlacement: (placement: PlacementDto | null) => void;
   onDropAtCell?: (side: "front" | "rear", startU: number, payload: DndPayload) => void;
+  onEmptySlotClick?: (startU: number) => void;
 }
 
 function SideColumn({
@@ -138,6 +141,7 @@ function SideColumn({
   selectedPlacementId,
   onSelectPlacement,
   onDropAtCell,
+  onEmptySlotClick,
 }: SideColumnProps) {
   const [hovered, setHovered] = useState<{ idx: number; valid: boolean } | null>(null);
 
@@ -218,8 +222,11 @@ function SideColumn({
           <div
             key={idx}
             data-testid={`drop-cell-${side}-${startU}`}
-            style={style}
-            onClick={() => onSelectPlacement(null)}
+            style={{ ...style, cursor: onEmptySlotClick ? "pointer" : "default" }}
+            onClick={() => {
+              onSelectPlacement(null);
+              if (onEmptySlotClick) onEmptySlotClick(startU);
+            }}
             onDragOver={
               onDropAtCell
                 ? (e) => {
@@ -261,6 +268,7 @@ export function RackUnitDiagram({
   selectedPlacementId,
   onSelectPlacement,
   onDropAtCell,
+  onEmptySlotClick,
 }: Props) {
   const activePlacements = side === "front" ? front : rear;
   const activeOcc = buildOccupancy(heightU, activePlacements);
@@ -273,8 +281,8 @@ export function RackUnitDiagram({
   return (
     <div>
       <p style={{ margin: "0 0 0.4rem", fontSize: "0.78rem", color: "#666" }}>
-        U numbers shown top (U{heightU}) to bottom (U1). Click a cell to
-        inspect the placement.
+        U numbers shown top (U{heightU}) to bottom (U1). Click an empty slot to place equipment.
+        Click an occupied cell to inspect it.
       </p>
 
       {/* Legend */}
@@ -403,6 +411,7 @@ export function RackUnitDiagram({
                 selectedPlacementId={selectedPlacementId}
                 onSelectPlacement={onSelectPlacement}
                 onDropAtCell={onDropAtCell}
+                onEmptySlotClick={onEmptySlotClick}
               />
             </div>
           </div>

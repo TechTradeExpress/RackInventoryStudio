@@ -184,11 +184,39 @@ test("rack detail and placement table visible", async ({ page }) => {
   // fixture device name "srv-01" appears in the Name column
   await expect(page.getByRole("cell", { name: "srv-01", exact: true })).toBeVisible();
 
+  // Palette sidebar is visible (new 2-column layout — right column has Placeable equipment panel)
+  await expect(page.getByText(/Placeable equipment/)).toBeVisible();
+
   // Switching to Rear updates tab state and table title; fixture placement disappears
   await page.getByRole("tab", { name: "Rear" }).click();
   await expect(page.getByRole("tab", { name: "Rear" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("heading", { name: "Rear placements", exact: true })).toBeVisible();
   await expect(page.getByRole("cell", { name: "srv-01", exact: true })).not.toBeVisible();
+});
+
+test("rack detail: click empty slot opens place modal", async ({ page }) => {
+  await page.goto("/");
+  await openFixtureRepo(page);
+
+  // Navigate to rack detail
+  await page.getByRole("button", { name: "Locations", exact: true }).click();
+  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
+  await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
+
+  // Click an empty U-slot in the diagram (U1 on front should be empty given fixture has placement at U10)
+  await page.getByTestId("drop-cell-front-1").click();
+
+  // Place equipment modal should open
+  await expect(
+    page.getByRole("dialog", { name: "Place equipment" }),
+  ).toBeVisible();
+
+  // Cancel — dialog should close without making a backend call
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(
+    page.getByRole("dialog", { name: "Place equipment" }),
+  ).not.toBeVisible();
 });
 
 test("rack detail: Change side dialog opens and can be cancelled", async ({ page }) => {

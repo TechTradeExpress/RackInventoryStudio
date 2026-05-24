@@ -1,21 +1,24 @@
 import { useEffect, useState } from "react";
 import {
   getRackDetail,
-  placeDevice,
-  placeRackObject,
+  listDevices,
+  listDeviceModels,
+  type DeviceDto,
+  type DeviceModelDto,
   type PlacementDto,
   type RackDetailDto,
   type RackSummaryDto,
 } from "../../api/tauriClient";
 import { RackUnitDiagram } from "./RackUnitDiagram";
 import { PlacementInspectorPanel } from "./PlacementInspectorPanel";
-import { AddPlacementPanel } from "./AddPlacementPanel";
+import { PlacementPalettePanel } from "./PlacementPalettePanel";
+import { PlacePlacementModal } from "./PlacePlacementModal";
+import { EditPlacementModal } from "./EditPlacementModal";
 import type { DndPayload } from "./dndTypes";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { Panel } from "../../components/ui/Panel";
 import { Banner } from "../../components/ui/Banner";
 import { Segmented } from "../../components/ui/Segmented";
-import { IcServer } from "../../components/ui/Icon";
 
 interface NavigationRequest {
   placementId: string;
@@ -58,7 +61,21 @@ export function RackDetailPanel({
   const [selectedPlacement, setSelectedPlacement] = useState<PlacementDto | null>(null);
   const [targetReloadToken, setTargetReloadToken] = useState(0);
   const [mutationMessage, setMutationMessage] = useState<string | null>(null);
-  const [dndError, setDndError] = useState<string | null>(null);
+
+  // Available devices/models for the place modal (kept in sync via targetReloadToken)
+  const [availableDevices, setAvailableDevices] = useState<DeviceDto[]>([]);
+  const [availableRackObjects, setAvailableRackObjects] = useState<DeviceModelDto[]>([]);
+
+  // Place placement modal state
+  const [placePlacementOpen, setPlacePlacementOpen] = useState(false);
+  const [placeModalStartU, setPlaceModalStartU] = useState<number | null>(null);
+  const [placeModalDndPayload, setPlaceModalDndPayload] = useState<DndPayload | null>(null);
+  const [placeModalTargetKind, setPlaceModalTargetKind] = useState<"device" | "rack_object" | null>(null);
+  const [placeModalTargetId, setPlaceModalTargetId] = useState<string | null>(null);
+
+  // Edit placement modal state
+  const [editPlacementOpen, setEditPlacementOpen] = useState(false);
+  const [editingPlacement, setEditingPlacement] = useState<PlacementDto | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -78,7 +95,6 @@ export function RackDetailPanel({
           if (found) {
             setSelectedPlacement(found);
             setMutationMessage(initialNavigation.message);
-            // Switch to the side where the navigated placement lives
             setActiveSide(newDetail.rear.some((p) => p.id === found.id) ? "rear" : "front");
           } else {
             setMutationMessage("Placement not found in destination rack.");
@@ -91,6 +107,21 @@ export function RackDetailPanel({
         if (initialNavigation) onNavigationConsumed?.();
       });
   }, [rack.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reload available devices/models when targetReloadToken or mutationToken changes
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([listDevices(), listDeviceModels()])
+      .then(([devs, models]) => {
+        if (cancelled) return;
+        setAvailableDevices(devs.filter((d) => !d.is_placed));
+        setAvailableRackObjects(models.filter((m) => m.device_type === "rack_object"));
+      })
+      .catch(() => {
+        // silently ignore — PlacementPalettePanel shows its own load error
+      });
+    return () => { cancelled = true; };
+  }, [rack.id, targetReloadToken, mutationToken]);
 
   function handleSideChange(side: "front" | "rear") {
     setActiveSide(side);
@@ -119,7 +150,6 @@ export function RackDetailPanel({
             null;
           setSelectedPlacement(found);
           if (found) {
-            // Switch diagram to the side where the placement now lives
             setActiveSide(newDetail.rear.some((p) => p.id === found.id) ? "rear" : "front");
           }
         }
@@ -151,37 +181,58 @@ export function RackDetailPanel({
     refreshAfterMutation({ selectId: newPlacementId, bumpTargets: true });
   }
 
-  async function handleDropAtCell(side: "front" | "rear", startU: number, payload: DndPayload) {
-    setDndError(null);
-    try {
-      let newId: string;
-      if (payload.kind === "device") {
-        newId = await placeDevice({
-          rack_id: rack.id,
-          device_id: payload.deviceId,
-          side,
-          start_u: startU,
-          height_u: payload.defaultHeightU,
-        });
-      } else {
-        newId = await placeRackObject({
-          rack_id: rack.id,
-          device_model_id: payload.deviceModelId,
-          side,
-          start_u: startU,
-          height_u: payload.defaultHeightU,
-        });
-      }
-      setMutationMessage(null);
-      refreshAfterMutation({ selectId: newId, bumpTargets: true });
-    } catch (e) {
-      setDndError(String(e));
-    }
-  }
-
   function handleRemoveSuccess() {
     setMutationMessage(null);
     refreshAfterMutation({ selectId: null, bumpTargets: true });
+  }
+
+  // Drop handler: open modal pre-filled with startU and target from DnD payload
+  function handleDropAtCell(side: "front" | "rear", startU: number, payload: DndPayload) {
+    setPlaceModalDndPayload(payload);
+    setPlaceModalStartU(startU);
+    // Preselect target from the drag payload
+    if (payload.kind === "device") {
+      setPlaceModalTargetKind("device");
+      setPlaceModalTargetId(payload.deviceId);
+    } else {
+      setPlaceModalTargetKind("rack_object");
+      setPlaceModalTargetId(payload.deviceModelId);
+    }
+    setPlacePlacementOpen(true);
+    // Sync active side so modal shows the correct side
+    if (side !== activeSide) setActiveSide(side);
+  }
+
+  // Empty cell click handler: open place modal
+  function handleEmptySlotClick(startU: number) {
+    setPlaceModalDndPayload(null);
+    setPlaceModalStartU(startU);
+    setPlaceModalTargetKind(null);
+    setPlaceModalTargetId(null);
+    setPlacePlacementOpen(true);
+  }
+
+  // Palette "Place…" button handlers — open modal with item preselected
+  function handlePalettePlaceDevice(deviceId: string) {
+    setPlaceModalDndPayload(null);
+    setPlaceModalStartU(null);
+    setPlaceModalTargetKind("device");
+    setPlaceModalTargetId(deviceId);
+    setPlacePlacementOpen(true);
+  }
+
+  function handlePaletteRackObject(modelId: string) {
+    setPlaceModalDndPayload(null);
+    setPlaceModalStartU(null);
+    setPlaceModalTargetKind("rack_object");
+    setPlaceModalTargetId(modelId);
+    setPlacePlacementOpen(true);
+  }
+
+  // Edit placement from table
+  function handleEditPlacement(p: PlacementDto) {
+    setEditingPlacement(p);
+    setEditPlacementOpen(true);
   }
 
   const selectedSide = deriveSide(selectedPlacement, detail);
@@ -191,6 +242,55 @@ export function RackDetailPanel({
 
   return (
     <>
+      {/* Place placement modal */}
+      <PlacePlacementModal
+        open={placePlacementOpen}
+        rack={rack}
+        side={activeSide}
+        startU={placeModalStartU}
+        availableDevices={availableDevices}
+        availableRackObjects={availableRackObjects}
+        initialTargetKind={placeModalTargetKind}
+        initialTargetId={placeModalTargetId}
+        onClose={() => {
+          setPlacePlacementOpen(false);
+          setPlaceModalDndPayload(null);
+          setPlaceModalTargetKind(null);
+          setPlaceModalTargetId(null);
+        }}
+        onPlaced={(newId) => {
+          setPlacePlacementOpen(false);
+          setPlaceModalDndPayload(null);
+          setPlaceModalTargetKind(null);
+          setPlaceModalTargetId(null);
+          handleAddSuccess(newId);
+        }}
+      />
+
+      {/* Edit placement modal */}
+      {editingPlacement && (
+        <EditPlacementModal
+          open={editPlacementOpen}
+          placement={editingPlacement}
+          rack={rack}
+          side={(deriveSide(editingPlacement, detail)?.toLowerCase() ?? activeSide) as "front" | "rear"}
+          onClose={() => {
+            setEditPlacementOpen(false);
+            setEditingPlacement(null);
+          }}
+          onUpdated={(id) => {
+            setEditPlacementOpen(false);
+            setEditingPlacement(null);
+            refreshAfterMutation({ selectId: id });
+          }}
+          onRemoved={() => {
+            setEditPlacementOpen(false);
+            setEditingPlacement(null);
+            refreshAfterMutation({ selectId: null, bumpTargets: true });
+          }}
+        />
+      )}
+
       <PageHeader
         title={
           <span>
@@ -233,23 +333,12 @@ export function RackDetailPanel({
         {error && <Banner tone="err">{error}</Banner>}
 
         {detail && (
-          <div style={{ display: "grid", gridTemplateColumns: "260px 1fr 320px", gap: 16, minHeight: 0 }}>
-            {/* Left — palette (add placement) */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gap: 16, minHeight: 0 }}>
+            {/* Left — diagram + placement table */}
             <div className="stack-4" style={{ minWidth: 0 }}>
-              <AddPlacementPanel
-                rack={rack}
-                onAddSuccess={handleAddSuccess}
-                reloadToken={targetReloadToken}
-                mutationToken={mutationToken}
-                activeSide={activeSide}
-              />
-            </div>
-
-            {/* Center — rack diagram */}
-            <div style={{ minWidth: 0 }}>
               <Panel
                 title="Rack diagram"
-                desc={`${activeSide === "front" ? "Front" : "Rear"} · top (U${detail.height_u}) at top · click to inspect or drag from palette`}
+                desc={`${activeSide === "front" ? "Front" : "Rear"} · U${detail.height_u} at top · click empty slot to place · drag from palette`}
                 actions={
                   <div className="row" style={{ gap: 12, fontSize: 11 }}>
                     <span className="row" style={{ gap: 4 }}>
@@ -275,12 +364,8 @@ export function RackDetailPanel({
                   selectedPlacementId={selectedPlacement?.id ?? null}
                   onSelectPlacement={handleSelectPlacement}
                   onDropAtCell={handleDropAtCell}
+                  onEmptySlotClick={handleEmptySlotClick}
                 />
-                {dndError && (
-                  <div style={{ marginTop: 8 }}>
-                    <Banner tone="err">Drop failed: {dndError}</Banner>
-                  </div>
-                )}
                 <div className="row-between" style={{ marginTop: 10, fontSize: 11, color: "var(--tx-3)" }}>
                   <span style={{ fontWeight: activeSide === "front" ? 600 : undefined }}>
                     Front: {frontUsed}U used · {detail.height_u - frontUsed}U free
@@ -290,32 +375,8 @@ export function RackDetailPanel({
                   </span>
                 </div>
               </Panel>
-            </div>
 
-            {/* Right — inspector + placement tables */}
-            <div className="stack-4" style={{ minWidth: 0 }}>
-              <Panel
-                title="Placement inspector"
-                desc={
-                  selectedPlacement
-                    ? `${selectedSide} side · ${selectedPlacement.code}`
-                    : "Nothing selected"
-                }
-              >
-                {mutationMessage && (
-                  <div style={{ marginBottom: 8 }}>
-                    <Banner tone="ok">{mutationMessage}</Banner>
-                  </div>
-                )}
-                <PlacementInspectorPanel
-                  placement={selectedPlacement}
-                  side={selectedSide}
-                  currentRack={rack}
-                  onMoveSuccess={handleMoveSuccess}
-                  onRemoveSuccess={handleRemoveSuccess}
-                />
-              </Panel>
-
+              {/* Placement table */}
               {(() => {
                 const activePlacements = activeSide === "front" ? detail.front : detail.rear;
                 const tableTitle = activeSide === "front" ? "Front placements" : "Rear placements";
@@ -336,10 +397,11 @@ export function RackDetailPanel({
                           <tr>
                             <th className="tbl-mono">U</th>
                             <th>Name</th>
-                            <th>Model</th>
+                            <th>Type</th>
+                            <th>Model / SKU</th>
                             <th className="tbl-mono">Serial</th>
                             <th className="tbl-mono">Asset tag</th>
-                            <th>Type</th>
+                            <th>Actions</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -360,10 +422,13 @@ export function RackDetailPanel({
                               <td className="tbl-mono" style={{ whiteSpace: "nowrap" }}>
                                 U{p.start_u}{p.end_u && p.end_u !== p.start_u ? `–${p.end_u}` : ""}
                               </td>
-                              <td style={{ maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              <td style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                 {p.target_name ?? p.target_code ?? p.code}
                               </td>
-                              <td className="tbl-mono" style={{ color: "var(--tx-3)", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              <td className="tbl-mono" style={{ color: "var(--tx-3)" }}>
+                                {typeLabel}
+                              </td>
+                              <td className="tbl-mono" style={{ color: "var(--tx-3)", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                 {p.model_name ?? p.model_code ?? "—"}
                               </td>
                               <td className="tbl-mono" style={{ color: "var(--tx-3)" }}>
@@ -372,8 +437,18 @@ export function RackDetailPanel({
                               <td className="tbl-mono" style={{ color: "var(--tx-3)" }}>
                                 {p.target_asset_tag ?? "—"}
                               </td>
-                              <td className="tbl-mono" style={{ color: "var(--tx-3)" }}>
-                                {typeLabel}
+                              <td onClick={(e) => e.stopPropagation()}>
+                                <div className="row" style={{ gap: 4 }}>
+                                  <button
+                                    className="btn btn-sm"
+                                    title={`Edit ${p.code}`}
+                                    aria-label={`Edit ${p.code}`}
+                                    onClick={() => handleEditPlacement(p)}
+                                    data-testid={`edit-placement-${p.id}`}
+                                  >
+                                    Edit
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                             );
@@ -384,6 +459,43 @@ export function RackDetailPanel({
                   </Panel>
                 );
               })()}
+            </div>
+
+            {/* Right — palette + inspector */}
+            <div className="stack-4" style={{ minWidth: 0 }}>
+              <PlacementPalettePanel
+                rack={rack}
+                reloadToken={targetReloadToken}
+                mutationToken={mutationToken}
+                activeSide={activeSide}
+                onPlaceDevice={handlePalettePlaceDevice}
+                onPlaceRackObject={handlePaletteRackObject}
+              />
+
+              {selectedPlacement && (
+                <Panel
+                  title="Placement inspector"
+                  desc={
+                    selectedPlacement
+                      ? `${selectedSide} side · ${selectedPlacement.code}`
+                      : "Nothing selected"
+                  }
+                >
+                  {mutationMessage && (
+                    <div style={{ marginBottom: 8 }}>
+                      <Banner tone="ok">{mutationMessage}</Banner>
+                    </div>
+                  )}
+                  <PlacementInspectorPanel
+                    placement={selectedPlacement}
+                    side={selectedSide}
+                    currentRack={rack}
+                    onMoveSuccess={handleMoveSuccess}
+                    onRemoveSuccess={handleRemoveSuccess}
+                    onOpenEditModal={() => handleEditPlacement(selectedPlacement)}
+                  />
+                </Panel>
+              )}
             </div>
           </div>
         )}
