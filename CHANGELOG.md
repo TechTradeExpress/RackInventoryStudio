@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — beta hardening planning (branch `planning/beta-hardening-plan`)
+
+V1 release paused. Next target is a beta hardening release (Beta 0.2.x).
+
+- **Beta hardening plan** (`docs/BETA_HARDENING_PLAN_EN.md`) — Documents five milestones: global busy overlay + Git console window hiding, versioning and release process, navigation/Settings/terminology cleanup, rack placement UX redesign, and beta QA checklist. Docs-only change, no application code modified.
+
 ## Unreleased — post-UI polish QA series (integration branch `integration/post-ui-polish-qa`)
 
 Nine working branches merged into `integration/post-ui-polish-qa`. Full automated QA passes. Windows 11 manual QA required before final PR to `master`.

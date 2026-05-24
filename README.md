@@ -73,7 +73,11 @@ tests/                  Shared test fixtures
 
 **MVP Core is functionally complete.** The core backend, inventory workflow, and Git integration are done. The app is usable end-to-end: open a repository, manage catalog entities, import devices via CSV, place them in racks, validate, save, and publish changes via Git.
 
-The project is now in the **MVP+ / Beta** phase, targeting a user-facing **v1.0.0** release. The focus shifts from correctness to usability, safety, and polish.
+### Current release direction — Beta hardening
+
+**V1 release is paused.** The next target is a beta hardening release (Beta 0.2.x). The focus is on UX stability, operational reliability (global busy overlay, no flashing Windows console windows), consistent versioning, installer artifact naming, navigation cleanup, and rack placement UX redesign — before committing to a V1 milestone.
+
+See [`docs/BETA_HARDENING_PLAN_EN.md`](docs/BETA_HARDENING_PLAN_EN.md) for the full plan.
 
 ### What is implemented (MVP Core)
 
