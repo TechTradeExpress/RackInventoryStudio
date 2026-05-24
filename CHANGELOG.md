@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased — beta hardening milestone 5: Beta QA and Windows installer validation (branch `qa/beta-windows-installer-validation`)
+
+### Added
+
+- Windows 11 beta QA runbook (`docs/BETA_WINDOWS_11_QA_EN.md`) with complete manual QA checklist.
+- Validated beta hardening release process against current master.
+
+### Changed
+
+- Removed unused `AddPlacementPanel.tsx` (replaced by `PlacementPalettePanel.tsx` in milestone 4).
+
 ## Unreleased — beta hardening milestone 2: versioning and release process (branch `release/versioning-beta-process`)
 
 - **Version consistency check script** (`scripts/check-version-consistency.mjs`) — Node ESM script that reads the app version from all four canonical sources (`package.json`, `apps/desktop/package.json`, `Cargo.toml`, `tauri.conf.json`), prints a formatted table, and exits non-zero on mismatch. Available as `pnpm check:version`.
