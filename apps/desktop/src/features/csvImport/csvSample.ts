@@ -30,16 +30,16 @@ const SAMPLE_ROWS: string[][] = [
 export const SAMPLE_CSV_CONTENT: string =
   SAMPLE_ROWS.map(csvRow).join("\n") + "\n";
 
-import { saveCsvFileViaDialog } from "../../api/tauriClient";
+import { saveSampleCsvViaDialog } from "../../api/tauriClient";
 
 /**
- * Open a native save-file dialog and write the sample CSV to the chosen path.
+ * Open a native save-file dialog and write the built-in sample CSV to the chosen path.
  * Returns `"saved"` when written, `"cancelled"` if the user dismissed the dialog.
  * Throws a string on write failure.
  *
- * Uses the Tauri save dialog + write command instead of the browser Blob download
- * API, which does not work in the Tauri desktop runtime.
+ * Uses the Tauri save dialog + a narrow backend command that writes only the fixed
+ * sample CSV content. The browser Blob download API does not work in the Tauri runtime.
  */
 export async function saveSampleCsv(): Promise<"saved" | "cancelled"> {
-  return saveCsvFileViaDialog(SAMPLE_CSV_FILENAME, SAMPLE_CSV_CONTENT);
+  return saveSampleCsvViaDialog(SAMPLE_CSV_FILENAME);
 }

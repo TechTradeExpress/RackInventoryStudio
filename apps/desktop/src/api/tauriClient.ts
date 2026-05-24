@@ -522,11 +522,6 @@ export function readCsvFile(path: string): Promise<string> {
   return invoke("read_csv_file", { path });
 }
 
-/** Write text content to a file at the given path. */
-export function writeTextToFile(path: string, content: string): Promise<void> {
-  return invoke("write_text_to_file", { path, content });
-}
-
 // ── Native dialog ─────────────────────────────────────────────────────────────
 
 export async function selectCsvFile(): Promise<string | null> {
@@ -542,22 +537,22 @@ export async function selectCsvFile(): Promise<string | null> {
 }
 
 /**
- * Open a native save-file dialog pre-set to the given default filename,
- * then write `content` to the chosen path.
- * Returns `"saved"` when the file is written, `"cancelled"` if the user dismissed the dialog.
+ * Open a native save-file dialog and write the built-in device import sample CSV
+ * to the chosen path. Content is fixed on the backend — the frontend only supplies
+ * the user-selected path.
+ * Returns `"saved"` when written, `"cancelled"` if the user dismissed the dialog.
  * Throws a string on write error.
  */
-export async function saveCsvFileViaDialog(
+export async function saveSampleCsvViaDialog(
   defaultFilename: string,
-  content: string,
 ): Promise<"saved" | "cancelled"> {
   const path = await save({
-    title: "Save CSV file",
+    title: "Save sample CSV",
     defaultPath: defaultFilename,
     filters: [{ name: "CSV Files", extensions: ["csv"] }],
   });
   if (path === null || path === undefined) return "cancelled";
-  await writeTextToFile(path, content);
+  await invoke("write_device_import_sample_csv", { path });
   return "saved";
 }
 

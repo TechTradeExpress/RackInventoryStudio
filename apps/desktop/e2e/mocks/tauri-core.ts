@@ -339,7 +339,7 @@ export function invoke<T>(command: string, args?: unknown): Promise<T> {
       return Promise.resolve(COMMANDS.read_csv_file as T);
     }
 
-    case "write_text_to_file":
+    case "write_device_import_sample_csv":
       // Save dialog flow is mocked at the dialog level (returns null/cancelled);
       // this command should never be reached in E2E tests.
       return Promise.resolve(undefined as unknown as T);

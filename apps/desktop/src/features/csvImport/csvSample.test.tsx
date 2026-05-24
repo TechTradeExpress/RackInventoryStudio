@@ -124,44 +124,45 @@ describe("escapeCsvField", () => {
 
 // ── saveSampleCsv ─────────────────────────────────────────────────────────────
 
-const mockSaveCsvFileViaDialog = vi.fn();
+const mockSaveSampleCsvViaDialog = vi.fn();
 
 vi.mock("../../api/tauriClient", () => ({
-  saveCsvFileViaDialog: (...args: unknown[]) => mockSaveCsvFileViaDialog(...args),
+  saveSampleCsvViaDialog: (...args: unknown[]) => mockSaveSampleCsvViaDialog(...args),
 }));
 
 describe("saveSampleCsv", () => {
   beforeEach(() => {
-    mockSaveCsvFileViaDialog.mockReset();
+    mockSaveSampleCsvViaDialog.mockReset();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("calls saveCsvFileViaDialog with the canonical filename and CSV content", async () => {
-    mockSaveCsvFileViaDialog.mockResolvedValue("saved");
+  it("calls saveSampleCsvViaDialog with the canonical filename only (no content arg)", async () => {
+    mockSaveSampleCsvViaDialog.mockResolvedValue("saved");
     await saveSampleCsv();
-    expect(mockSaveCsvFileViaDialog).toHaveBeenCalledOnce();
-    const [filename, content] = mockSaveCsvFileViaDialog.mock.calls[0] as [string, string];
+    expect(mockSaveSampleCsvViaDialog).toHaveBeenCalledOnce();
+    const [filename, ...rest] = mockSaveSampleCsvViaDialog.mock.calls[0] as unknown[];
     expect(filename).toBe(SAMPLE_CSV_FILENAME);
-    expect(content).toBe(SAMPLE_CSV_CONTENT);
+    // Backend owns the content — no second argument should be passed
+    expect(rest.length).toBe(0);
   });
 
   it("returns 'saved' when the dialog resolves with 'saved'", async () => {
-    mockSaveCsvFileViaDialog.mockResolvedValue("saved");
+    mockSaveSampleCsvViaDialog.mockResolvedValue("saved");
     const result = await saveSampleCsv();
     expect(result).toBe("saved");
   });
 
   it("returns 'cancelled' when user dismisses the dialog", async () => {
-    mockSaveCsvFileViaDialog.mockResolvedValue("cancelled");
+    mockSaveSampleCsvViaDialog.mockResolvedValue("cancelled");
     const result = await saveSampleCsv();
     expect(result).toBe("cancelled");
   });
 
-  it("propagates write errors thrown by saveCsvFileViaDialog", async () => {
-    mockSaveCsvFileViaDialog.mockRejectedValue(new Error("disk full"));
+  it("propagates write errors thrown by the backend command", async () => {
+    mockSaveSampleCsvViaDialog.mockRejectedValue(new Error("disk full"));
     await expect(saveSampleCsv()).rejects.toThrow("disk full");
   });
 });
