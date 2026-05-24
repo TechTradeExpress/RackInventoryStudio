@@ -822,3 +822,56 @@ textarea.input { height: auto; padding: 6px 8px; resize: vertical; }
   border: 1px solid var(--bd-1);
   font-family: var(--font-mono);
 }
+
+/* ── Global busy overlay ──────────────────────────────────────────────────── */
+.busy-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  /* Pointer events block immediately — before the visual fade-in — so clicks
+     are never silently ignored during a long operation. */
+  pointer-events: all;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+.busy-overlay.busy-overlay-visible {
+  background: var(--bg-overlay);
+}
+.busy-overlay-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--bd-1);
+  border-radius: 8px;
+  padding: 24px 32px;
+  box-shadow: var(--sh-3);
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.busy-overlay-visible .busy-overlay-body {
+  opacity: 1;
+  transform: translateY(0);
+}
+.busy-spinner {
+  width: 22px;
+  height: 22px;
+  border: 2.5px solid var(--bd-2);
+  border-top-color: var(--ac);
+  border-radius: 50%;
+  animation: busy-spin 0.65s linear infinite;
+}
+@keyframes busy-spin {
+  to { transform: rotate(360deg); }
+}
+.busy-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--tx-2);
+  white-space: nowrap;
+}

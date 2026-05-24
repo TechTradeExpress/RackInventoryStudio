@@ -6,6 +6,7 @@ import {
   type SaveSummaryDto,
   type ValidationSummaryDto,
 } from "../../api/tauriClient";
+import { useBusy } from "../../lib/appBusy";
 import {
   issueToNavigationTarget,
   navigationTargetLabel,
@@ -19,9 +20,6 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import { IcRefresh, IcSave, IcCheckCircle, IcCornerArrow } from "../../components/ui/Icon";
 
 interface Props {
-  working: boolean;
-  setWorking: (v: boolean) => void;
-  setError: (v: string | null) => void;
   onSaveSuccess: () => void;
   onNavigate?: (target: ValidationNavigationTarget) => void;
 }
@@ -47,24 +45,20 @@ function SummaryRow({ tone, label, value, desc }: { tone: "err" | "warn" | "info
   );
 }
 
-export function ValidationPanel({
-  working,
-  setWorking,
-  setError,
-  onSaveSuccess,
-  onNavigate,
-}: Props) {
+export function ValidationPanel({ onSaveSuccess, onNavigate }: Props) {
+  const { isBusy, runBusy } = useBusy();
+
   const [validationSummary, setValidationSummary] = useState<ValidationSummaryDto | null>(null);
   const [issues, setIssues] = useState<ValidationIssueDto[]>([]);
   const [saveSummary, setSaveSummary] = useState<SaveSummaryDto | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [levelFilter, setLevelFilter] = useState<LevelFilter>("all");
 
   async function handleValidate() {
-    setWorking(true);
     setError(null);
     setSaveSummary(null);
     try {
-      const result = await validateCurrentRepository();
+      const result = await runBusy("Validating repository…", () => validateCurrentRepository());
       setIssues(result);
       setValidationSummary({
         errors:   result.filter((i) => i.level === "error").length,
@@ -75,22 +69,17 @@ export function ValidationPanel({
       setLevelFilter("all");
     } catch (e) {
       setError(String(e));
-    } finally {
-      setWorking(false);
     }
   }
 
   async function handleSave() {
-    setWorking(true);
     setError(null);
     try {
-      const result = await saveCurrentRepository();
+      const result = await runBusy("Saving changes…", () => saveCurrentRepository());
       setSaveSummary(result);
       onSaveSuccess();
     } catch (e) {
       setError(String(e));
-    } finally {
-      setWorking(false);
     }
   }
 
@@ -113,16 +102,21 @@ export function ValidationPanel({
         subtitle="Check the repository for errors and warnings before saving or publishing."
         actions={
           <>
-            <button className="btn" onClick={handleValidate} disabled={working}>
+            <button className="btn" onClick={handleValidate} disabled={isBusy}>
               <IcRefresh size={12} /> Validate repository
             </button>
-            <button className="btn btn-primary" onClick={handleSave} disabled={working}>
+            <button className="btn btn-primary" onClick={handleSave} disabled={isBusy}>
               <IcSave size={12} /> Save changes
             </button>
           </>
         }
       />
       <div className="page-content">
+        {error && (
+          <div style={{ marginBottom: 16 }}>
+            <Banner tone="err">{error}</Banner>
+          </div>
+        )}
         {saveSummary && (
           <div style={{ marginBottom: 16 }}>
             <Banner tone="ok">

@@ -7,6 +7,7 @@ import {
   type CsvImportPreviewDto,
   type CsvImportPreviewRowDto,
 } from "../../api/tauriClient";
+import { useBusy } from "../../lib/appBusy";
 import { deriveCsvImportUiSummary } from "./csvImportSummary";
 import { downloadSampleCsv } from "./csvSample";
 import { PageHeader } from "../../components/ui/PageHeader";
@@ -60,20 +61,18 @@ function SummaryRow({ tone, label, value, desc }: { tone: "ok" | "warn" | "err";
 }
 
 export function CsvImportPanel({ onRepositoryMutated }: Props) {
+  const { isBusy, runBusy } = useBusy();
+
   const [csvContent, setCsvContent]     = useState("");
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [fileLoading, setFileLoading]   = useState(false);
   const [fileError, setFileError]       = useState<string | null>(null);
   const [preview, setPreview]           = useState<CsvImportPreviewDto | null>(null);
-  const [previewing, setPreviewing]     = useState(false);
-  const [importing, setImporting]       = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [importError, setImportError]   = useState<string | null>(null);
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
 
   async function handleChooseFile() {
     setFileError(null);
-    setFileLoading(true);
     try {
       const path = await selectCsvFile();
       if (path === null) return;
@@ -85,8 +84,6 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
       setImportError(null);
     } catch (e) {
       setFileError(String(e));
-    } finally {
-      setFileLoading(false);
     }
   }
 
@@ -99,23 +96,19 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
     e.preventDefault();
     setPreview(null); setPreviewError(null);
     setImportError(null); setImportSuccess(null);
-    setPreviewing(true);
     try {
-      const result = await previewDeviceCsvImport(csvContent);
+      const result = await runBusy("Previewing CSV…", () => previewDeviceCsvImport(csvContent));
       setPreview(result);
     } catch (e) {
       setPreviewError(String(e));
-    } finally {
-      setPreviewing(false);
     }
   }
 
   async function handleImport() {
     if (!preview || hasErrors(preview)) return;
     setImportError(null); setImportSuccess(null);
-    setImporting(true);
     try {
-      const result = await importDeviceCsv(csvContent);
+      const result = await runBusy("Importing CSV…", () => importDeviceCsv(csvContent));
       onRepositoryMutated();
       setImportSuccess(
         `Import complete: ${result.created_count} device${result.created_count !== 1 ? "s" : ""} created.` +
@@ -124,8 +117,6 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
       setPreview(null); setCsvContent(""); setSelectedFile(null);
     } catch (e) {
       setImportError(String(e));
-    } finally {
-      setImporting(false);
     }
   }
 
@@ -160,9 +151,9 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
                         type="button"
                         className="btn"
                         onClick={handleChooseFile}
-                        disabled={fileLoading || previewing || importing}
+                        disabled={isBusy}
                       >
-                        <IcFolder size={12} /> {fileLoading ? "Loading…" : "Browse…"}
+                        <IcFolder size={12} /> Browse…
                       </button>
                     </div>
                     {selectedFile && (
@@ -170,7 +161,7 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
                         type="button"
                         className="btn btn-ghost btn-icon"
                         onClick={handleClearFile}
-                        disabled={fileLoading || previewing || importing}
+                        disabled={isBusy}
                         title="Clear file"
                       >
                         <IcX size={12} />
@@ -201,7 +192,7 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
                       setCsvContent(e.target.value);
                       setPreview(null); setImportSuccess(null); setImportError(null);
                     }}
-                    disabled={previewing || importing}
+                    disabled={isBusy}
                   />
                 </div>
 
@@ -225,17 +216,17 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
                   <button
                     type="submit"
                     className="btn"
-                    disabled={!csvContent.trim() || previewing || importing}
+                    disabled={!csvContent.trim() || isBusy}
                   >
-                    <IcRefresh size={12} /> {previewing ? "Previewing…" : "Preview"}
+                    <IcRefresh size={12} /> Preview
                   </button>
                   <button
                     type="button"
                     className="btn btn-primary"
                     onClick={handleImport}
-                    disabled={!preview || blocked || previewing || importing}
+                    disabled={!preview || blocked || isBusy}
                   >
-                    <IcDownload size={12} /> {importing ? "Importing…" : `Import ${importableRows} row${importableRows !== 1 ? "s" : ""}`}
+                    <IcDownload size={12} /> {`Import ${importableRows} row${importableRows !== 1 ? "s" : ""}`}
                   </button>
                 </div>
 

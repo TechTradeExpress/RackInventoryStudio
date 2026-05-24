@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { useBusy } from "../../lib/appBusy";
 import {
   addGitRemote,
   commitRepositoryChanges,
@@ -195,7 +196,6 @@ interface GitSectionProps {
   hasUnsavedChanges: boolean;
   onSaveSuccess: () => void;
   onPullSuccess: (summary: RepositorySummaryDto) => void;
-  onPullRunning: (running: boolean) => void;
   gitRefreshToken?: number;
 }
 
@@ -204,9 +204,10 @@ function GitSection({
   hasUnsavedChanges,
   onSaveSuccess,
   onPullSuccess,
-  onPullRunning,
   gitRefreshToken,
 }: GitSectionProps) {
+  const { isBusy, runBusy } = useBusy();
+
   const [gitStatus, setGitStatus] = useState<GitStatusDto | null>(null);
   const [gitCommits, setGitCommits] = useState<GitCommitDto[]>([]);
   const [remotes, setRemotes] = useState<GitRemoteDto[]>([]);
@@ -216,7 +217,6 @@ function GitSection({
 
   const [publishValidation, setPublishValidation] = useState<PublishValidation>({ kind: "idle" });
   const [validateError, setValidateError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
 
@@ -225,25 +225,24 @@ function GitSection({
   const [commitError, setCommitError] = useState<string | null>(null);
   const [commitSuccess, setCommitSuccess] = useState<string | null>(null);
 
-  const [initing, setIniting] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
 
   const [selectedRemote, setSelectedRemote] = useState("");
   const [newRemoteName, setNewRemoteName] = useState("origin");
   const [newRemoteUrl, setNewRemoteUrl] = useState("");
-  const [addingRemote, setAddingRemote] = useState(false);
   const [addRemoteError, setAddRemoteError] = useState<string | null>(null);
   const [addRemoteSuccess, setAddRemoteSuccess] = useState<string | null>(null);
 
-  const [pushing, setPushing] = useState(false);
   const [pushError, setPushError] = useState<string | null>(null);
   const [pushSuccess, setPushSuccess] = useState<string | null>(null);
 
-  const [pulling, setPulling] = useState(false);
   const [pullError, setPullError] = useState<string | null>(null);
   const [pullSuccess, setPullSuccess] = useState<string | null>(null);
 
   const prevRepoPathRef = useRef("");
+  // Stable ref so the effect below can call runBusy without adding it to deps.
+  const runBusyRef = useRef(runBusy);
+  runBusyRef.current = runBusy;
 
   useEffect(() => {
     const isRepoSwitch = prevRepoPathRef.current !== repoPath;
@@ -272,25 +271,33 @@ function GitSection({
       setSaveSuccess(null);
     }
 
+    let cancelled = false;
     setLoading(true);
-    Promise.all([
-      getGitStatus(),
-      getGitLog(5),
-      listGitRemotes().catch(() => [] as GitRemoteDto[]),
-    ])
-      .then(([status, commits, remoteList]) => {
-        setGitStatus(status);
-        setGitCommits(commits);
-        setRemotes(remoteList);
-        setSelectedRemote((prev) => {
-          if (remoteList.length === 0) return "";
-          if (remoteList.find((r) => r.name === prev)) return prev;
-          return remoteList[0].name;
-        });
-        setError(null);
-      })
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
+    runBusyRef.current("Checking Git status…", () =>
+      Promise.all([
+        getGitStatus(),
+        getGitLog(5),
+        listGitRemotes().catch(() => [] as GitRemoteDto[]),
+      ]),
+    ).then(([status, commits, remoteList]) => {
+      if (cancelled) return;
+      setGitStatus(status);
+      setGitCommits(commits);
+      setRemotes(remoteList);
+      setSelectedRemote((prev) => {
+        if (remoteList.length === 0) return "";
+        if (remoteList.find((r) => r.name === prev)) return prev;
+        return remoteList[0].name;
+      });
+      setError(null);
+    }).catch((e) => {
+      if (!cancelled) setError(String(e));
+    }).finally(() => {
+      if (!cancelled) setLoading(false);
+    });
+
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repoPath, refreshKey, gitRefreshToken]);
 
   // Reset publish validation whenever unsaved in-memory changes appear.
@@ -303,24 +310,20 @@ function GitSection({
   }, [hasUnsavedChanges]);
 
   async function handleInit() {
-    setIniting(true);
     setInitError(null);
     try {
-      await initGitRepository();
+      await runBusy("Initializing Git repository…", () => initGitRepository());
       setRefreshKey((k) => k + 1);
     } catch (e) {
       setInitError(String(e));
-    } finally {
-      setIniting(false);
     }
   }
 
   async function handleSaveFromGit() {
     setSaveError(null);
     setSaveSuccess(null);
-    setSaving(true);
     try {
-      const result = await saveCurrentRepository();
+      const result = await runBusy("Saving changes…", () => saveCurrentRepository());
       setSaveSuccess(
         `Saved — Created: ${result.created}, Updated: ${result.updated}, Unchanged: ${result.unchanged}.`,
       );
@@ -328,8 +331,6 @@ function GitSection({
       setRefreshKey((k) => k + 1);
     } catch (e) {
       setSaveError(String(e));
-    } finally {
-      setSaving(false);
     }
   }
 
@@ -337,7 +338,7 @@ function GitSection({
     setValidateError(null);
     setPublishValidation({ kind: "validating" });
     try {
-      const issues = await validateCurrentRepository();
+      const issues = await runBusy("Validating repository…", () => validateCurrentRepository());
       setPublishValidation({ kind: "done", summary: computeValidationSummary(issues) });
     } catch (e) {
       setValidateError(String(e));
@@ -356,7 +357,7 @@ function GitSection({
     }
     setCommitting(true);
     try {
-      const commit = await commitRepositoryChanges(msg);
+      const commit = await runBusy("Committing changes…", () => commitRepositoryChanges(msg));
       setCommitSuccess(`Committed: ${commit.short_hash} — ${commit.subject}`);
       setCommitMessage("");
       setPublishValidation({ kind: "idle" });
@@ -381,50 +382,39 @@ function GitSection({
     const url = newRemoteUrl.trim();
     if (!name) { setAddRemoteError("Remote name cannot be empty."); return; }
     if (!url)  { setAddRemoteError("Remote URL cannot be empty."); return; }
-    setAddingRemote(true);
     try {
-      await addGitRemote(name, url);
+      await runBusy("Adding remote…", () => addGitRemote(name, url));
       setAddRemoteSuccess(`Remote "${name}" added.`);
       setNewRemoteName("origin");
       setNewRemoteUrl("");
       setRefreshKey((k) => k + 1);
     } catch (e) {
       setAddRemoteError(String(e));
-    } finally {
-      setAddingRemote(false);
     }
   }
 
   async function handlePush() {
     setPushError(null);
     setPushSuccess(null);
-    setPushing(true);
     try {
-      await pushGitCurrentBranch(selectedRemote);
+      await runBusy("Pushing to remote…", () => pushGitCurrentBranch(selectedRemote));
       setPushSuccess(`Pushed to "${selectedRemote}".`);
       setRefreshKey((k) => k + 1);
     } catch (e) {
       setPushError(String(e));
-    } finally {
-      setPushing(false);
     }
   }
 
   async function handlePull() {
     setPullError(null);
     setPullSuccess(null);
-    setPulling(true);
-    onPullRunning(true);
     try {
-      const updatedSummary = await pullGitFfOnly(selectedRemote);
+      const updatedSummary = await runBusy("Pulling from remote…", () => pullGitFfOnly(selectedRemote));
       setPullSuccess(`Pulled from "${selectedRemote}".`);
       onPullSuccess(updatedSummary);
       setRefreshKey((k) => k + 1);
     } catch (e) {
       setPullError(String(e));
-    } finally {
-      setPulling(false);
-      onPullRunning(false);
     }
   }
 
@@ -455,8 +445,8 @@ function GitSection({
           </p>
           {initError && <Banner tone="err">{initError}</Banner>}
           <div>
-            <button className="btn" onClick={handleInit} disabled={initing}>
-              {initing ? "Initializing…" : "Initialize Git repository"}
+            <button className="btn" onClick={handleInit} disabled={isBusy}>
+              Initialize Git repository
             </button>
           </div>
         </div>
@@ -474,12 +464,12 @@ function GitSection({
     (publishValidation.kind === "done" && publishValidation.summary.errors > 0);
 
   const commitDisabled =
-    committing || hasUnsavedChanges || !commitMessage.trim() || nothingToCommit || validationBlocked;
+    isBusy || committing || hasUnsavedChanges || !commitMessage.trim() || nothingToCommit || validationBlocked;
 
   const pushBlockedReason = getPushDisabledReason(gitStatus, hasUnsavedChanges, selectedRemote);
   const pullBlockedReason = getPullDisabledReason(gitStatus, hasUnsavedChanges, selectedRemote);
-  const pushDisabled = pushBlockedReason !== null || pushing || pulling;
-  const pullDisabled = pullBlockedReason !== null || pushing || pulling;
+  const pushDisabled = pushBlockedReason !== null || isBusy;
+  const pullDisabled = pullBlockedReason !== null || isBusy;
 
   const rawChecklist = derivePublishChecklist(gitStatus, hasUnsavedChanges);
   const checklist: PublishChecklistStep[] = rawChecklist.map((step) => {
@@ -529,8 +519,8 @@ function GitSection({
                 </div>
                 {hasUnsavedChanges && (
                   <div className="step-action">
-                    <button className="btn btn-primary btn-sm" onClick={handleSaveFromGit} disabled={saving}>
-                      <IcSave size={11} /> {saving ? "Saving…" : "Save"}
+                    <button className="btn btn-primary btn-sm" onClick={handleSaveFromGit} disabled={isBusy}>
+                      <IcSave size={11} /> Save
                     </button>
                   </div>
                 )}
@@ -564,9 +554,9 @@ function GitSection({
                   <button
                     className="btn btn-sm"
                     onClick={handleValidateForPublish}
-                    disabled={hasUnsavedChanges || publishValidation.kind === "validating"}
+                    disabled={isBusy || hasUnsavedChanges}
                   >
-                    <IcRefresh size={11} /> {publishValidation.kind === "validating" ? "Running…" : "Run"}
+                    <IcRefresh size={11} /> Run
                   </button>
                 </div>
               </div>
@@ -593,7 +583,7 @@ function GitSection({
                         value={commitMessage}
                         onChange={(e) => setCommitMessage(e.target.value)}
                         placeholder="Commit message…"
-                        disabled={committing || hasUnsavedChanges || !validationPassed}
+                        disabled={isBusy || committing || hasUnsavedChanges || !validationPassed}
                       />
                       <button
                         type="submit"
@@ -646,9 +636,9 @@ function GitSection({
                     className="btn btn-sm"
                     onClick={handlePull}
                     disabled={pullDisabled}
-                    title={!pulling && pullBlockedReason !== null ? pullBlockedReason : undefined}
+                    title={pullBlockedReason !== null ? pullBlockedReason : undefined}
                   >
-                    <IcDownload size={11} /> {pulling ? "Pulling…" : "Pull"}
+                    <IcDownload size={11} /> Pull
                   </button>
                 </div>
               </div>
@@ -680,9 +670,9 @@ function GitSection({
                     className="btn btn-sm"
                     onClick={handlePush}
                     disabled={pushDisabled}
-                    title={!pushing && pushBlockedReason !== null ? pushBlockedReason : undefined}
+                    title={pushBlockedReason !== null ? pushBlockedReason : undefined}
                   >
-                    <IcPush size={11} /> {pushing ? "Pushing…" : "Push"}
+                    <IcPush size={11} /> Push
                   </button>
                 </div>
               </div>
@@ -730,7 +720,7 @@ function GitSection({
             className="btn btn-sm"
             aria-label="Refresh Git status"
             onClick={() => setRefreshKey((k) => k + 1)}
-            disabled={loading}
+            disabled={isBusy}
           >
             <IcRefresh size={11} /> Refresh Git status
           </button>
@@ -797,7 +787,7 @@ function GitSection({
                 value={newRemoteName}
                 onChange={(e) => setNewRemoteName(e.target.value)}
                 placeholder="Name"
-                disabled={addingRemote}
+                disabled={isBusy}
               />
               <input
                 className="ri-input ri-mono"
@@ -805,10 +795,10 @@ function GitSection({
                 value={newRemoteUrl}
                 onChange={(e) => setNewRemoteUrl(e.target.value)}
                 placeholder="URL (e.g. git@github.com:org/repo.git)"
-                disabled={addingRemote}
+                disabled={isBusy}
               />
-              <button type="submit" className="btn btn-sm" disabled={addingRemote}>
-                {addingRemote ? "Adding…" : "Add"}
+              <button type="submit" className="btn btn-sm" disabled={isBusy}>
+                Add
               </button>
             </form>
             {addRemoteError && <div style={{ marginTop: 6, fontSize: 12, color: "var(--st-err-tx)" }}>{addRemoteError}</div>}
@@ -830,7 +820,7 @@ function GitSection({
                   style={{ flex: 1 }}
                   value={selectedRemote}
                   onChange={(e) => setSelectedRemote(e.target.value)}
-                  disabled={pushing || pulling || hasUnsavedChanges}
+                  disabled={isBusy || hasUnsavedChanges}
                 >
                   {remotes.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
                 </select>
@@ -840,17 +830,17 @@ function GitSection({
                   className="btn btn-sm"
                   onClick={handlePull}
                   disabled={pullDisabled}
-                  title={!pulling && pullBlockedReason !== null ? pullBlockedReason : undefined}
+                  title={pullBlockedReason !== null ? pullBlockedReason : undefined}
                 >
-                  <IcDownload size={11} /> {pulling ? "Pulling…" : "Pull"}
+                  <IcDownload size={11} /> Pull
                 </button>
                 <button
                   className="btn btn-sm"
                   onClick={handlePush}
                   disabled={pushDisabled}
-                  title={!pushing && pushBlockedReason !== null ? pushBlockedReason : undefined}
+                  title={pushBlockedReason !== null ? pushBlockedReason : undefined}
                 >
-                  <IcPush size={11} /> {pushing ? "Pushing…" : "Push"}
+                  <IcPush size={11} /> Push
                 </button>
               </div>
             </div>
@@ -1036,7 +1026,6 @@ export function RepositoryPanel({
               hasUnsavedChanges={hasUnsavedChanges}
               onSaveSuccess={onSaveSuccess}
               onPullSuccess={onPullSuccess}
-              onPullRunning={onPullRunning}
               gitRefreshToken={gitRefreshToken}
             />
           </div>
