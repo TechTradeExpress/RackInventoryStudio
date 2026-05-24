@@ -287,12 +287,8 @@ export function App() {
 
   return (
     <div className="app">
-      {/* Titlebar */}
+      {/* Titlebar — native window title already shows "Rack Inventory Studio"; only show repo context here */}
       <div className="titlebar">
-        <div className="brand">
-          <span className="glyph"><i /></span>
-          <span>Rack Inventory Studio</span>
-        </div>
         <div className="repo-pill">
           {isOpen ? (
             <>

@@ -307,9 +307,12 @@ export function RacksPanel({
               <tbody>
                 {visibleRacks.map((rack) => {
                   const isNavHighlight = rack.id === recentlyNavigatedRackId;
+                  // Utilization = max(front_used_U, rear_used_U) / height_u.
+                  // Front and rear share the same physical U space in the cabinet,
+                  // so the "busier" side determines how full the rack is.
                   const util =
                     rack.height_u > 0
-                      ? rack.placement_count / (rack.height_u * 2)
+                      ? Math.max(rack.front_used_u, rack.rear_used_u) / rack.height_u
                       : 0;
                   return (
                     <tr

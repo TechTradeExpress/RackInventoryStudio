@@ -9,7 +9,7 @@ import {
 } from "../../api/tauriClient";
 import { useBusy } from "../../lib/appBusy";
 import { deriveCsvImportUiSummary } from "./csvImportSummary";
-import { downloadSampleCsv } from "./csvSample";
+import { saveSampleCsv } from "./csvSample";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { Panel } from "../../components/ui/Panel";
 import { Badge } from "../../components/ui/Badge";
@@ -70,6 +70,8 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [importError, setImportError]   = useState<string | null>(null);
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
+  const [sampleSaveMsg, setSampleSaveMsg] = useState<string | null>(null);
+  const [sampleSaveErr, setSampleSaveErr] = useState<string | null>(null);
 
   async function handleChooseFile() {
     setFileError(null);
@@ -101,6 +103,20 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
       setPreview(result);
     } catch (e) {
       setPreviewError(String(e));
+    }
+  }
+
+  async function handleSaveSample() {
+    setSampleSaveMsg(null);
+    setSampleSaveErr(null);
+    try {
+      const result = await saveSampleCsv();
+      if (result === "saved") {
+        setSampleSaveMsg("Sample CSV saved.");
+      }
+      // "cancelled" — user dismissed dialog, no message shown
+    } catch (e) {
+      setSampleSaveErr(String(e));
     }
   }
 
@@ -200,7 +216,8 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
                   <button
                     type="button"
                     className="btn btn-ghost"
-                    onClick={downloadSampleCsv}
+                    onClick={handleSaveSample}
+                    disabled={isBusy}
                     data-testid="btn-download-sample"
                   >
                     <IcDownload size={12} /> Download sample CSV
@@ -208,6 +225,16 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
                   <p style={{ fontSize: 11, color: "var(--tx-3)", margin: "4px 0 0" }}>
                     Use this template as a starting point, then preview it before importing.
                   </p>
+                  {sampleSaveMsg && (
+                    <div style={{ marginTop: 6 }}>
+                      <Banner tone="ok" onDismiss={() => setSampleSaveMsg(null)}>{sampleSaveMsg}</Banner>
+                    </div>
+                  )}
+                  {sampleSaveErr && (
+                    <div style={{ marginTop: 6 }}>
+                      <Banner tone="err" onDismiss={() => setSampleSaveErr(null)}>{sampleSaveErr}</Banner>
+                    </div>
+                  )}
                 </div>
 
                 {previewError && <Banner tone="err">{previewError}</Banner>}

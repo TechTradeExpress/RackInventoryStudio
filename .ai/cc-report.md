@@ -3093,3 +3093,81 @@ Windows 11 manual QA was not completed in this environment and remains required 
 
 ### Windows 11 manual QA status
 Windows 11 manual QA was not completed in this environment and remains required before beta release.
+
+---
+
+## Beta QA follow-up Milestone A — Immediate blockers and small UI cleanup
+
+**Branch:** fix/beta-qa-milestone-a-blockers
+
+### Duplicate brand block fix
+Removed the `<div className="brand">` block (icon + "Rack Inventory Studio" text) from the internal app titlebar in `App.tsx`. The native Tauri window title bar already provides this branding — having it duplicated inside the content area was visually redundant. The repo-pill (repo name, code, unsaved indicator, error count) is kept in the titlebar as useful context. Updated e2e smoke test to no longer assert on the visible "Rack Inventory Studio" text inside the page.
+
+### Change side removal
+Removed all "Change side" / "Move to Rear" / "Move to Front" UI from `PlacementInspectorPanel.tsx`:
+- Removed `changeSideOpen` and `changeSideError` state variables
+- Removed the `handleChangeSideConfirm()` function and its `movePlacement` call with `new_side: otherSide`
+- Removed the second `ConfirmDialog` (the side-change one; kept the remove-placement one)
+- Removed the "Change side" button group
+- Removed unused `movePlacement` import (only `removePlacement` remains)
+- Updated e2e smoke test: replaced "Change side dialog" with "no change-side button" asserting buttons are NOT visible
+
+Grep result: clean (remaining occurrences are in the test assertion that they are NOT visible).
+
+### CSV sample save/download
+Replaced broken browser Blob download with a Tauri-native save flow:
+- `tauriClient.ts`: added `writeTextToFile()` (calls new `write_text_to_file` Rust command) and `saveCsvFileViaDialog()` (uses `save` from `@tauri-apps/plugin-dialog` + `writeTextToFile`)
+- `csvSample.ts`: replaced `downloadSampleCsv()` with `saveSampleCsv()` — opens native save dialog, writes content; returns "saved" | "cancelled"
+- `CsvImportPanel.tsx`: uses `handleSaveSample()`, shows success banner on save, error banner on failure, silent on cancel
+- Added `dialog:allow-save` permission to `capabilities/default.json`
+- Added `write_text_to_file(path, content)` Rust command in `repository.rs` using `std::fs::write`
+- Updated `csvSample.test.tsx` and `CsvImportPanel.test.tsx` for new API
+- Updated e2e mock: added `save()` to `tauri-dialog.ts` (returns null = cancelled), added `write_text_to_file` case to `tauri-core.ts`
+- Updated `SAMPLE_CSV_FILENAME` to canonical name `rack-inventory-studio-device-import-sample.csv`
+
+### Utilization fix
+**Chosen rule:** `max(front_used_U, rear_used_U) / height_u` — front and rear share the same physical U space; the busier side determines how full the rack is.
+
+Previous calculation was `placement_count / (height_u × 2)` — used device count, not U slots.
+
+Fixed by:
+- Adding `front_used_u` and `rear_used_u` (u32) fields to `RackSummaryDto` in `dto.rs`
+- Computing them in `list_racks` by summing `effective_height_u` per side (with `unwrap_or(1)` fallback)
+- Updating TypeScript `RackSummaryDto` interface and utilization formula in `RacksPanel.tsx`
+- Updated all test fixtures and e2e mock fixture with new fields
+- Added 2 utilization unit tests in `RacksPanel.test.tsx`
+
+### Tests added/updated
+- `csvSample.test.tsx` (20 tests) — replaced downloadSampleCsv with saveSampleCsv tests; added filename canonical check
+- `CsvImportPanel.test.tsx` (6 tests) — success/cancel/error response tests for new handler
+- `RacksPanel.test.tsx` (+2 utilization tests, fixture updated)
+- `EditPlacementModal.test.tsx`, `PlacePlacementModal.test.tsx`, `RackFormModal.test.tsx` — fixture updates only
+- `e2e/smoke.spec.ts` — replaced change-side test; removed brand text assertion
+
+### Checks run
+- git diff --check: PASS
+- version consistency (v0.1.0): PASS
+- TypeScript: PASS
+- Vitest: PASS (366/366)
+- Playwright e2e: PASS (12/12)
+- Vite build: PASS
+- cargo fmt/check/test/clippy: PASS
+- No package-lock.json: PASS
+- No tracked review-context: PASS
+
+### Known risks
+- `write_text_to_file` uses `std::fs::write` without atomic rename — partial write on failure is possible but low risk for a sample CSV.
+- Utilization falls back to `unwrap_or(1)` for placements with no model and no height override.
+- Front/rear U accounting is additive (not overlap-aware); validation errors in data could exceed 100%.
+
+### Manual QA checklist (required on Windows 11)
+1. Open app — confirm no duplicate "Rack Inventory Studio" brand block inside app content
+2. Open repository
+3. Locations → Manage racks → open rack detail
+4. Confirm Front/Rear viewing selector still works
+5. Select a placement — confirm no "Change side" / "Move to Rear" / "Move to Front" action
+6. Edit same-side Start U — confirm it still works
+7. Remove placement via ConfirmDialog — confirm it still works
+8. Click "Download sample CSV" — save dialog opens, choose path, confirm file saved
+9. Cancel save dialog — confirm no error shown
+10. Place/edit/remove placement — return to Racks list — confirm Utilization updated

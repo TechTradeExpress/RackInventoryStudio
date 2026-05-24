@@ -1,9 +1,10 @@
+// @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   SAMPLE_CSV_FILENAME,
   SAMPLE_CSV_CONTENT,
   escapeCsvField,
-  downloadSampleCsv,
+  saveSampleCsv,
 } from "./csvSample";
 
 // ── filename ──────────────────────────────────────────────────────────────────
@@ -15,6 +16,12 @@ describe("SAMPLE_CSV_FILENAME", () => {
 
   it("is a non-empty string", () => {
     expect(SAMPLE_CSV_FILENAME.length).toBeGreaterThan(0);
+  });
+
+  it("uses the canonical product filename", () => {
+    expect(SAMPLE_CSV_FILENAME).toBe(
+      "rack-inventory-studio-device-import-sample.csv",
+    );
   });
 });
 
@@ -115,56 +122,46 @@ describe("escapeCsvField", () => {
   });
 });
 
-// ── downloadSampleCsv ─────────────────────────────────────────────────────────
+// ── saveSampleCsv ─────────────────────────────────────────────────────────────
 
-describe("downloadSampleCsv", () => {
-  let createObjectURLMock: ReturnType<typeof vi.fn>;
-  let revokeObjectURLMock: ReturnType<typeof vi.fn>;
-  let clickSpy: ReturnType<typeof vi.spyOn>;
+const mockSaveCsvFileViaDialog = vi.fn();
 
+vi.mock("../../api/tauriClient", () => ({
+  saveCsvFileViaDialog: (...args: unknown[]) => mockSaveCsvFileViaDialog(...args),
+}));
+
+describe("saveSampleCsv", () => {
   beforeEach(() => {
-    createObjectURLMock = vi.fn().mockReturnValue("blob:mock-url");
-    revokeObjectURLMock = vi.fn();
-    Object.defineProperty(globalThis.URL, "createObjectURL", {
-      value: createObjectURLMock,
-      configurable: true,
-      writable: true,
-    });
-    Object.defineProperty(globalThis.URL, "revokeObjectURL", {
-      value: revokeObjectURLMock,
-      configurable: true,
-      writable: true,
-    });
-    clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    mockSaveCsvFileViaDialog.mockReset();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("calls URL.createObjectURL with a Blob", () => {
-    downloadSampleCsv();
-    expect(createObjectURLMock).toHaveBeenCalledOnce();
-    expect(createObjectURLMock.mock.calls[0][0]).toBeInstanceOf(Blob);
+  it("calls saveCsvFileViaDialog with the canonical filename and CSV content", async () => {
+    mockSaveCsvFileViaDialog.mockResolvedValue("saved");
+    await saveSampleCsv();
+    expect(mockSaveCsvFileViaDialog).toHaveBeenCalledOnce();
+    const [filename, content] = mockSaveCsvFileViaDialog.mock.calls[0] as [string, string];
+    expect(filename).toBe(SAMPLE_CSV_FILENAME);
+    expect(content).toBe(SAMPLE_CSV_CONTENT);
   });
 
-  it("revokes the object URL after the click", () => {
-    downloadSampleCsv();
-    expect(revokeObjectURLMock).toHaveBeenCalledWith("blob:mock-url");
+  it("returns 'saved' when the dialog resolves with 'saved'", async () => {
+    mockSaveCsvFileViaDialog.mockResolvedValue("saved");
+    const result = await saveSampleCsv();
+    expect(result).toBe("saved");
   });
 
-  it("triggers an anchor click", () => {
-    downloadSampleCsv();
-    expect(clickSpy).toHaveBeenCalledOnce();
+  it("returns 'cancelled' when user dismisses the dialog", async () => {
+    mockSaveCsvFileViaDialog.mockResolvedValue("cancelled");
+    const result = await saveSampleCsv();
+    expect(result).toBe("cancelled");
   });
 
-  it("sets download attribute to the sample filename", () => {
-    let capturedAnchor: HTMLAnchorElement | null = null;
-    clickSpy.mockImplementation(function (this: HTMLAnchorElement) {
-      capturedAnchor = this;
-    });
-    downloadSampleCsv();
-    expect(capturedAnchor).not.toBeNull();
-    expect((capturedAnchor as unknown as HTMLAnchorElement).download).toBe(SAMPLE_CSV_FILENAME);
+  it("propagates write errors thrown by saveCsvFileViaDialog", async () => {
+    mockSaveCsvFileViaDialog.mockRejectedValue(new Error("disk full"));
+    await expect(saveSampleCsv()).rejects.toThrow("disk full");
   });
 });

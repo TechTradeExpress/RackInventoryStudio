@@ -79,6 +79,8 @@ const COMMANDS: Record<string, unknown> = {
       front_placement_count: 2,
       rear_placement_count: 1,
       placement_count: 3,
+      front_used_u: 2,
+      rear_used_u: 1,
     },
   ],
   list_devices: [
@@ -336,6 +338,11 @@ export function invoke<T>(command: string, args?: unknown): Promise<T> {
       }
       return Promise.resolve(COMMANDS.read_csv_file as T);
     }
+
+    case "write_text_to_file":
+      // Save dialog flow is mocked at the dialog level (returns null/cancelled);
+      // this command should never be reached in E2E tests.
+      return Promise.resolve(undefined as unknown as T);
 
     case "place_device": {
       const { input } = (args ?? {}) as { input?: unknown };

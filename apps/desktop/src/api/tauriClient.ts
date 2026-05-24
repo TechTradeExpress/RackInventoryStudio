@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 
 // ── Repository summary ────────────────────────────────────────────────────────
 
@@ -71,6 +71,10 @@ export interface RackSummaryDto {
   front_placement_count: number;
   rear_placement_count: number;
   placement_count: number;
+  /** U slots occupied on the front side (sum of effective_height_u). */
+  front_used_u: number;
+  /** U slots occupied on the rear side (sum of effective_height_u). */
+  rear_used_u: number;
 }
 
 export interface DeviceDto {
@@ -518,6 +522,11 @@ export function readCsvFile(path: string): Promise<string> {
   return invoke("read_csv_file", { path });
 }
 
+/** Write text content to a file at the given path. */
+export function writeTextToFile(path: string, content: string): Promise<void> {
+  return invoke("write_text_to_file", { path, content });
+}
+
 // ── Native dialog ─────────────────────────────────────────────────────────────
 
 export async function selectCsvFile(): Promise<string | null> {
@@ -530,6 +539,26 @@ export async function selectCsvFile(): Promise<string | null> {
   if (result === null || result === undefined) return null;
   if (Array.isArray(result)) return result[0] ?? null;
   return result;
+}
+
+/**
+ * Open a native save-file dialog pre-set to the given default filename,
+ * then write `content` to the chosen path.
+ * Returns `"saved"` when the file is written, `"cancelled"` if the user dismissed the dialog.
+ * Throws a string on write error.
+ */
+export async function saveCsvFileViaDialog(
+  defaultFilename: string,
+  content: string,
+): Promise<"saved" | "cancelled"> {
+  const path = await save({
+    title: "Save CSV file",
+    defaultPath: defaultFilename,
+    filters: [{ name: "CSV Files", extensions: ["csv"] }],
+  });
+  if (path === null || path === undefined) return "cancelled";
+  await writeTextToFile(path, content);
+  return "saved";
 }
 
 export async function selectRepositoryFolder(): Promise<string | null> {

@@ -286,14 +286,42 @@ pub fn list_racks(state: State<AppState>) -> Result<Vec<RackSummaryDto>, String>
                 .get(&rack.location_id)
                 .map(|l| l.code.clone())
                 .unwrap_or_default();
-            let (front_placement_count, rear_placement_count) = session
+            let pf_opt = session
                 .data
                 .placement_files
                 .iter()
-                .find(|pf| pf.rack_id == rack.id)
+                .find(|pf| pf.rack_id == rack.id);
+            let (front_placement_count, rear_placement_count) = pf_opt
                 .map(|pf| (pf.front.len(), pf.rear.len()))
                 .unwrap_or((0, 0));
             let placement_count = front_placement_count + rear_placement_count;
+
+            // Compute U slots occupied per side using effective_height_u.
+            // Utilization rule: max(front_used_u, rear_used_u) / height_u, since
+            // front and rear share the same physical U space in the cabinet.
+            let used_u = |placements: &[ris_core::Placement]| -> u32 {
+                placements
+                    .iter()
+                    .map(|p| {
+                        let model = match p.target_kind {
+                            PlacementTargetKind::Device => session
+                                .index
+                                .devices_by_id
+                                .get(&p.target_id)
+                                .and_then(|d| d.device_model_id.as_deref())
+                                .and_then(|mid| session.index.device_models_by_id.get(mid)),
+                            PlacementTargetKind::DeviceModel => {
+                                session.index.device_models_by_id.get(&p.target_id)
+                            }
+                        };
+                        p.effective_height_u(model).unwrap_or(1)
+                    })
+                    .sum()
+            };
+            let (front_used_u, rear_used_u) = pf_opt
+                .map(|pf| (used_u(&pf.front), used_u(&pf.rear)))
+                .unwrap_or((0, 0));
+
             RackSummaryDto {
                 id: rack.id.clone(),
                 code: rack.code.clone(),
@@ -307,6 +335,8 @@ pub fn list_racks(state: State<AppState>) -> Result<Vec<RackSummaryDto>, String>
                 front_placement_count,
                 rear_placement_count,
                 placement_count,
+                front_used_u,
+                rear_used_u,
             }
         })
         .collect();
@@ -914,6 +944,14 @@ pub fn read_csv_content(path: &Path, max_bytes: u64) -> Result<String, String> {
 #[tauri::command]
 pub fn read_csv_file(path: String) -> Result<String, String> {
     read_csv_content(Path::new(&path), MAX_CSV_BYTES)
+}
+
+/// Write arbitrary text to a file at the given path.
+/// Used by the frontend after the user selects a save path via the native save dialog.
+#[tauri::command]
+pub fn write_text_to_file(path: String, content: String) -> Result<(), String> {
+    std::fs::write(&path, content.as_bytes())
+        .map_err(|e| format!("Failed to write file '{}': {e}", path))
 }
 
 // ── Search ────────────────────────────────────────────────────────────────────

@@ -13,5 +13,5 @@ pub use repository::{
     open_repository_cmd, place_device, place_rack_object, preview_device_csv_import_cmd,
     read_csv_file, remove_placement, save_current_repository, search_repository_cmd,
     update_device_cmd, update_device_model_cmd, update_location_cmd, update_rack_cmd,
-    validate_current_repository, AppState,
+    validate_current_repository, write_text_to_file, AppState,
 };

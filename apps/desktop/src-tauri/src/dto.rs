@@ -73,6 +73,10 @@ pub struct RackSummaryDto {
     pub front_placement_count: usize,
     pub rear_placement_count: usize,
     pub placement_count: usize,
+    /// Sum of effective_height_u for all front placements (U slots occupied on the front).
+    pub front_used_u: u32,
+    /// Sum of effective_height_u for all rear placements (U slots occupied on the rear).
+    pub rear_used_u: u32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
