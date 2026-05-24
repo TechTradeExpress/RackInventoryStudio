@@ -3050,3 +3050,46 @@ Windows 11 manual QA was not completed in this environment and remains required 
 2. Download and smoke-test installer on Windows 11
 3. Complete BETA_WINDOWS_11_QA_EN.md checklist
 4. Merge PR after review
+
+---
+
+## Beta QA findings action plan
+
+**Branch:** planning/beta-qa-findings-action-plan
+**Date:** 2026-05-24
+**Type:** Documentation/planning only — no product code changes.
+
+### Document added
+- `docs/BETA_QA_FINDINGS_ACTION_PLAN_EN.md` — 7-section action plan with 14 findings, 6 follow-up milestones (A–F), beta blocking classification table, and testing expectations.
+
+### Key findings captured
+14 findings across: Settings UX (F1, F2), release process (F3), duplicate brand block (F4), drag-and-drop gaps (F5, F6), unsafe cross-side move (F7), missing create-device-from-placement (F8), table-as-primary-UI (F9, F10), diagram coloring/legend (F11, F12), CSV download broken (F13), utilization stale (F14).
+
+### Proposed milestone split
+- Milestone A — Immediate beta blockers and small UI cleanup (F4, F7, F13, F14)
+- Milestone B — Settings logs actions (F1, F2)
+- Milestone C — Rack diagram as primary placement UI (F9, F10, F11, F12)
+- Milestone D — Complete drag-and-drop workflow (F5, F6)
+- Milestone E — Create device from Place equipment (F8)
+- Milestone F — Release branch and versioning process (F3)
+
+### Files changed
+- `docs/BETA_QA_FINDINGS_ACTION_PLAN_EN.md` — new
+- `docs/BETA_HARDENING_PLAN_EN.md` — added link to action plan
+- `README.md` — added link to action plan
+- `CHANGELOG.md` — unreleased entry for this branch
+
+### Checks run
+- git diff --check: PASS
+- node scripts/check-version-consistency.mjs: PASS (v0.1.0)
+- No package-lock.json: PASS
+- No tracked review-context files: PASS
+- TypeScript/Rust: not run (docs-only branch)
+
+### Known risks
+- Milestone C and D touch the same rack diagram/DnD code — ordering matters.
+- Milestone A (remove Change side) requires confirming all surfaces in PlacementInspectorPanel and EditPlacementModal are cleaned up.
+- CSV download fix (Milestone A) requires Tauri plugin support investigation before implementation.
+
+### Windows 11 manual QA status
+Windows 11 manual QA was not completed in this environment and remains required before beta release.

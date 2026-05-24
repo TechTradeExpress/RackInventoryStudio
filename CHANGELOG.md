@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased — beta QA findings action plan (branch `planning/beta-qa-findings-action-plan`)
+
+### Added
+
+- Beta QA findings action plan (`docs/BETA_QA_FINDINGS_ACTION_PLAN_EN.md`) capturing 14 findings from manual inspection after milestone 5 and defining follow-up milestones A–F with beta blocking classification.
+
+### Changed
+
+- `docs/BETA_HARDENING_PLAN_EN.md` — added link to findings action plan.
+- `README.md` — added link to findings action plan in beta hardening section.
+
 ## Unreleased — beta hardening milestone 5: Beta QA and Windows installer validation (branch `qa/beta-windows-installer-validation`)
 
 ### Added

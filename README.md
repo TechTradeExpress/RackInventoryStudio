@@ -77,7 +77,7 @@ tests/                  Shared test fixtures
 
 **V1 release is paused.** The next target is a beta hardening release (Beta 0.2.x). The focus is on UX stability, operational reliability (global busy overlay, no flashing Windows console windows), consistent versioning, installer artifact naming, navigation cleanup, and rack placement UX redesign — before committing to a V1 milestone.
 
-See [`docs/BETA_HARDENING_PLAN_EN.md`](docs/BETA_HARDENING_PLAN_EN.md) for the full plan, [`docs/BETA_RELEASE_PROCESS_EN.md`](docs/BETA_RELEASE_PROCESS_EN.md) for the release checklist and version bump procedure, and [`docs/BETA_WINDOWS_11_QA_EN.md`](docs/BETA_WINDOWS_11_QA_EN.md) for the Windows 11 manual QA runbook (required before beta distribution).
+See [`docs/BETA_HARDENING_PLAN_EN.md`](docs/BETA_HARDENING_PLAN_EN.md) for the full plan, [`docs/BETA_RELEASE_PROCESS_EN.md`](docs/BETA_RELEASE_PROCESS_EN.md) for the release checklist and version bump procedure, [`docs/BETA_WINDOWS_11_QA_EN.md`](docs/BETA_WINDOWS_11_QA_EN.md) for the Windows 11 manual QA runbook (required before beta distribution), and [`docs/BETA_QA_FINDINGS_ACTION_PLAN_EN.md`](docs/BETA_QA_FINDINGS_ACTION_PLAN_EN.md) for post-QA findings and the follow-up milestone plan.
 
 ### What is implemented (MVP Core)
 
