@@ -148,6 +148,23 @@ If you are reporting a problem with Rack Inventory Studio:
 
 ---
 
+## Custom log directory
+
+Users can configure a custom log directory via Settings → Diagnostics and logs.
+
+- The custom directory is stored in the platform app config directory (`app_config.json`).
+- Changes apply after app restart (`tauri-plugin-log` targets are initialized at startup).
+- The app attempts to create the directory if it does not exist.
+- Reset to default removes the override; the platform default is used on next restart.
+
+Default paths:
+- Windows: `%APPDATA%\com.techtradeexpress.rackinventorystudio\logs\`
+- Linux: `~/.local/share/com.techtradeexpress.rackinventorystudio/logs/`
+
+No telemetry, no external upload. Logs remain local-only.
+
+---
+
 ## Technical notes
 
 - **Plugin:** `tauri-plugin-log` v2 (official Tauri v2 logging plugin).

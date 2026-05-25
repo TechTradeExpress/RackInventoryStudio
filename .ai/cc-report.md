@@ -3194,3 +3194,66 @@ Fixed by:
 - cargo test (new tests pass): PASS
 - cargo clippy: PASS
 - Generic symbol grep (write_text_to_file / writeTextToFile / saveCsvFileViaDialog): clean
+
+---
+
+## Beta QA follow-up Milestone B — Settings logs actions
+
+**Branch:** ux/settings-logs-actions
+
+### Behavior implemented
+- Settings → Diagnostics and logs shows default, active, and custom log directory paths.
+- "Open logs folder" opens the active logs directory in the OS file manager (narrow command, no arbitrary path from frontend). Uses platform-specific commands: `explorer.exe` on Windows, `open` on macOS, `xdg-open` on Linux.
+- "Choose logs folder…" opens a native directory picker; selected path is validated and persisted.
+- "Reset to default" clears the custom log directory override.
+- Log directory changes apply after app restart (tauri-plugin-log initialized at startup). UI shows "Changes will apply after restart."
+- Config stored in platform app config dir as `app_config.json`.
+
+### Whether log dir changes apply immediately or after restart
+**After restart only.** `tauri-plugin-log` targets are initialized once at startup. The persisted custom directory is read at next launch. `restart_required` is true whenever a custom dir is set.
+
+### Files changed
+- `apps/desktop/src-tauri/src/app_config.rs` — NEW: persistence layer for `app_config.json`
+- `apps/desktop/src-tauri/src/commands/log_settings.rs` — NEW: `get_log_settings`, `open_logs_directory`, `set_logs_directory`, `reset_logs_directory` commands
+- `apps/desktop/src-tauri/src/commands/mod.rs` — Added `log_settings` module export
+- `apps/desktop/src-tauri/src/lib.rs` — Added `app_config` module, new command imports, registered 4 new commands
+- `apps/desktop/src/api/tauriClient.ts` — Added `LogSettingsDto`, `getLogSettings`, `openLogsDirectory`, `setLogsDirectory`, `resetLogsDirectory`, `selectDirectory`
+- `apps/desktop/src/features/settings/SettingsPanel.tsx` — Rewritten Diagnostics section with live log dir display and action buttons
+- `apps/desktop/src/features/settings/SettingsPanel.test.tsx` — NEW: 7 Vitest tests
+- `apps/desktop/e2e/mocks/tauri-core.ts` — Added mocks for 4 log settings commands
+- `apps/desktop/e2e/smoke.spec.ts` — Added "settings page shows logs directory actions" test
+- `.ai/local-diagnostics-logging.md` — Added "Custom log directory" section
+- `docs/BETA_QA_FINDINGS_ACTION_PLAN_EN.md` — Added status note to Milestone B
+- `CHANGELOG.md` — Added Milestone B entry under Unreleased
+
+### Tests added
+- Rust `app_config.rs`: 4 unit tests (`default_config_when_no_file_exists`, `save_and_load_custom_logs_directory`, `load_malformed_config_returns_default`, `reset_clears_custom_logs_directory`)
+- Vitest `SettingsPanel.test.tsx`: 7 tests covering render, button presence, command invocation, cancel flow, success banner, reset flow
+- Playwright `smoke.spec.ts`: 1 test confirming log directory UI and buttons visible in Settings
+
+### Checks run
+- git diff --check: PASS
+- version consistency (v0.1.0): PASS
+- TypeScript: PASS
+- Vitest: 373/373 pass (was 367/367 before, 6 new tests added)
+- Playwright e2e: 13/13 pass (was 12/12 before, 1 new test added)
+- Vite build: PASS
+- cargo fmt: PASS
+- cargo check: PASS
+- cargo test: PASS (24 desktop tests pass, includes 4 new app_config tests)
+- cargo clippy: PASS
+- No package-lock.json: PASS
+- No tracked review-context: PASS
+
+### Known risks
+- Custom log dir is only applied on restart; the UI makes this explicit.
+- `open_logs_directory` uses `std::process::Command::spawn()` with platform-specific file manager commands. On Windows the `explorer.exe` path format and behavior is reliable. On Linux, `xdg-open` requires a desktop environment.
+- No `tauri-plugin-opener` or `tauri-plugin-shell` was available in the cached registry; using `std::process::Command` is safe since the path is always resolved server-side (never passed from frontend).
+
+### Windows 11 manual QA checklist
+1. Open Settings without a repository — confirm log directory paths are visible.
+2. Click "Open logs folder" — confirm OS file manager opens the logs directory.
+3. Click "Choose logs folder…" — pick a new directory — confirm success message.
+4. Relaunch app — confirm logs are now written to the custom directory.
+5. Click "Reset to default" — confirm custom directory clears and button disappears.
+6. Cancel "Choose logs folder…" dialog — confirm no error shown.

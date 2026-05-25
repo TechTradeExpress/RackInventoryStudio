@@ -1,3 +1,4 @@
+mod app_config;
 mod commands;
 mod diagnostics;
 mod dto;
@@ -6,11 +7,12 @@ use commands::{
     add_device_cmd, add_device_model_cmd, add_git_remote, add_location_cmd, add_rack_cmd,
     close_repository, commit_repository_changes, create_repository_cmd, delete_device_cmd,
     delete_device_model_cmd, delete_location_cmd, delete_rack_cmd, get_git_log, get_git_status,
-    get_rack_detail, get_repository_summary, import_device_csv_cmd, init_git_repository,
-    list_device_models, list_devices, list_git_remotes, list_locations, list_racks, move_placement,
-    open_repository_cmd, place_device, place_rack_object, preview_device_csv_import_cmd,
-    pull_git_ff_only, push_git_current_branch, read_csv_file, remove_placement,
-    save_current_repository, search_repository_cmd, update_device_cmd, update_device_model_cmd,
+    get_log_settings, get_rack_detail, get_repository_summary, import_device_csv_cmd,
+    init_git_repository, list_device_models, list_devices, list_git_remotes, list_locations,
+    list_racks, move_placement, open_logs_directory, open_repository_cmd, place_device,
+    place_rack_object, preview_device_csv_import_cmd, pull_git_ff_only, push_git_current_branch,
+    read_csv_file, remove_placement, reset_logs_directory, save_current_repository,
+    search_repository_cmd, set_logs_directory, update_device_cmd, update_device_model_cmd,
     update_location_cmd, update_rack_cmd, validate_current_repository,
     write_device_import_sample_csv, AppState,
 };
@@ -75,6 +77,10 @@ pub fn run() {
             read_csv_file,
             write_device_import_sample_csv,
             search_repository_cmd,
+            get_log_settings,
+            open_logs_directory,
+            set_logs_directory,
+            reset_logs_directory,
         ])
         .setup(|_app| {
             log::info!("Rack Inventory Studio starting");

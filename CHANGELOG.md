@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased — Beta QA follow-up Milestone B: Settings logs actions
+
+### Added
+- Settings: "Open logs folder" button opens the active logs directory in the OS file manager.
+- Settings: "Choose logs folder…" directory picker to configure a custom log directory.
+- Settings: "Reset to default" to remove the custom log directory override.
+- Settings: Shows default, active, and custom log directory paths.
+- Persisted app config layer (`app_config.json`) for storing the custom log directory override.
+- Changes to the log directory apply after app restart (noted in UI).
+
 ## Unreleased — Beta QA follow-up Milestone A: immediate blockers and small UI cleanup
 
 ### Fixed

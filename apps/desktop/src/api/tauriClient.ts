@@ -566,3 +566,43 @@ export async function selectRepositoryFolder(): Promise<string | null> {
   if (Array.isArray(result)) return result[0] ?? null;
   return result;
 }
+
+// ── Log settings ──────────────────────────────────────────────────────────────
+
+export interface LogSettingsDto {
+  default_log_dir: string;
+  active_log_dir: string;
+  custom_log_dir: string | null;
+  restart_required: boolean;
+}
+
+export function getLogSettings(): Promise<LogSettingsDto> {
+  return invoke("get_log_settings");
+}
+
+export function openLogsDirectory(): Promise<void> {
+  return invoke("open_logs_directory");
+}
+
+export function setLogsDirectory(path: string): Promise<LogSettingsDto> {
+  return invoke("set_logs_directory", { path });
+}
+
+export function resetLogsDirectory(): Promise<LogSettingsDto> {
+  return invoke("reset_logs_directory");
+}
+
+/**
+ * Open a native directory picker to select a logs folder.
+ * Returns null if the user cancelled.
+ */
+export async function selectDirectory(): Promise<string | null> {
+  const result = await open({
+    directory: true,
+    multiple: false,
+    title: "Choose logs folder",
+  });
+  if (result === null || result === undefined) return null;
+  if (Array.isArray(result)) return result[0] ?? null;
+  return result;
+}
