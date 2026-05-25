@@ -156,7 +156,7 @@ test("CSV import preview and import flow", async ({ page }) => {
   await expect(page.getByText(/1 device created/i)).toBeVisible();
 });
 
-test("rack detail and placement table visible", async ({ page }) => {
+test("rack detail: diagram is primary surface — no placement table", async ({ page }) => {
   await page.goto("/");
   await openFixtureRepo(page);
 
@@ -168,27 +168,35 @@ test("rack detail and placement table visible", async ({ page }) => {
 
   // Click the rack row to open detail
   await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: /Main Rack/i }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
 
   // Front/Rear segmented control is visible
   await expect(page.getByRole("tab", { name: "Front" })).toBeVisible();
   await expect(page.getByRole("tab", { name: "Rear" })).toBeVisible();
 
-  // Active side table shows "Front placements" heading and fixture placement (by device name)
-  await expect(page.getByRole("heading", { name: "Front placements", exact: true })).toBeVisible();
-  // fixture device name "srv-01" appears in the Name column
-  await expect(page.getByRole("cell", { name: "srv-01", exact: true })).toBeVisible();
+  // Rack diagram panel is the primary surface
+  await expect(page.getByRole("heading", { name: "Rack diagram", exact: true })).toBeVisible();
 
-  // Palette sidebar is visible (new 2-column layout — right column has Placeable equipment panel)
+  // Diagram contains the occupied fixture placement block (fixture: "srv-01" at U10)
+  await expect(page.getByTestId("placed-front-ffffffff-ffff-ffff-ffff-ffffffffffff")).toBeVisible();
+
+  // Placement TABLE must NOT be present — headings "Front placements" / "Rear placements" are removed
+  await expect(page.getByRole("heading", { name: "Front placements", exact: true })).not.toBeVisible();
+  await expect(page.getByRole("heading", { name: "Rear placements", exact: true })).not.toBeVisible();
+  // Table headers that only existed in the placement table must not appear
+  await expect(page.getByRole("columnheader", { name: "Asset tag", exact: true })).not.toBeVisible();
+
+  // Palette sidebar is still visible (right column — Placeable equipment)
   await expect(page.getByText(/Placeable equipment/)).toBeVisible();
 
-  // Switching to Rear updates tab state and table title; fixture placement disappears
+  // Inspector empty state is shown when nothing is selected
+  await expect(page.getByRole("heading", { name: "Placement inspector", exact: true })).toBeVisible();
+  await expect(page.getByText("Select a placement in the diagram")).toBeVisible();
+
+  // Switching to Rear: occupied block disappears (fixture is front-only), tab updates
   await page.getByRole("tab", { name: "Rear" }).click();
   await expect(page.getByRole("tab", { name: "Rear" })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("heading", { name: "Rear placements", exact: true })).toBeVisible();
-  await expect(page.getByRole("cell", { name: "srv-01", exact: true })).not.toBeVisible();
+  await expect(page.getByTestId("placed-front-ffffffff-ffff-ffff-ffff-ffffffffffff")).not.toBeVisible();
 });
 
 test("rack detail: click empty slot opens place modal", async ({ page }) => {
@@ -216,31 +224,35 @@ test("rack detail: click empty slot opens place modal", async ({ page }) => {
   ).not.toBeVisible();
 });
 
-test("rack detail: placement inspector shows no change-side button", async ({ page }) => {
+test("rack detail: click occupied block selects it and shows inspector", async ({ page }) => {
   await page.goto("/");
   await openFixtureRepo(page);
 
-  // Navigate to Racks via Locations → Manage racks
+  // Navigate to rack detail
   await page.getByRole("button", { name: "Locations", exact: true }).click();
   await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
   await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Front placements", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
 
-  // Select the fixture placement from the table
-  await page.getByRole("cell", { name: "srv-01", exact: true }).click();
+  // Placement table must not exist
+  await expect(page.getByRole("heading", { name: "Front placements", exact: true })).not.toBeVisible();
 
-  // "Move to Rear" / "Change side" button must NOT be present (removed as unsafe)
-  await expect(
-    page.getByRole("button", { name: /Move to Rear/i }),
-  ).not.toBeVisible();
-  await expect(
-    page.getByRole("button", { name: /Move to Front/i }),
-  ).not.toBeVisible();
+  // Click the occupied fixture placement block in the diagram (fixture: srv-01 at U10)
+  await page.getByTestId("placed-front-ffffffff-ffff-ffff-ffff-ffffffffffff").click();
 
-  // Remove placement button is still present
-  await expect(
-    page.getByRole("button", { name: /Remove placement/i }),
-  ).toBeVisible();
+  // Inspector panel updates with placement details (KV rows)
+  await expect(page.getByText("plc-srv-01", { exact: true })).toBeVisible();
+  await expect(page.getByText("srv-01", { exact: true }).first()).toBeVisible();
+
+  // "Move to Rear" / "Change side" must NOT be present (removed as unsafe per product decision)
+  await expect(page.getByRole("button", { name: /Move to Rear/i })).not.toBeVisible();
+  await expect(page.getByRole("button", { name: /Move to Front/i })).not.toBeVisible();
+
+  // Remove placement button is still present in the inspector
+  await expect(page.getByRole("button", { name: /Remove placement/i })).toBeVisible();
+
+  // Edit placement button is still present
+  await expect(page.getByRole("button", { name: /Edit placement/i })).toBeVisible();
 });
 
 test("git section shows status label and publish guidance", async ({ page }) => {

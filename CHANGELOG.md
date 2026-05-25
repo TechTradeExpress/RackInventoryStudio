@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased — Beta QA follow-up Milestone C: Rack diagram as primary placement surface
+
+### Changed
+- Removed the active-side placement table (Front placements / Rear placements) from Rack Detail. All placement discovery, selection, and interaction now happens directly in the rack diagram.
+- Rack diagram is now the sole placement surface: click an empty slot to place equipment (start U prefilled); click an occupied block to select it and open the inspector.
+- Placement inspector is always visible in the right sidebar; shows a helpful empty state ("Select a placement in the diagram") when nothing is selected.
+- Updated diagram legend to cover all visual states: Available, Occupied, Selected, Warning/incomplete, Drop target (drag).
+- Updated inspector empty state copy to direct users to the diagram instead of the removed table.
+- Added `data-testid="placed-{side}-{id}"` to occupied placement blocks in the diagram for E2E testability.
+- Edit and Remove placement actions remain in the contextual inspector / EditPlacementModal.
+
 ## Unreleased — Beta QA follow-up Milestone B: Settings logs actions
 
 ### Added

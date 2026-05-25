@@ -186,6 +186,7 @@ function SideColumn({
           return (
             <div
               key={idx}
+              data-testid={`placed-${side}-${state.placement.id}`}
               title={label.title}
               style={style}
               onClick={() => onSelectPlacement(state.placement)}
@@ -281,45 +282,20 @@ export function RackUnitDiagram({
   return (
     <div>
       <p style={{ margin: "0 0 0.4rem", fontSize: "0.78rem", color: "#666" }}>
-        U numbers shown top (U{heightU}) to bottom (U1). Click an empty slot to place equipment.
-        Click an occupied cell to inspect it.
+        U{heightU} at top · U1 at bottom · Click an empty slot to place · Click an occupied block to inspect · Drag from palette
       </p>
 
       {/* Legend */}
       <div
+        aria-label="Diagram legend"
         style={{
           display: "flex",
-          gap: "1rem",
+          flexWrap: "wrap",
+          gap: "0.75rem 1rem",
           marginBottom: "0.5rem",
           fontSize: "0.75rem",
         }}
       >
-        <span>
-          <span
-            style={{
-              display: "inline-block",
-              width: 12,
-              height: 12,
-              background: colors.occupied,
-              verticalAlign: "middle",
-              marginRight: 3,
-            }}
-          />
-          Occupied
-        </span>
-        <span>
-          <span
-            style={{
-              display: "inline-block",
-              width: 12,
-              height: 12,
-              background: colors.incomplete,
-              verticalAlign: "middle",
-              marginRight: 3,
-            }}
-          />
-          Incomplete height
-        </span>
         <span>
           <span
             style={{
@@ -332,7 +308,61 @@ export function RackUnitDiagram({
               marginRight: 3,
             }}
           />
-          Empty
+          Available — click to place
+        </span>
+        <span>
+          <span
+            style={{
+              display: "inline-block",
+              width: 12,
+              height: 12,
+              background: colors.occupied,
+              verticalAlign: "middle",
+              marginRight: 3,
+            }}
+          />
+          Occupied — click to inspect
+        </span>
+        <span>
+          <span
+            style={{
+              display: "inline-block",
+              width: 12,
+              height: 12,
+              background: colors.occupiedSelected,
+              boxShadow: `inset 0 0 0 2px ${colors.selectionRing}`,
+              verticalAlign: "middle",
+              marginRight: 3,
+            }}
+          />
+          Selected
+        </span>
+        <span>
+          <span
+            style={{
+              display: "inline-block",
+              width: 12,
+              height: 12,
+              background: colors.incomplete,
+              verticalAlign: "middle",
+              marginRight: 3,
+            }}
+          />
+          Warning / incomplete
+        </span>
+        <span>
+          <span
+            style={{
+              display: "inline-block",
+              width: 12,
+              height: 12,
+              background: "#c8e6c0",
+              border: "1px dashed #4a7c3f",
+              verticalAlign: "middle",
+              marginRight: 3,
+            }}
+          />
+          Drop target (drag)
         </span>
       </div>
 

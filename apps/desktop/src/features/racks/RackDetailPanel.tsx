@@ -229,7 +229,6 @@ export function RackDetailPanel({
     setPlacePlacementOpen(true);
   }
 
-  // Edit placement from table
   function handleEditPlacement(p: PlacementDto) {
     setEditingPlacement(p);
     setEditPlacementOpen(true);
@@ -334,27 +333,11 @@ export function RackDetailPanel({
 
         {detail && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gap: 16, minHeight: 0 }}>
-            {/* Left — diagram + placement table */}
+            {/* Left — diagram only (primary placement surface) */}
             <div className="stack-4" style={{ minWidth: 0 }}>
               <Panel
                 title="Rack diagram"
                 desc={`${activeSide === "front" ? "Front" : "Rear"} · U${detail.height_u} at top · click empty slot to place · drag from palette`}
-                actions={
-                  <div className="row" style={{ gap: 12, fontSize: 11 }}>
-                    <span className="row" style={{ gap: 4 }}>
-                      <span className="status-dot info" /> Device
-                    </span>
-                    <span className="row" style={{ gap: 4 }}>
-                      <span className="status-dot warn" /> Reserved
-                    </span>
-                    <span className="row" style={{ gap: 4 }}>
-                      <span className="status-dot muted" /> Blank/organizer
-                    </span>
-                    <span className="row" style={{ gap: 4 }}>
-                      <span className="status-dot err" /> Unknown
-                    </span>
-                  </div>
-                }
               >
                 <RackUnitDiagram
                   heightU={detail.height_u}
@@ -375,90 +358,6 @@ export function RackDetailPanel({
                   </span>
                 </div>
               </Panel>
-
-              {/* Placement table */}
-              {(() => {
-                const activePlacements = activeSide === "front" ? detail.front : detail.rear;
-                const tableTitle = activeSide === "front" ? "Front placements" : "Rear placements";
-                const emptyMsg   = activeSide === "front" ? "No front placements." : "No rear placements.";
-                return (
-                  <Panel
-                    title={tableTitle}
-                    desc={activePlacements.length > 0 ? `${activePlacements.length} placement${activePlacements.length !== 1 ? "s" : ""}` : undefined}
-                    flush
-                  >
-                    {activePlacements.length === 0 ? (
-                      <div style={{ padding: "12px 16px", fontSize: 12, color: "var(--tx-3)" }}>
-                        {emptyMsg}
-                      </div>
-                    ) : (
-                      <table className="tbl">
-                        <thead>
-                          <tr>
-                            <th className="tbl-mono">U</th>
-                            <th>Name</th>
-                            <th>Type</th>
-                            <th>Model / SKU</th>
-                            <th className="tbl-mono">Serial</th>
-                            <th className="tbl-mono">Asset tag</th>
-                            <th>Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {activePlacements.map((p) => {
-                            const typeLabel =
-                              p.target_kind === "device"
-                                ? (p.device_type ?? "Device")
-                                : p.target_kind === "device_model"
-                                  ? "Rack object"
-                                  : "—";
-                            return (
-                            <tr
-                              key={p.id}
-                              data-placement-id={p.id}
-                              className={`tbl-clickable${p.id === selectedPlacement?.id ? " tbl-selected" : ""}`}
-                              onClick={() => handleSelectPlacement(p.id === selectedPlacement?.id ? null : p)}
-                            >
-                              <td className="tbl-mono" style={{ whiteSpace: "nowrap" }}>
-                                U{p.start_u}{p.end_u && p.end_u !== p.start_u ? `–${p.end_u}` : ""}
-                              </td>
-                              <td style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                {p.target_name ?? p.target_code ?? p.code}
-                              </td>
-                              <td className="tbl-mono" style={{ color: "var(--tx-3)" }}>
-                                {typeLabel}
-                              </td>
-                              <td className="tbl-mono" style={{ color: "var(--tx-3)", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                {p.model_name ?? p.model_code ?? "—"}
-                              </td>
-                              <td className="tbl-mono" style={{ color: "var(--tx-3)" }}>
-                                {p.target_serial ?? "—"}
-                              </td>
-                              <td className="tbl-mono" style={{ color: "var(--tx-3)" }}>
-                                {p.target_asset_tag ?? "—"}
-                              </td>
-                              <td onClick={(e) => e.stopPropagation()}>
-                                <div className="row" style={{ gap: 4 }}>
-                                  <button
-                                    className="btn btn-sm"
-                                    title={`Edit ${p.code}`}
-                                    aria-label={`Edit ${p.code}`}
-                                    onClick={() => handleEditPlacement(p)}
-                                    data-testid={`edit-placement-${p.id}`}
-                                  >
-                                    Edit
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    )}
-                  </Panel>
-                );
-              })()}
             </div>
 
             {/* Right — palette + inspector */}
@@ -472,30 +371,28 @@ export function RackDetailPanel({
                 onPlaceRackObject={handlePaletteRackObject}
               />
 
-              {selectedPlacement && (
-                <Panel
-                  title="Placement inspector"
-                  desc={
-                    selectedPlacement
-                      ? `${selectedSide} side · ${selectedPlacement.code}`
-                      : "Nothing selected"
-                  }
-                >
-                  {mutationMessage && (
-                    <div style={{ marginBottom: 8 }}>
-                      <Banner tone="ok">{mutationMessage}</Banner>
-                    </div>
-                  )}
-                  <PlacementInspectorPanel
-                    placement={selectedPlacement}
-                    side={selectedSide}
-                    currentRack={rack}
-                    onMoveSuccess={handleMoveSuccess}
-                    onRemoveSuccess={handleRemoveSuccess}
-                    onOpenEditModal={() => handleEditPlacement(selectedPlacement)}
-                  />
-                </Panel>
-              )}
+              <Panel
+                title="Placement inspector"
+                desc={
+                  selectedPlacement
+                    ? `${selectedSide} side · ${selectedPlacement.code}`
+                    : "Select a placement in the diagram"
+                }
+              >
+                {mutationMessage && selectedPlacement && (
+                  <div style={{ marginBottom: 8 }}>
+                    <Banner tone="ok">{mutationMessage}</Banner>
+                  </div>
+                )}
+                <PlacementInspectorPanel
+                  placement={selectedPlacement}
+                  side={selectedSide}
+                  currentRack={rack}
+                  onMoveSuccess={handleMoveSuccess}
+                  onRemoveSuccess={handleRemoveSuccess}
+                  onOpenEditModal={selectedPlacement ? () => handleEditPlacement(selectedPlacement) : undefined}
+                />
+              </Panel>
             </div>
           </div>
         )}
