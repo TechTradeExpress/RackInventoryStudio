@@ -1,6 +1,11 @@
 
 # Rack Inventory Studio — MVP Screen Design v0.1
 
+> **Historical document.** This screen specification was written for the pre-hardening MVP UI.
+> Rack Detail sections describing the "Add placement" form and placement table no longer reflect
+> the current implementation; those were replaced by the diagram-first placement workflow
+> in Beta QA Milestones C–E. This document is preserved for historical reference.
+
 ## 1. Purpose
 
 This document describes the MVP screen design for **Rack Inventory Studio**. It is not a visual mockup or technology specification yet. It describes main screens, their purpose, basic layout, actions, UI states, and navigation.

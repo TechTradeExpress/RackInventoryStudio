@@ -46,7 +46,7 @@ tests/                  Shared test fixtures
 | Placement use cases — place, move, remove device and rack objects | Done |
 | Tauri commands — open, save, validate, close, list entities, move placement, remove placement | Done |
 
-358 workspace tests pass. 315 frontend (Vitest) tests pass. 10 Playwright smoke tests pass.
+374 Rust workspace tests pass. 388 frontend (Vitest) tests pass. 16 Playwright smoke tests pass.
 
 ## Current desktop UI capabilities
 
@@ -59,15 +59,16 @@ tests/                  Shared test fixtures
 - Global unsaved changes banner whenever in-memory state differs from disk (explicit note that this is separate from Git)
 - Tab navigation: Locations list, Racks list, Devices list, Device Models list
 - Global search — single input covering devices, racks, locations, and device models; navigate directly to any matching entity
-- Rack detail view — metadata table, graphical read-only rack unit diagram (U-position, front and rear sides)
-- Placement inspector — all placement fields visible when a placement is selected
-- Drag-and-drop placement — drag an unplaced device or rack object onto a U row in the rack diagram (front or rear)
-- Move a placement to a new rack, side, start U, and optional height override via the Placement Inspector form (supports same-rack, cross-side, and rack-to-rack moves); cross-rack move automatically navigates to the destination rack and selects the moved placement
-- Add a new device or rack object placement to the selected rack via a simple form (side, target, start U, optional height override); unsaved changes must be saved via the Repository tab
-- Remove an existing placement from the selected rack via a confirmation button in the Placement Inspector; unsaved changes must be saved via the Repository tab
+- Rack detail — rack unit diagram as the primary placement surface (front/rear sides); click an empty slot to open the Place equipment modal; click an occupied block to select it and open the placement inspector
+- Placement inspector — placement details and actions (edit, remove) shown in sidebar when a block is selected in the diagram
+- Place equipment modal — place a device or rack object with U, side, and height; supports creating a new device inline without leaving the placement workflow
+- Drag-and-drop placement — drag a device or rack object from the palette to a U-slot in the diagram; opens Place equipment modal pre-filled with target and U position
+- Move a placement to a new rack, side, start U, and optional height override via the Edit placement modal; cross-rack move automatically navigates to the destination rack and selects the moved placement
+- Remove an existing placement from the selected rack via a confirmation dialog in the Placement Inspector
+- Settings — Diagnostics and logs: view active log directory, open logs folder, configure custom log path
 - CSV device import via native OS file picker — preview with row-level validation, confirm/write
-- Git integration — semantic status labels (clean / uncommitted / ahead / behind / diverged), contextual action hints, safe publish checklist (Save → Validate → Commit → Pull → Push), commit with message, push/pull with per-state gating (behind-only blocks push; diverged blocks both)
-- Playwright smoke tests (10 tests) covering the golden path, search, CSV import, rack detail, rack side-switch, change-side dialog, and Git UX
+- Git integration — semantic status labels (clean / uncommitted / ahead / behind / diverged), contextual action hints, safe publish checklist (Save → Validate → Commit → Pull → Push), commit with message, push/pull with per-state gating
+- Playwright smoke tests (16 tests) covering the golden path, search, CSV import, rack detail, diagram interactions, DnD, create-device-from-placement, and Git UX
 
 ## Project status
 
@@ -75,19 +76,18 @@ tests/                  Shared test fixtures
 
 ### Current release direction — Beta hardening
 
-**V1 release is paused.** The next target is a beta hardening release (Beta 0.2.x). The focus is on UX stability, operational reliability (global busy overlay, no flashing Windows console windows), consistent versioning, installer artifact naming, navigation cleanup, and rack placement UX redesign — before committing to a V1 milestone.
+**Beta hardening milestones A–F are complete.** The app has received a full UX hardening pass: global busy overlay, Windows Git console-window fix, Settings logs actions, rack diagram as primary placement surface, full drag-and-drop workflow, inline device creation from the placement flow, and a finalized release/versioning process. V1 is next once Windows 11 manual QA is completed and the first beta tag is created.
 
-See [`docs/BETA_HARDENING_PLAN_EN.md`](docs/BETA_HARDENING_PLAN_EN.md) for the full plan, [`docs/BETA_RELEASE_PROCESS_EN.md`](docs/BETA_RELEASE_PROCESS_EN.md) for the release checklist and version bump procedure, [`docs/BETA_WINDOWS_11_QA_EN.md`](docs/BETA_WINDOWS_11_QA_EN.md) for the Windows 11 manual QA runbook (required before beta distribution), and [`docs/BETA_QA_FINDINGS_ACTION_PLAN_EN.md`](docs/BETA_QA_FINDINGS_ACTION_PLAN_EN.md) for post-QA findings and the follow-up milestone plan.
+See [`docs/BETA_RELEASE_PROCESS_EN.md`](docs/BETA_RELEASE_PROCESS_EN.md) for the release checklist, version bump helper, and step-by-step release workflow. See [`docs/BETA_WINDOWS_11_QA_EN.md`](docs/BETA_WINDOWS_11_QA_EN.md) for the Windows 11 manual QA runbook (required before beta distribution). See [`docs/BETA_QA_FINDINGS_ACTION_PLAN_EN.md`](docs/BETA_QA_FINDINGS_ACTION_PLAN_EN.md) for the post-QA findings and completed milestones record.
 
 ### What is implemented (MVP Core)
 
 - Open local inventory repository; view summary, locations, racks, devices, device models
 - Validation panel with per-issue results
-- Rack detail view with graphical rack unit diagram (front and rear)
-- Placement inspector: view all placement fields
-- Add placement — device or rack object — via form
-- Move placement: same rack, cross-side, and cross-rack, via the inspector form; cross-rack auto-navigates to the destination rack
-- Remove placement via confirmation button
+- Rack detail — rack unit diagram as primary placement surface; click empty slot or drag from palette to open Place equipment modal; create new device inline from placement workflow
+- Placement inspector in sidebar: view/edit/remove placement selected in diagram
+- Place device or rack object via diagram click, palette Place button, or drag-and-drop; cross-rack move auto-navigates to destination rack
+- Remove placement via confirmation dialog
 - Rack list shows Front / Rear / Total placement counts, updated live after mutations
 - Unsaved changes banner, save flow, close with confirmation
 - Edit and delete for all catalog entity types (locations, racks, device models, devices) with referential integrity guards
@@ -110,24 +110,27 @@ v1.0.0 is the first user-facing release. It is not just a technical MVP — it m
 | Claude Design / UX audit and design direction | Done (branch `design/claude-ui-polish`) |
 | UI polish based on design direction | Done (branch `design/claude-ui-polish`) |
 | Windows installer CI (manual, unsigned) | Done (branch `design/claude-ui-polish`) |
-| Manual visual QA on Windows 11 | Required before release |
-| Release hardening | v1.0.0 Candidate |
-| Packaging and user-facing release documentation | v1.0.0 Release |
+| Beta QA Milestone A — immediate UX blockers | Done (PR #71) |
+| Beta QA Milestone B — Settings logs actions | Done (PR #72) |
+| Beta QA Milestone C — Rack diagram as primary placement surface | Done (PR #73) |
+| Beta QA Milestone D — Complete drag-and-drop workflow | Done (PR #74) |
+| Beta QA Milestone E — Create device from Place equipment | Done (PR #75) |
+| Beta QA Milestone F — Release/versioning/installer process | Done (PR #76) |
+| Manual Windows 11 QA + first beta tag | Required before v1.0.0 |
+| V1 release | Pending Windows QA + beta tag |
 
 Items planned after v1.0.0: plugin system, CMDB / NetBox / Nautobot / Zabbix integrations, advanced Git conflict resolution UI, advanced reports / PDF export, advanced import/export formats, application-level permissions, large enterprise workflows.
-
-See [`docs/MVP_READINESS_REPORT_EN.md`](docs/MVP_READINESS_REPORT_EN.md) for the detailed readiness assessment and [`docs/MVP_SMOKE_TEST_CHECKLIST_EN.md`](docs/MVP_SMOKE_TEST_CHECKLIST_EN.md) for the manual smoke-test checklist.
 
 ### v1.0.0 release gate
 
 Before tagging v1.0.0, all of the following must pass:
 
-- `cargo test --workspace` — all Rust tests
-- `pnpm typecheck` + `pnpm test` + `pnpm build` — frontend checks
-- `pnpm --filter @rack-inventory-studio/desktop test:e2e` — Playwright smoke tests (10/10)
-- Manual smoke checklist (`docs/MVP_SMOKE_TEST_CHECKLIST_EN.md`)
-- Manual visual QA on a real Windows 11 machine (see `.ai/windows-installer-ci.md`)
-- Packaging check: run Windows Installer workflow manually via GitHub Actions, download artifact, install and verify on clean Windows 11
+- `cargo test --workspace` — all Rust tests (374)
+- `pnpm typecheck` + `pnpm test` + `pnpm build` — frontend checks (388 Vitest tests)
+- `pnpm --filter @rack-inventory-studio/desktop test:e2e` — Playwright smoke tests (16/16)
+- Manual Windows 11 QA checklist (`docs/BETA_WINDOWS_11_QA_EN.md`)
+- Windows Installer workflow run manually; artifact downloaded and installed on clean Windows 11
+- Beta tag created and GitHub Release published per `docs/BETA_RELEASE_PROCESS_EN.md`
 
 ### Claude Design / UX Direction
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased — Docs cleanup: align with current beta state (Milestones A–F)
+
+### Changed
+- `README.md`: updated test counts (374 Rust / 388 Vitest / 16 E2E), current desktop UI capabilities (diagram-first placement, inline device creation, Settings → Diagnostics and logs), roadmap table (Beta QA Milestones A–F all marked Done), v1.0.0 release gate (references BETA_WINDOWS_11_QA_EN.md and BETA_RELEASE_PROCESS_EN.md).
+- `docs/BETA_HARDENING_PLAN_EN.md`: added archival banner; updated current baseline table (rack detail row reflects diagram-first UI, test counts updated).
+- `docs/MVP_SMOKE_TEST_CHECKLIST_EN.md`: added archival banner (references pre-hardening UI including placement table and Add Placement form).
+- `docs/UX_AUDIT_PREP_EN.md`: added archival banner (pre-audit brief describing pre-hardening state).
+- `docs/UI_SCREENS_SPEC_EN.md`: added archival banner (MVP screen spec with pre-hardening placement UI).
+- `docs/USER_WORKFLOWS_EN.md`: added archival banner (MVP workflows with pre-hardening placement flows).
+
 ## Unreleased — Beta QA follow-up Milestone F: Release/versioning/installer process
 
 ### Added
