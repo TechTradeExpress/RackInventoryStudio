@@ -84,6 +84,26 @@ function check(name, pass, detail = null) {
   check("CHANGELOG.md is present", exists, exists ? null : "CHANGELOG.md not found at repo root");
 }
 
+// ── 7. Windows Diagnostic Installer workflow is not reintroduced ─────────────
+{
+  const tracked = gitLsFiles(".github/workflows/windows-diagnostic-installer.yml");
+  check(
+    "Windows Diagnostic Installer workflow is not tracked",
+    tracked !== null && tracked.length === 0,
+    tracked?.length ? `Found: ${tracked.join(", ")}` : null,
+  );
+}
+
+// ── 8. Windows Diagnostic Installer CI doc is not reintroduced ───────────────
+{
+  const tracked = gitLsFiles(".ai/windows-diagnostic-installer.md");
+  check(
+    "Windows Diagnostic Installer CI doc is not tracked",
+    tracked !== null && tracked.length === 0,
+    tracked?.length ? `Found: ${tracked.join(", ")}` : null,
+  );
+}
+
 // ── Print results ─────────────────────────────────────────────────────────────
 const nameWidth = Math.max(...checks.map((c) => c.name.length));
 const sep = "─".repeat(nameWidth + 10);
