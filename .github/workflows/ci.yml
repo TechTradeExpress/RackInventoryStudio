@@ -13,7 +13,7 @@ permissions:
 jobs:
   rust:
     name: Rust workspace
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
@@ -48,7 +48,7 @@ jobs:
 
   version-check:
     name: Version consistency
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
@@ -59,7 +59,7 @@ jobs:
 
   scripts:
     name: Script and hygiene checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
@@ -73,7 +73,7 @@ jobs:
 
   frontend:
     name: Frontend checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
@@ -99,3 +99,14 @@ jobs:
 
       - name: Frontend build
         run: pnpm --filter @rack-inventory-studio/desktop build
+
+  workflow-lint:
+    name: Workflow lint
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Run actionlint
+        uses: raven-actions/actionlint@v2

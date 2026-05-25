@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — CI runner pinning and workflow linting
+
+### Changed
+- `.github/workflows/ci.yml`: all four Linux CI jobs (`rust`, `version-check`, `scripts`, `frontend`) pinned from `ubuntu-latest` to `ubuntu-24.04` to prevent silent runner image drift.
+
+### Added
+- `.github/workflows/ci.yml`: new `workflow-lint` job running `raven-actions/actionlint@v2` on `ubuntu-24.04` — lints all workflow YAML files on every pull request and push, failing CI on syntax or semantic errors.
+
 ## Unreleased — Wire script and hygiene checks into CI
 
 ### Added

@@ -1,39 +1,41 @@
 ## Summary
 
-CI wiring for script tests and repository hygiene checks (follows PR #79). Added a new lightweight `scripts` CI job that runs `node --test scripts/*.test.mjs` and `node scripts/check-repo-hygiene.mjs` on every pull request and push. Extended `check-repo-hygiene.mjs` with two additional regression checks that prevent the removed Windows Diagnostic Installer workflow from being reintroduced.
+CI hardening — pin runner images and add workflow linting (follows PR #80). Replaced all `ubuntu-latest` references in `ci.yml` with the explicit `ubuntu-24.04` image to prevent silent runner drift. Added a new `workflow-lint` CI job that runs `raven-actions/actionlint@v2` to lint all `.github/workflows/*.yml` files on every pull request and push.
 
-No product behavior changes. No frontend UI changes. No Rust/Tauri changes. No version bump. No new dependencies.
+No product behavior changes. No frontend UI changes. No Rust/Tauri changes. No version bump. No new runtime or dev dependencies.
 
 ## Files changed
 
-- `.github/workflows/ci.yml` — Added new `scripts` job ("Script and hygiene checks"): checkout + `node --test scripts/*.test.mjs` + `node scripts/check-repo-hygiene.mjs`. No pnpm install needed (Node built-ins only).
-- `scripts/check-repo-hygiene.mjs` — Added 2 new checks: Windows Diagnostic Installer workflow not tracked (`.github/workflows/windows-diagnostic-installer.yml`), Windows Diagnostic Installer CI doc not tracked (`.ai/windows-diagnostic-installer.md`). Total checks: 8.
-- `CHANGELOG.md` — Added `## Unreleased — Wire script and hygiene checks into CI` section.
+- `.github/workflows/ci.yml` — Pinned all four Linux jobs (`rust`, `version-check`, `scripts`, `frontend`) from `ubuntu-latest` to `ubuntu-24.04`. Added new `workflow-lint` job using `raven-actions/actionlint@v2` on `ubuntu-24.04`.
+- `CHANGELOG.md` — Added `## Unreleased — CI runner pinning and workflow linting` section.
 
-## CI job/step changes
+## Workflows changed
 
-Before: 3 CI jobs (`rust`, `version-check`, `frontend`)
-After: 4 CI jobs (`rust`, `version-check`, `scripts`, `frontend`)
+`.github/workflows/ci.yml`:
 
-New `scripts` job:
-- No system dependencies, no pnpm install — fast checkout-only
-- Step 1: `node --test scripts/*.test.mjs` — 17 fixture-based tests for `bump-version.mjs`
-- Step 2: `node scripts/check-repo-hygiene.mjs` — 8 hygiene regression checks
+| Job | Before | After |
+|-----|--------|-------|
+| `rust` | `ubuntu-latest` | `ubuntu-24.04` |
+| `version-check` | `ubuntu-latest` | `ubuntu-24.04` |
+| `scripts` | `ubuntu-latest` | `ubuntu-24.04` |
+| `frontend` | `ubuntu-latest` | `ubuntu-24.04` |
+| `workflow-lint` | *(new)* | `ubuntu-24.04` + `raven-actions/actionlint@v2` |
 
-Existing jobs unchanged.
+`.github/workflows/windows-installer.yml`: unchanged — `windows-latest` retained (manual-only workflow, no reason to pin).
 
-## Hygiene checks now enforced in CI (8 total)
+## Runner pinning details
 
-| # | Check | Fail condition |
-|---|-------|---------------|
-| 1 | No `package-lock.json` | If tracked (project uses pnpm) |
-| 2 | No `.env` files | If any non-sample `.env` file is tracked |
-| 3 | No `.ai/review-context-*.md` | If any review-context file is committed |
-| 4 | No `node_modules` in git | If any `node_modules` path is tracked |
-| 5 | `pnpm-lock.yaml` tracked | If lockfile is missing or untracked |
-| 6 | `CHANGELOG.md` present | If `CHANGELOG.md` is absent |
-| 7 | No Windows Diagnostic Installer workflow | If `.github/workflows/windows-diagnostic-installer.yml` is tracked |
-| 8 | No Windows Diagnostic Installer CI doc | If `.ai/windows-diagnostic-installer.md` is tracked |
+- Replaced 4× `ubuntu-latest` → `ubuntu-24.04`.
+- `ubuntu-24.04` is the current LTS image behind `ubuntu-latest` as of May 2026; pinning makes the runner version explicit so future image promotions (e.g., `ubuntu-latest` → `ubuntu-26.04`) do not silently change CI behaviour.
+- `windows-latest` in the Windows Installer workflow is left unpinned — it is a manual-only workflow with no automated triggers, and there is no pinned Windows image equivalent in scope for this PR.
+
+## Actionlint integration details
+
+- New job: `workflow-lint` / "Workflow lint" on `ubuntu-24.04`.
+- Uses `raven-actions/actionlint@v2` — installs the latest stable actionlint release and lints `.github/workflows/*.yml`.
+- Fails CI on any actionlint syntax or semantic error (no silent suppression).
+- Lightweight: checkout + actionlint only, no pnpm/Node setup.
+- `actionlint` was not available locally — lint correctness is verified by the GitHub Actions run.
 
 ## Checks run locally
 
@@ -51,21 +53,20 @@ cargo test --workspace                          → clean
 cargo clippy --workspace -- -D warnings         → clean
 no apps/desktop/package-lock.json               → ok
 no tracked .ai/review-context-*.md              → ok
-actionlint                                      → not available (manual YAML review only)
+actionlint (local)                              → not available; verified by CI
 ```
 
 ## Known risks
 
-- `actionlint` was not available locally — YAML was manually reviewed and matches the existing job structure.
-- The `scripts` job uses the default Node.js version on `ubuntu-latest` (currently Node 20). `node:test` requires Node 18+; this is safe. If the runner's Node version ever drops below 18, the job will fail — but that scenario is not anticipated.
-- The two new hygiene checks use exact path matching via `git ls-files`. A file at a different path (e.g., renamed workflow) would not be caught — but the intent is to block exact reintroduction of the removed files.
+- `raven-actions/actionlint@v2` resolves to the latest patch within the v2 major — a breaking change in v2.x would affect the lint job. Major version tags are the standard GitHub Actions convention; risk is low.
+- actionlint was not available locally for pre-push verification. The `workflow-lint` CI job is the authoritative validator for this PR.
+- `ubuntu-24.04` is explicitly supported by GitHub-hosted runners. If GitHub deprecates this image label before a new pin PR is merged, the Linux jobs will fail — but image labels are deprecated on long notice cycles (months).
 
 ## Not done
 
-- `actionlint` CI self-check (not a declared requirement; noted for completeness).
-- E2E tests not duplicated in `scripts` job (correctly left in `frontend` job only).
-- Rust checks not duplicated (correctly left in `rust` job only).
+- `windows-latest` in `windows-installer.yml` not pinned — manual-only workflow, out of scope.
+- No actionlint config file (`.actionlint.yml`) added — the default configuration is sufficient for the current workflows.
 
 ## Suggested next step
 
-Consider pinning `ubuntu-latest` to a specific version (`ubuntu-24.04`) in all CI jobs to prevent runner image drift from breaking the `node:test` step.
+Monitor the `workflow-lint` CI job on this PR for any actionlint findings; fix any real issues before merging.
