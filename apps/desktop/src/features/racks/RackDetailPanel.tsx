@@ -69,7 +69,6 @@ export function RackDetailPanel({
   // Place placement modal state
   const [placePlacementOpen, setPlacePlacementOpen] = useState(false);
   const [placeModalStartU, setPlaceModalStartU] = useState<number | null>(null);
-  const [placeModalDndPayload, setPlaceModalDndPayload] = useState<DndPayload | null>(null);
   const [placeModalTargetKind, setPlaceModalTargetKind] = useState<"device" | "rack_object" | null>(null);
   const [placeModalTargetId, setPlaceModalTargetId] = useState<string | null>(null);
 
@@ -188,7 +187,6 @@ export function RackDetailPanel({
 
   // Drop handler: open modal pre-filled with startU and target from DnD payload
   function handleDropAtCell(side: "front" | "rear", startU: number, payload: DndPayload) {
-    setPlaceModalDndPayload(payload);
     setPlaceModalStartU(startU);
     // Preselect target from the drag payload
     if (payload.kind === "device") {
@@ -205,7 +203,6 @@ export function RackDetailPanel({
 
   // Empty cell click handler: open place modal
   function handleEmptySlotClick(startU: number) {
-    setPlaceModalDndPayload(null);
     setPlaceModalStartU(startU);
     setPlaceModalTargetKind(null);
     setPlaceModalTargetId(null);
@@ -214,7 +211,6 @@ export function RackDetailPanel({
 
   // Palette "Place…" button handlers — open modal with item preselected
   function handlePalettePlaceDevice(deviceId: string) {
-    setPlaceModalDndPayload(null);
     setPlaceModalStartU(null);
     setPlaceModalTargetKind("device");
     setPlaceModalTargetId(deviceId);
@@ -222,7 +218,6 @@ export function RackDetailPanel({
   }
 
   function handlePaletteRackObject(modelId: string) {
-    setPlaceModalDndPayload(null);
     setPlaceModalStartU(null);
     setPlaceModalTargetKind("rack_object");
     setPlaceModalTargetId(modelId);
@@ -253,14 +248,12 @@ export function RackDetailPanel({
         initialTargetId={placeModalTargetId}
         onClose={() => {
           setPlacePlacementOpen(false);
-          setPlaceModalDndPayload(null);
           setPlaceModalTargetKind(null);
           setPlaceModalTargetId(null);
         }}
         onDeviceCreated={() => setTargetReloadToken((t) => t + 1)}
         onPlaced={(newId) => {
           setPlacePlacementOpen(false);
-          setPlaceModalDndPayload(null);
           setPlaceModalTargetKind(null);
           setPlaceModalTargetId(null);
           handleAddSuccess(newId);
