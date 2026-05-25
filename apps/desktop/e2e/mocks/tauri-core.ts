@@ -292,17 +292,40 @@ const COMMANDS: Record<string, unknown> = {
   },
 };
 
-// Mutable module-level state — reset per page load so each Playwright test starts fresh.
+// ─── Dynamic mock state ──────────────────────────────────────────────────────
+// Module-level state that is mutated by add_device_cmd, place_device, etc.
+// Naturally reset on each Playwright page.goto("/") because the module re-evaluates.
+// resetE2eMockState() provides defense-in-depth: called by open_repository_cmd so
+// that tests which open the repo without a page reload also start from a clean baseline.
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const dynamicDevices: any[] = [...(COMMANDS.list_devices as any[])];
+function createInitialDevices(): any[] {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (COMMANDS.list_devices as any[]).map((d) => ({ ...d }));
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _baseDetail = COMMANDS.get_rack_detail as Record<string, any>;
+function createInitialRackDetail(): { front: any[]; rear: any[]; [k: string]: any } {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const base = COMMANDS.get_rack_detail as Record<string, any>;
+  return {
+    ...base,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    front: base.front.map((p: any) => ({ ...p })),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rear: base.rear.map((p: any) => ({ ...p })),
+  };
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const dynamicRackDetail: { front: any[]; rear: any[]; [k: string]: any } = {
-  ..._baseDetail,
-  front: [..._baseDetail.front],
-  rear: [..._baseDetail.rear],
-};
+let dynamicDevices: any[] = createInitialDevices();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let dynamicRackDetail: { front: any[]; rear: any[]; [k: string]: any } = createInitialRackDetail();
+
+export function resetE2eMockState(): void {
+  dynamicDevices = createInitialDevices();
+  dynamicRackDetail = createInitialRackDetail();
+}
 
 export function invoke<T>(command: string, args?: unknown): Promise<T> {
   switch (command) {
@@ -322,6 +345,7 @@ export function invoke<T>(command: string, args?: unknown): Promise<T> {
           ),
         );
       }
+      resetE2eMockState();
       return Promise.resolve(COMMANDS.open_repository_cmd as T);
     }
 

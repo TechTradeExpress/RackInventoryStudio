@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased — Test and script hardening
+
+### Added
+- `scripts/bump-version.mjs`: `--root <path>` flag (points the script at a fixture directory for isolated testing) and `--dry-run` flag (prints the before/after table without writing files). Added `--root` argument validation, `--dry-run` no-op path, and try/catch error wrapping for all read and write phases.
+- `scripts/bump-version.test.mjs`: 17 fixture-based tests using Node built-ins (`node:test`, `node:assert`, `node:child_process`). Covers argument validation, no-op path, stable/prerelease/rc bumps, dry-run behavior, and error paths (missing files, malformed JSON, missing version field).
+- `scripts/check-repo-hygiene.mjs`: 6 regression checks — no `package-lock.json`, no `.env` files, no committed `.ai/review-context-*.md`, no `node_modules` in git tree, `pnpm-lock.yaml` present, `CHANGELOG.md` present.
+- `pnpm test:scripts` script in root `package.json` — runs `node --test scripts/*.test.mjs`.
+- `pnpm check:hygiene` script in root `package.json` — runs `check-repo-hygiene.mjs`.
+- `apps/desktop/e2e/mocks/tauri-core.ts`: `createInitialDevices()`, `createInitialRackDetail()` factory functions and exported `resetE2eMockState()` — called by `open_repository_cmd` as defense-in-depth so consecutive `openFixtureRepo()` calls within a single test also start from the fixture baseline.
+- `apps/desktop/e2e/smoke.spec.ts`: state isolation regression test — places a device via DnD+modal, confirms the new placement appears, reloads the page, re-opens the repo, and asserts the mutation is gone.
+
+### Changed
+- `scripts/bump-version.mjs`: fixed "atomically" wording in script header (no real FS transaction); rewritten to `--root`/`--dry-run` aware version with consistent error output.
+
 ## Unreleased — Code dead-code and naming cleanup after Beta QA Milestones A–F
 
 ### Removed

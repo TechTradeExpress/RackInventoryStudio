@@ -1,85 +1,57 @@
-# Code dead-code and naming cleanup after Beta QA Milestones A–F
-
 ## Summary
 
-Focused dead-code cleanup pass following Beta QA Milestones A–F and Docs Cleanup PR #77. No application behavior changed. Three targeted removals:
+Cleanup PR 3 — Test and script hardening. Hardened `scripts/bump-version.mjs` with `--root`/`--dry-run` flags and better error handling, added 17 fixture-based tests using Node built-ins, added a `check-repo-hygiene.mjs` script with 6 regression checks, hardened E2E mock state isolation with factory functions and explicit reset, and added a state-isolation regression E2E test.
 
-1. **Dead state in `RackDetailPanel.tsx`** — `placeModalDndPayload` was written to on every placement-modal trigger path but never read as a value. `PlacePlacementModal` receives `initialTargetKind`/`initialTargetId` instead; the full `DndPayload` state was a vestige of an earlier API. Removed the state declaration and all 6 setter call-sites.
-
-2. **Unused `common` style properties in `lib/styles.ts`** — 8 CSS-in-JS properties (`section`, `h2`, `h3`, `hint`, `table`, `th`, `td`, `working`) were defined in the shared `common` object but referenced nowhere. Only `btn`, `input`, `row`, and `errorBox` are actually imported (in `CreateRepositoryWizard.tsx`). These 8 properties were placements-panel leftovers.
-
-3. **Stale comment in `RepositoryPanel.tsx`** — Removed the comment block that said "Temporarily render the legacy summary table here — will be separated into sidebar in a follow-up." The code is no longer temporary and the comment added noise.
+No product behavior changes. No version bump. No new runtime or dev dependencies.
 
 ## Files changed
 
-| File | Change |
-|------|--------|
-| `apps/desktop/src/features/racks/RackDetailPanel.tsx` | Removed dead `placeModalDndPayload` state and all 6 setter calls |
-| `apps/desktop/src/lib/styles.ts` | Removed 8 unused properties from `common` |
-| `apps/desktop/src/features/repository/RepositoryPanel.tsx` | Removed stale "legacy / temporary / follow-up" comment |
-| `CHANGELOG.md` | Added Unreleased entry |
+- `scripts/bump-version.mjs` — Added `--root <path>` (test isolation), `--dry-run` (no-write preview), argument validation, and try/catch error wrapping. Fixed "atomically" wording in header.
+- `scripts/bump-version.test.mjs` *(new)* — 17 fixture-based tests using `node:test`, `node:assert`, `node:child_process`. Covers all argument validation, no-op, bump, dry-run, and error-path cases.
+- `scripts/check-repo-hygiene.mjs` *(new)* — 6 hygiene checks: no `package-lock.json`, no `.env` files, no committed `.ai/review-context-*.md`, no `node_modules` in git tree, `pnpm-lock.yaml` tracked, `CHANGELOG.md` present.
+- `package.json` (root) — Added `"test:scripts"` and `"check:hygiene"` scripts.
+- `apps/desktop/e2e/mocks/tauri-core.ts` — Extracted `createInitialDevices()` / `createInitialRackDetail()` factory functions; added exported `resetE2eMockState()`; changed module-level `const` to `let`; called `resetE2eMockState()` in `open_repository_cmd` path as defense-in-depth.
+- `apps/desktop/e2e/smoke.spec.ts` — Added "mock state isolation: dynamic mutations reset on page reload" test (places a device, reloads, asserts mutation gone).
+- `CHANGELOG.md` — Added `## Unreleased — Test and script hardening` section.
 
-## Audit commands run
-
-```
-rg "AddPlacementPanel|Add Placement|inline add form" apps/desktop/src apps/desktop/e2e crates docs README.md .ai
-# → only archival docs and valid BETA_WINDOWS_11_QA_EN.md QA row (absence check)
-
-rg "placement table|Front placements|Rear placements" apps/desktop/src README.md
-# → NONE
-
-rg "Windows Diagnostic Installer|windows-diagnostic-installer" .github apps/desktop/src docs README.md .ai
-# → NONE
-
-rg "TODO|FIXME|deprecated|legacy" apps/desktop/src crates
-# → one "legacy" hit in RepositoryPanel.tsx comment — removed in this PR
-
-rg "common\." apps/desktop/src
-# → only CreateRepositoryWizard.tsx; confirmed 8 properties unreferenced → removed
-
-rg "placeModalDndPayload|setPlaceModalDndPayload" apps/desktop/src
-# → 7 lines all in RackDetailPanel.tsx; confirmed never READ as a value → removed
-```
-
-## What is confirmed still intentionally present
-
-| Item | Location | Why kept |
-|------|----------|----------|
-| `Front placements`/`Rear placements` absence assertions | `smoke.spec.ts` | Valid E2E tests confirming placement table does NOT exist |
-| `AddPlacement` terms | Archival docs (archival banner at top) | Historical context, marked archival |
-| `placement table` reference | `BETA_QA_FINDINGS_ACTION_PLAN_EN.md` | Problem-statement context (describes what was removed), not instructions |
-| `FIXTURE_NEW_DEVICE_ID` export | `e2e/mocks/tauri-core.ts` | Exported for potential test use; not removed |
-| `DndPayload` type import | `RackDetailPanel.tsx` | Still needed for `handleDropAtCell` parameter type |
-| `dndTypes.ts`, `dndHelpers.ts` | `apps/desktop/src/features/racks/` | Still used by palette DnD |
-
-## Tests/checks run
+## Tests
 
 ```
-git diff --check                           → clean
-node scripts/check-version-consistency.mjs → 0.1.0 consistent
-tsc --noEmit                               → clean
-vitest run                                 → 388 passed (32 files)
-vite build                                 → clean
-playwright test                            → 16 passed
-cargo fmt --all --check                    → clean
-cargo check --workspace                    → clean
-cargo test --workspace                     → 374 passed
-cargo clippy --workspace -- -D warnings    → clean
-test ! -f apps/desktop/package-lock.json  → OK
-no tracked .ai/review-context-*.md        → OK
+# Scripts
+node --test scripts/bump-version.test.mjs
+→ 17 pass, 0 fail
+
+# Vitest unit tests (apps/desktop)
+node node_modules/.bin/vitest run
+→ 388 pass, 0 fail (32 test files)
+
+# TypeScript type check (apps/desktop)
+node node_modules/.bin/tsc --noEmit
+→ 0 errors
+
+# Version consistency
+node scripts/check-version-consistency.mjs
+→ All versions match: 0.1.0
+
+# Hygiene
+node scripts/check-repo-hygiene.mjs
+→ All 6 hygiene checks passed
+
+# Playwright E2E
+node node_modules/.bin/playwright test
+→ 17 pass, 0 fail (24.4s)
 ```
 
-## Known risks
+## Risks
 
-- None. All changes are strictly dead-code removal with no behavior impact.
-- `styles.ts` still exports `common`; the remaining 4 properties (`btn`, `input`, `row`, `errorBox`) are still actively used by `CreateRepositoryWizard.tsx`.
+- The `resetE2eMockState()` call inside `open_repository_cmd` resets `dynamicDevices` and `dynamicRackDetail` on every valid `openFixtureRepo()`. Tests that rely on state accumulated across multiple `invoke("open_repository_cmd")` calls within one page session would be affected — but no such test exists now.
+- `check-repo-hygiene.mjs` requires `git` in PATH. On a system without git it reports failures for the git-based checks (not a CI concern).
 
 ## Not done
 
-- `bump-version.mjs` script hardening (belongs to Cleanup PR 3 per task instructions).
-- Deeper E2E mock-state hardening (belongs to Cleanup PR 3 per task instructions).
-- `FIXTURE_UNPLACED_DEVICE_ID` / `FIXTURE_NEW_DEVICE_ID` export cleanup in `tauri-core.ts` (exports unused externally but kept for future test extensibility).
+- No Cargo tests run (no Rust code touched).
+- Additional hygiene checks (trailing whitespace, large files, secret scanning) are intentionally deferred — 6 focused checks are sufficient for regression purposes.
 
 ## Suggested next step
 
-Cleanup PR 3: harden `scripts/bump-version.mjs` (SemVer validation, dry-run flag, error handling) and the E2E mock stateful layer.
+Add `pnpm test:scripts` and `pnpm check:hygiene` to the GitHub Actions CI workflow alongside the existing `check:version` step.

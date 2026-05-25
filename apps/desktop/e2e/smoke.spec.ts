@@ -430,6 +430,49 @@ test("global search handles short and no-result queries", async ({ page }) => {
   await expect(page.getByText("No results")).toBeVisible();
 });
 
+test("mock state isolation: dynamic mutations reset on page reload", async ({ page }) => {
+  // === Load 1: mutate dynamicRackDetail.front via place_device ===
+  await page.goto("/");
+  await openFixtureRepo(page);
+  await page.getByRole("button", { name: "Locations", exact: true }).click();
+  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
+  await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Rack diagram", exact: true })).toBeVisible();
+
+  // Drag unplaced device to U8 — opens modal with device preselected and place-btn enabled
+  await page.evaluate((deviceId: string) => {
+    const source = document.querySelector(`[data-testid="dnd-device-${deviceId}"]`);
+    const target = document.querySelector('[data-testid="drop-cell-front-8"]');
+    if (!source || !target) throw new Error(`DnD elements not found: source=${source}, target=${target}`);
+    const dt = new DataTransfer();
+    source.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer: dt }));
+    target.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: dt }));
+    target.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
+    source.dispatchEvent(new DragEvent("dragend", { bubbles: true, cancelable: true, dataTransfer: dt }));
+  }, FIXTURE_UNPLACED_DEVICE_ID);
+  await expect(page.getByRole("dialog", { name: "Place equipment" })).toBeVisible();
+  await expect(page.getByTestId("place-btn")).toBeEnabled();
+  await page.getByTestId("place-btn").click();
+
+  // Mutation succeeded — new placement block appears in the diagram
+  await expect(page.getByTestId(`placed-front-${FIXTURE_NEW_PLACEMENT_ID}`)).toBeVisible({ timeout: 8_000 });
+
+  // === Load 2: page reload + open_repository_cmd reset restores fixture baseline ===
+  await page.goto("/");
+  await openFixtureRepo(page);
+  await page.getByRole("button", { name: "Locations", exact: true }).click();
+  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
+  await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
+
+  // Mutation is gone — only the original fixture placement is visible
+  await expect(page.getByTestId(`placed-front-${FIXTURE_NEW_PLACEMENT_ID}`)).not.toBeVisible();
+  await expect(page.getByTestId("placed-front-ffffffff-ffff-ffff-ffff-ffffffffffff")).toBeVisible();
+  // Unplaced device is back in the palette (not yet placed)
+  await expect(page.getByTestId(`dnd-device-${FIXTURE_UNPLACED_DEVICE_ID}`)).toBeVisible();
+});
+
 test("rack detail: create device from place modal and place it", async ({ page }) => {
   await page.goto("/");
   await openFixtureRepo(page);
