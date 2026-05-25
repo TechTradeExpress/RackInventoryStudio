@@ -1,31 +1,57 @@
+mod app_config;
 mod commands;
 mod diagnostics;
 mod dto;
 
+use app_config::{resolve_app_config_dir_early, resolve_startup_custom_log_dir, ActiveLogState};
 use commands::{
     add_device_cmd, add_device_model_cmd, add_git_remote, add_location_cmd, add_rack_cmd,
     close_repository, commit_repository_changes, create_repository_cmd, delete_device_cmd,
     delete_device_model_cmd, delete_location_cmd, delete_rack_cmd, get_git_log, get_git_status,
-    get_rack_detail, get_repository_summary, import_device_csv_cmd, init_git_repository,
-    list_device_models, list_devices, list_git_remotes, list_locations, list_racks, move_placement,
-    open_repository_cmd, place_device, place_rack_object, preview_device_csv_import_cmd,
-    pull_git_ff_only, push_git_current_branch, read_csv_file, remove_placement,
-    save_current_repository, search_repository_cmd, update_device_cmd, update_device_model_cmd,
+    get_log_settings, get_rack_detail, get_repository_summary, import_device_csv_cmd,
+    init_git_repository, list_device_models, list_devices, list_git_remotes, list_locations,
+    list_racks, move_placement, open_logs_directory, open_repository_cmd, place_device,
+    place_rack_object, preview_device_csv_import_cmd, pull_git_ff_only, push_git_current_branch,
+    read_csv_file, remove_placement, reset_logs_directory, save_current_repository,
+    search_repository_cmd, set_logs_directory, update_device_cmd, update_device_model_cmd,
     update_location_cmd, update_rack_cmd, validate_current_repository,
     write_device_import_sample_csv, AppState,
 };
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Read persisted config before the Tauri builder starts so the log plugin
+    // can be initialised with the correct target directory.
+    // Falls back to None (platform default) if the custom dir is unusable.
+    let early_config_dir = resolve_app_config_dir_early();
+    let persisted_custom_log_dir: Option<PathBuf> =
+        resolve_startup_custom_log_dir(early_config_dir.as_deref());
+
+    // Build the log file target: custom folder or platform LogDir.
+    let log_file_target = match &persisted_custom_log_dir {
+        Some(dir) => tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Folder {
+            path: dir.clone(),
+            file_name: None,
+        }),
+        None => {
+            tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: None })
+        }
+    };
+
+    // Managed state records which directory this process actually logs to,
+    // so `get_active_logs_dir` and the DTO can return the true active path.
+    let active_log_state = ActiveLogState {
+        dir: persisted_custom_log_dir,
+    };
+
     tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
                 .targets([
                     tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
-                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
-                        file_name: None,
-                    }),
+                    log_file_target,
                 ])
                 .level(log::LevelFilter::Info)
                 .build(),
@@ -34,6 +60,7 @@ pub fn run() {
         .manage(AppState {
             session: Mutex::new(None),
         })
+        .manage(active_log_state)
         .invoke_handler(tauri::generate_handler![
             create_repository_cmd,
             open_repository_cmd,
@@ -75,6 +102,10 @@ pub fn run() {
             read_csv_file,
             write_device_import_sample_csv,
             search_repository_cmd,
+            get_log_settings,
+            open_logs_directory,
+            set_logs_directory,
+            reset_logs_directory,
         ])
         .setup(|_app| {
             log::info!("Rack Inventory Studio starting");

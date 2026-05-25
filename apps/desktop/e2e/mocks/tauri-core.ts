@@ -253,6 +253,26 @@ const COMMANDS: Record<string, unknown> = {
     date: "2026-05-20",
   },
   read_csv_file: "",
+  // Log settings commands — used by SettingsPanel
+  get_log_settings: {
+    default_log_dir: "/tmp/ris-e2e-logs",
+    active_log_dir: "/tmp/ris-e2e-logs",
+    custom_log_dir: null,
+    restart_required: false,
+  },
+  open_logs_directory: null,
+  set_logs_directory: {
+    default_log_dir: "/tmp/ris-e2e-logs",
+    active_log_dir: "/tmp/ris-e2e-logs",
+    custom_log_dir: "/tmp/ris-e2e-custom-logs",
+    restart_required: true,
+  },
+  reset_logs_directory: {
+    default_log_dir: "/tmp/ris-e2e-logs",
+    active_log_dir: "/tmp/ris-e2e-logs",
+    custom_log_dir: null,
+    restart_required: false,
+  },
 };
 
 export function invoke<T>(command: string, args?: unknown): Promise<T> {

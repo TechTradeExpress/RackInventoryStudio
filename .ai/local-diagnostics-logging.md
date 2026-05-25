@@ -148,6 +148,33 @@ If you are reporting a problem with Rack Inventory Studio:
 
 ---
 
+## Custom log directory
+
+Users can configure a custom log directory via Settings → Diagnostics and logs.
+
+- The custom directory is stored in the platform app config directory (`app_config.json`).
+- At startup the app reads `app_config.json` before initialising `tauri-plugin-log` and directs the log file to the custom directory if one is configured and valid.
+- The startup resolution (`resolve_startup_custom_log_dir`) validates the path before applying it:
+  - Relative paths are rejected — falls back to platform default.
+  - Paths that exist but are a file (not a directory) are rejected — falls back to platform default.
+  - Non-existent paths are created with `create_dir_all`; if creation fails (e.g. permission denied, unavailable network share), falls back to platform default.
+  - The saved config is **not** modified on fallback; the user can still see and change the setting in Settings.
+- Changing or resetting the directory during a running session requires a restart to take effect; the UI shows "Changes will apply after restart."
+- Reset to default removes the override; the platform default is used on next restart.
+
+Config file location:
+- Windows: `%APPDATA%\com.techtradeexpress.rackinventorystudio\app_config.json`
+- macOS: `~/Library/Application Support/com.techtradeexpress.rackinventorystudio/app_config.json`
+- Linux: `~/.config/com.techtradeexpress.rackinventorystudio/app_config.json`
+
+Default paths:
+- Windows: `%APPDATA%\com.techtradeexpress.rackinventorystudio\logs\`
+- Linux: `~/.local/share/com.techtradeexpress.rackinventorystudio/logs/`
+
+No telemetry, no external upload. Logs remain local-only.
+
+---
+
 ## Technical notes
 
 - **Plugin:** `tauri-plugin-log` v2 (official Tauri v2 logging plugin).

@@ -292,6 +292,28 @@ test("settings page is accessible without a repository", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Diagnostics and logs" })).toBeVisible();
 });
 
+test("settings page shows logs directory actions", async ({ page }) => {
+  await page.goto("/");
+
+  // Navigate to Settings (accessible without a repository open)
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+
+  // "Open logs folder" button is visible
+  await expect(
+    page.getByRole("button", { name: "Open logs folder", exact: true }),
+  ).toBeVisible();
+
+  // "Choose logs folder…" button is visible
+  await expect(
+    page.getByRole("button", { name: "Choose logs folder…", exact: true }),
+  ).toBeVisible();
+
+  // Active log directory path from mock is shown (default and active are the same in mock,
+  // so the path appears twice; .first() matches either occurrence)
+  await expect(page.getByText("/tmp/ris-e2e-logs").first()).toBeVisible();
+});
+
 test("global search handles short and no-result queries", async ({ page }) => {
   await page.goto("/");
   await openFixtureRepo(page);

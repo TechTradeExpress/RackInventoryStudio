@@ -56,6 +56,8 @@ It defines follow-up PRs/milestones that must be completed before beta distribut
 
 ### Milestone B — Settings logs actions
 
+> **Status:** Addressed in branch `ux/settings-logs-actions` (PR #72).
+
 **Scope**
 
 - Add an "Open logs directory" button in the Settings panel (calls Tauri `shell.open` or `opener.open` on the log directory path).

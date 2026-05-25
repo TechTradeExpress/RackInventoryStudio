@@ -1,9 +1,13 @@
 pub mod git;
+pub mod log_settings;
 pub mod repository;
 
 pub use git::{
     add_git_remote, commit_repository_changes, get_git_log, get_git_status, init_git_repository,
     list_git_remotes, pull_git_ff_only, push_git_current_branch,
+};
+pub use log_settings::{
+    get_log_settings, open_logs_directory, reset_logs_directory, set_logs_directory,
 };
 pub use repository::{
     add_device_cmd, add_device_model_cmd, add_location_cmd, add_rack_cmd, close_repository,

@@ -3194,3 +3194,141 @@ Fixed by:
 - cargo test (new tests pass): PASS
 - cargo clippy: PASS
 - Generic symbol grep (write_text_to_file / writeTextToFile / saveCsvFileViaDialog): clean
+
+---
+
+## Beta QA follow-up Milestone B — Settings logs actions
+
+**Branch:** ux/settings-logs-actions
+
+### Behavior implemented
+- Settings → Diagnostics and logs shows default, active, and custom log directory paths.
+- "Open logs folder" opens the active logs directory in the OS file manager (narrow command, no arbitrary path from frontend). Uses platform-specific commands: `explorer.exe` on Windows, `open` on macOS, `xdg-open` on Linux.
+- "Choose logs folder…" opens a native directory picker; selected path is validated and persisted.
+- "Reset to default" clears the custom log directory override.
+- Log directory changes apply after app restart (tauri-plugin-log initialized at startup). UI shows "Changes will apply after restart."
+- Config stored in platform app config dir as `app_config.json`.
+
+### Whether log dir changes apply immediately or after restart
+**After restart only.** `tauri-plugin-log` targets are initialized once at startup. The persisted custom directory is read at next launch. `restart_required` is true whenever a custom dir is set.
+
+### Files changed
+- `apps/desktop/src-tauri/src/app_config.rs` — NEW: persistence layer for `app_config.json`
+- `apps/desktop/src-tauri/src/commands/log_settings.rs` — NEW: `get_log_settings`, `open_logs_directory`, `set_logs_directory`, `reset_logs_directory` commands
+- `apps/desktop/src-tauri/src/commands/mod.rs` — Added `log_settings` module export
+- `apps/desktop/src-tauri/src/lib.rs` — Added `app_config` module, new command imports, registered 4 new commands
+- `apps/desktop/src/api/tauriClient.ts` — Added `LogSettingsDto`, `getLogSettings`, `openLogsDirectory`, `setLogsDirectory`, `resetLogsDirectory`, `selectDirectory`
+- `apps/desktop/src/features/settings/SettingsPanel.tsx` — Rewritten Diagnostics section with live log dir display and action buttons
+- `apps/desktop/src/features/settings/SettingsPanel.test.tsx` — NEW: 7 Vitest tests
+- `apps/desktop/e2e/mocks/tauri-core.ts` — Added mocks for 4 log settings commands
+- `apps/desktop/e2e/smoke.spec.ts` — Added "settings page shows logs directory actions" test
+- `.ai/local-diagnostics-logging.md` — Added "Custom log directory" section
+- `docs/BETA_QA_FINDINGS_ACTION_PLAN_EN.md` — Added status note to Milestone B
+- `CHANGELOG.md` — Added Milestone B entry under Unreleased
+
+### Tests added
+- Rust `app_config.rs`: 4 unit tests (`default_config_when_no_file_exists`, `save_and_load_custom_logs_directory`, `load_malformed_config_returns_default`, `reset_clears_custom_logs_directory`)
+- Vitest `SettingsPanel.test.tsx`: 7 tests covering render, button presence, command invocation, cancel flow, success banner, reset flow
+- Playwright `smoke.spec.ts`: 1 test confirming log directory UI and buttons visible in Settings
+
+### Checks run
+- git diff --check: PASS
+- version consistency (v0.1.0): PASS
+- TypeScript: PASS
+- Vitest: 373/373 pass (was 367/367 before, 6 new tests added)
+- Playwright e2e: 13/13 pass (was 12/12 before, 1 new test added)
+- Vite build: PASS
+- cargo fmt: PASS
+- cargo check: PASS
+- cargo test: PASS (24 desktop tests pass, includes 4 new app_config tests)
+- cargo clippy: PASS
+- No package-lock.json: PASS
+- No tracked review-context: PASS
+
+### Known risks
+- Custom log dir is only applied on restart; the UI makes this explicit.
+- `open_logs_directory` uses `std::process::Command::spawn()` with platform-specific file manager commands. On Windows the `explorer.exe` path format and behavior is reliable. On Linux, `xdg-open` requires a desktop environment.
+- No `tauri-plugin-opener` or `tauri-plugin-shell` was available in the cached registry; using `std::process::Command` is safe since the path is always resolved server-side (never passed from frontend).
+
+### Windows 11 manual QA checklist
+1. Open Settings without a repository — confirm log directory paths are visible.
+2. Click "Open logs folder" — confirm OS file manager opens the logs directory.
+3. Click "Choose logs folder…" — pick a new directory — confirm success message.
+4. Relaunch app — confirm logs are now written to the custom directory.
+5. Click "Reset to default" — confirm custom directory clears and button disappears.
+6. Cancel "Choose logs folder…" dialog — confirm no error shown.
+
+### Repair update — startup-time log target applied correctly
+
+**Problem fixed:** `get_active_logs_dir()` always returned the platform default; the log plugin always initialized with `TargetKind::LogDir`; the custom directory was persisted but never actually used.
+
+**Fix:**
+1. Added `ActiveLogState { dir: Option<PathBuf> }` managed state to `app_config.rs`.
+2. Added `resolve_app_config_dir_early()` — resolves the platform app-config dir without an `AppHandle`, using env vars + `BUNDLE_ID` constant, so config can be read before the Tauri builder starts.
+3. `lib.rs` now reads the persisted config before `tauri::Builder::default()`, filters out invalid paths (relative, files), attempts to pre-create the custom dir, and passes `TargetKind::Folder { path, .. }` to the log plugin when a valid custom dir is set.
+4. `ActiveLogState` is registered with `.manage()` so `get_active_logs_dir()` returns the real active path for the current process.
+5. `restart_required` logic corrected: `true` when `effective_after_restart != active_dir`, so it is `false` after restarting into the custom directory, and `true` after a change or reset during the current session.
+
+**Tests added (9 new in app_config::tests):**
+- `active_log_state_is_none_when_no_config`
+- `active_log_state_is_custom_dir_when_configured`
+- `startup_filter_rejects_relative_path`
+- `restart_required_false_when_persisted_matches_active`
+- `restart_required_true_when_persisted_differs_from_active`
+- `restart_required_true_after_reset_while_custom_active`
+(plus 4 pre-existing)
+
+**Checks run after repair:**
+- git diff --check: PASS
+- version consistency (v0.1.0): PASS
+- TypeScript: PASS
+- Vitest: 373/373
+- Playwright e2e: 13/13
+- Vite build: PASS
+- cargo fmt: PASS
+- cargo check: PASS
+- cargo test: PASS (30 desktop Rust tests — 9 new)
+- cargo clippy: PASS
+
+### Repair update 2 — safe fallback for unusable startup custom log dir
+
+**Problem fixed:** `lib.rs` startup code called `let _ = std::fs::create_dir_all(dir)` and silently ignored the error. If the directory could not be created (permission denied, unavailable network share, path with a file as parent, etc.), the app would proceed to pass an uncreatable path to the log plugin instead of falling back to the platform default.
+
+**Fix:** Extracted `resolve_startup_custom_log_dir(config_dir: Option<&Path>) -> Option<PathBuf>` into `app_config.rs`. It validates the persisted path before returning it:
+- Returns `None` if no config dir or no custom path is configured.
+- Returns `None` if the path is relative.
+- Returns `Some(path)` if the path exists and is a directory.
+- Returns `None` if the path exists but is a file (not a directory).
+- Calls `std::fs::create_dir_all` for non-existent paths; returns `Some(path)` on success, `None` on error.
+- Never modifies the saved config — the user can still see and change the setting in Settings.
+
+`lib.rs` startup now calls the helper with one line:
+```rust
+let persisted_custom_log_dir: Option<PathBuf> =
+    resolve_startup_custom_log_dir(early_config_dir.as_deref());
+```
+
+Replaced 3 inline-simulation tests (restart_required group) with 7 proper unit tests using tempdirs:
+- `startup_custom_dir_none_when_no_config`
+- `startup_custom_dir_none_when_config_dir_absent`
+- `startup_custom_dir_returns_existing_dir`
+- `startup_custom_dir_creates_missing_directory`
+- `startup_custom_dir_rejects_relative_path`
+- `startup_custom_dir_rejects_existing_file`
+- `startup_custom_dir_rejects_uncreatable_path`
+
+Kept 3 separate restart_required simulation tests (renamed but same logic) that test the `restart_required` boolean computation path.
+
+Docs update: `.ai/local-diagnostics-logging.md` — added bullet points describing valid/invalid path cases and fallback behavior.
+
+**Checks run after repair:**
+- git diff --check: PASS
+- version consistency (v0.1.0): PASS
+- TypeScript: PASS
+- Vitest: 373/373
+- Playwright e2e: 13/13
+- Vite build: PASS
+- cargo fmt --all --check: PASS
+- cargo check --workspace: PASS
+- cargo test --workspace: PASS (all desktop Rust tests — incl. 7 new helper tests)
+- cargo clippy --workspace -- -D warnings: PASS
