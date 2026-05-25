@@ -193,6 +193,15 @@ test("rack detail: diagram is primary surface — no placement table", async ({ 
   // Table headers that only existed in the placement table must not appear
   await expect(page.getByRole("columnheader", { name: "Asset tag", exact: true })).not.toBeVisible();
 
+  // Diagram grid has a "Name" column header (multi-column layout)
+  await expect(page.getByTestId("diagram-col-name")).toBeVisible();
+  await expect(page.getByTestId("diagram-col-name")).toHaveText("Name");
+  // "Front" must not appear as a data-column header inside the diagram header row
+  const headerEl = page.locator('[aria-label="Rack diagram header"]');
+  await expect(headerEl).toBeVisible();
+  // Placed item shows its name/label in the diagram
+  await expect(page.getByTestId("placed-front-ffffffff-ffff-ffff-ffff-ffffffffffff")).toContainText("srv-01");
+
   // Palette sidebar is still visible (right column — Placeable equipment)
   await expect(page.getByText(/Placeable equipment/)).toBeVisible();
 

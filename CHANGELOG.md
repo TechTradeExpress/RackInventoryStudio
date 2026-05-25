@@ -5,7 +5,7 @@
 ### Added
 - `apps/desktop/src/features/racks/dndTypes.ts`: new `"placement"` DnD payload kind carrying `placementId`, `startU`, `heightU`, `side` — enables drag-to-move of already-placed equipment.
 - `apps/desktop/src/features/racks/dndHelpers.ts`: `canDropAt` now accepts optional `excludePlacementId` so a dragged block's own cells are treated as empty during validation. `getPayloadHeight` and `decodeDndPayload` updated for the `"placement"` kind.
-- `apps/desktop/src/features/racks/RackUnitDiagram.tsx`: occupied blocks are now draggable; new `onMovePlacement` prop wires the move back to the parent. Diagram fills its container width (layout fix — removes the blank area to the right of the 200 px column).
+- `apps/desktop/src/features/racks/RackUnitDiagram.tsx`: occupied blocks are now draggable; new `onMovePlacement` prop wires the move back to the parent. Diagram is now a multi-column grid with columns U · Name · Type · Model · Code / SN · U range · St. — Front/Rear is side context shown in hint text above the grid, not a data-column header. Each placed block shows its label in the Name column plus metadata in the remaining columns.
 - `apps/desktop/src/features/racks/PlacePlacementModal.tsx`: "Create new rack object…" button in Rack Object mode (mirrors "Create new device…"); "Edit device…" and "Edit rack object…" buttons when a target is selected — edit form opens inline, list refreshes, selection is preserved after save.
 - `apps/desktop/src/features/racks/PlacementInspectorPanel.tsx`: "Edit device…" / "Edit rack object…" buttons in the inspector action area based on `target_kind`.
 - `apps/desktop/src/features/racks/RackDetailPanel.tsx`: wires `onMovePlacement` to `movePlacement` API call + `refreshAfterMutation`; wires inspector edit-target callbacks to dedicated `DeviceFormModal` / `DeviceModelFormModal` instances; passes `onRackObjectCreated` to `PlacePlacementModal`.
@@ -13,12 +13,14 @@
 - `apps/desktop/e2e/mocks/tauri-core.ts`: `move_placement` actually moves the placement in `dynamicRackDetail`; `place_rack_object` adds the placement to `dynamicRackDetail`; added handlers for `add_device_model_cmd`, `update_device_cmd`, `update_device_model_cmd`; `dynamicDeviceModels` factory with reset support.
 
 ### Changed
-- Rack diagram now fills the full left-column width instead of a fixed 236 px — eliminates the blank horizontal space at common window sizes.
-- Upgrade hint text in diagram to mention "Drag block to move".
+- Rack diagram replaced single-column layout with a multi-column grid (U · Name · Type · Model · Code / SN · U range · St.); Front/Rear is now side context in hint text, not a data-column header.
+- Hint text in diagram updated to include all interaction modes: click to place, click to inspect, drag from palette, drag placed row to move.
 
 ### Tests
 - 16 new unit tests across `dndHelpers.test.ts` and `PlacePlacementModal.test.tsx` covering: placement-kind encode/decode, `canDropAt` with `excludePlacementId`, create rack object flow, edit device/rack object flows.
+- 16 new unit tests in `RackUnitDiagram.test.tsx` covering: Name column header present, Front/Rear not present as column headers, additional metadata headers (Type, Model, Code, U range), placed item shows name, draggable flag, click-to-select, click-to-place, side switching.
 - 3 new E2E smoke tests: drag-to-move placed block, create rack object from place modal, inspector edit device button visibility.
+- E2E "diagram is primary surface" test extended to assert Name column header is visible and placed item renders its label.
 
 ## Unreleased — CI runner pinning and workflow linting
 
