@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased — Code dead-code and naming cleanup after Beta QA Milestones A–F
+
+### Removed
+- `RackDetailPanel.tsx`: removed dead `placeModalDndPayload` state (written but never consumed — `PlacePlacementModal` uses `initialTargetKind`/`initialTargetId` instead; 6 setter call-sites also removed).
+- `src/lib/styles.ts`: removed 8 unused properties from `common` (`section`, `h2`, `h3`, `hint`, `table`, `th`, `td`, `working`) — left over from the removed placement panel components.
+
+### Changed
+- `RepositoryPanel.tsx`: removed stale "Temporarily render the legacy summary table / will be separated into sidebar in a follow-up" comment.
+- No application behavior changes. No version bump.
+
 ## Unreleased — Docs cleanup: align with current beta state (Milestones A–F)
 
 ### Changed

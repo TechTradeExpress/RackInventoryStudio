@@ -1030,9 +1030,6 @@ export function RepositoryPanel({
             />
           </div>
           <div className="stack-4" style={{ minWidth: 0 }}>
-            {/* The Git status, action hints and remote panels are rendered inside GitSection,
-                but we need them in the sidebar. Temporarily render the legacy summary table
-                here — will be separated into sidebar in a follow-up. */}
             <Panel title="Repository details" flush>
               <div style={{ padding: "12px 16px" }}>
                 <SummaryTable summary={summary} validationSummary={validationSummary} />
