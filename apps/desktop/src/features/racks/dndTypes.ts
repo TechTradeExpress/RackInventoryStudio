@@ -15,4 +15,11 @@ export type DndPayload =
       deviceModelId: string;
       modelCode: string;
       defaultHeightU: number;
+    }
+  | {
+      kind: "placement";
+      placementId: string;
+      startU: number;
+      heightU: number;
+      side: "front" | "rear";
     };

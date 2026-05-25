@@ -13,6 +13,7 @@ import { Modal } from "../../components/ui/Modal";
 import { Field } from "../../components/ui/Field";
 import { parsePositiveInt } from "./positiveInt";
 import { DeviceFormModal } from "../devices/DeviceFormModal";
+import { DeviceModelFormModal } from "../deviceModels/DeviceModelFormModal";
 
 type TargetType = "device" | "rack_object";
 
@@ -34,6 +35,11 @@ export interface PlacePlacementModalProps {
    * allowing the parent to refresh its own device/palette state.
    */
   onDeviceCreated?: () => void;
+  /**
+   * Called after a rack object model is successfully created from the inline form,
+   * allowing the parent to refresh its own rack object/palette state.
+   */
+  onRackObjectCreated?: () => void;
 }
 
 export function PlacePlacementModal({
@@ -48,6 +54,7 @@ export function PlacePlacementModal({
   onClose,
   onPlaced,
   onDeviceCreated,
+  onRackObjectCreated,
 }: PlacePlacementModalProps) {
   const { runBusy } = useBusy();
 
@@ -62,9 +69,23 @@ export function PlacePlacementModal({
   // (refreshed after inline device creation so new device appears immediately).
   const [localDevices, setLocalDevices] = useState<DeviceDto[]>(availableDevices);
 
+  // Local rack object list — synced from prop on open, refreshed after inline model creation.
+  const [localRackObjects, setLocalRackObjects] = useState<DeviceModelDto[]>(availableRackObjects);
+
   // Inline device creation state
   const [createDeviceOpen, setCreateDeviceOpen] = useState(false);
   const [allModels, setAllModels] = useState<DeviceModelDto[]>([]);
+
+  // Inline rack object creation state
+  const [createRackObjectOpen, setCreateRackObjectOpen] = useState(false);
+
+  // Inline device edit state
+  const [editDeviceOpen, setEditDeviceOpen] = useState(false);
+  const [editingDevice, setEditingDevice] = useState<DeviceDto | null>(null);
+
+  // Inline rack object edit state
+  const [editRackObjectOpen, setEditRackObjectOpen] = useState(false);
+  const [editingRackObject, setEditingRackObject] = useState<DeviceModelDto | null>(null);
 
   // Reset form when modal opens; apply initial preselection if provided
   useEffect(() => {
@@ -83,14 +104,20 @@ export function PlacePlacementModal({
       setHeightUStr("");
       setError(null);
       setCreateDeviceOpen(false);
+      setCreateRackObjectOpen(false);
+      setEditDeviceOpen(false);
+      setEditingDevice(null);
+      setEditRackObjectOpen(false);
+      setEditingRackObject(null);
       setLocalDevices(availableDevices);
+      setLocalRackObjects(availableRackObjects);
     }
   }, [open, startU, initialTargetKind, initialTargetId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Derive effective height display for selected rack object
   const selectedModel =
     targetType === "rack_object"
-      ? availableRackObjects.find((m) => m.id === deviceModelId) ?? null
+      ? localRackObjects.find((m) => m.id === deviceModelId) ?? null
       : null;
   const effectiveHeight = selectedModel?.default_height_u ?? null;
 
@@ -177,11 +204,68 @@ export function PlacePlacementModal({
     onDeviceCreated?.();
   }
 
+  async function handleOpenEditDevice() {
+    const device = localDevices.find((d) => d.id === deviceId);
+    if (!device) return;
+    try {
+      const models = await listDeviceModels();
+      setAllModels(models.filter((m) => m.device_type !== "rack_object"));
+    } catch {
+      setAllModels([]);
+    }
+    setEditingDevice(device);
+    setEditDeviceOpen(true);
+  }
+
+  async function handleEditDeviceSaved() {
+    setEditDeviceOpen(false);
+    setEditingDevice(null);
+    try {
+      const devs = await listDevices();
+      setLocalDevices(devs.filter((d) => !d.is_placed));
+    } catch {
+      // ignore
+    }
+  }
+
+  function handleOpenEditRackObject() {
+    const model = localRackObjects.find((m) => m.id === deviceModelId);
+    if (!model) return;
+    setEditingRackObject(model);
+    setEditRackObjectOpen(true);
+  }
+
+  async function handleEditRackObjectSaved() {
+    setEditRackObjectOpen(false);
+    setEditingRackObject(null);
+    try {
+      const models = await listDeviceModels();
+      setLocalRackObjects(models.filter((m) => m.device_type === "rack_object"));
+    } catch {
+      // ignore
+    }
+  }
+
+  async function handleRackObjectSaved(newModelId?: string) {
+    setCreateRackObjectOpen(false);
+    if (newModelId) {
+      setDeviceModelId(newModelId);
+      setError(null);
+    }
+    try {
+      const models = await listDeviceModels();
+      setLocalRackObjects(models.filter((m) => m.device_type === "rack_object"));
+    } catch {
+      // ignore — user can still place with the preselected model
+    }
+    onRackObjectCreated?.();
+  }
+
   const canPlace = targetType === "device" ? !!deviceId : !!deviceModelId;
 
   return (
     <>
-      {/* Place equipment modal — onClose blocked while device form is layered on top */}
+      {/* Place equipment modal — onClose blocked while sub-forms are layered on top */}
       <Modal
         open={open}
         title="Place equipment"
@@ -190,19 +274,19 @@ export function PlacePlacementModal({
             {rack.code} · {side === "front" ? "Front" : "Rear"} side
           </>
         }
-        onClose={createDeviceOpen ? undefined : onClose}
+        onClose={createDeviceOpen || createRackObjectOpen || editDeviceOpen || editRackObjectOpen ? undefined : onClose}
         size="md"
         footerMessage={error ?? undefined}
         footerMessageTone={error ? "err" : undefined}
         footer={
           <>
-            <button className="btn" onClick={onClose} disabled={createDeviceOpen}>
+            <button className="btn" onClick={onClose} disabled={createDeviceOpen || createRackObjectOpen || editDeviceOpen || editRackObjectOpen}>
               Cancel
             </button>
             <button
               className="btn btn-primary"
               onClick={handlePlace}
-              disabled={!canPlace || createDeviceOpen}
+              disabled={!canPlace || createDeviceOpen || createRackObjectOpen || editDeviceOpen || editRackObjectOpen}
               data-testid="place-btn"
             >
               Place
@@ -274,7 +358,7 @@ export function PlacePlacementModal({
                   ))}
                 </select>
               </Field>
-              <div className="col-12" style={{ marginTop: -4 }}>
+              <div className="col-12" style={{ marginTop: -4, display: "flex", gap: 8 }}>
                 <button
                   type="button"
                   className="btn btn-sm"
@@ -283,31 +367,63 @@ export function PlacePlacementModal({
                 >
                   Create new device…
                 </button>
+                {deviceId && (
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={handleOpenEditDevice}
+                    data-testid="edit-device-btn"
+                  >
+                    Edit device…
+                  </button>
+                )}
               </div>
             </>
           ) : (
-            <Field
-              label={`Rack object model (${availableRackObjects.length} available)`}
-              required
-              className="col-12"
-            >
-              <select
-                className="ri-input"
-                value={deviceModelId}
-                onChange={(e) => {
-                  setDeviceModelId(e.target.value);
-                  setError(null);
-                }}
-                data-testid="rack-object-select"
+            <>
+              <Field
+                label={`Rack object model (${localRackObjects.length} available)`}
+                required
+                className="col-12"
               >
-                <option value="">— select —</option>
-                {availableRackObjects.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.code} — {m.name} ({m.default_height_u}U)
-                  </option>
-                ))}
-              </select>
-            </Field>
+                <select
+                  className="ri-input"
+                  value={deviceModelId}
+                  onChange={(e) => {
+                    setDeviceModelId(e.target.value);
+                    setError(null);
+                  }}
+                  data-testid="rack-object-select"
+                >
+                  <option value="">— select —</option>
+                  {localRackObjects.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.code} — {m.name} ({m.default_height_u}U)
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <div className="col-12" style={{ marginTop: -4, display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => setCreateRackObjectOpen(true)}
+                  data-testid="create-rack-object-btn"
+                >
+                  Create new rack object…
+                </button>
+                {deviceModelId && (
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={handleOpenEditRackObject}
+                    data-testid="edit-rack-object-btn"
+                  >
+                    Edit rack object…
+                  </button>
+                )}
+              </div>
+            </>
           )}
 
           {/* Start U */}
@@ -360,6 +476,31 @@ export function PlacePlacementModal({
         models={allModels}
         onClose={() => setCreateDeviceOpen(false)}
         onSaved={handleDeviceSaved}
+      />
+
+      {/* Inline rack object creation — layered on top of the place modal */}
+      <DeviceModelFormModal
+        open={createRackObjectOpen}
+        editing={null}
+        onClose={() => setCreateRackObjectOpen(false)}
+        onSaved={handleRackObjectSaved}
+      />
+
+      {/* Inline device edit — layered on top of the place modal */}
+      <DeviceFormModal
+        open={editDeviceOpen}
+        editing={editingDevice}
+        models={allModels}
+        onClose={() => { setEditDeviceOpen(false); setEditingDevice(null); }}
+        onSaved={handleEditDeviceSaved}
+      />
+
+      {/* Inline rack object edit — layered on top of the place modal */}
+      <DeviceModelFormModal
+        open={editRackObjectOpen}
+        editing={editingRackObject}
+        onClose={() => { setEditRackObjectOpen(false); setEditingRackObject(null); }}
+        onSaved={handleEditRackObjectSaved}
       />
     </>
   );

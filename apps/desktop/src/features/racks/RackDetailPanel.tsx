@@ -3,6 +3,7 @@ import {
   getRackDetail,
   listDevices,
   listDeviceModels,
+  movePlacement,
   type DeviceDto,
   type DeviceModelDto,
   type PlacementDto,
@@ -14,6 +15,8 @@ import { PlacementInspectorPanel } from "./PlacementInspectorPanel";
 import { PlacementPalettePanel } from "./PlacementPalettePanel";
 import { PlacePlacementModal } from "./PlacePlacementModal";
 import { EditPlacementModal } from "./EditPlacementModal";
+import { DeviceFormModal } from "../devices/DeviceFormModal";
+import { DeviceModelFormModal } from "../deviceModels/DeviceModelFormModal";
 import type { DndPayload } from "./dndTypes";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { Panel } from "../../components/ui/Panel";
@@ -75,6 +78,13 @@ export function RackDetailPanel({
   // Edit placement modal state
   const [editPlacementOpen, setEditPlacementOpen] = useState(false);
   const [editingPlacement, setEditingPlacement] = useState<PlacementDto | null>(null);
+
+  // Edit target device/model state (from inspector "Edit target" buttons)
+  const [editTargetDeviceOpen, setEditTargetDeviceOpen] = useState(false);
+  const [editingTargetDevice, setEditingTargetDevice] = useState<DeviceDto | null>(null);
+  const [editTargetDeviceModels, setEditTargetDeviceModels] = useState<DeviceModelDto[]>([]);
+  const [editTargetModelOpen, setEditTargetModelOpen] = useState(false);
+  const [editingTargetModel, setEditingTargetModel] = useState<DeviceModelDto | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -186,9 +196,10 @@ export function RackDetailPanel({
   }
 
   // Drop handler: open modal pre-filled with startU and target from DnD payload
+  // Only called for "device" or "rack_object" payloads — "placement" is handled by onMovePlacement
   function handleDropAtCell(side: "front" | "rear", startU: number, payload: DndPayload) {
+    if (payload.kind === "placement") return; // should not happen, but guard for safety
     setPlaceModalStartU(startU);
-    // Preselect target from the drag payload
     if (payload.kind === "device") {
       setPlaceModalTargetKind("device");
       setPlaceModalTargetId(payload.deviceId);
@@ -197,7 +208,6 @@ export function RackDetailPanel({
       setPlaceModalTargetId(payload.deviceModelId);
     }
     setPlacePlacementOpen(true);
-    // Sync active side so modal shows the correct side
     if (side !== activeSide) setActiveSide(side);
   }
 
@@ -229,6 +239,54 @@ export function RackDetailPanel({
     setEditPlacementOpen(true);
   }
 
+  async function handleDiagramMovePlacement(
+    side: "front" | "rear",
+    placementId: string,
+    newStartU: number,
+  ) {
+    if (!detail) return;
+    const placement =
+      detail.front.find((p) => p.id === placementId) ??
+      detail.rear.find((p) => p.id === placementId);
+    if (!placement) return;
+    try {
+      await movePlacement({
+        placement_id: placementId,
+        new_side: side,
+        new_start_u: newStartU,
+        new_height_u: placement.height_u ?? null,
+      });
+      refreshAfterMutation({ selectId: placementId });
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function handleEditTargetDevice(deviceId: string) {
+    try {
+      const [devs, models] = await Promise.all([listDevices(), listDeviceModels()]);
+      const device = devs.find((d) => d.id === deviceId) ?? null;
+      if (!device) return;
+      setEditTargetDeviceModels(models.filter((m) => m.device_type !== "rack_object"));
+      setEditingTargetDevice(device);
+      setEditTargetDeviceOpen(true);
+    } catch {
+      // ignore — user can try again
+    }
+  }
+
+  async function handleEditTargetModel(modelId: string) {
+    try {
+      const models = await listDeviceModels();
+      const model = models.find((m) => m.id === modelId) ?? null;
+      if (!model) return;
+      setEditingTargetModel(model);
+      setEditTargetModelOpen(true);
+    } catch {
+      // ignore
+    }
+  }
+
   const selectedSide = deriveSide(selectedPlacement, detail);
 
   const frontUsed = detail?.front.reduce((s, p) => s + (p.effective_height_u ?? 1), 0) ?? 0;
@@ -252,6 +310,7 @@ export function RackDetailPanel({
           setPlaceModalTargetId(null);
         }}
         onDeviceCreated={() => setTargetReloadToken((t) => t + 1)}
+        onRackObjectCreated={() => setTargetReloadToken((t) => t + 1)}
         onPlaced={(newId) => {
           setPlacePlacementOpen(false);
           setPlaceModalTargetKind(null);
@@ -259,6 +318,35 @@ export function RackDetailPanel({
           handleAddSuccess(newId);
         }}
       />
+
+      {/* Edit target device modal (from inspector) */}
+      {editingTargetDevice && (
+        <DeviceFormModal
+          open={editTargetDeviceOpen}
+          editing={editingTargetDevice}
+          models={editTargetDeviceModels}
+          onClose={() => { setEditTargetDeviceOpen(false); setEditingTargetDevice(null); }}
+          onSaved={() => {
+            setEditTargetDeviceOpen(false);
+            setEditingTargetDevice(null);
+            refreshAfterMutation({ bumpTargets: true });
+          }}
+        />
+      )}
+
+      {/* Edit target rack object model modal (from inspector) */}
+      {editingTargetModel && (
+        <DeviceModelFormModal
+          open={editTargetModelOpen}
+          editing={editingTargetModel}
+          onClose={() => { setEditTargetModelOpen(false); setEditingTargetModel(null); }}
+          onSaved={() => {
+            setEditTargetModelOpen(false);
+            setEditingTargetModel(null);
+            refreshAfterMutation({ bumpTargets: true });
+          }}
+        />
+      )}
 
       {/* Edit placement modal */}
       {editingPlacement && (
@@ -342,6 +430,7 @@ export function RackDetailPanel({
                   onSelectPlacement={handleSelectPlacement}
                   onDropAtCell={handleDropAtCell}
                   onEmptySlotClick={handleEmptySlotClick}
+                  onMovePlacement={handleDiagramMovePlacement}
                 />
                 <div className="row-between" style={{ marginTop: 10, fontSize: 11, color: "var(--tx-3)" }}>
                   <span style={{ fontWeight: activeSide === "front" ? 600 : undefined }}>
@@ -385,6 +474,8 @@ export function RackDetailPanel({
                   onMoveSuccess={handleMoveSuccess}
                   onRemoveSuccess={handleRemoveSuccess}
                   onOpenEditModal={selectedPlacement ? () => handleEditPlacement(selectedPlacement) : undefined}
+                  onEditTargetDevice={handleEditTargetDevice}
+                  onEditTargetModel={handleEditTargetModel}
                 />
               </Panel>
             </div>

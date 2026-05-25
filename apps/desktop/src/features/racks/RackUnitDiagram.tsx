@@ -6,8 +6,10 @@ import {
   getActiveDragPayload,
   getPayloadHeight,
   canDropAt,
+  encodeDndPayload,
+  setActiveDragPayload,
 } from "./dndHelpers";
-import type { DndPayload } from "./dndTypes";
+import { DND_DATA_TYPE, type DndPayload } from "./dndTypes";
 import { derivePlacementLabel, type PlacementLabelData } from "./rackPlacementLabel";
 
 interface Props {
@@ -21,6 +23,8 @@ interface Props {
   onDropAtCell?: (side: "front" | "rear", startU: number, payload: DndPayload) => void;
   /** Called when an empty slot is clicked. Opens the place modal. */
   onEmptySlotClick?: (startU: number) => void;
+  /** Called when an already-placed block is dragged to a new position within the same side. */
+  onMovePlacement?: (side: "front" | "rear", placementId: string, newStartU: number) => void;
 }
 
 const ROW_H = 22; // px per U row
@@ -133,6 +137,7 @@ interface SideColumnProps {
   onSelectPlacement: (placement: PlacementDto | null) => void;
   onDropAtCell?: (side: "front" | "rear", startU: number, payload: DndPayload) => void;
   onEmptySlotClick?: (startU: number) => void;
+  onMovePlacement?: (side: "front" | "rear", placementId: string, newStartU: number) => void;
 }
 
 function SideColumn({
@@ -142,6 +147,7 @@ function SideColumn({
   onSelectPlacement,
   onDropAtCell,
   onEmptySlotClick,
+  onMovePlacement,
 }: SideColumnProps) {
   const [hovered, setHovered] = useState<{
     startU: number;
@@ -157,7 +163,7 @@ function SideColumn({
   // units[0] = U1 (bottom), render top-to-bottom so reverse
   const rows = [...units].reverse();
   return (
-    <div style={{ width: SIDE_W, flexShrink: 0 }}>
+    <div style={{ width: "100%" }}>
       {rows.map((state, idx) => {
         const startU = units.length - idx;
 
@@ -192,15 +198,36 @@ function SideColumn({
             textAlign: "center",
             gap: 1,
             overflow: "hidden",
+            cursor: onMovePlacement ? "grab" : "pointer",
             ...(hoveredInvalid ? { outline: "2px dashed #cc4444" } : {}),
           };
+          const placement = state.placement;
+          const heightU = label.effectiveHeightU;
           return (
             <div
               key={idx}
-              data-testid={`placed-${side}-${state.placement.id}`}
+              data-testid={`placed-${side}-${placement.id}`}
               title={label.title}
               style={style}
-              onClick={() => onSelectPlacement(state.placement)}
+              draggable={!!onMovePlacement}
+              onClick={() => onSelectPlacement(placement)}
+              onDragStart={
+                onMovePlacement
+                  ? (e) => {
+                      const payload: DndPayload = {
+                        kind: "placement",
+                        placementId: placement.id,
+                        startU,
+                        heightU,
+                        side,
+                      };
+                      e.dataTransfer.setData(DND_DATA_TYPE, encodeDndPayload(payload));
+                      e.dataTransfer.effectAllowed = "move";
+                      setActiveDragPayload(payload);
+                    }
+                  : undefined
+              }
+              onDragEnd={onMovePlacement ? () => setActiveDragPayload(null) : undefined}
             >
               <PlacementLabelContent label={label} />
             </div>
@@ -245,28 +272,37 @@ function SideColumn({
               if (onEmptySlotClick) onEmptySlotClick(startU);
             }}
             onDragOver={
-              onDropAtCell
+              onDropAtCell || onMovePlacement
                 ? (e) => {
                     e.preventDefault();
                     const payload = getActiveDragPayload();
                     if (!payload) return;
                     const payloadH = getPayloadHeight(payload);
-                    const valid = canDropAt(units, startU, payloadH);
-                    e.dataTransfer.dropEffect = valid ? "copy" : "none";
+                    const excludeId = payload.kind === "placement" ? payload.placementId : undefined;
+                    const valid = canDropAt(units, startU, payloadH, excludeId);
+                    e.dataTransfer.dropEffect = payload.kind === "placement" ? (valid ? "move" : "none") : (valid ? "copy" : "none");
                     setHovered({ startU, heightU: payloadH, valid });
                   }
                 : undefined
             }
-            onDragLeave={onDropAtCell ? () => setHovered(null) : undefined}
+            onDragLeave={onDropAtCell || onMovePlacement ? () => setHovered(null) : undefined}
             onDrop={
-              onDropAtCell
+              onDropAtCell || onMovePlacement
                 ? (e) => {
                     e.preventDefault();
                     setHovered(null);
                     const payload = getDragPayload(e);
                     if (!payload) return;
-                    if (!canDropAt(units, startU, getPayloadHeight(payload))) return;
-                    onDropAtCell(side, startU, payload);
+                    const payloadH = getPayloadHeight(payload);
+                    const excludeId = payload.kind === "placement" ? payload.placementId : undefined;
+                    if (!canDropAt(units, startU, payloadH, excludeId)) return;
+                    if (payload.kind === "placement") {
+                      // No-op if dropped back at the same position on the same side
+                      if (startU === payload.startU && side === payload.side) return;
+                      onMovePlacement?.(side, payload.placementId, startU);
+                    } else {
+                      onDropAtCell?.(side, startU, payload);
+                    }
                   }
                 : undefined
             }
@@ -286,6 +322,7 @@ export function RackUnitDiagram({
   onSelectPlacement,
   onDropAtCell,
   onEmptySlotClick,
+  onMovePlacement,
 }: Props) {
   const activePlacements = side === "front" ? front : rear;
   const activeOcc = buildOccupancy(heightU, activePlacements);
@@ -298,7 +335,7 @@ export function RackUnitDiagram({
   return (
     <div>
       <p style={{ margin: "0 0 0.4rem", fontSize: "0.78rem", color: "#666" }}>
-        U{heightU} at top · U1 at bottom · Click an empty slot to place · Click an occupied block to inspect · Drag from palette
+        U{heightU} at top · U1 at bottom · Click empty slot to place · Click block to inspect · Drag from palette · Drag block to move
       </p>
 
       {/* Legend */}
@@ -386,9 +423,10 @@ export function RackUnitDiagram({
         style={{
           maxHeight: "60vh",
           overflowY: "auto",
-          overflowX: "auto",
+          overflowX: "hidden",
           border: "1px solid #ddd",
           borderRadius: 3,
+          width: "100%",
         }}
       >
         <div
@@ -396,6 +434,7 @@ export function RackUnitDiagram({
             display: "flex",
             fontFamily: "monospace",
             fontSize: "0.78rem",
+            width: "100%",
           }}
         >
           {/* U-number gutter */}
@@ -433,12 +472,11 @@ export function RackUnitDiagram({
             ))}
           </div>
 
-          {/* Active side column */}
-          <div style={{ flexShrink: 0 }}>
+          {/* Active side column — flex: 1 so it fills remaining container width */}
+          <div style={{ flex: 1, minWidth: SIDE_W }}>
             <div
               style={{
                 height: ROW_H,
-                width: SIDE_W,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -458,6 +496,7 @@ export function RackUnitDiagram({
                 onSelectPlacement={onSelectPlacement}
                 onDropAtCell={onDropAtCell}
                 onEmptySlotClick={onEmptySlotClick}
+                onMovePlacement={onMovePlacement}
               />
             </div>
           </div>

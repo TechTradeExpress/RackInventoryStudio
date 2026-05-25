@@ -16,6 +16,9 @@ vi.mock("../../api/tauriClient", () => ({
   placeDevice: vi.fn(),
   placeRackObject: vi.fn(),
   addDevice: vi.fn(),
+  addDeviceModel: vi.fn(),
+  updateDevice: vi.fn(),
+  updateDeviceModel: vi.fn(),
   listDevices: vi.fn(),
   listDeviceModels: vi.fn(),
 }));
@@ -24,12 +27,14 @@ import {
   placeDevice,
   placeRackObject,
   addDevice,
+  addDeviceModel,
   listDevices,
   listDeviceModels,
 } from "../../api/tauriClient";
 const mockPlaceDevice = vi.mocked(placeDevice);
 const mockPlaceRackObject = vi.mocked(placeRackObject);
 const mockAddDevice = vi.mocked(addDevice);
+const mockAddDeviceModel = vi.mocked(addDeviceModel);
 const mockListDevices = vi.mocked(listDevices);
 const mockListDeviceModels = vi.mocked(listDeviceModels);
 
@@ -90,6 +95,7 @@ const BASE_PROPS = {
 };
 
 const CREATED_DEVICE_ID = "newly-created-device-id";
+const CREATED_MODEL_ID = "newly-created-model-id";
 
 const CREATED_DEVICE: import("../../api/tauriClient").DeviceDto = {
   id: CREATED_DEVICE_ID,
@@ -107,13 +113,26 @@ const CREATED_DEVICE: import("../../api/tauriClient").DeviceDto = {
   tags: [],
 };
 
+const CREATED_RACK_OBJ: import("../../api/tauriClient").DeviceModelDto = {
+  id: CREATED_MODEL_ID,
+  code: "new-rack-obj-01",
+  device_type: "rack_object",
+  name: "New Rack Object",
+  vendor: null,
+  model_number: null,
+  default_height_u: 1,
+  description: null,
+  tags: [],
+};
+
 beforeEach(() => {
   document.body.innerHTML = "";
   mockPlaceDevice.mockResolvedValue("new-placement-id");
   mockPlaceRackObject.mockResolvedValue("new-rack-obj-placement-id");
   mockAddDevice.mockResolvedValue(CREATED_DEVICE_ID);
+  mockAddDeviceModel.mockResolvedValue(CREATED_MODEL_ID);
   mockListDevices.mockResolvedValue([DEVICE_1, CREATED_DEVICE]);
-  mockListDeviceModels.mockResolvedValue([]);
+  mockListDeviceModels.mockResolvedValue([RACK_OBJ_1, CREATED_RACK_OBJ]);
 });
 
 afterEach(() => {
@@ -482,5 +501,142 @@ describe("PlacePlacementModal — initialTargetKind / initialTargetId preselecti
     // Place button should be enabled since a model is selected
     const btn = screen.getByTestId("place-btn") as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
+  });
+});
+
+describe("PlacePlacementModal — Create new rack object flow", () => {
+  it("shows 'Create new rack object…' button only in Rack Object mode", () => {
+    render(<PlacePlacementModal {...BASE_PROPS} />);
+    // Device mode (default) — rack object create button not visible
+    expect(screen.queryByTestId("create-rack-object-btn")).toBeNull();
+    // Switch to rack_object mode
+    fireEvent.click(screen.getAllByRole("radio")[1]);
+    expect(screen.getByTestId("create-rack-object-btn")).toBeTruthy();
+  });
+
+  it("clicking 'Create new rack object…' opens the DeviceModelFormModal", async () => {
+    render(<PlacePlacementModal {...BASE_PROPS} initialTargetKind="rack_object" />);
+    fireEvent.click(screen.getByTestId("create-rack-object-btn"));
+    await waitFor(() => {
+      expect(screen.getByText("Add device model")).toBeTruthy();
+    });
+  });
+
+  it("canceling DeviceModelFormModal returns to unchanged Place equipment modal", async () => {
+    render(<PlacePlacementModal {...BASE_PROPS} initialTargetKind="rack_object" startU={7} />);
+    fireEvent.click(screen.getByTestId("create-rack-object-btn"));
+    await waitFor(() => expect(screen.getByText("Add device model")).toBeTruthy());
+
+    const cancelBtns = screen.getAllByText("Cancel");
+    cancelBtns[cancelBtns.length - 1].click();
+
+    await waitFor(() => {
+      expect(screen.queryByText("Add device model")).toBeNull();
+      expect(screen.getByText("Place equipment")).toBeTruthy();
+    });
+    expect((screen.getByTestId("start-u-input") as HTMLInputElement).value).toBe("7");
+    expect((screen.getByTestId("rack-object-select") as HTMLSelectElement).value).toBe("");
+  });
+
+  it("successful rack object creation refreshes list and preselects new model", async () => {
+    const onRackObjectCreated = vi.fn();
+    render(
+      <PlacePlacementModal
+        {...BASE_PROPS}
+        initialTargetKind="rack_object"
+        startU={3}
+        onRackObjectCreated={onRackObjectCreated}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("create-rack-object-btn"));
+    await waitFor(() => expect(screen.getByText("Add device model")).toBeTruthy());
+
+    // Fill minimal form: device_type (rack_object), code, name, height
+    fireEvent.change(screen.getByTestId("field-device-type"), { target: { value: "rack_object" } });
+    fireEvent.change(screen.getByTestId("field-code"), { target: { value: "new-rack-obj-01" } });
+    fireEvent.change(screen.getByTestId("field-name"), { target: { value: "New Rack Object" } });
+    fireEvent.change(screen.getByTestId("field-height-u"), { target: { value: "1" } });
+    fireEvent.click(screen.getByText("Create model"));
+
+    await waitFor(() => {
+      expect(screen.queryByText("Add device model")).toBeNull();
+      expect(screen.getByText("Place equipment")).toBeTruthy();
+    });
+
+    await waitFor(() => {
+      const select = screen.getByTestId("rack-object-select") as HTMLSelectElement;
+      expect(select.value).toBe(CREATED_MODEL_ID);
+    });
+
+    expect((screen.getByTestId("place-btn") as HTMLButtonElement).disabled).toBe(false);
+    expect(onRackObjectCreated).toHaveBeenCalledOnce();
+  });
+});
+
+describe("PlacePlacementModal — Edit device button", () => {
+  it("shows 'Edit device…' button only when a device is selected", () => {
+    render(<PlacePlacementModal {...BASE_PROPS} />);
+    // No device selected — no edit button
+    expect(screen.queryByTestId("edit-device-btn")).toBeNull();
+    // Select a device
+    fireEvent.change(screen.getByTestId("device-select"), { target: { value: "dev-1" } });
+    expect(screen.getByTestId("edit-device-btn")).toBeTruthy();
+  });
+
+  it("clicking 'Edit device…' opens DeviceFormModal in edit mode", async () => {
+    render(
+      <PlacePlacementModal {...BASE_PROPS} initialTargetKind="device" initialTargetId="dev-1" />,
+    );
+    fireEvent.click(screen.getByTestId("edit-device-btn"));
+    await waitFor(() => {
+      expect(screen.getByText("Edit device")).toBeTruthy();
+    });
+  });
+
+  it("after editing device, list refreshes and same device remains selected", async () => {
+    render(
+      <PlacePlacementModal {...BASE_PROPS} initialTargetKind="device" initialTargetId="dev-1" />,
+    );
+    fireEvent.click(screen.getByTestId("edit-device-btn"));
+    await waitFor(() => expect(screen.getByText("Edit device")).toBeTruthy());
+
+    // Save with no changes (form opens in edit mode, auto-filled)
+    // Find and click Save changes
+    const saveBtns = screen.getAllByText("Save changes");
+    fireEvent.click(saveBtns[saveBtns.length - 1]);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Edit device")).toBeNull();
+      expect(screen.getByText("Place equipment")).toBeTruthy();
+    });
+    // Device still selected after edit
+    const select = screen.getByTestId("device-select") as HTMLSelectElement;
+    expect(select.value).toBe("dev-1");
+  });
+});
+
+describe("PlacePlacementModal — Edit rack object button", () => {
+  it("shows 'Edit rack object…' button only when a rack object model is selected", () => {
+    render(<PlacePlacementModal {...BASE_PROPS} initialTargetKind="rack_object" />);
+    // No model selected — no edit button
+    expect(screen.queryByTestId("edit-rack-object-btn")).toBeNull();
+    // Select a model
+    fireEvent.change(screen.getByTestId("rack-object-select"), { target: { value: "model-2" } });
+    expect(screen.getByTestId("edit-rack-object-btn")).toBeTruthy();
+  });
+
+  it("clicking 'Edit rack object…' opens DeviceModelFormModal in edit mode", async () => {
+    render(
+      <PlacePlacementModal
+        {...BASE_PROPS}
+        initialTargetKind="rack_object"
+        initialTargetId="model-2"
+      />,
+    );
+    fireEvent.click(screen.getByTestId("edit-rack-object-btn"));
+    await waitFor(() => {
+      expect(screen.getByText("Edit device model")).toBeTruthy();
+    });
   });
 });

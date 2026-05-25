@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased — Complete rack placement editing workflow
+
+### Added
+- `apps/desktop/src/features/racks/dndTypes.ts`: new `"placement"` DnD payload kind carrying `placementId`, `startU`, `heightU`, `side` — enables drag-to-move of already-placed equipment.
+- `apps/desktop/src/features/racks/dndHelpers.ts`: `canDropAt` now accepts optional `excludePlacementId` so a dragged block's own cells are treated as empty during validation. `getPayloadHeight` and `decodeDndPayload` updated for the `"placement"` kind.
+- `apps/desktop/src/features/racks/RackUnitDiagram.tsx`: occupied blocks are now draggable; new `onMovePlacement` prop wires the move back to the parent. Diagram fills its container width (layout fix — removes the blank area to the right of the 200 px column).
+- `apps/desktop/src/features/racks/PlacePlacementModal.tsx`: "Create new rack object…" button in Rack Object mode (mirrors "Create new device…"); "Edit device…" and "Edit rack object…" buttons when a target is selected — edit form opens inline, list refreshes, selection is preserved after save.
+- `apps/desktop/src/features/racks/PlacementInspectorPanel.tsx`: "Edit device…" / "Edit rack object…" buttons in the inspector action area based on `target_kind`.
+- `apps/desktop/src/features/racks/RackDetailPanel.tsx`: wires `onMovePlacement` to `movePlacement` API call + `refreshAfterMutation`; wires inspector edit-target callbacks to dedicated `DeviceFormModal` / `DeviceModelFormModal` instances; passes `onRackObjectCreated` to `PlacePlacementModal`.
+- `apps/desktop/src/features/deviceModels/DeviceModelFormModal.tsx`: `onSaved` now receives the new model ID (`newModelId?: string`) in add mode, enabling the "Create new rack object" preselection flow.
+- `apps/desktop/e2e/mocks/tauri-core.ts`: `move_placement` actually moves the placement in `dynamicRackDetail`; `place_rack_object` adds the placement to `dynamicRackDetail`; added handlers for `add_device_model_cmd`, `update_device_cmd`, `update_device_model_cmd`; `dynamicDeviceModels` factory with reset support.
+
+### Changed
+- Rack diagram now fills the full left-column width instead of a fixed 236 px — eliminates the blank horizontal space at common window sizes.
+- Upgrade hint text in diagram to mention "Drag block to move".
+
+### Tests
+- 16 new unit tests across `dndHelpers.test.ts` and `PlacePlacementModal.test.tsx` covering: placement-kind encode/decode, `canDropAt` with `excludePlacementId`, create rack object flow, edit device/rack object flows.
+- 3 new E2E smoke tests: drag-to-move placed block, create rack object from place modal, inspector edit device button visibility.
+
 ## Unreleased — CI runner pinning and workflow linting
 
 ### Changed

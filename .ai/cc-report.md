@@ -1,43 +1,23 @@
 ## Summary
 
-CI hardening — pin runner images and add workflow linting (follows PR #80). Replaced all `ubuntu-latest` references in `ci.yml` with the explicit `ubuntu-24.04` image to prevent silent runner drift. Added a new `workflow-lint` CI job that runs `raven-actions/actionlint@v2` to lint all `.github/workflows/*.yml` files on every pull request and push.
-
-No product behavior changes. No frontend UI changes. No Rust/Tauri changes. No version bump. No new runtime or dev dependencies.
+Milestone G — Complete rack placement editing workflow. Four functional areas added: (A) drag-to-move for already placed equipment in the rack diagram, (B) rack diagram layout fix (fills container width instead of a fixed 236 px), (C) "Create new rack object" from the Place equipment modal, (D) "Edit device" / "Edit rack object" from both the Place equipment modal and the placement inspector panel.
 
 ## Files changed
 
-- `.github/workflows/ci.yml` — Pinned all four Linux jobs (`rust`, `version-check`, `scripts`, `frontend`) from `ubuntu-latest` to `ubuntu-24.04`. Added new `workflow-lint` job using `raven-actions/actionlint@v2` on `ubuntu-24.04`.
-- `CHANGELOG.md` — Added `## Unreleased — CI runner pinning and workflow linting` section.
+- `apps/desktop/src/features/racks/dndTypes.ts` — added `"placement"` kind to `DndPayload` carrying `placementId`, `startU`, `heightU`, `side`.
+- `apps/desktop/src/features/racks/dndHelpers.ts` — `canDropAt` accepts optional `excludePlacementId`; `getPayloadHeight` and `decodeDndPayload` handle `"placement"` kind.
+- `apps/desktop/src/features/racks/RackUnitDiagram.tsx` — occupied top cells are `draggable`; new `onMovePlacement` prop on both `SideColumn` and `RackUnitDiagram`; drop handler distinguishes `"placement"` payload → calls `onMovePlacement`; layout changed from `width: SIDE_W, flexShrink: 0` to `flex: 1, minWidth: SIDE_W` so diagram fills available width.
+- `apps/desktop/src/features/racks/PlacePlacementModal.tsx` — added "Create new rack object…" button and `DeviceModelFormModal` in add mode; "Edit device…" button (opens `DeviceFormModal` in edit mode inline); "Edit rack object…" button (opens `DeviceModelFormModal` in edit mode inline); `localRackObjects` state; `onRackObjectCreated` prop.
+- `apps/desktop/src/features/racks/PlacementInspectorPanel.tsx` — added `onEditTargetDevice` and `onEditTargetModel` props; "Edit device…" / "Edit rack object…" buttons in action area.
+- `apps/desktop/src/features/racks/RackDetailPanel.tsx` — imports `movePlacement`, `DeviceFormModal`, `DeviceModelFormModal`; wires `onMovePlacement` handler (`handleDiagramMovePlacement`); wires `onEditTargetDevice` / `onEditTargetModel` with dedicated modal state; passes `onRackObjectCreated` to `PlacePlacementModal`.
+- `apps/desktop/src/features/deviceModels/DeviceModelFormModal.tsx` — `onSaved: () => void` changed to `onSaved: (newModelId?: string) => void`; add-mode path passes the returned ID to `onSaved(newModelId)`.
+- `apps/desktop/e2e/mocks/tauri-core.ts` — `move_placement` now moves placement within `dynamicRackDetail`; `place_rack_object` now adds to `dynamicRackDetail`; `add_device_model_cmd`, `update_device_cmd`, `update_device_model_cmd` handlers added; `dynamicDeviceModels` factory + reset; `FIXTURE_NEW_MODEL_ID` constant exported; `list_device_models` now served from `dynamicDeviceModels`.
+- `apps/desktop/src/features/racks/dndHelpers.test.ts` — 7 new tests: placement payload round-trip, invalid side decode, `canDropAt` with `excludePlacementId` (4 scenarios), `getPayloadHeight` for placement kind.
+- `apps/desktop/src/features/racks/PlacePlacementModal.test.tsx` — 9 new tests: create rack object flow (3), edit device button (3), edit rack object button (2), mock setup for `addDeviceModel`.
+- `apps/desktop/e2e/smoke.spec.ts` — 3 new E2E tests: drag-to-move placed block, create rack object from place modal, inspector edit device button visibility.
+- `CHANGELOG.md` — new `## Unreleased — Complete rack placement editing workflow` section.
 
-## Workflows changed
-
-`.github/workflows/ci.yml`:
-
-| Job | Before | After |
-|-----|--------|-------|
-| `rust` | `ubuntu-latest` | `ubuntu-24.04` |
-| `version-check` | `ubuntu-latest` | `ubuntu-24.04` |
-| `scripts` | `ubuntu-latest` | `ubuntu-24.04` |
-| `frontend` | `ubuntu-latest` | `ubuntu-24.04` |
-| `workflow-lint` | *(new)* | `ubuntu-24.04` + `raven-actions/actionlint@v2` |
-
-`.github/workflows/windows-installer.yml`: unchanged — `windows-latest` retained (manual-only workflow, no reason to pin).
-
-## Runner pinning details
-
-- Replaced 4× `ubuntu-latest` → `ubuntu-24.04`.
-- `ubuntu-24.04` is the current LTS image behind `ubuntu-latest` as of May 2026; pinning makes the runner version explicit so future image promotions (e.g., `ubuntu-latest` → `ubuntu-26.04`) do not silently change CI behaviour.
-- `windows-latest` in the Windows Installer workflow is left unpinned — it is a manual-only workflow with no automated triggers, and there is no pinned Windows image equivalent in scope for this PR.
-
-## Actionlint integration details
-
-- New job: `workflow-lint` / "Workflow lint" on `ubuntu-24.04`.
-- Uses `raven-actions/actionlint@v2` — installs the latest stable actionlint release and lints `.github/workflows/*.yml`.
-- Fails CI on any actionlint syntax or semantic error (no silent suppression).
-- Lightweight: checkout + actionlint only, no pnpm/Node setup.
-- `actionlint` was not available locally — lint correctness is verified by the GitHub Actions run.
-
-## Checks run locally
+## Tests
 
 ```
 git diff --check                                → clean
@@ -45,28 +25,39 @@ node scripts/check-version-consistency.mjs      → 0.1.0 consistent
 node --test scripts/*.test.mjs                  → 17 pass, 0 fail
 node scripts/check-repo-hygiene.mjs             → 8/8 checks passed
 tsc --noEmit (apps/desktop)                     → clean
-vitest run (apps/desktop)                       → 388 pass, 32 files
-playwright test (apps/desktop)                  → 17 pass
+vitest run (apps/desktop)                       → 404 pass, 32 files (was 388)
+playwright test (apps/desktop)                  → 20 pass (was 17)
 cargo fmt --all --check                         → clean
 cargo check --workspace                         → clean
 cargo test --workspace                          → clean
 cargo clippy --workspace -- -D warnings         → clean
-no apps/desktop/package-lock.json               → ok
-no tracked .ai/review-context-*.md              → ok
-actionlint (local)                              → not available; verified by CI
 ```
 
-## Known risks
+## Risks
 
-- `raven-actions/actionlint@v2` resolves to the latest patch within the v2 major — a breaking change in v2.x would affect the lint job. Major version tags are the standard GitHub Actions convention; risk is low.
-- actionlint was not available locally for pre-push verification. The `workflow-lint` CI job is the authoritative validator for this PR.
-- `ubuntu-24.04` is explicitly supported by GitHub-hosted runners. If GitHub deprecates this image label before a new pin PR is merged, the Linux jobs will fail — but image labels are deprecated on long notice cycles (months).
+- `RackUnitDiagram` layout change (flex: 1 → fills width) may look slightly different at very narrow window sizes if a parent panel constrains to less than `SIDE_W` (200 px). Standard window sizes were the accepted target.
+- `DeviceModelFormModal.onSaved` signature change (`newModelId?: string`) is backward-compatible — `DeviceModelsPanel.handleSaved()` takes no args and TypeScript allows calling `onSaved` without an argument when the param is optional.
+- The `move_placement` E2E mock updates `end_u` to equal `new_start_u` for simplicity; in real backend the `end_u` is derived from height. This is fine for the E2E assertions which only check placement visibility by ID.
 
 ## Not done
 
-- `windows-latest` in `windows-installer.yml` not pinned — manual-only workflow, out of scope.
-- No actionlint config file (`.actionlint.yml`) added — the default configuration is sufficient for the current workflows.
+- Cross-rack drag-to-move (not required per spec; cross-rack is explicitly out of scope).
+- Drag-to-move across front/rear sides (same-side move is implemented; cross-side is a user risk decision not required per spec).
+- Version bump (intentionally excluded per constraints).
+- Windows installer workflow changes (excluded per constraints).
+- Settings logs folder fix (Milestone H).
 
 ## Suggested next step
 
-Monitor the `workflow-lint` CI job on this PR for any actionlint findings; fix any real issues before merging.
+Create the PR from `ux/rack-placement-editing-workflow` → `master` and run CI. Monitor for any actionlint findings from the existing `workflow-lint` job.
+
+## Final review-context handoff
+
+After all implementation, checks, and `.ai/cc-report.md` update, generate the review context as the last step using a timestamped filename.
+The base branch for this repository is `master` unless explicitly instructed otherwise.
+
+```bash
+bash scripts/ai/build-review-context.sh master .ai/review-context-$(date +%Y%m%d-%H%M).md
+```
+
+The file `.ai/review-context-YYYYMMDD-HHMM.md` should be attached or pasted to ChatGPT as the code review context before approving the milestone.
