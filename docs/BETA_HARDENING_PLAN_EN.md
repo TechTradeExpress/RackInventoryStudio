@@ -16,8 +16,7 @@ The MVP core is functionally complete. What remains before V1 is a set of UX, op
 | Data model | YAML repository files in a local Git repository |
 | Git integration | init, status, commit, log, push (`git push -u`), pull (fast-forward); safe publish checklist in UI |
 | Windows Installer workflow | Manual `workflow_dispatch`; unsigned NSIS installer on `windows-latest` |
-| Windows Diagnostic Installer workflow | Manual `workflow_dispatch`; NSIS installer + `diagnostic-readme.txt` QA artifact |
-| Diagnostics logging | Local log file in `%APPDATA%\com.techtradeexpress.rackinventorystudio\logs\`; no telemetry |
+| Diagnostics logging | Local log file in `%APPDATA%\com.techtradeexpress.rackinventorystudio\logs\`; no telemetry; accessible via Settings → Diagnostics and logs |
 | Location-scoped rack management | Racks are managed from Location context via "Manage racks"; Add Rack uses context location |
 | Rack detail | Front/Rear segmented control; rack diagram (drag/drop placement); placement table; placement inspector; needs UX redesign |
 | Test coverage | 358 Rust workspace tests · 315 Vitest frontend tests · 10 Playwright smoke tests |
@@ -89,22 +88,20 @@ Version numbers must be consistent across all files in the repository. Installer
 
 - Installer artifact names must include the actual app version:
   - `rack-inventory-studio-vX.Y.Z-windows-installer`
-  - `rack-inventory-studio-vX.Y.Z-windows-diagnostic-installer`
 - The NSIS installer filename (the `.exe`) should also carry the actual version rather than a placeholder.
-- Update both Windows installer workflow files to derive the artifact name from the version field.
+- The Windows Installer workflow derives the artifact name from the version field in `tauri.conf.json`.
 
 **Beta release checklist**
 
 Add a release checklist to `docs/` or inline in this document. The beta release checklist must cover:
 
-1. Bump version in all four locations (or run sync script).
+1. Bump version in all four locations (or run `node scripts/bump-version.mjs X.Y.Z`).
 2. Update `CHANGELOG.md` — move Unreleased entries to the new version section.
 3. Run standard checks: `cargo fmt --all --check`, `cargo clippy --workspace -- -D warnings`, `cargo test --workspace`, `pnpm typecheck`, `pnpm test`, `pnpm build`.
-4. Run Windows Installer workflow (`workflow_dispatch`) on the release branch or master.
-5. Run Windows Diagnostic Installer workflow (`workflow_dispatch`).
-6. Windows 11 manual QA (see Milestone 5 checklist).
-7. Tag the beta release (`git tag vX.Y.Z-beta.N`).
-8. Publish GitHub Release with the NSIS installer artifact attached.
+4. Run Windows Installer workflow (`workflow_dispatch`) on the release branch.
+5. Windows 11 manual QA (see Milestone 5 checklist).
+6. Tag the beta release (`git tag vX.Y.Z-beta.N`).
+7. Publish GitHub Release with the NSIS installer artifact attached.
 
 **Protected master — recommended settings**
 
@@ -246,13 +243,11 @@ Confirm that the NSIS installer and the full application UX work correctly on a 
 
 ### Checklist
 
-**CI step — Windows Diagnostic Installer workflow**
+**CI step — Windows Installer workflow**
 
-1. Trigger the "Windows Diagnostic Installer" `workflow_dispatch` workflow on the release branch (or master after merge).
-2. Download the artifact: `rack-inventory-studio-vX.Y.Z-windows-diagnostic-installer`.
-3. Verify the artifact contains:
-   - `Rack Inventory Studio_X.Y.Z_x64-setup.exe`
-   - `diagnostic-readme.txt`
+1. Trigger the "Windows Installer" `workflow_dispatch` workflow on the release branch.
+2. Download the artifact: `rack-inventory-studio-vX.Y.Z-windows-installer`.
+3. Verify the artifact contains `Rack Inventory Studio_X.Y.Z_x64-setup.exe`.
 
 **Windows 11 manual install and QA**
 

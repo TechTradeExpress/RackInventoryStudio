@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased — Beta QA follow-up Milestone F: Release/versioning/installer process
+
+### Added
+- `scripts/bump-version.mjs` — Node ESM helper to update all four canonical version sources atomically (`package.json`, `apps/desktop/package.json`, `Cargo.toml`, `tauri.conf.json`). Usage: `node scripts/bump-version.mjs 0.1.1` or `node scripts/bump-version.mjs 0.2.0-beta.1`. Validates SemVer format, prints a before/after table, does not auto-commit.
+- `pnpm bump:version` script in root `package.json` (alias for the above).
+- `docs/BETA_RELEASE_PROCESS_EN.md` now documents: SemVer policy (PATCH/MINOR/MAJOR), pre-release tag convention (`vX.Y.Z-beta.N`), release branch naming (`release/vX.Y.Z`), version bump helper, and a concrete step-by-step release workflow (A: prepare branch, B: validate, C: build installer, D: Windows 11 QA, E: tag and GitHub Release).
+
+### Changed
+- `docs/BETA_RELEASE_PROCESS_EN.md` rewritten to reflect the finalized release/versioning/installer process.
+- `docs/BETA_WINDOWS_11_QA_EN.md` updated to reference only the standard Windows Installer workflow; rack placement checks updated for current UX (diagram as primary surface, create-device flow).
+- `docs/BETA_HARDENING_PLAN_EN.md` updated: removed diagnostic installer references; updated artifact naming and release checklist.
+- `.ai/windows-installer-ci.md` updated: removed cross-reference to diagnostic workflow; added links to release process and QA docs.
+- `README.md` updated: Windows installer section clarified (one workflow, manual-only, unsigned, versioned artifact); diagnostics described as an app feature.
+
+### Removed
+- `.github/workflows/windows-diagnostic-installer.yml` — Windows Diagnostic Installer workflow removed. Diagnostics logging remains a full app feature accessible via Settings → Diagnostics and logs.
+- `.ai/windows-diagnostic-installer.md` — diagnostic installer CI reference doc removed.
+
 ## Unreleased — Beta QA follow-up Milestone E: Create device from Place equipment flow
 
 ### Added
@@ -80,7 +98,7 @@
 
 - **Version consistency check script** (`scripts/check-version-consistency.mjs`) — Node ESM script that reads the app version from all four canonical sources (`package.json`, `apps/desktop/package.json`, `Cargo.toml`, `tauri.conf.json`), prints a formatted table, and exits non-zero on mismatch. Available as `pnpm check:version`.
 - **CI: version-check job** (`.github/workflows/ci.yml`) — new lightweight job that runs the consistency check on every push and pull request; catches version drift before it reaches a build.
-- **Versioned artifact names** — both installer workflows now extract the version from `tauri.conf.json` (PowerShell `ConvertFrom-Json` step) and embed it in the artifact name: `rack-inventory-studio-vX.Y.Z-windows-installer` / `rack-inventory-studio-vX.Y.Z-windows-diagnostic-installer`. Artifact names are unambiguous across builds.
+- **Versioned artifact names** — the Windows Installer workflow extracts the version from `tauri.conf.json` (PowerShell `ConvertFrom-Json` step) and embeds it in the artifact name: `rack-inventory-studio-vX.Y.Z-windows-installer`. Artifact names are unambiguous across builds.
 - **Beta release process documentation** (`docs/BETA_RELEASE_PROCESS_EN.md`) — version policy, beta naming convention, full release checklist (verify consistency → merge → trigger workflow → smoke test → distribute), version bump procedure, and protected-master recommendation.
 
 ## Unreleased — beta hardening milestone 1: global busy overlay and Windows Git console hiding (branch `ux/global-busy-git-no-console`, PR #65)
@@ -106,7 +124,7 @@ Nine working branches merged into `integration/post-ui-polish-qa`. Full automate
 - **Rack form polish** (`ux/rack-form-polish`) — Default rack height pre-filled to 42U; field label "Row / aisle" with help text; code field help text notes immutability.
 - **CSV sample template download** (`ux/csv-sample-import`) — "Download sample CSV" button in CSV Import panel; template matches importer-supported columns; no double-counting of warning rows.
 - **Validation and save copy** (`ux/validation-save-copy`) — Button copy: "Validate repository", "Save changes"; empty state explains validation does not write to disk.
-- **Windows diagnostic installer** (`ci/windows-diagnostic-installer`) — Separate manual-only `workflow_dispatch` workflow builds unsigned NSIS installer with a `diagnostic-readme.txt` for QA log verification; named artifact `rack-inventory-studio-windows-diagnostic-installer`.
+- **Windows diagnostic installer** (removed in Milestone F) — A separate manual-only `workflow_dispatch` workflow was added at this point to bundle the installer with a `diagnostic-readme.txt`. It was removed in Milestone F; diagnostics logging remains an app feature accessible from Settings.
 - **App icon** (`assets/app-icon`) — Bay-direction rack cabinet SVG (`icon.svg`) added; all Tauri platform icon formats regenerated (Windows ICO, macOS ICNS, PNG set, Windows APPX, iOS, Android); default Tauri placeholder icons replaced.
 
 **Test totals after integration:** 358 Rust workspace tests · 315 Vitest frontend tests · 10 Playwright smoke tests.

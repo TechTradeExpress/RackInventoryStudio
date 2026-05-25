@@ -1,83 +1,90 @@
-# Milestone E — Create devices from Place equipment flow
+# Milestone F — Release/versioning/installer process
 
 ## Summary
 
-Users can now create a new device directly from the "Place equipment" modal without leaving the placement workflow. Clicking "Create new device…" opens `DeviceFormModal` as a layered modal; after the device is saved, the Place equipment modal returns with the new device preselected and all position fields (Start U, side, height) preserved. The newly created device is immediately available for placement.
+Finalized the beta release and versioning process. Removed the Windows Diagnostic Installer workflow and its companion docs. Added a `bump-version.mjs` helper script to update all four canonical version sources atomically. Rewrote `BETA_RELEASE_PROCESS_EN.md` with a concrete step-by-step release workflow, SemVer policy, pre-release tag convention, and release branch naming. Updated all other docs to reference only the standard Windows Installer. The repo now has exactly one installer workflow.
+
+## Files deleted
+
+| File | Reason |
+|------|--------|
+| `.github/workflows/windows-diagnostic-installer.yml` | Windows Diagnostic Installer workflow removed |
+| `.ai/windows-diagnostic-installer.md` | Companion CI reference doc removed |
 
 ## Files changed
 
 | File | Change |
 |------|--------|
-| `apps/desktop/src/features/devices/DeviceFormModal.tsx` | Added `useBusy` integration; changed `onSaved` signature to `(newDeviceId?: string) => void`; passes new device ID in add mode, no arg in edit mode. |
-| `apps/desktop/src/features/racks/PlacePlacementModal.tsx` | Added inline device creation: `localDevices` state, `createDeviceOpen` state, `handleOpenCreateDevice`, `handleDeviceSaved`; "Create new device…" button; layered `DeviceFormModal`; `onClose` blocked while device form is open. |
-| `apps/desktop/src/features/racks/RackDetailPanel.tsx` | Added `onDeviceCreated` callback on `PlacePlacementModal` to bump `targetReloadToken` when a device is created inline. |
-| `apps/desktop/src/features/devices/DeviceFormModal.test.tsx` | Added `useBusy` mock; updated `onSaved` assertion in add-mode test; updated edit-mode test name and assertion. |
-| `apps/desktop/src/features/racks/PlacePlacementModal.test.tsx` | Expanded mock to include `addDevice`, `listDevices`, `listDeviceModels`; added 7 tests for the create-device flow. |
-| `apps/desktop/e2e/mocks/tauri-core.ts` | Exported `FIXTURE_NEW_DEVICE_ID`; added mutable `dynamicDevices` and `dynamicRackDetail` state; added `add_device_cmd` handler; updated `place_device` to mutate `dynamicRackDetail.front`; routed `list_devices` and `get_rack_detail` to dynamic state. |
-| `apps/desktop/e2e/smoke.spec.ts` | Added `FIXTURE_NEW_PLACEMENT_ID` constant; added E2E test: full create-and-place flow. |
-| `CHANGELOG.md` | Added Milestone E unreleased entry. |
-| `docs/BETA_QA_FINDINGS_ACTION_PLAN_EN.md` | Added status line to Milestone E section. |
+| `scripts/bump-version.mjs` | **New** — Node ESM version bump helper for all four canonical sources |
+| `package.json` | Added `"bump:version": "node scripts/bump-version.mjs"` script |
+| `docs/BETA_RELEASE_PROCESS_EN.md` | **Rewritten** — SemVer policy, pre-release tags, release branch naming, version bump helper, step-by-step release workflow (A–E) |
+| `docs/BETA_WINDOWS_11_QA_EN.md` | Removed diagnostic artifact rows; updated rack placement checks for current UX; updated exit criteria |
+| `docs/BETA_HARDENING_PLAN_EN.md` | Removed diagnostic installer references; updated artifact naming and release checklist steps |
+| `docs/BETA_QA_FINDINGS_ACTION_PLAN_EN.md` | Added status line to Milestone F section |
+| `.ai/windows-installer-ci.md` | Removed diagnostic workflow cross-reference; added links to release process and QA docs |
+| `README.md` | Updated Windows installer section; added diagnostics-as-app-feature note |
+| `CHANGELOG.md` | Added Milestone F entry; updated historical diagnostic installer entries |
+| `.ai/cc-report.md` | This file |
 
-## Tests
+## Current canonical version
+
+All four version sources are at **0.1.0**. No version bump was required — all files were already consistent.
+
+## Version bump helper validation
+
+`scripts/bump-version.mjs` was tested:
+- No args → usage message + exit 1
+- Invalid format (`not-semver`) → error message + exit 1
+- Current version (`0.1.0`) → "nothing to do" + exit 0
+- New version (`0.2.0-beta.1`) → updates all four files; `check-version-consistency.mjs` confirms 0.2.0-beta.1; files restored to 0.1.0
+
+## Final installer workflow state
+
+| Workflow | File | Artifact name | Status |
+|---|---|---|---|
+| Windows Installer | `windows-installer.yml` | `rack-inventory-studio-vX.Y.Z-windows-installer` | **Active** |
+| ~~Windows Diagnostic Installer~~ | ~~removed~~ | ~~removed~~ | **Deleted** |
+
+## Tests/checks run
 
 ```
-# Unit tests (vitest)
-node ./node_modules/.bin/vitest run
-→ 388 passed (32 test files)
-
-# Type check
-node ./node_modules/.bin/tsc --noEmit
-→ clean
-
-# Vite build
-node ./node_modules/.bin/vite build
-→ built in 1.70s, no errors
-
-# Playwright E2E
-node ./node_modules/.bin/playwright test
-→ 16 passed (22.8s) — includes new E2E test
-
-# Rust checks
-cargo fmt --all --check → clean
-cargo check --workspace → Finished dev profile
-cargo test --workspace → 0 failed
+git diff --check             → clean
+node scripts/check-version-consistency.mjs → 0.1.0 consistent
+tsc --noEmit                 → clean
+vitest run                   → 388 passed (32 files)
+vite build                   → clean
+playwright test              → 16 passed
+cargo fmt --all --check      → clean
+cargo check --workspace      → clean
+cargo test --workspace       → clean
 cargo clippy --workspace -- -D warnings → clean
+test ! -f apps/desktop/package-lock.json → OK
+git ls-files '.ai/review-context-*.md'  → OK (none tracked)
 ```
 
-## Manual QA checklist
+actionlint not available on this runner (noted).
 
-- [ ] Open rack detail → click empty U slot → Place equipment modal opens with startU prefilled
-- [ ] In Device mode, "Create new device…" button is visible
-- [ ] Clicking "Create new device…" opens Add device form on top of place modal
-- [ ] Place equipment modal is visually underneath (not interactive)
-- [ ] Escape key closes the device form, not the place modal
-- [ ] Cancel on device form returns to place modal unchanged
-- [ ] X button on place modal is disabled while device form is open
-- [ ] Cancel button on place modal is disabled while device form is open
-- [ ] Incomplete device form (missing required fields) → Create device button disabled
-- [ ] Invalid code format → validation message shown
-- [ ] Valid device form → Create device enabled, click creates device
-- [ ] After creation: device form closes, place modal visible, new device preselected in selector
-- [ ] Start U value preserved after device creation
-- [ ] Side (front/rear) preserved after device creation
-- [ ] Height U override preserved (if entered before opening device form)
-- [ ] Place button enabled immediately after device creation (no extra click needed)
-- [ ] Click Place → placement appears in rack diagram
-- [ ] New device appears in Placeable equipment palette for other racks
-- [ ] In Rack Object mode, "Create new device…" button is NOT shown
-- [ ] Global busy overlay ("Creating device…") appears during device creation
-- [ ] No placement table appears anywhere in rack detail
+## Known risks
 
-## Risks
+- Historical entries in `CHANGELOG.md` still reference the diagnostic installer by name (as a documented removal), which is intentional and correct.
+- Code signing is still not implemented — SmartScreen warning remains expected on all beta builds.
+- `bump-version.mjs` does not update `Cargo.lock` (which Cargo regenerates automatically on next build). This is intentional — the script should not touch lockfiles.
 
-- The layered modal approach (two `createPortal` backdrops) depends on CSS stacking. Tested in Firefox (E2E). No issues observed but other browsers may behave differently.
-- `dynamicDevices` and `dynamicRackDetail` are module-level in the E2E mock; Playwright's per-test page isolation resets them correctly. If tests ever run in a shared browser context, state could leak between tests.
+## Manual release checklist
 
-## Not done
-
-- No visual "stacked modal" indicator to make the layering obvious to the user (considered unnecessary for beta).
-- Keyboard focus is not explicitly trapped in the upper device form modal (underlying `Modal` component handles Escape; full focus-trap is a future accessibility enhancement).
+- [ ] `node scripts/bump-version.mjs X.Y.Z` — updates all four files
+- [ ] `pnpm check:version` — verify consistency
+- [ ] Update `CHANGELOG.md` — move Unreleased to new version section
+- [ ] Commit version bump and changelog
+- [ ] Push `release/vX.Y.Z` branch, open PR, wait for CI green
+- [ ] GitHub Actions → Windows Installer → Run workflow (select release branch)
+- [ ] Download artifact, confirm `.exe` present
+- [ ] Install on Windows 11, accept SmartScreen, launch, run QA checklist
+- [ ] Verify Settings → Diagnostics and logs → logs appear, no sensitive data
+- [ ] `git tag -a vX.Y.Z-beta.1 -m "..."` + `git push origin vX.Y.Z-beta.1`
+- [ ] GitHub → Releases → Draft release, attach installer zip, mark pre-release
+- [ ] Publish release
 
 ## Suggested next step
 
-Milestone F — Release branch and versioning process: define `release/vX.Y.Z` branch strategy, version bump rules, and installer artifact CI configuration before the first official beta tag.
+Perform the first full beta release cycle: run `node scripts/bump-version.mjs 0.2.0-beta.1`, cut `release/v0.2.0`, trigger the Windows Installer workflow, complete the Windows 11 QA checklist, and create the first GitHub beta release.

@@ -136,6 +136,8 @@ It defines follow-up PRs/milestones that must be completed before beta distribut
 
 ### Milestone F — Release branch and versioning process
 
+> **Status:** Addressed in branch `release/versioning-installer-process` (PR #76).
+
 **Scope**
 
 - Define a release branch naming strategy (e.g. `release/vX.Y.Z`).

@@ -74,12 +74,5 @@ approximately **5–10 minutes**.
 
 ## See also
 
-A separate **Windows Diagnostic Installer** workflow exists for QA and diagnostics
-verification:
-
-- Workflow: `.github/workflows/windows-diagnostic-installer.yml`
-- Artifact name: `rack-inventory-studio-windows-diagnostic-installer`
-- Documentation: `.ai/windows-diagnostic-installer.md`
-
-The diagnostic workflow is identical in build steps but produces a clearly-named
-QA artifact and includes a `diagnostic-readme.txt` with log locations and QA checklist.
+- [`docs/BETA_RELEASE_PROCESS_EN.md`](../docs/BETA_RELEASE_PROCESS_EN.md) — full step-by-step release workflow including how to trigger this workflow
+- [`docs/BETA_WINDOWS_11_QA_EN.md`](../docs/BETA_WINDOWS_11_QA_EN.md) — Windows 11 manual QA runbook (required before distributing any build)

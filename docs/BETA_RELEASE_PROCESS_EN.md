@@ -6,117 +6,198 @@ This document describes how to prepare, build, and distribute a beta installer f
 
 ## Purpose
 
-Beta releases are unsigned Windows installers built from the `master` branch for internal QA and stakeholder testing. They are not published to end-users and do not go through a code-signing workflow.
+Beta releases are unsigned Windows installers built from release branches for internal QA and stakeholder testing. They are not published to end-users and do not go through a code-signing workflow.
 
 ---
 
 ## Version policy
 
-- The single source of truth for the app version is **`apps/desktop/src-tauri/tauri.conf.json`** (`"version": "X.Y.Z"`).
-- Three files must always match it:
-  - `package.json` (workspace root)
-  - `apps/desktop/package.json`
-  - `apps/desktop/src-tauri/Cargo.toml`
-- Run `pnpm check:version` (or `node scripts/check-version-consistency.mjs`) at any time to verify all four are in sync.
-- CI (`version-check` job in `.github/workflows/ci.yml`) enforces this on every push and pull request.
+### SemVer scheme
 
-## Beta naming convention
+| Change type | Version bump | Example |
+|---|---|---|
+| Bug fixes only | `PATCH` | `0.1.0` → `0.1.1` |
+| New features (non-breaking) | `MINOR` | `0.1.1` → `0.2.0` |
+| Breaking changes or stable release | `MAJOR` | `0.x.x` → `1.0.0` |
 
-Beta builds are identified by the **version number in the artifact name**, not by a separate label:
+### Pre-release tags
+
+Beta candidates use a numbered pre-release suffix:
 
 ```
-rack-inventory-studio-v0.1.0-windows-installer
-rack-inventory-studio-v0.1.0-windows-diagnostic-installer
+v0.1.0-beta.1   ← first beta candidate
+v0.1.0-beta.2   ← second candidate (after fixes)
+v0.1.0          ← final (stable) release
 ```
 
-For pre-release milestones, bump the patch version (e.g. `0.1.0` → `0.1.1`) to distinguish builds. Do not use `-beta` or `-rc` suffixes during early development — numeric versioning is sufficient.
+Only tag `v0.1.0` (no pre-release suffix) when the build is QA-passed and ready for distribution.
+
+### Canonical version sources
+
+The version is stored in **four files** that must always agree:
+
+| File | Field |
+|---|---|
+| `package.json` (workspace root) | `"version"` |
+| `apps/desktop/package.json` | `"version"` |
+| `apps/desktop/src-tauri/Cargo.toml` | `version = "..."` (under `[package]`) |
+| `apps/desktop/src-tauri/tauri.conf.json` | `"version"` |
+
+Run `pnpm check:version` (or `node scripts/check-version-consistency.mjs`) at any time to verify all four are in sync. CI enforces this on every push and pull request.
 
 ---
 
-## Release checklist
+## Release branch naming
 
-### 1. Verify version consistency
+| Branch | Purpose |
+|---|---|
+| `master` | Main development branch — ongoing work |
+| `release/vX.Y.Z` | Release stabilization branch; cut from `master` |
+
+Mainline development stays on `master`. A release branch is cut from `master` after all intended PRs are merged. Only release-specific fixes (not new features) should land directly on a release branch. The Windows installer is built from the release branch or its exact tag — **not** from an arbitrary feature branch.
+
+---
+
+## Version bump helper
+
+A helper script is provided to update all four canonical version sources atomically:
+
+```bash
+node scripts/bump-version.mjs 0.1.1
+node scripts/bump-version.mjs 0.2.0-beta.1
+```
+
+Or via the package script:
+
+```bash
+pnpm bump:version 0.1.1
+```
+
+The script validates the version format, prints a before/after table, writes all four files, and exits with a reminder to run the consistency check. It does **not** commit automatically. Verify after running:
 
 ```bash
 pnpm check:version
 ```
 
-All four files must report the same version. If they differ, update them manually before proceeding.
+---
 
-### 2. Merge to master
+## Release workflow — step by step
 
-- Open a PR from your feature branch to `master`.
-- All CI checks must pass (Rust, frontend, version-check jobs).
-- Merge using the standard PR review process.
+### A. Prepare release branch
 
-### 3. Trigger the installer build
+```bash
+# 1. Ensure local master is up to date
+git checkout master
+git pull
 
-- Go to **Actions → Windows Installer → Run workflow** (or **Windows Diagnostic Installer** for QA builds).
-- Select branch `master` and click **Run workflow**.
-- Wait for the run to complete (typically 15–25 minutes on a cold cache).
+# 2. Cut release branch
+git checkout -b release/v0.1.0
 
-### 4. Download and verify the artifact
+# 3. Bump version if needed (skip if already correct)
+node scripts/bump-version.mjs 0.1.0
+pnpm check:version
 
-- Open the completed Actions run.
-- Download the artifact named `rack-inventory-studio-vX.Y.Z-windows-installer.zip`.
-- Extract and verify the `.exe` file is present.
+# 4. Update CHANGELOG — move Unreleased entries to the new version heading
+#    (edit CHANGELOG.md manually)
 
-### 5. Smoke test
+# 5. Commit version bump and changelog
+git add package.json apps/desktop/package.json \
+  apps/desktop/src-tauri/Cargo.toml \
+  apps/desktop/src-tauri/tauri.conf.json \
+  CHANGELOG.md
+git commit -m "chore: bump version to 0.1.0 and update changelog"
+```
 
-Follow the QA checklist in `.ai/windows-diagnostic-installer.md`:
+### B. Validate
 
-1. Install (accept SmartScreen warning — the build is unsigned).
-2. Launch and verify no error dialog appears.
-3. Open the example repository or create a new one.
-4. Run **Validate repository** and **Save changes**.
-5. Try **CSV Import**: paste a sample CSV, click Preview.
-6. Check the **Repository** tab: Git status, Safe Publish steps.
-7. Inspect the log file — no paths, secrets, or raw data should appear.
+```bash
+cargo fmt --all --check
+cargo clippy --workspace -- -D warnings
+cargo test --workspace
+pnpm --filter @rack-inventory-studio/desktop typecheck
+pnpm --filter @rack-inventory-studio/desktop test
+pnpm --filter @rack-inventory-studio/desktop build
+```
+
+Push the release branch and open a PR to `master`. Wait for all CI checks to pass before proceeding.
+
+### C. Build installer
+
+1. Go to **GitHub Actions → Windows Installer → Run workflow**.
+2. Select the release branch (e.g. `release/v0.1.0`) and click **Run workflow**.
+3. Wait for completion (typically 15–25 minutes on a cold Rust cache; 5–10 minutes warm).
+4. Open the completed run → **Artifacts** → download `rack-inventory-studio-vX.Y.Z-windows-installer.zip`.
+5. Extract and confirm the `.exe` is present inside.
+
+### D. Windows 11 QA
+
+1. Install the unsigned NSIS installer on a Windows 11 machine.
+2. Accept the SmartScreen warning ("More info → Run anyway") — expected for unsigned builds.
+3. Launch the app; verify it opens without error dialogs.
+4. Open or create a repository.
+5. Run Validate repository, Save changes, CSV Import preview.
+6. Check the Repository tab: Git status, commit, push/pull flow.
+7. Open **Settings → Diagnostics and logs**: verify log directory path is shown, "Open logs folder" works, and log entries appear after operations.
 8. Close the app — verify no crash.
 
-### 5a. Complete Windows 11 manual QA
+Full checklist: [`docs/BETA_WINDOWS_11_QA_EN.md`](BETA_WINDOWS_11_QA_EN.md).
 
-Before distributing, complete the full Windows 11 QA checklist:
+### E. Tag and GitHub Release
 
-- Follow [`docs/BETA_WINDOWS_11_QA_EN.md`](BETA_WINDOWS_11_QA_EN.md) for the complete checklist.
-- Windows 11 manual QA **must be completed** before a beta release is announced or distributed.
-- Record results in the summary table in the runbook.
+Only after Windows 11 QA passes:
 
-### 6. Distribute
+```bash
+# Create annotated beta tag on the release branch (or the merge commit on master)
+git tag -a v0.1.0-beta.1 -m "Beta 0.1.0 candidate 1 — QA passed"
+git push origin v0.1.0-beta.1
+```
 
-Share the `.exe` directly with testers. Include the `diagnostic-readme.txt` from the diagnostic artifact as a companion note.
+Create a GitHub Release manually:
+
+1. Go to **GitHub → Releases → Draft a new release**.
+2. Select the tag (e.g. `v0.1.0-beta.1`).
+3. Title: `Rack Inventory Studio v0.1.0-beta.1`.
+4. Copy release notes from the relevant section of `CHANGELOG.md`.
+5. Attach the `rack-inventory-studio-v0.1.0-windows-installer.zip` artifact.
+6. Check **Set as a pre-release** for any `-beta.N` or `-rc.N` tag.
+7. Publish.
 
 ---
 
-## Version bump procedure
+## Version consistency enforcement
 
-When ready to increment the version (e.g. for the next beta milestone):
+CI runs `pnpm check:version` on every push and pull request (`.github/workflows/ci.yml`, `version-check` job). Merges are blocked if any version source is out of sync.
 
-1. Create a feature branch: `git checkout -b chore/bump-version-0.2.0`
-2. Update **all four** version files to the new version:
-   - `package.json` → `"version": "0.2.0"`
-   - `apps/desktop/package.json` → `"version": "0.2.0"`
-   - `apps/desktop/src-tauri/Cargo.toml` → `version = "0.2.0"`
-   - `apps/desktop/src-tauri/tauri.conf.json` → `"version": "0.2.0"`
-3. Run `pnpm check:version` to confirm consistency.
-4. Commit: `chore: bump version to 0.2.0`
-5. Open a PR, merge to `master`, then trigger the installer workflow.
+---
+
+## Diagnostics logging
+
+Log files are written locally on the user's machine — no telemetry, no external network upload.
+
+**Log location on Windows 11:**
+
+```
+%APPDATA%\com.techtradeexpress.rackinventorystudio\logs\
+```
+
+Users can open the logs folder from **Settings → Diagnostics and logs → Open logs folder**. The Settings panel also shows the active log directory path and provides a "Choose logs folder…" option for a custom location.
+
+See the diagnostics logging checks in [`docs/BETA_WINDOWS_11_QA_EN.md`](BETA_WINDOWS_11_QA_EN.md) for the full log verification procedure.
 
 ---
 
 ## Protected master (recommended)
 
-To prevent accidental direct pushes, enable branch protection on `master` in **Settings → Branches**:
+Enable branch protection on `master` in **Settings → Branches**:
 
-- Require a pull request before merging
-- Require status checks to pass (CI: `Rust workspace`, `Frontend checks`, `Version consistency`)
-- Do not allow bypassing the above settings
-
-This ensures every merge is reviewed and all checks are green.
+- Require pull request before merging.
+- Require status checks to pass: `Rust workspace`, `Frontend checks`, `Version consistency`.
+- Do not allow bypassing the above settings.
 
 ---
 
 ## Related documents
 
 - [`BETA_HARDENING_PLAN_EN.md`](BETA_HARDENING_PLAN_EN.md) — overall beta milestone plan
-- [`.ai/windows-diagnostic-installer.md`](../.ai/windows-diagnostic-installer.md) — full QA instructions and log locations
+- [`BETA_WINDOWS_11_QA_EN.md`](BETA_WINDOWS_11_QA_EN.md) — Windows 11 manual QA runbook (required before distributing)
+- [`BETA_QA_FINDINGS_ACTION_PLAN_EN.md`](BETA_QA_FINDINGS_ACTION_PLAN_EN.md) — post-QA findings and follow-up milestones

@@ -224,15 +224,23 @@ pnpm --filter @rack-inventory-studio/desktop build
 
 ## Windows installer (manual CI)
 
-A GitHub Actions workflow builds an unsigned Windows NSIS installer:
+A single GitHub Actions workflow builds an unsigned Windows NSIS installer:
 
 ```
 GitHub Actions → Windows Installer → Run workflow
 ```
 
-The workflow runs on `windows-latest`, compiles the Rust backend and Vite frontend, and uploads the installer as a 30-day artifact. It is **not triggered automatically** — run it manually before a release. See `.ai/windows-installer-ci.md` for full instructions.
+- The workflow is **manual-only** (`workflow_dispatch`) — it is never triggered automatically on push or pull request.
+- Build from a release branch (e.g. `release/v0.1.0`) or a tagged commit — not from an arbitrary feature branch.
+- Produces a versioned artifact: `rack-inventory-studio-vX.Y.Z-windows-installer`.
+- The installer is **unsigned**. Windows SmartScreen will warn on first run — click **More info → Run anyway**. This is expected for beta builds.
+- Artifacts are retained for 30 days.
 
-The installer is unsigned. Windows SmartScreen will warn on first run — click **More info → Run anyway**.
+See `.ai/windows-installer-ci.md` for trigger instructions and `.github/workflows/windows-installer.yml` for the full workflow.
+
+The full release process (version bump, release branch, build, QA, tagging, GitHub Release) is documented in [`docs/BETA_RELEASE_PROCESS_EN.md`](docs/BETA_RELEASE_PROCESS_EN.md).
+
+**Diagnostics and logs** are an app feature — local log files are stored in `%APPDATA%\com.techtradeexpress.rackinventorystudio\logs\`. No telemetry. Users can open the logs folder from **Settings → Diagnostics and logs**.
 
 ## Current limitations
 

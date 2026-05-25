@@ -18,9 +18,8 @@ manual QA pass begins.
 | Input | Value |
 |-------|-------|
 | App version | v0.1.0 |
-| Branch / commit under test | `qa/beta-windows-installer-validation` |
+| Branch / tag under test | `release/v0.1.0` or tag `v0.1.0-beta.1` |
 | Windows Installer artifact | `rack-inventory-studio-v0.1.0-windows-installer` |
-| Windows Diagnostic Installer artifact | `rack-inventory-studio-v0.1.0-windows-diagnostic-installer` |
 | Test machine | Clean or representative Windows 11 machine |
 | Git on PATH | Required — Git must be installed and on PATH |
 | Test repository | Example repo or a disposable new repo |
@@ -33,10 +32,8 @@ Before installing, confirm:
 
 | Check | Expected |
 |-------|----------|
-| Standard artifact name | `rack-inventory-studio-v0.1.0-windows-installer` |
-| Diagnostic artifact name | `rack-inventory-studio-v0.1.0-windows-diagnostic-installer` |
+| Artifact name | `rack-inventory-studio-v0.1.0-windows-installer` |
 | Installer file inside artifact | `Rack Inventory Studio_0.1.0_x64-setup.exe` |
-| Diagnostic artifact extra file | `diagnostic-readme.txt` |
 | SmartScreen warning | Expected — build is unsigned |
 
 ---
@@ -100,16 +97,16 @@ Before installing, confirm:
 | 8.1 | Locations → Manage racks → open rack detail | | |
 | 8.2 | Rack diagram is visually dominant (left side) | | |
 | 8.3 | Right sidebar is palette-only — no inline "Add Placement" form | | |
-| 8.4 | Placement table shows columns: U, Name, Type, Model/SKU, Serial, Asset tag, Actions | | |
+| 8.4 | Rack diagram is the primary placement surface — no separate placement table | | |
 | 8.5 | Click empty U-slot → PlacePlacementModal opens with U prefilled | | |
 | 8.6 | Palette "Place…" button → modal opens with target preselected | | |
 | 8.7 | Drag from palette to empty slot → modal opens with target and U preselected | | |
-| 8.8 | Place a device — placement appears in diagram and table | | |
-| 8.9 | Edit placement — change Start U | | |
-| 8.10 | Edit placement — set Height U override | | |
-| 8.11 | Edit placement — clear Height U override back to default | | |
-| 8.12 | Remove placement via ConfirmDialog | | |
-| 8.13 | Change side via ConfirmDialog (not a casual dropdown) | | |
+| 8.8 | "Create new device…" in place modal creates a device and returns with it preselected | | |
+| 8.9 | Place a device — placement appears in rack diagram | | |
+| 8.10 | Edit placement — change Start U | | |
+| 8.11 | Edit placement — set Height U override | | |
+| 8.12 | Edit placement — clear Height U override back to default | | |
+| 8.13 | Remove placement via ConfirmDialog | | |
 | 8.14 | Switch Front/Rear view; inspector clears | | |
 | 8.15 | Busy overlay appears and clears for all placement mutations | | |
 
@@ -155,7 +152,7 @@ Before installing, confirm:
 
 | # | Check | Result | Notes |
 |---|-------|--------|-------|
-| 12.1 | Diagnostic build creates logs under `%APPDATA%\com.techtradeexpress.rackinventorystudio\logs\` | | |
+| 12.1 | App creates logs under `%APPDATA%\com.techtradeexpress.rackinventorystudio\logs\` | | |
 | 12.2 | Logs appear after launch, open repo, save, validate, Git actions | | |
 | 12.3 | Logs do NOT contain full user paths | | |
 | 12.4 | Logs do NOT contain passwords, tokens, or secrets | | |
@@ -184,9 +181,8 @@ Before installing, confirm:
 
 Beta QA can be considered **passed** only when **all** of the following are true:
 
-- [ ] Automated CI is green on the release commit.
-- [ ] Windows installer workflow succeeds and produces a versioned artifact.
-- [ ] Windows diagnostic installer workflow succeeds and produces a versioned artifact with `diagnostic-readme.txt`.
+- [ ] Automated CI is green on the release branch commit.
+- [ ] Windows Installer workflow succeeds and produces a versioned artifact.
 - [ ] Windows 11 manual QA checklist above is fully completed.
 - [ ] No blocking bugs remain open.
 - [ ] All known non-blocking issues are documented.
