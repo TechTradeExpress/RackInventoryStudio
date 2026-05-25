@@ -8,6 +8,8 @@
     "build": "pnpm --filter @rack-inventory-studio/desktop build",
     "tauri": "pnpm --filter @rack-inventory-studio/desktop tauri",
     "check:version": "node scripts/check-version-consistency.mjs",
-    "bump:version": "node scripts/bump-version.mjs"
+    "bump:version": "node scripts/bump-version.mjs",
+    "test:scripts": "node --test scripts/*.test.mjs",
+    "check:hygiene": "node scripts/check-repo-hygiene.mjs"
   }
 }
