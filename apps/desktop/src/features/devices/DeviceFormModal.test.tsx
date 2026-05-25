@@ -14,6 +14,14 @@ vi.mock("../../api/tauriClient", () => ({
   updateDevice: vi.fn(),
 }));
 
+vi.mock("../../lib/appBusy", () => ({
+  useBusy: () => ({
+    isBusy: false,
+    label: "",
+    runBusy: <T,>(_label: string, fn: () => Promise<T>) => fn(),
+  }),
+}));
+
 import { addDevice, updateDevice } from "../../api/tauriClient";
 
 const mockAdd = vi.mocked(addDevice);
@@ -196,7 +204,7 @@ describe("DeviceFormModal — add mode", () => {
     expect(screen.getByText(/lowercase letters/i)).toBeTruthy();
   });
 
-  it("calls addDevice, onSaved, onClose on valid submit", async () => {
+  it("calls addDevice, onSaved with new device ID, and onClose on valid submit", async () => {
     const onClose = vi.fn();
     const onSaved = vi.fn();
     render(
@@ -231,7 +239,8 @@ describe("DeviceFormModal — add mode", () => {
           status: "planned",
         }),
       );
-      expect(onSaved).toHaveBeenCalledOnce();
+      // Add mode: onSaved receives the new device ID returned by addDevice
+      expect(onSaved).toHaveBeenCalledWith("new-dev-id");
       expect(onClose).toHaveBeenCalledOnce();
     });
   });
@@ -327,7 +336,7 @@ describe("DeviceFormModal — edit mode", () => {
     ).toBe(true);
   });
 
-  it("calls updateDevice, onSaved, onClose on valid edit", async () => {
+  it("calls updateDevice, onSaved without ID, and onClose on valid edit", async () => {
     const onClose = vi.fn();
     const onSaved = vi.fn();
     render(
@@ -354,7 +363,8 @@ describe("DeviceFormModal — edit mode", () => {
           status: "installed",
         }),
       );
-      expect(onSaved).toHaveBeenCalledOnce();
+      // Edit mode: onSaved receives no device ID (undefined)
+      expect(onSaved).toHaveBeenCalledWith(/* no argument */);
       expect(onClose).toHaveBeenCalledOnce();
     });
   });

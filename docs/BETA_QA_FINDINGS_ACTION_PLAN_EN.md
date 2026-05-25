@@ -118,6 +118,8 @@ It defines follow-up PRs/milestones that must be completed before beta distribut
 
 ### Milestone E — Create device from Place equipment
 
+> **Status:** Addressed in branch `ux/place-equipment-create-device` (PR #75).
+
 **Scope**
 
 - Add a "Create new device…" action inside `PlacePlacementModal`.

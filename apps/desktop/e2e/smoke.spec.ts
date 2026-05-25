@@ -5,6 +5,7 @@ const CSV_SNIPPET = "code,device_type,status,name\nCSV-DEV-001,server,planned,CS
 // IDs match the fixture constants in apps/desktop/e2e/mocks/tauri-core.ts
 const FIXTURE_RACK_OBJECT_ID = "dddddddd-dddd-dddd-dddd-dddddddddddd";
 const FIXTURE_UNPLACED_DEVICE_ID = "22222222-2222-2222-2222-222222222222";
+const FIXTURE_NEW_PLACEMENT_ID = "11111111-1111-1111-1111-111111111111";
 
 // ── Console error guard ────────────────────────────────────────────────────────
 // Override the page fixture so every test automatically fails on unexpected
@@ -427,4 +428,61 @@ test("global search handles short and no-result queries", async ({ page }) => {
   // Query with no matching fixture data — mock returns [] → "No results" shown
   await searchInput.fill("zz-no-match");
   await expect(page.getByText("No results")).toBeVisible();
+});
+
+test("rack detail: create device from place modal and place it", async ({ page }) => {
+  await page.goto("/");
+  await openFixtureRepo(page);
+
+  // Navigate to rack detail
+  await page.getByRole("button", { name: "Locations", exact: true }).click();
+  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
+  await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Rack diagram", exact: true })).toBeVisible();
+
+  // Click an empty U slot (U5, front side — fixture only has a placement at U10)
+  await page.getByTestId("drop-cell-front-5").click();
+
+  // Place equipment modal opens with startU=5
+  await expect(page.getByRole("dialog", { name: "Place equipment" })).toBeVisible();
+  await expect(page.getByTestId("start-u-input")).toHaveValue("5");
+
+  // Click "Create new device…" button
+  await page.getByTestId("create-device-btn").click();
+
+  // DeviceFormModal opens on top
+  await expect(page.getByRole("dialog", { name: "Add device" })).toBeVisible();
+
+  // Fill minimal valid form: type + code + name (name satisfies identifier requirement)
+  await page.getByTestId("field-device-type").selectOption("server");
+  await page.getByTestId("field-code").fill("new-device-01");
+  await page.getByTestId("field-name").fill("New Device 01");
+
+  // "Create device" button should now be enabled
+  await expect(page.getByRole("button", { name: "Create device", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "Create device", exact: true }).click();
+
+  // DeviceFormModal closes, Place equipment modal is back — new device is preselected
+  await expect(page.getByRole("dialog", { name: "Add device" })).not.toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Place equipment" })).toBeVisible();
+
+  // startU is still 5 (preserved while device form was open)
+  await expect(page.getByTestId("start-u-input")).toHaveValue("5");
+
+  // Place button is enabled because new device was preselected
+  await expect(page.getByTestId("place-btn")).toBeEnabled();
+
+  // Click Place — triggers place_device mock which adds placement to dynamic detail
+  await page.getByTestId("place-btn").click();
+
+  // Place modal closes and diagram refreshes to show the new placement
+  await expect(page.getByRole("dialog", { name: "Place equipment" })).not.toBeVisible();
+  await expect(
+    page.getByTestId(`placed-front-${FIXTURE_NEW_PLACEMENT_ID}`),
+  ).toBeVisible({ timeout: 8_000 });
+
+  // Confirm no placement table/list exists (rack diagram is the only surface)
+  await expect(page.getByRole("heading", { name: "Front placements", exact: true })).not.toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "Asset tag", exact: true })).not.toBeVisible();
 });
