@@ -8,7 +8,7 @@ import {
 } from "../../api/tauriClient";
 import { Panel } from "../../components/ui/Panel";
 import { Banner } from "../../components/ui/Banner";
-import { encodeDndPayload, setActiveDragPayload } from "./dndHelpers";
+import { encodeDndPayload, setActiveDragPayload, getDragPayload, getActiveDragPayload } from "./dndHelpers";
 import { DND_DATA_TYPE } from "./dndTypes";
 
 interface Props {
@@ -21,6 +21,8 @@ interface Props {
   onPlaceDevice: (deviceId: string) => void;
   /** Called when user clicks "Place…" on a palette rack object model item. */
   onPlaceRackObject: (modelId: string) => void;
+  /** Called when an existing placement is dragged and dropped onto the palette to unplace it. */
+  onUnplacePlacement?: (placementId: string) => void;
 }
 
 export function PlacementPalettePanel({
@@ -30,6 +32,7 @@ export function PlacementPalettePanel({
   activeSide,
   onPlaceDevice,
   onPlaceRackObject,
+  onUnplacePlacement,
 }: Props) {
   const [devices, setDevices] = useState<DeviceDto[]>([]);
   const [deviceModels, setDeviceModels] = useState<DeviceModelDto[]>([]);
@@ -37,6 +40,7 @@ export function PlacementPalettePanel({
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [retryToken, setRetryToken] = useState(0);
+  const [dragOver, setDragOver] = useState(false);
 
   // Reset on rack change
   useEffect(() => {
@@ -78,6 +82,30 @@ export function PlacementPalettePanel({
   const rackObjectModels = deviceModels;
 
   return (
+    <div
+      data-testid="palette-drop-zone"
+      style={{
+        borderRadius: 6,
+        ...(dragOver
+          ? { outline: "2px dashed #e07000", backgroundColor: "rgba(255, 200, 80, 0.08)" }
+          : {}),
+      }}
+      onDragOver={(e) => {
+        const payload = getActiveDragPayload();
+        if (payload?.kind !== "placement") return;
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+        setDragOver(true);
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        setDragOver(false);
+        const payload = getDragPayload(e) ?? getActiveDragPayload();
+        if (payload?.kind !== "placement") return;
+        e.preventDefault();
+        onUnplacePlacement?.(payload.placementId);
+      }}
+    >
     <Panel
       title="Placeable equipment"
       desc={`${activeSide === "front" ? "Front" : "Rear"} side · drag or click Place…`}
@@ -100,6 +128,26 @@ export function PlacementPalettePanel({
               Retry
             </button>
           </Banner>
+        </div>
+      )}
+
+      {dragOver && (
+        <div
+          style={{
+            marginBottom: 8,
+            paddingTop: 8,
+            paddingBottom: 8,
+            paddingLeft: 12,
+            paddingRight: 12,
+            border: "1px dashed #e07000",
+            borderRadius: 4,
+            color: "#a05000",
+            fontWeight: 600,
+            fontSize: "0.8rem",
+            textAlign: "center",
+          }}
+        >
+          ↩ Drop here to unplace from rack
         </div>
       )}
 
@@ -197,5 +245,6 @@ export function PlacementPalettePanel({
         </div>
       )}
     </Panel>
+    </div>
   );
 }

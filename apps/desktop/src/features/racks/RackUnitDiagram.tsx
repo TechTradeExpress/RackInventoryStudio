@@ -24,20 +24,14 @@ interface Props {
   onMovePlacement?: (side: "front" | "rear", placementId: string, newStartU: number) => void;
 }
 
-// ── Column layout constants ────────────────────────────────────────────────────
-const ROW_H   = 22;   // px per U row
-const COL_U   = 36;   // px — U-number gutter (fixed)
-const COL_TYPE = 70;  // px — Kind / device type (fixed)
-const COL_RANGE = 62; // px — U range e.g. "U10" or "U5–U7" (fixed)
-const COL_STATUS = 32; // px — status / warning indicator (fixed)
-// Name: flex 2, min 100px — primary placement name (drag handle + click-to-select)
-// Model: flex 1, min 60px — model name/code
-// Code: flex 1, min 60px — target code / asset / serial
+// ── Column layout ──────────────────────────────────────────────────────────────
+// Columns: U (fixed) | Name (flex 2) | Model (flex 1) | Code / SN (flex 1)
+const ROW_H = 22; // px per U row
+const COL_U = 60; // px — wide enough for "U42–U42"
 
 const colors = {
   empty: "#f8f8f8",
   emptyBorder: "#e0e0e0",
-  occupied: "#4a90d9",
   occupiedTop: "#357abd",
   occupiedText: "#fff",
   occupiedSelected: "#1d4d8a",
@@ -49,7 +43,6 @@ const colors = {
   headerBg: "#e8e8e8",
 };
 
-// Shared cell style applied to every data cell within a row
 function dataCellStyle(width?: number, flex?: number, minWidth?: number): CSSProperties {
   return {
     ...(width !== undefined ? { width, flexShrink: 0 } : {}),
@@ -64,19 +57,18 @@ function dataCellStyle(width?: number, flex?: number, minWidth?: number): CSSPro
     paddingRight: 4,
     display: "flex",
     alignItems: "center",
+    justifyContent: "center",
     borderRight: "1px solid rgba(0,0,0,0.08)",
     fontSize: "0.72rem",
   };
 }
 
-// Header cell style
 function headerCellStyle(width?: number, flex?: number, minWidth?: number): CSSProperties {
   return {
     ...dataCellStyle(width, flex, minWidth),
     fontWeight: "bold",
     fontSize: "0.70rem",
     color: "#444",
-    justifyContent: "center",
     borderBottom: "1px solid #ccc",
   };
 }
@@ -99,7 +91,6 @@ export function RackUnitDiagram({
     ...w,
   }));
 
-  // Hovered state for drag-drop preview (was inside SideColumn, now lifted here)
   const [hovered, setHovered] = useState<{
     startU: number;
     heightU: number;
@@ -113,13 +104,12 @@ export function RackUnitDiagram({
 
   // units[0] = U1 (bottom); render top-to-bottom → reverse
   const rows = [...activeOcc.units].reverse();
-
   const sideLabel = side === "front" ? "Front" : "Rear";
 
   return (
     <div>
       <p style={{ margin: "0 0 0.4rem", fontSize: "0.78rem", color: "#666" }}>
-        {sideLabel} side · U{heightU} at top · U1 at bottom · Click empty row to place · Click row to inspect · Drag from palette · Drag placed row to move
+        {sideLabel} side · U{heightU} at top · U1 at bottom · Click empty row to place · Click to inspect · Drag from palette · Drag name cell to move · Drag to palette to unplace
       </p>
 
       {/* Legend */}
@@ -135,7 +125,7 @@ export function RackUnitDiagram({
       >
         {[
           [colors.empty, colors.emptyBorder, "solid", "Available — click to place"],
-          [colors.occupied, undefined, undefined, "Occupied — click to inspect"],
+          ["#357abd", undefined, undefined, "Occupied — click to inspect"],
           [colors.occupiedSelected, undefined, undefined, "Selected"],
           [colors.incomplete, undefined, undefined, "Warning / incomplete"],
           ["#c8e6c0", "#4a7c3f", "dashed", "Drop target (drag)"],
@@ -148,7 +138,7 @@ export function RackUnitDiagram({
                 height: 12,
                 background: bg as string,
                 ...(bdrColor ? { border: `1px ${bdrStyle} ${bdrColor}` } : {}),
-                ...( label === "Selected" ? { boxShadow: `inset 0 0 0 2px ${colors.selectionRing}` } : {} ),
+                ...(label === "Selected" ? { boxShadow: `inset 0 0 0 2px ${colors.selectionRing}` } : {}),
                 verticalAlign: "middle",
                 marginRight: 3,
               }}
@@ -182,15 +172,18 @@ export function RackUnitDiagram({
           }}
         >
           <div style={headerCellStyle(COL_U)}>U</div>
-          <div style={{ ...headerCellStyle(undefined, 2, 100), borderLeft: "2px solid #bbb" }} data-testid="diagram-col-name">
+          <div
+            style={{ ...headerCellStyle(undefined, 2, 100), borderLeft: "2px solid #bbb" }}
+            data-testid="diagram-col-name"
+          >
             Name
           </div>
-          <div style={headerCellStyle(COL_TYPE)}>Type</div>
-          <div style={headerCellStyle(undefined, 1, 60)}>Model</div>
-          <div style={headerCellStyle(undefined, 1, 60)}>Code / SN</div>
-          <div style={headerCellStyle(COL_RANGE)}>U range</div>
-          <div style={{ ...headerCellStyle(COL_STATUS), borderRight: "none" }}>
-            <span title="Status">St.</span>
+          <div style={headerCellStyle(undefined, 1, 80)} data-testid="diagram-col-model">Model</div>
+          <div
+            style={{ ...headerCellStyle(undefined, 1, 80), borderRight: "none" }}
+            data-testid="diagram-col-code"
+          >
+            Code / SN
           </div>
         </div>
 
@@ -199,7 +192,7 @@ export function RackUnitDiagram({
           {rows.map((state: UnitState, idx: number) => {
             const startU = heightU - idx;
 
-            // Non-top continuation cell: invisible spacer (maintains grid alignment)
+            // Non-top continuation cell: invisible spacer
             if (state.kind === "occupied" && !state.isTop) {
               return <div key={idx} style={{ height: 0, overflow: "hidden" }} />;
             }
@@ -218,16 +211,12 @@ export function RackUnitDiagram({
                 background: isSelected ? colors.occupiedSelected : colors.occupiedTop,
                 color: colors.occupiedText,
                 borderBottom: "2px solid rgba(0,0,0,0.18)",
-                cursor: onMovePlacement ? "grab" : "pointer",
+                cursor: "pointer",
                 userSelect: "none",
-                ...(isSelected
-                  ? { boxShadow: `inset 0 0 0 2px ${colors.selectionRing}` }
-                  : {}),
+                ...(isSelected ? { boxShadow: `inset 0 0 0 2px ${colors.selectionRing}` } : {}),
                 ...(hoveredInvalid ? { outline: "2px dashed #cc4444" } : {}),
               };
 
-              // Metadata values
-              const typeLabel = p.device_type ?? p.target_kind ?? "—";
               const modelLabel = label.model ?? "—";
               const codeLabel =
                 p.target_code ??
@@ -238,79 +227,76 @@ export function RackUnitDiagram({
               return (
                 <div
                   key={idx}
-                  data-testid={`placed-${side}-${p.id}`}
+                  data-testid={`placed-row-${side}-${p.id}`}
                   title={label.title}
                   style={rowStyle}
-                  draggable={!!onMovePlacement}
                   onClick={() => onSelectPlacement(p)}
-                  onDragStart={
-                    onMovePlacement
-                      ? (e) => {
-                          const payload: DndPayload = {
-                            kind: "placement",
-                            placementId: p.id,
-                            startU,
-                            heightU: label.effectiveHeightU,
-                            side,
-                          };
-                          e.dataTransfer.setData(DND_DATA_TYPE, encodeDndPayload(payload));
-                          e.dataTransfer.effectAllowed = "move";
-                          setActiveDragPayload(payload);
-                        }
-                      : undefined
-                  }
-                  onDragEnd={onMovePlacement ? () => setActiveDragPayload(null) : undefined}
                 >
-                  {/* U column */}
+                  {/* U column — static; shows full U range for multi-U placements */}
                   <div
                     style={{
                       ...dataCellStyle(COL_U),
                       background: colors.labelBg,
                       color: "#555",
-                      justifyContent: "center",
                       borderRight: "1px solid #ccc",
-                      alignSelf: "flex-start",
                       height: "100%",
+                      fontSize: "0.68rem",
+                      fontWeight: 500,
                     }}
                   >
-                    {startU}
+                    {label.uRange}
                   </div>
-                  {/* Name */}
+
+                  {/* Name — drag handle; testid here so E2E can target the draggable element */}
                   <div
+                    data-testid={`placed-${side}-${p.id}`}
                     style={{
                       ...dataCellStyle(undefined, 2, 100),
                       fontWeight: 600,
                       borderLeft: "2px solid rgba(0,0,0,0.15)",
                       height: "100%",
-                      alignItems: "flex-start",
-                      paddingTop: 3,
-                      flexDirection: "column",
-                      gap: 1,
+                      cursor: onMovePlacement ? "grab" : "pointer",
                     }}
+                    draggable={!!onMovePlacement}
+                    onDragStart={
+                      onMovePlacement
+                        ? (e) => {
+                            const payload: DndPayload = {
+                              kind: "placement",
+                              placementId: p.id,
+                              startU,
+                              heightU: label.effectiveHeightU,
+                              side,
+                            };
+                            e.dataTransfer.setData(DND_DATA_TYPE, encodeDndPayload(payload));
+                            e.dataTransfer.effectAllowed = "move";
+                            setActiveDragPayload(payload);
+                          }
+                        : undefined
+                    }
+                    onDragEnd={onMovePlacement ? () => setActiveDragPayload(null) : undefined}
                   >
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", width: "100%" }}>
+                    <span
+                      style={{
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        maxWidth: "100%",
+                        textAlign: "center",
+                      }}
+                    >
                       {label.primary}
                     </span>
                   </div>
-                  {/* Type */}
-                  <div style={{ ...dataCellStyle(COL_TYPE), height: "100%", alignItems: "flex-start", paddingTop: 3 }}>
-                    {typeLabel}
-                  </div>
+
                   {/* Model */}
-                  <div style={{ ...dataCellStyle(undefined, 1, 60), height: "100%", alignItems: "flex-start", paddingTop: 3 }}>
+                  <div style={{ ...dataCellStyle(undefined, 1, 80), height: "100%" }}>
                     {modelLabel}
                   </div>
+
                   {/* Code / SN */}
-                  <div style={{ ...dataCellStyle(undefined, 1, 60), height: "100%", alignItems: "flex-start", paddingTop: 3 }}>
+                  <div style={{ ...dataCellStyle(undefined, 1, 80), height: "100%", borderRight: "none" }}>
                     {codeLabel}
-                  </div>
-                  {/* U range */}
-                  <div style={{ ...dataCellStyle(COL_RANGE), height: "100%", alignItems: "flex-start", paddingTop: 3, justifyContent: "center" }}>
-                    {label.uRange}
-                  </div>
-                  {/* Status */}
-                  <div style={{ ...dataCellStyle(COL_STATUS), height: "100%", alignItems: "flex-start", paddingTop: 3, justifyContent: "center", borderRight: "none" }}>
-                    —
                   </div>
                 </div>
               );
@@ -328,24 +314,27 @@ export function RackUnitDiagram({
                 borderBottom: "1px solid rgba(0,0,0,0.15)",
                 cursor: "pointer",
                 userSelect: "none",
-                ...(isSelected
-                  ? { boxShadow: `inset 0 0 0 2px ${colors.selectionRing}` }
-                  : {}),
+                ...(isSelected ? { boxShadow: `inset 0 0 0 2px ${colors.selectionRing}` } : {}),
               };
               const codeLabel = p.target_code ?? p.code;
               return (
                 <div key={idx} title={p.code} style={rowStyle} onClick={() => onSelectPlacement(p)}>
-                  <div style={{ ...dataCellStyle(COL_U), background: colors.labelBg, color: "#555", justifyContent: "center", borderRight: "1px solid #ccc" }}>
-                    {startU}
+                  <div
+                    style={{
+                      ...dataCellStyle(COL_U),
+                      background: colors.labelBg,
+                      color: "#555",
+                      borderRight: "1px solid #ccc",
+                      fontSize: "0.68rem",
+                    }}
+                  >
+                    {`U${p.start_u}`}
                   </div>
-                  <div style={{ ...dataCellStyle(undefined, 2, 100), borderLeft: "2px solid rgba(0,0,0,0.15)" }}>
+                  <div style={{ ...dataCellStyle(undefined, 2, 100), borderLeft: "2px solid rgba(0,0,0,0.15)", justifyContent: "flex-start" }}>
                     ⚠ {p.target_name ?? codeLabel}
                   </div>
-                  <div style={dataCellStyle(COL_TYPE)}>{p.target_kind}</div>
-                  <div style={dataCellStyle(undefined, 1, 60)}>—</div>
-                  <div style={dataCellStyle(undefined, 1, 60)}>{codeLabel}</div>
-                  <div style={{ ...dataCellStyle(COL_RANGE), justifyContent: "center" }}>{`U${p.start_u}`}</div>
-                  <div style={{ ...dataCellStyle(COL_STATUS), justifyContent: "center", borderRight: "none" }}>⚠</div>
+                  <div style={dataCellStyle(undefined, 1, 80)}>—</div>
+                  <div style={{ ...dataCellStyle(undefined, 1, 80), borderRight: "none" }}>{codeLabel}</div>
                 </div>
               );
             }
@@ -383,12 +372,7 @@ export function RackUnitDiagram({
                         const payloadH = getPayloadHeight(payload);
                         const excludeId =
                           payload.kind === "placement" ? payload.placementId : undefined;
-                        const valid = canDropAt(
-                          activeOcc.units,
-                          startU,
-                          payloadH,
-                          excludeId,
-                        );
+                        const valid = canDropAt(activeOcc.units, startU, payloadH, excludeId);
                         e.dataTransfer.dropEffect =
                           payload.kind === "placement"
                             ? valid ? "move" : "none"
@@ -426,18 +410,15 @@ export function RackUnitDiagram({
                     ...dataCellStyle(COL_U),
                     background: colors.labelBg,
                     color: "#888",
-                    justifyContent: "center",
                     borderRight: "1px solid #ccc",
+                    fontSize: "0.68rem",
                   }}
                 >
-                  {startU}
+                  {`U${startU}`}
                 </div>
                 <div style={{ ...dataCellStyle(undefined, 2, 100), borderLeft: "2px solid #bbb" }} />
-                <div style={dataCellStyle(COL_TYPE)} />
-                <div style={dataCellStyle(undefined, 1, 60)} />
-                <div style={dataCellStyle(undefined, 1, 60)} />
-                <div style={dataCellStyle(COL_RANGE)} />
-                <div style={{ ...dataCellStyle(COL_STATUS), borderRight: "none" }} />
+                <div style={dataCellStyle(undefined, 1, 80)} />
+                <div style={{ ...dataCellStyle(undefined, 1, 80), borderRight: "none" }} />
               </div>
             );
           })}
@@ -448,7 +429,10 @@ export function RackUnitDiagram({
         <div
           style={{
             marginTop: "0.5rem",
-            padding: "0.4rem 0.6rem",
+            paddingTop: 6,
+            paddingBottom: 6,
+            paddingLeft: 10,
+            paddingRight: 10,
             background: "#fffbe6",
             border: "1px solid #e6c000",
             borderRadius: 3,
@@ -456,7 +440,7 @@ export function RackUnitDiagram({
           }}
         >
           <strong>Diagram warnings:</strong>
-          <ul style={{ margin: "0.25rem 0 0 1rem", padding: 0 }}>
+          <ul style={{ margin: "0.25rem 0 0 1rem", paddingLeft: 0 }}>
             {allWarnings.map((w, i) => (
               <li key={i}>
                 [{w.side}] {w.placementCode}: {w.reason}

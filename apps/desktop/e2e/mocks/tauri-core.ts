@@ -568,12 +568,22 @@ export function invoke<T>(command: string, args?: unknown): Promise<T> {
       const { input } = (args ?? {}) as { input?: unknown };
       const i = (input ?? {}) as Record<string, unknown>;
       if (typeof i.placement_id === "string") {
+        const removed: Record<string, unknown> | undefined =
+          dynamicRackDetail.front.find((p: Record<string, unknown>) => p.id === i.placement_id) ??
+          dynamicRackDetail.rear.find((p: Record<string, unknown>) => p.id === i.placement_id);
         dynamicRackDetail.front = dynamicRackDetail.front.filter(
           (p: Record<string, unknown>) => p.id !== i.placement_id,
         );
         dynamicRackDetail.rear = dynamicRackDetail.rear.filter(
           (p: Record<string, unknown>) => p.id !== i.placement_id,
         );
+        // If removed was a device placement, mark device as unplaced so palette refreshes
+        if (removed?.target_kind === "device" && typeof removed?.target_id === "string") {
+          const devIdx = dynamicDevices.findIndex((d) => d.id === removed.target_id);
+          if (devIdx !== -1) {
+            dynamicDevices[devIdx] = { ...dynamicDevices[devIdx], is_placed: false };
+          }
+        }
       }
       return Promise.resolve(undefined as unknown as T);
     }

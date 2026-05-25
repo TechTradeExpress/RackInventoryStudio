@@ -39,6 +39,8 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+// ── Column layout ──────────────────────────────────────────────────────────────
+
 describe("RackUnitDiagram — column layout", () => {
   it('has a "Name" column header', () => {
     render(<RackUnitDiagram {...BASE_PROPS} />);
@@ -46,23 +48,28 @@ describe("RackUnitDiagram — column layout", () => {
     expect(nameHeader.textContent?.trim()).toBe("Name");
   });
 
-  it('does not have "Front" or "Rear" as a data-column header', () => {
-    const { container } = render(<RackUnitDiagram {...BASE_PROPS} />);
-    const headerEl = container.querySelector('[aria-label="Rack diagram header"]');
-    expect(headerEl).not.toBeNull();
-    const columnTexts = Array.from(headerEl!.children).map((c) => c.textContent?.trim());
-    expect(columnTexts).not.toContain("Front");
-    expect(columnTexts).not.toContain("Rear");
+  it('has "Model" and "Code / SN" column headers', () => {
+    render(<RackUnitDiagram {...BASE_PROPS} />);
+    expect(screen.getByTestId("diagram-col-model").textContent?.trim()).toBe("Model");
+    expect(screen.getByTestId("diagram-col-code").textContent?.includes("Code")).toBe(true);
   });
 
-  it("renders additional metadata column headers beyond U and Name", () => {
+  it('does not render "Type", "U range", or "St." as column headers', () => {
     const { container } = render(<RackUnitDiagram {...BASE_PROPS} />);
     const headerEl = container.querySelector('[aria-label="Rack diagram header"]')!;
-    const texts = Array.from(headerEl.children).map((c) => c.textContent?.trim());
-    expect(texts).toContain("Type");
-    expect(texts).toContain("Model");
-    expect(texts.some((t) => t?.includes("Code"))).toBe(true);
-    expect(texts.some((t) => t?.includes("range"))).toBe(true);
+    const columnTexts = Array.from(headerEl.children).map((c) => c.textContent?.trim());
+    expect(columnTexts).not.toContain("Type");
+    expect(columnTexts).not.toContain("U range");
+    expect(columnTexts).not.toContain("St.");
+    expect(columnTexts.some((t) => t === "St.")).toBe(false);
+  });
+
+  it('does not have "Front" or "Rear" as a data-column header', () => {
+    const { container } = render(<RackUnitDiagram {...BASE_PROPS} />);
+    const headerEl = container.querySelector('[aria-label="Rack diagram header"]')!;
+    const columnTexts = Array.from(headerEl.children).map((c) => c.textContent?.trim());
+    expect(columnTexts).not.toContain("Front");
+    expect(columnTexts).not.toContain("Rear");
   });
 
   it("shows side context in hint text, not as column header", () => {
@@ -71,28 +78,52 @@ describe("RackUnitDiagram — column layout", () => {
   });
 });
 
+// ── U column range ─────────────────────────────────────────────────────────────
+
+describe("RackUnitDiagram — U column range", () => {
+  it("shows single U value for 1U placement (e.g. U10)", () => {
+    const p = makePlacement({ id: "p1", start_u: 10, end_u: 10, effective_height_u: 1, height_u: 1 });
+    render(<RackUnitDiagram {...BASE_PROPS} front={[p]} heightU={42} />);
+    const nameCell = screen.getByTestId("placed-front-p1");
+    const row = nameCell.parentElement!;
+    const uCell = row.firstChild as HTMLElement;
+    expect(uCell.textContent).toContain("U10");
+  });
+
+  it("shows full U range for multi-U placement (e.g. U5–U7)", () => {
+    const p = makePlacement({ id: "p2", start_u: 5, end_u: 7, effective_height_u: 3, height_u: 3 });
+    render(<RackUnitDiagram {...BASE_PROPS} front={[p]} heightU={42} />);
+    const nameCell = screen.getByTestId("placed-front-p2");
+    const row = nameCell.parentElement!;
+    const uCell = row.firstChild as HTMLElement;
+    expect(uCell.textContent).toContain("U5–U7");
+  });
+
+  it("empty row U cell shows U-prefixed number", () => {
+    render(<RackUnitDiagram {...BASE_PROPS} heightU={5} />);
+    const dropCell = screen.getByTestId("drop-cell-front-3");
+    const uCell = dropCell.firstChild as HTMLElement;
+    expect(uCell.textContent).toContain("U3");
+  });
+});
+
+// ── Occupied row ───────────────────────────────────────────────────────────────
+
 describe("RackUnitDiagram — occupied row", () => {
   const PLACEMENT = makePlacement({ id: "placement-1", start_u: 3 });
 
-  it("renders placed item with its name in the Name column", () => {
+  it("renders placed item with its name in the Name cell", () => {
     render(<RackUnitDiagram {...BASE_PROPS} front={[PLACEMENT]} />);
-    const block = screen.getByTestId("placed-front-placement-1");
-    expect(block.textContent).toContain("Production Server");
+    const nameCell = screen.getByTestId("placed-front-placement-1");
+    expect(nameCell.textContent).toContain("Production Server");
   });
 
-  it("renders device_type in the block", () => {
+  it("renders model_name in the diagram", () => {
     render(<RackUnitDiagram {...BASE_PROPS} front={[PLACEMENT]} />);
-    const block = screen.getByTestId("placed-front-placement-1");
-    expect(block.textContent).toContain("server");
+    expect(screen.getByText("Dell R750")).toBeTruthy();
   });
 
-  it("renders model_name in the block", () => {
-    render(<RackUnitDiagram {...BASE_PROPS} front={[PLACEMENT]} />);
-    const block = screen.getByTestId("placed-front-placement-1");
-    expect(block.textContent).toContain("Dell R750");
-  });
-
-  it("clicking placed block calls onSelectPlacement with that placement", () => {
+  it("clicking anywhere in the row calls onSelectPlacement", () => {
     const onSelect = vi.fn();
     render(
       <RackUnitDiagram {...BASE_PROPS} front={[PLACEMENT]} onSelectPlacement={onSelect} />,
@@ -101,21 +132,41 @@ describe("RackUnitDiagram — occupied row", () => {
     expect(onSelect).toHaveBeenCalledWith(PLACEMENT);
   });
 
-  it("placed block is draggable when onMovePlacement is provided", () => {
+  it("Name cell is draggable when onMovePlacement is provided", () => {
     const onMove = vi.fn();
-    render(
-      <RackUnitDiagram {...BASE_PROPS} front={[PLACEMENT]} onMovePlacement={onMove} />,
-    );
-    const block = screen.getByTestId("placed-front-placement-1");
-    expect(block.getAttribute("draggable")).toBe("true");
+    render(<RackUnitDiagram {...BASE_PROPS} front={[PLACEMENT]} onMovePlacement={onMove} />);
+    const nameCell = screen.getByTestId("placed-front-placement-1");
+    expect(nameCell.getAttribute("draggable")).toBe("true");
   });
 
-  it("placed block is not draggable when onMovePlacement is omitted", () => {
+  it("Name cell is not draggable when onMovePlacement is omitted", () => {
     render(<RackUnitDiagram {...BASE_PROPS} front={[PLACEMENT]} />);
-    const block = screen.getByTestId("placed-front-placement-1");
-    expect(block.getAttribute("draggable")).toBe("false");
+    const nameCell = screen.getByTestId("placed-front-placement-1");
+    expect(nameCell.getAttribute("draggable")).toBe("false");
+  });
+
+  it("U cell is not the drag source (not draggable)", () => {
+    const onMove = vi.fn();
+    render(<RackUnitDiagram {...BASE_PROPS} front={[PLACEMENT]} onMovePlacement={onMove} />);
+    const nameCell = screen.getByTestId("placed-front-placement-1");
+    const row = nameCell.parentElement!;
+    const uCell = row.firstChild as HTMLElement;
+    expect(uCell.getAttribute("draggable")).not.toBe("true");
+  });
+
+  it("U cell does not carry the same testid as the draggable Name cell", () => {
+    const onMove = vi.fn();
+    const { container } = render(
+      <RackUnitDiagram {...BASE_PROPS} front={[PLACEMENT]} onMovePlacement={onMove} />,
+    );
+    const nameCell = screen.getByTestId("placed-front-placement-1");
+    const row = nameCell.parentElement!;
+    const uCell = row.firstChild as HTMLElement;
+    expect(uCell).not.toBe(nameCell);
   });
 });
+
+// ── Empty row (click-to-place) ─────────────────────────────────────────────────
 
 describe("RackUnitDiagram — empty row (click-to-place)", () => {
   it("renders a drop-cell testid for each empty U position", () => {
@@ -127,22 +178,20 @@ describe("RackUnitDiagram — empty row (click-to-place)", () => {
 
   it("clicking an empty row calls onEmptySlotClick with the U number", () => {
     const onEmpty = vi.fn();
-    render(
-      <RackUnitDiagram {...BASE_PROPS} heightU={5} onEmptySlotClick={onEmpty} />,
-    );
+    render(<RackUnitDiagram {...BASE_PROPS} heightU={5} onEmptySlotClick={onEmpty} />);
     fireEvent.click(screen.getByTestId("drop-cell-front-3"));
     expect(onEmpty).toHaveBeenCalledWith(3);
   });
 
   it("clicking an empty row clears selection", () => {
     const onSelect = vi.fn();
-    render(
-      <RackUnitDiagram {...BASE_PROPS} heightU={5} onSelectPlacement={onSelect} />,
-    );
+    render(<RackUnitDiagram {...BASE_PROPS} heightU={5} onSelectPlacement={onSelect} />);
     fireEvent.click(screen.getByTestId("drop-cell-front-2"));
     expect(onSelect).toHaveBeenCalledWith(null);
   });
 });
+
+// ── Side switching ─────────────────────────────────────────────────────────────
 
 describe("RackUnitDiagram — side switching", () => {
   const FRONT_P = makePlacement({ id: "fp-1", start_u: 2 });

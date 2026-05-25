@@ -5,7 +5,9 @@
 ### Added
 - `apps/desktop/src/features/racks/dndTypes.ts`: new `"placement"` DnD payload kind carrying `placementId`, `startU`, `heightU`, `side` — enables drag-to-move of already-placed equipment.
 - `apps/desktop/src/features/racks/dndHelpers.ts`: `canDropAt` now accepts optional `excludePlacementId` so a dragged block's own cells are treated as empty during validation. `getPayloadHeight` and `decodeDndPayload` updated for the `"placement"` kind.
-- `apps/desktop/src/features/racks/RackUnitDiagram.tsx`: occupied blocks are now draggable; new `onMovePlacement` prop wires the move back to the parent. Diagram is now a multi-column grid with columns U · Name · Type · Model · Code / SN · U range · St. — Front/Rear is side context shown in hint text above the grid, not a data-column header. Each placed block shows its label in the Name column plus metadata in the remaining columns.
+- `apps/desktop/src/features/racks/RackUnitDiagram.tsx`: occupied blocks now have drag handle on the Name cell (not the full row); new `onMovePlacement` prop. Diagram is a four-column grid: U · Name · Model · Code / SN — Front/Rear is side context in hint text only. U column shows full range for multi-U placements (e.g. `U10–U12`). All cells are center-aligned. Drag ghost excludes rack U numbering (U cell is not draggable).
+- `apps/desktop/src/features/racks/PlacementPalettePanel.tsx`: new `onUnplacePlacement` prop; entire panel wrapped with a drop zone that accepts `"placement"` payload drops — shows "Drop here to unplace from rack" hint during drag; on drop calls `onUnplacePlacement(placementId)`.
+- `apps/desktop/src/features/racks/RackDetailPanel.tsx`: `handleUnplacePlacement` calls `removePlacement` and refreshes rack detail + placeable targets; passes `onUnplacePlacement` to palette panel.
 - `apps/desktop/src/features/racks/PlacePlacementModal.tsx`: "Create new rack object…" button in Rack Object mode (mirrors "Create new device…"); "Edit device…" and "Edit rack object…" buttons when a target is selected — edit form opens inline, list refreshes, selection is preserved after save.
 - `apps/desktop/src/features/racks/PlacementInspectorPanel.tsx`: "Edit device…" / "Edit rack object…" buttons in the inspector action area based on `target_kind`.
 - `apps/desktop/src/features/racks/RackDetailPanel.tsx`: wires `onMovePlacement` to `movePlacement` API call + `refreshAfterMutation`; wires inspector edit-target callbacks to dedicated `DeviceFormModal` / `DeviceModelFormModal` instances; passes `onRackObjectCreated` to `PlacePlacementModal`.
@@ -13,14 +15,19 @@
 - `apps/desktop/e2e/mocks/tauri-core.ts`: `move_placement` actually moves the placement in `dynamicRackDetail`; `place_rack_object` adds the placement to `dynamicRackDetail`; added handlers for `add_device_model_cmd`, `update_device_cmd`, `update_device_model_cmd`; `dynamicDeviceModels` factory with reset support.
 
 ### Changed
-- Rack diagram replaced single-column layout with a multi-column grid (U · Name · Type · Model · Code / SN · U range · St.); Front/Rear is now side context in hint text, not a data-column header.
-- Hint text in diagram updated to include all interaction modes: click to place, click to inspect, drag from palette, drag placed row to move.
+- Rack diagram columns reduced to U · Name · Model · Code / SN — Type, U range, and St. columns removed per QA feedback.
+- U column shows full U range for multi-U placements (e.g. `U10–U12`); empty rows show `U{n}` consistently.
+- Diagram cells are center-aligned vertically and horizontally; multi-U placements center content across full placement height.
+- Drag handle for existing placements moved to the Name cell only — U cell is static and excluded from drag ghost.
+- Hint text updated to reflect all interaction modes including drag-to-unplace.
+- `apps/desktop/e2e/mocks/tauri-core.ts`: `remove_placement` now also marks the target device as `is_placed: false` so the device re-appears in the palette after unplacement.
 
 ### Tests
 - 16 new unit tests across `dndHelpers.test.ts` and `PlacePlacementModal.test.tsx` covering: placement-kind encode/decode, `canDropAt` with `excludePlacementId`, create rack object flow, edit device/rack object flows.
-- 16 new unit tests in `RackUnitDiagram.test.tsx` covering: Name column header present, Front/Rear not present as column headers, additional metadata headers (Type, Model, Code, U range), placed item shows name, draggable flag, click-to-select, click-to-place, side switching.
-- 3 new E2E smoke tests: drag-to-move placed block, create rack object from place modal, inspector edit device button visibility.
-- E2E "diagram is primary surface" test extended to assert Name column header is visible and placed item renders its label.
+- 21 unit tests in `RackUnitDiagram.test.tsx` (updated): column header assertions for Type/U range/St. not present; Name/Model/Code present; U column range (1U and multi-U); drag handle on Name cell, U cell not draggable; click-to-select, click-to-place, side switching.
+- 6 new unit tests in `PlacementPalettePanel.test.tsx`: drop zone accepts placement payload, rejects device/rack_object payloads, no-op without handler, no-op without active payload.
+- 4 new E2E smoke tests: drag-to-move placed block, create rack object from place modal, inspector edit device button visibility, drag placed equipment to palette to unplace it.
+- E2E "diagram is primary surface" test extended: Name column header visible, placed item renders label, palette heading uses role selector.
 
 ## Unreleased — CI runner pinning and workflow linting
 

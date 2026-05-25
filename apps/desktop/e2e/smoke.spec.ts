@@ -203,7 +203,7 @@ test("rack detail: diagram is primary surface — no placement table", async ({ 
   await expect(page.getByTestId("placed-front-ffffffff-ffff-ffff-ffff-ffffffffffff")).toContainText("srv-01");
 
   // Palette sidebar is still visible (right column — Placeable equipment)
-  await expect(page.getByText(/Placeable equipment/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Placeable equipment", exact: true })).toBeVisible();
 
   // Inspector empty state is shown when nothing is selected
   await expect(page.getByRole("heading", { name: "Placement inspector", exact: true })).toBeVisible();
@@ -641,4 +641,49 @@ test("rack detail: inspector shows edit device button for device placements", as
 
   // Inspector shows edit device button (target_kind === "device")
   await expect(page.getByTestId("edit-target-device-btn")).toBeVisible();
+});
+
+test("rack detail: drag placed equipment to Placeable equipment panel to unplace it", async ({ page }) => {
+  // IDs from fixture constants
+  const FIXTURE_DEVICE_ID_PLACED = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
+
+  await page.goto("/");
+  await openFixtureRepo(page);
+
+  // Navigate to rack detail
+  await page.getByRole("button", { name: "Locations", exact: true }).click();
+  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
+  await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Rack diagram", exact: true })).toBeVisible();
+
+  // Verify fixture placement is visible before unplace
+  await expect(page.getByTestId(`placed-front-${FIXTURE_PLACEMENT_ID}`)).toBeVisible();
+
+  // Drag the placed Name cell to the Placeable equipment drop zone
+  await page.evaluate((placementId: string) => {
+    const source = document.querySelector(`[data-testid="placed-front-${placementId}"]`);
+    const target = document.querySelector('[data-testid="palette-drop-zone"]');
+    if (!source || !target) {
+      throw new Error(`DnD elements not found: source=${source}, target=${target}`);
+    }
+    const dt = new DataTransfer();
+    source.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer: dt }));
+    target.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: dt }));
+    target.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
+    source.dispatchEvent(new DragEvent("dragend", { bubbles: true, cancelable: true, dataTransfer: dt }));
+  }, FIXTURE_PLACEMENT_ID);
+
+  // Placement block disappears from diagram
+  await expect(
+    page.getByTestId(`placed-front-${FIXTURE_PLACEMENT_ID}`),
+  ).not.toBeVisible({ timeout: 8_000 });
+
+  // U10 row becomes an empty drop cell
+  await expect(page.getByTestId("drop-cell-front-10")).toBeVisible({ timeout: 8_000 });
+
+  // The unplaced device now appears in the Placeable equipment palette
+  await expect(
+    page.getByTestId(`dnd-device-${FIXTURE_DEVICE_ID_PLACED}`),
+  ).toBeVisible({ timeout: 8_000 });
 });

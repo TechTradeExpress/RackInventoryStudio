@@ -4,6 +4,7 @@ import {
   listDevices,
   listDeviceModels,
   movePlacement,
+  removePlacement,
   type DeviceDto,
   type DeviceModelDto,
   type PlacementDto,
@@ -262,6 +263,18 @@ export function RackDetailPanel({
     }
   }
 
+  async function handleUnplacePlacement(placementId: string) {
+    try {
+      await removePlacement({ placement_id: placementId });
+      if (selectedPlacement?.id === placementId) {
+        setSelectedPlacement(null);
+      }
+      refreshAfterMutation({ selectId: null, bumpTargets: true });
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   async function handleEditTargetDevice(deviceId: string) {
     try {
       const [devs, models] = await Promise.all([listDevices(), listDeviceModels()]);
@@ -452,6 +465,7 @@ export function RackDetailPanel({
                 activeSide={activeSide}
                 onPlaceDevice={handlePalettePlaceDevice}
                 onPlaceRackObject={handlePaletteRackObject}
+                onUnplacePlacement={handleUnplacePlacement}
               />
 
               <Panel
