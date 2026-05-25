@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — Wire script and hygiene checks into CI
+
+### Added
+- `.github/workflows/ci.yml`: new `scripts` job ("Script and hygiene checks") — lightweight, checkout-only, no pnpm install. Runs `node --test scripts/*.test.mjs` (17 tests) and `node scripts/check-repo-hygiene.mjs` (8 checks) on every pull request and push.
+- `scripts/check-repo-hygiene.mjs`: two new checks — assert `.github/workflows/windows-diagnostic-installer.yml` is not tracked; assert `.ai/windows-diagnostic-installer.md` is not tracked. CI will now fail if the removed Windows Diagnostic Installer workflow or its CI doc are reintroduced.
+
 ## Unreleased — Test and script hardening
 
 ### Added

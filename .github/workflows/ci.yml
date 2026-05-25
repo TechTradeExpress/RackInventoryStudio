@@ -57,6 +57,20 @@ jobs:
       - name: Check version consistency
         run: node scripts/check-version-consistency.mjs
 
+  scripts:
+    name: Script and hygiene checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Run script tests
+        run: node --test scripts/*.test.mjs
+
+      - name: Run repository hygiene checks
+        run: node scripts/check-repo-hygiene.mjs
+
   frontend:
     name: Frontend checks
     runs-on: ubuntu-latest
