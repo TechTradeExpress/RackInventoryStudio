@@ -1,57 +1,71 @@
 ## Summary
 
-Cleanup PR 3 — Test and script hardening. Hardened `scripts/bump-version.mjs` with `--root`/`--dry-run` flags and better error handling, added 17 fixture-based tests using Node built-ins, added a `check-repo-hygiene.mjs` script with 6 regression checks, hardened E2E mock state isolation with factory functions and explicit reset, and added a state-isolation regression E2E test.
+CI wiring for script tests and repository hygiene checks (follows PR #79). Added a new lightweight `scripts` CI job that runs `node --test scripts/*.test.mjs` and `node scripts/check-repo-hygiene.mjs` on every pull request and push. Extended `check-repo-hygiene.mjs` with two additional regression checks that prevent the removed Windows Diagnostic Installer workflow from being reintroduced.
 
-No product behavior changes. No version bump. No new runtime or dev dependencies.
+No product behavior changes. No frontend UI changes. No Rust/Tauri changes. No version bump. No new dependencies.
 
 ## Files changed
 
-- `scripts/bump-version.mjs` — Added `--root <path>` (test isolation), `--dry-run` (no-write preview), argument validation, and try/catch error wrapping. Fixed "atomically" wording in header.
-- `scripts/bump-version.test.mjs` *(new)* — 17 fixture-based tests using `node:test`, `node:assert`, `node:child_process`. Covers all argument validation, no-op, bump, dry-run, and error-path cases.
-- `scripts/check-repo-hygiene.mjs` *(new)* — 6 hygiene checks: no `package-lock.json`, no `.env` files, no committed `.ai/review-context-*.md`, no `node_modules` in git tree, `pnpm-lock.yaml` tracked, `CHANGELOG.md` present.
-- `package.json` (root) — Added `"test:scripts"` and `"check:hygiene"` scripts.
-- `apps/desktop/e2e/mocks/tauri-core.ts` — Extracted `createInitialDevices()` / `createInitialRackDetail()` factory functions; added exported `resetE2eMockState()`; changed module-level `const` to `let`; called `resetE2eMockState()` in `open_repository_cmd` path as defense-in-depth.
-- `apps/desktop/e2e/smoke.spec.ts` — Added "mock state isolation: dynamic mutations reset on page reload" test (places a device, reloads, asserts mutation gone).
-- `CHANGELOG.md` — Added `## Unreleased — Test and script hardening` section.
+- `.github/workflows/ci.yml` — Added new `scripts` job ("Script and hygiene checks"): checkout + `node --test scripts/*.test.mjs` + `node scripts/check-repo-hygiene.mjs`. No pnpm install needed (Node built-ins only).
+- `scripts/check-repo-hygiene.mjs` — Added 2 new checks: Windows Diagnostic Installer workflow not tracked (`.github/workflows/windows-diagnostic-installer.yml`), Windows Diagnostic Installer CI doc not tracked (`.ai/windows-diagnostic-installer.md`). Total checks: 8.
+- `CHANGELOG.md` — Added `## Unreleased — Wire script and hygiene checks into CI` section.
 
-## Tests
+## CI job/step changes
+
+Before: 3 CI jobs (`rust`, `version-check`, `frontend`)
+After: 4 CI jobs (`rust`, `version-check`, `scripts`, `frontend`)
+
+New `scripts` job:
+- No system dependencies, no pnpm install — fast checkout-only
+- Step 1: `node --test scripts/*.test.mjs` — 17 fixture-based tests for `bump-version.mjs`
+- Step 2: `node scripts/check-repo-hygiene.mjs` — 8 hygiene regression checks
+
+Existing jobs unchanged.
+
+## Hygiene checks now enforced in CI (8 total)
+
+| # | Check | Fail condition |
+|---|-------|---------------|
+| 1 | No `package-lock.json` | If tracked (project uses pnpm) |
+| 2 | No `.env` files | If any non-sample `.env` file is tracked |
+| 3 | No `.ai/review-context-*.md` | If any review-context file is committed |
+| 4 | No `node_modules` in git | If any `node_modules` path is tracked |
+| 5 | `pnpm-lock.yaml` tracked | If lockfile is missing or untracked |
+| 6 | `CHANGELOG.md` present | If `CHANGELOG.md` is absent |
+| 7 | No Windows Diagnostic Installer workflow | If `.github/workflows/windows-diagnostic-installer.yml` is tracked |
+| 8 | No Windows Diagnostic Installer CI doc | If `.ai/windows-diagnostic-installer.md` is tracked |
+
+## Checks run locally
 
 ```
-# Scripts
-node --test scripts/bump-version.test.mjs
-→ 17 pass, 0 fail
-
-# Vitest unit tests (apps/desktop)
-node node_modules/.bin/vitest run
-→ 388 pass, 0 fail (32 test files)
-
-# TypeScript type check (apps/desktop)
-node node_modules/.bin/tsc --noEmit
-→ 0 errors
-
-# Version consistency
-node scripts/check-version-consistency.mjs
-→ All versions match: 0.1.0
-
-# Hygiene
-node scripts/check-repo-hygiene.mjs
-→ All 6 hygiene checks passed
-
-# Playwright E2E
-node node_modules/.bin/playwright test
-→ 17 pass, 0 fail (24.4s)
+git diff --check                                → clean
+node scripts/check-version-consistency.mjs      → 0.1.0 consistent
+node --test scripts/*.test.mjs                  → 17 pass, 0 fail
+node scripts/check-repo-hygiene.mjs             → 8/8 checks passed
+tsc --noEmit (apps/desktop)                     → clean
+vitest run (apps/desktop)                       → 388 pass, 32 files
+playwright test (apps/desktop)                  → 17 pass
+cargo fmt --all --check                         → clean
+cargo check --workspace                         → clean
+cargo test --workspace                          → clean
+cargo clippy --workspace -- -D warnings         → clean
+no apps/desktop/package-lock.json               → ok
+no tracked .ai/review-context-*.md              → ok
+actionlint                                      → not available (manual YAML review only)
 ```
 
-## Risks
+## Known risks
 
-- The `resetE2eMockState()` call inside `open_repository_cmd` resets `dynamicDevices` and `dynamicRackDetail` on every valid `openFixtureRepo()`. Tests that rely on state accumulated across multiple `invoke("open_repository_cmd")` calls within one page session would be affected — but no such test exists now.
-- `check-repo-hygiene.mjs` requires `git` in PATH. On a system without git it reports failures for the git-based checks (not a CI concern).
+- `actionlint` was not available locally — YAML was manually reviewed and matches the existing job structure.
+- The `scripts` job uses the default Node.js version on `ubuntu-latest` (currently Node 20). `node:test` requires Node 18+; this is safe. If the runner's Node version ever drops below 18, the job will fail — but that scenario is not anticipated.
+- The two new hygiene checks use exact path matching via `git ls-files`. A file at a different path (e.g., renamed workflow) would not be caught — but the intent is to block exact reintroduction of the removed files.
 
 ## Not done
 
-- No Cargo tests run (no Rust code touched).
-- Additional hygiene checks (trailing whitespace, large files, secret scanning) are intentionally deferred — 6 focused checks are sufficient for regression purposes.
+- `actionlint` CI self-check (not a declared requirement; noted for completeness).
+- E2E tests not duplicated in `scripts` job (correctly left in `frontend` job only).
+- Rust checks not duplicated (correctly left in `rust` job only).
 
 ## Suggested next step
 
-Add `pnpm test:scripts` and `pnpm check:hygiene` to the GitHub Actions CI workflow alongside the existing `check:version` step.
+Consider pinning `ubuntu-latest` to a specific version (`ubuntu-24.04`) in all CI jobs to prevent runner image drift from breaking the `node:test` step.
