@@ -2,6 +2,10 @@ import { test as base, expect, type Page } from "@playwright/test";
 
 const CSV_SNIPPET = "code,device_type,status,name\nCSV-DEV-001,server,planned,CSV Device 001";
 
+// IDs match the fixture constants in apps/desktop/e2e/mocks/tauri-core.ts
+const FIXTURE_RACK_OBJECT_ID = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+const FIXTURE_UNPLACED_DEVICE_ID = "22222222-2222-2222-2222-222222222222";
+
 // ── Console error guard ────────────────────────────────────────────────────────
 // Override the page fixture so every test automatically fails on unexpected
 // console.error calls. No filtering needed — the mock layer is clean.
@@ -324,6 +328,89 @@ test("settings page shows logs directory actions", async ({ page }) => {
   // Active log directory path from mock is shown (default and active are the same in mock,
   // so the path appears twice; .first() matches either occurrence)
   await expect(page.getByText("/tmp/ris-e2e-logs").first()).toBeVisible();
+});
+
+test("rack detail: drag from palette rack_object to empty slot opens modal prefilled", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await openFixtureRepo(page);
+
+  // Navigate to rack detail
+  await page.getByRole("button", { name: "Locations", exact: true }).click();
+  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
+  await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
+
+  // Wait for diagram and palette to load
+  await expect(page.getByRole("heading", { name: "Rack diagram", exact: true })).toBeVisible();
+  await expect(page.getByTestId(`dnd-model-${FIXTURE_RACK_OBJECT_ID}`)).toBeVisible();
+
+  // Simulate DnD via JavaScript: dragstart on palette item → dragover → drop on U5 (empty)
+  // HTML5 DnD API restricts dataTransfer.getData() in programmatic events;
+  // the _activeDragPayload singleton in dndHelpers.ts is the reliable fallback.
+  await page.evaluate((rackObjectId: string) => {
+    const source = document.querySelector(`[data-testid="dnd-model-${rackObjectId}"]`);
+    const target = document.querySelector('[data-testid="drop-cell-front-5"]');
+    if (!source || !target) {
+      throw new Error(`DnD elements not found: source=${source}, target=${target}`);
+    }
+    const dt = new DataTransfer();
+    source.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer: dt }));
+    target.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: dt }));
+    target.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
+    source.dispatchEvent(new DragEvent("dragend", { bubbles: true, cancelable: true, dataTransfer: dt }));
+  }, FIXTURE_RACK_OBJECT_ID);
+
+  // Modal opens with start U and rack object preselected
+  await expect(page.getByRole("dialog", { name: "Place equipment" })).toBeVisible();
+  await expect(page.getByTestId("start-u-input")).toHaveValue("5");
+  // Place button enabled because rack object is preselected
+  await expect(page.getByTestId("place-btn")).toBeEnabled();
+
+  // Cancel — dialog closes, no backend call made
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Place equipment" })).not.toBeVisible();
+});
+
+test("rack detail: drag from palette device to empty slot opens modal prefilled", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await openFixtureRepo(page);
+
+  // Navigate to rack detail
+  await page.getByRole("button", { name: "Locations", exact: true }).click();
+  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
+  await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
+
+  // Wait for diagram and palette to load
+  await expect(page.getByRole("heading", { name: "Rack diagram", exact: true })).toBeVisible();
+  // Fixture now includes an unplaced device — palette shows it
+  await expect(page.getByTestId(`dnd-device-${FIXTURE_UNPLACED_DEVICE_ID}`)).toBeVisible();
+
+  // Simulate DnD: drag unplaced device to U8 (empty)
+  await page.evaluate((deviceId: string) => {
+    const source = document.querySelector(`[data-testid="dnd-device-${deviceId}"]`);
+    const target = document.querySelector('[data-testid="drop-cell-front-8"]');
+    if (!source || !target) {
+      throw new Error(`DnD elements not found: source=${source}, target=${target}`);
+    }
+    const dt = new DataTransfer();
+    source.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer: dt }));
+    target.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: dt }));
+    target.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
+    source.dispatchEvent(new DragEvent("dragend", { bubbles: true, cancelable: true, dataTransfer: dt }));
+  }, FIXTURE_UNPLACED_DEVICE_ID);
+
+  // Modal opens with start U and device preselected
+  await expect(page.getByRole("dialog", { name: "Place equipment" })).toBeVisible();
+  await expect(page.getByTestId("start-u-input")).toHaveValue("8");
+  await expect(page.getByTestId("place-btn")).toBeEnabled();
+
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Place equipment" })).not.toBeVisible();
 });
 
 test("global search handles short and no-result queries", async ({ page }) => {

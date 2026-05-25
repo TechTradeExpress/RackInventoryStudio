@@ -143,7 +143,16 @@ function SideColumn({
   onDropAtCell,
   onEmptySlotClick,
 }: SideColumnProps) {
-  const [hovered, setHovered] = useState<{ idx: number; valid: boolean } | null>(null);
+  const [hovered, setHovered] = useState<{
+    startU: number;
+    heightU: number;
+    valid: boolean;
+  } | null>(null);
+
+  function isInRange(cellU: number): boolean {
+    if (!hovered) return false;
+    return cellU >= hovered.startU && cellU <= hovered.startU + hovered.heightU - 1;
+  }
 
   // units[0] = U1 (bottom), render top-to-bottom so reverse
   const rows = [...units].reverse();
@@ -172,6 +181,7 @@ function SideColumn({
         // ── Occupied top cell: span full U height, centered label ──────────────
         if (state.kind === "occupied" && state.isTop) {
           const label = derivePlacementLabel(state.placement);
+          const hoveredInvalid = isInRange(startU) && hovered !== null && !hovered.valid;
           const style: CSSProperties = {
             ...baseStyle,
             height: label.effectiveHeightU * ROW_H,
@@ -182,6 +192,7 @@ function SideColumn({
             textAlign: "center",
             gap: 1,
             overflow: "hidden",
+            ...(hoveredInvalid ? { outline: "2px dashed #cc4444" } : {}),
           };
           return (
             <div
@@ -199,11 +210,12 @@ function SideColumn({
         // ── Incomplete cell ─────────────────────────────────────────────────────
         if (state.kind === "incomplete") {
           const p = state.placement;
+          const hoveredInvalid = isInRange(startU) && hovered !== null && !hovered.valid;
           return (
             <div
               key={idx}
               title={p.code}
-              style={baseStyle}
+              style={hoveredInvalid ? { ...baseStyle, outline: "2px dashed #cc4444" } : baseStyle}
               onClick={() => onSelectPlacement(p)}
             >
               {`⚠ ${p.target_code ?? p.code}`}
@@ -212,18 +224,22 @@ function SideColumn({
         }
 
         // ── Empty cell: drop target ─────────────────────────────────────────────
-        let style: CSSProperties = baseStyle;
-        if (hovered?.idx === idx) {
-          style = hovered.valid
-            ? { ...baseStyle, background: "#c8e6c0", outline: "2px dashed #4a7c3f" }
-            : { ...baseStyle, background: "#fde8e8", outline: "2px dashed #cc4444" };
+        // Highlight the full height-U preview range when dragging over this cell.
+        let style: CSSProperties = {
+          ...baseStyle,
+          cursor: onEmptySlotClick ? "pointer" : "default",
+        };
+        if (isInRange(startU)) {
+          style = hovered!.valid
+            ? { ...style, background: "#c8e6c0", outline: "2px dashed #4a7c3f" }
+            : { ...style, background: "#fde8e8", outline: "2px dashed #cc4444" };
         }
 
         return (
           <div
             key={idx}
             data-testid={`drop-cell-${side}-${startU}`}
-            style={{ ...style, cursor: onEmptySlotClick ? "pointer" : "default" }}
+            style={style}
             onClick={() => {
               onSelectPlacement(null);
               if (onEmptySlotClick) onEmptySlotClick(startU);
@@ -233,11 +249,11 @@ function SideColumn({
                 ? (e) => {
                     e.preventDefault();
                     const payload = getActiveDragPayload();
-                    const valid =
-                      payload !== null &&
-                      canDropAt(units, startU, getPayloadHeight(payload));
+                    if (!payload) return;
+                    const payloadH = getPayloadHeight(payload);
+                    const valid = canDropAt(units, startU, payloadH);
                     e.dataTransfer.dropEffect = valid ? "copy" : "none";
-                    setHovered({ idx, valid });
+                    setHovered({ startU, heightU: payloadH, valid });
                   }
                 : undefined
             }

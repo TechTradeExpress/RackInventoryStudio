@@ -11,6 +11,7 @@ const FIXTURE_RACK_OBJECT_ID = "dddddddd-dddd-dddd-dddd-dddddddddddd";
 const FIXTURE_DEVICE_ID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
 const FIXTURE_PLACEMENT_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
 const FIXTURE_NEW_PLACEMENT_ID = "11111111-1111-1111-1111-111111111111";
+export const FIXTURE_UNPLACED_DEVICE_ID = "22222222-2222-2222-2222-222222222222";
 
 const COMMANDS: Record<string, unknown> = {
   open_repository_cmd: {
@@ -24,7 +25,7 @@ const COMMANDS: Record<string, unknown> = {
       devices_count: 1,
       placement_files_count: 1,
       placements_count: 3,
-      unplaced_devices_count: 0,
+      unplaced_devices_count: 1,
     },
     validation_summary: { errors: 0, warnings: 0, infos: 0, total: 0 },
   },
@@ -96,6 +97,21 @@ const COMMANDS: Record<string, unknown> = {
       device_model_code: "srv-model",
       device_model_id: FIXTURE_DEVICE_MODEL_ID,
       is_placed: true,
+      description: null,
+      tags: [],
+    },
+    {
+      id: FIXTURE_UNPLACED_DEVICE_ID,
+      code: "srv-unplaced-01",
+      device_type: "server",
+      name: "Unplaced Server 01",
+      serial_number: "UNP001",
+      asset_tag: null,
+      external_ref: null,
+      status: "planned",
+      device_model_code: "srv-model",
+      device_model_id: FIXTURE_DEVICE_MODEL_ID,
+      is_placed: false,
       description: null,
       tags: [],
     },

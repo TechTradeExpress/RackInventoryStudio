@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased — Beta QA follow-up Milestone D: Complete drag-and-drop workflow
+
+### Changed
+- Rack diagram drop targets now show a **height-aware hover preview**: when dragging an item with a known U-height, all cells in the drop range highlight green (valid) or red (blocked), not just the single hovered cell.
+- `getDragPayload` now falls back to the in-memory `_activeDragPayload` cache when `dataTransfer.getData()` returns an empty string (programmatic DnD events, Playwright E2E simulations).
+- `setActiveDragPayload` is now called before `dataTransfer.setData` in palette drag handlers, ensuring the cache is always populated regardless of browser restrictions on custom MIME types in synthetic events.
+- Occupied and incomplete placement blocks in the drop range show a red dashed outline when the overall drop is invalid, giving visual feedback on which cells are blocking.
+
+### Added
+- E2E fixture: added unplaced device (`srv-unplaced-01`, `is_placed: false`) so the Placeable equipment palette exercises the device DnD path in tests.
+- Smoke tests: two new Playwright DnD tests — drag a rack_object and a device from the palette to empty U slots; assert the Place equipment modal opens with `startU` and target preselected.
+- Unit tests: `getPayloadHeight` (device with/without height, rack_object), `getDragPayload` fallback (prefers `dataTransfer`, falls back to `_activeDragPayload`, returns null when both empty).
+- Component tests: two new `PlacePlacementModal` tests covering DnD drop prefill for `device` and `rack_object` kinds with `startU` + target id → Place button enabled.
+
 ## Unreleased — Beta QA follow-up Milestone C: Rack diagram as primary placement surface
 
 ### Changed

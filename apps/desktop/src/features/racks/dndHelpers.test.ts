@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { encodeDndPayload, decodeDndPayload, canDropAt } from "./dndHelpers";
+import {
+  encodeDndPayload,
+  decodeDndPayload,
+  canDropAt,
+  getPayloadHeight,
+  getDragPayload,
+  setActiveDragPayload,
+} from "./dndHelpers";
 import { buildOccupancy } from "./rackOccupancy";
 import type { DndPayload } from "./dndTypes";
 import type { PlacementDto } from "../../api/tauriClient";
@@ -143,5 +150,87 @@ describe("canDropAt", () => {
     const { units } = buildOccupancy(4, []);
     expect(canDropAt(units, 1, 0)).toBe(false);
     expect(canDropAt(units, 1, 1.5)).toBe(false);
+  });
+});
+
+// ── getPayloadHeight ───────────────────────────────────────────────────────────
+
+describe("getPayloadHeight", () => {
+  it("returns defaultHeightU for a device with known height", () => {
+    const payload: DndPayload = {
+      kind: "device",
+      deviceId: "id-1",
+      deviceCode: "D1",
+      defaultHeightU: 3,
+    };
+    expect(getPayloadHeight(payload)).toBe(3);
+  });
+
+  it("returns 1 for a device with null defaultHeightU", () => {
+    const payload: DndPayload = {
+      kind: "device",
+      deviceId: "id-2",
+      deviceCode: "D2",
+      defaultHeightU: null,
+    };
+    expect(getPayloadHeight(payload)).toBe(1);
+  });
+
+  it("returns defaultHeightU for a rack_object", () => {
+    const payload: DndPayload = {
+      kind: "rack_object",
+      deviceModelId: "m-1",
+      modelCode: "RO1",
+      defaultHeightU: 2,
+    };
+    expect(getPayloadHeight(payload)).toBe(2);
+  });
+});
+
+// ── getDragPayload — _activeDragPayload fallback ───────────────────────────────
+
+describe("getDragPayload — dataTransfer fallback", () => {
+  it("returns payload from _activeDragPayload when dataTransfer.getData returns empty string", () => {
+    const payload: DndPayload = {
+      kind: "device",
+      deviceId: "id-1",
+      deviceCode: "D1",
+      defaultHeightU: 1,
+    };
+    setActiveDragPayload(payload);
+    const fakeEvent = {
+      dataTransfer: { getData: () => "" },
+    } as unknown as DragEvent;
+    expect(getDragPayload(fakeEvent)).toEqual(payload);
+    setActiveDragPayload(null);
+  });
+
+  it("prefers dataTransfer payload over _activeDragPayload when both are set", () => {
+    const transferPayload: DndPayload = {
+      kind: "device",
+      deviceId: "id-1",
+      deviceCode: "D1",
+      defaultHeightU: 1,
+    };
+    const cachedPayload: DndPayload = {
+      kind: "device",
+      deviceId: "id-2",
+      deviceCode: "D2",
+      defaultHeightU: 2,
+    };
+    setActiveDragPayload(cachedPayload);
+    const fakeEvent = {
+      dataTransfer: { getData: () => encodeDndPayload(transferPayload) },
+    } as unknown as DragEvent;
+    expect(getDragPayload(fakeEvent)).toEqual(transferPayload);
+    setActiveDragPayload(null);
+  });
+
+  it("returns null when both dataTransfer and _activeDragPayload are empty", () => {
+    setActiveDragPayload(null);
+    const fakeEvent = {
+      dataTransfer: { getData: () => "" },
+    } as unknown as DragEvent;
+    expect(getDragPayload(fakeEvent)).toBeNull();
   });
 });
