@@ -1,5 +1,12 @@
 # Rack Inventory Studio — Beta Hardening Plan
 
+> **Historical planning document.** Beta hardening milestones 1–5 (and follow-up milestones A–F) are all complete.
+> The authoritative current release process is in [`docs/BETA_RELEASE_PROCESS_EN.md`](BETA_RELEASE_PROCESS_EN.md).
+> The current Windows 11 QA runbook is in [`docs/BETA_WINDOWS_11_QA_EN.md`](BETA_WINDOWS_11_QA_EN.md).
+> This document is preserved for historical context.
+
+---
+
 ## Release direction
 
 **V1 is intentionally on hold.**
@@ -18,8 +25,8 @@ The MVP core is functionally complete. What remains before V1 is a set of UX, op
 | Windows Installer workflow | Manual `workflow_dispatch`; unsigned NSIS installer on `windows-latest` |
 | Diagnostics logging | Local log file in `%APPDATA%\com.techtradeexpress.rackinventorystudio\logs\`; no telemetry; accessible via Settings → Diagnostics and logs |
 | Location-scoped rack management | Racks are managed from Location context via "Manage racks"; Add Rack uses context location |
-| Rack detail | Front/Rear segmented control; rack diagram (drag/drop placement); placement table; placement inspector; needs UX redesign |
-| Test coverage | 358 Rust workspace tests · 315 Vitest frontend tests · 10 Playwright smoke tests |
+| Rack detail | Front/Rear segmented control; rack diagram as primary placement surface (click/drag/palette); placement inspector sidebar; no placement table (removed in Milestone C) |
+| Test coverage | 374 Rust workspace tests · 388 Vitest frontend tests · 16 Playwright smoke tests |
 
 ## Milestone 1 — Global busy overlay and Git UX blockers
 

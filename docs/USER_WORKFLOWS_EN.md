@@ -1,5 +1,10 @@
 # Rack Inventory Studio — User Workflows v0.1
 
+> **Historical document.** These workflows were written for the pre-hardening MVP UI.
+> Placement workflows (Add Placement form, placement table) have since been redesigned;
+> placement creation now flows through the rack unit diagram, Place equipment modal,
+> and palette drag-and-drop (Beta QA Milestones C–E). This document is preserved for historical reference.
+
 ## 1. Purpose
 
 This document describes the main user workflows for the **Rack Inventory Studio** MVP.

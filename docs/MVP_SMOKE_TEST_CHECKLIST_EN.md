@@ -1,5 +1,9 @@
 # MVP Smoke-Test Checklist
 
+> **Historical document.** This checklist was written for the MVP pre-beta state and references UI patterns
+> (placement table, Add Placement form) that have since been replaced. For current beta QA,
+> use [`docs/BETA_WINDOWS_11_QA_EN.md`](BETA_WINDOWS_11_QA_EN.md) instead.
+
 Use this checklist to verify that the full end-to-end workflow is functional
 after any significant change or before a release candidate.
 
