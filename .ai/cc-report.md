@@ -3171,3 +3171,26 @@ Fixed by:
 8. Click "Download sample CSV" — save dialog opens, choose path, confirm file saved
 9. Cancel save dialog — confirm no error shown
 10. Place/edit/remove placement — return to Racks list — confirm Utilization updated
+
+### Repair update (post-review narrowing + CSV fix)
+
+**Generic command removed:** `write_text_to_file(path, content)` and its frontend wrappers `writeTextToFile` / `saveCsvFileViaDialog` were replaced by the narrow `write_device_import_sample_csv(path)` command. The backend owns the fixed sample CSV content; the frontend only supplies the user-selected save path.
+
+**Malformed row fixed:** `sw-demo-01` row in `DEVICE_IMPORT_SAMPLE_CSV` had 10 fields (one extra comma). Corrected to 9 fields matching the header.
+
+**Backend tests added:**
+- `sample_csv_all_rows_have_header_column_count` — asserts every non-empty row has exactly 9 fields.
+- `sample_csv_parses_without_errors_via_importer` — runs the constant through `ris_import::preview_csv_import` with an empty context, asserts 0 file-level issues and 0 error rows.
+
+**Checks run after repair:**
+- git diff --check: PASS
+- version consistency (v0.1.0): PASS
+- TypeScript: PASS
+- Vitest: 366/366 pass
+- Playwright e2e: 12/12 pass
+- Vite build: PASS
+- cargo fmt: PASS
+- cargo check: PASS
+- cargo test (new tests pass): PASS
+- cargo clippy: PASS
+- Generic symbol grep (write_text_to_file / writeTextToFile / saveCsvFileViaDialog): clean

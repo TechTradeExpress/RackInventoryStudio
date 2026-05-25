@@ -928,7 +928,7 @@ pub const DEVICE_IMPORT_SAMPLE_CSV: &str = "\
 code,device_type,name,device_model_code,serial_number,asset_tag,external_ref,status,tags\n\
 srv-demo-01,server,Demo Server 1,,SN-DEMO-001,ASSET-DEMO-001,REF-DEMO-001,in_stock,production\n\
 srv-demo-02,server,Demo Server 2,,,,,planned,staging\n\
-sw-demo-01,network,Demo Switch 1,,,,,,in_stock,access;switch\n\
+sw-demo-01,network,Demo Switch 1,,,,,in_stock,access;switch\n\
 device-demo-01,other,Demo Other Device,,,,,unknown,\n\
 ";
 
@@ -1009,7 +1009,7 @@ pub fn search_repository_cmd(
 
 #[cfg(test)]
 mod tests {
-    use super::{read_csv_content, MAX_CSV_BYTES};
+    use super::{read_csv_content, DEVICE_IMPORT_SAMPLE_CSV, MAX_CSV_BYTES};
     use std::io::Write;
     use std::path::Path;
 
@@ -1057,5 +1057,54 @@ mod tests {
         tmp.write_all(&vec![b'x'; 101]).unwrap();
         let err = read_csv_content(tmp.path(), limit).unwrap_err();
         assert!(err.to_lowercase().contains("too large"), "got: {err}");
+    }
+
+    // ── DEVICE_IMPORT_SAMPLE_CSV ──────────────────────────────────────────────
+
+    #[test]
+    fn sample_csv_all_rows_have_header_column_count() {
+        let mut lines = DEVICE_IMPORT_SAMPLE_CSV
+            .lines()
+            .filter(|l| !l.trim().is_empty());
+        let header = lines.next().expect("sample CSV must have a header row");
+        let expected_fields = header.split(',').count();
+        assert_eq!(expected_fields, 9, "header should have 9 columns");
+        for (i, line) in lines.enumerate() {
+            let actual = line.split(',').count();
+            assert_eq!(
+                actual,
+                expected_fields,
+                "row {} has {actual} fields, expected {expected_fields}: {line:?}",
+                i + 2,
+            );
+        }
+    }
+
+    #[test]
+    fn sample_csv_parses_without_errors_via_importer() {
+        use ris_import::{preview_csv_import, CsvImportContext, CsvRowAction};
+        let ctx = CsvImportContext::empty();
+        let preview = preview_csv_import(DEVICE_IMPORT_SAMPLE_CSV, &ctx);
+        assert!(
+            preview.issues.is_empty(),
+            "unexpected file-level issues: {:?}",
+            preview.issues
+        );
+        let data_rows = preview.summary.total_rows;
+        assert!(
+            data_rows >= 4,
+            "expected at least 4 data rows, got {data_rows}"
+        );
+        let error_rows = preview.summary.error_rows;
+        assert_eq!(
+            error_rows,
+            0,
+            "expected 0 error rows, got {error_rows}; rows: {:#?}",
+            preview
+                .rows
+                .iter()
+                .filter(|r| r.action == CsvRowAction::SkipDueToError)
+                .collect::<Vec<_>>()
+        );
     }
 }
