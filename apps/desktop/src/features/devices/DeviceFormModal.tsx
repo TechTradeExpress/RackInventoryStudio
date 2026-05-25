@@ -2,6 +2,7 @@ import { useState, useEffect, type ChangeEvent, type FormEvent } from "react";
 import { Modal } from "../../components/ui/Modal";
 import { Field } from "../../components/ui/Field";
 import { parseTags, joinTags } from "../../lib/tags";
+import { useBusy } from "../../lib/appBusy";
 import {
   addDevice,
   updateDevice,
@@ -105,7 +106,8 @@ export interface DeviceFormModalProps {
   /** All non-rack_object device models; filtering by type is done internally. */
   models: DeviceModelDto[];
   onClose: () => void;
-  onSaved: () => void;
+  /** In add mode the newly created device ID is passed; in edit mode no argument is passed. */
+  onSaved: (newDeviceId?: string) => void;
 }
 
 export function DeviceFormModal({
@@ -115,6 +117,7 @@ export function DeviceFormModal({
   onClose,
   onSaved,
 }: DeviceFormModalProps) {
+  const { runBusy } = useBusy();
   const [form, setForm] = useState<FormState>(EMPTY);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -192,34 +195,39 @@ export function DeviceFormModal({
     setError(null);
     try {
       if (isEdit) {
-        await updateDevice({
-          id: editing.id,
-          device_type: form.deviceType,
-          code: editing.code,
-          name: form.name.trim() || undefined,
-          device_model_id: form.deviceModelId || undefined,
-          serial_number: form.serialNumber.trim() || undefined,
-          asset_tag: form.assetTag.trim() || undefined,
-          external_ref: form.externalRef.trim() || undefined,
-          status: form.status,
-          description: form.description.trim() || undefined,
-          tags: parseTags(form.tags),
-        });
+        await runBusy("Saving device…", () =>
+          updateDevice({
+            id: editing.id,
+            device_type: form.deviceType,
+            code: editing.code,
+            name: form.name.trim() || undefined,
+            device_model_id: form.deviceModelId || undefined,
+            serial_number: form.serialNumber.trim() || undefined,
+            asset_tag: form.assetTag.trim() || undefined,
+            external_ref: form.externalRef.trim() || undefined,
+            status: form.status,
+            description: form.description.trim() || undefined,
+            tags: parseTags(form.tags),
+          }),
+        );
+        onSaved();
       } else {
-        await addDevice({
-          device_type: form.deviceType,
-          code: codeVal,
-          name: form.name.trim() || undefined,
-          device_model_id: form.deviceModelId || undefined,
-          serial_number: form.serialNumber.trim() || undefined,
-          asset_tag: form.assetTag.trim() || undefined,
-          external_ref: form.externalRef.trim() || undefined,
-          status: form.status,
-          description: form.description.trim() || undefined,
-          tags: parseTags(form.tags),
-        });
+        const newId = await runBusy("Creating device…", () =>
+          addDevice({
+            device_type: form.deviceType,
+            code: codeVal,
+            name: form.name.trim() || undefined,
+            device_model_id: form.deviceModelId || undefined,
+            serial_number: form.serialNumber.trim() || undefined,
+            asset_tag: form.assetTag.trim() || undefined,
+            external_ref: form.externalRef.trim() || undefined,
+            status: form.status,
+            description: form.description.trim() || undefined,
+            tags: parseTags(form.tags),
+          }),
+        );
+        onSaved(newId);
       }
-      onSaved();
       onClose();
     } catch (e) {
       setError(String(e));

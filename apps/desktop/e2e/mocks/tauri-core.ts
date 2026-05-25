@@ -12,6 +12,7 @@ const FIXTURE_DEVICE_ID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
 const FIXTURE_PLACEMENT_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
 const FIXTURE_NEW_PLACEMENT_ID = "11111111-1111-1111-1111-111111111111";
 export const FIXTURE_UNPLACED_DEVICE_ID = "22222222-2222-2222-2222-222222222222";
+export const FIXTURE_NEW_DEVICE_ID = "33333333-3333-3333-3333-333333333333";
 
 const COMMANDS: Record<string, unknown> = {
   open_repository_cmd: {
@@ -291,6 +292,18 @@ const COMMANDS: Record<string, unknown> = {
   },
 };
 
+// Mutable module-level state — reset per page load so each Playwright test starts fresh.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const dynamicDevices: any[] = [...(COMMANDS.list_devices as any[])];
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _baseDetail = COMMANDS.get_rack_detail as Record<string, any>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const dynamicRackDetail: { front: any[]; rear: any[]; [k: string]: any } = {
+  ..._baseDetail,
+  front: [..._baseDetail.front],
+  rear: [..._baseDetail.rear],
+};
+
 export function invoke<T>(command: string, args?: unknown): Promise<T> {
   switch (command) {
     case "open_repository_cmd": {
@@ -380,6 +393,32 @@ export function invoke<T>(command: string, args?: unknown): Promise<T> {
       // this command should never be reached in E2E tests.
       return Promise.resolve(undefined as unknown as T);
 
+    case "add_device_cmd": {
+      const { input } = (args ?? {}) as { input?: unknown };
+      const i = (input ?? {}) as Record<string, unknown>;
+      if (typeof i.code !== "string" || typeof i.device_type !== "string") {
+        return Promise.reject(
+          new Error(`[E2E mock] add_device_cmd: invalid input args`),
+        );
+      }
+      dynamicDevices.push({
+        id: FIXTURE_NEW_DEVICE_ID,
+        code: i.code,
+        device_type: i.device_type,
+        name: i.name ?? null,
+        serial_number: i.serial_number ?? null,
+        asset_tag: i.asset_tag ?? null,
+        external_ref: i.external_ref ?? null,
+        status: i.status ?? "planned",
+        device_model_code: null,
+        device_model_id: i.device_model_id ?? null,
+        is_placed: false,
+        description: i.description ?? null,
+        tags: i.tags ?? [],
+      });
+      return Promise.resolve(FIXTURE_NEW_DEVICE_ID as unknown as T);
+    }
+
     case "place_device": {
       const { input } = (args ?? {}) as { input?: unknown };
       const i = (input ?? {}) as Record<string, unknown>;
@@ -393,6 +432,26 @@ export function invoke<T>(command: string, args?: unknown): Promise<T> {
           new Error(`[E2E mock] place_device: invalid input args`),
         );
       }
+      // Add the new placement to dynamic rack detail so get_rack_detail returns it
+      dynamicRackDetail.front.push({
+        id: FIXTURE_NEW_PLACEMENT_ID,
+        code: `plc-${i.device_id?.toString().slice(0, 8)}`,
+        target_kind: "device",
+        target_id: i.device_id,
+        target_code: dynamicDevices.find((d) => d.id === i.device_id)?.code ?? "new-device",
+        target_name: dynamicDevices.find((d) => d.id === i.device_id)?.name ?? null,
+        device_type: dynamicDevices.find((d) => d.id === i.device_id)?.device_type ?? "server",
+        start_u: i.start_u,
+        height_u: i.height_u ?? null,
+        effective_height_u: i.height_u ?? 1,
+        end_u: i.start_u,
+        note: null,
+        tags: [],
+        model_name: null,
+        model_code: null,
+        target_serial: null,
+        target_asset_tag: null,
+      });
       return Promise.resolve(FIXTURE_NEW_PLACEMENT_ID as unknown as T);
     }
 
@@ -419,6 +478,12 @@ export function invoke<T>(command: string, args?: unknown): Promise<T> {
     case "remove_placement":
       // In-memory mutation — return void success
       return Promise.resolve(undefined as unknown as T);
+
+    case "list_devices":
+      return Promise.resolve(dynamicDevices as unknown as T);
+
+    case "get_rack_detail":
+      return Promise.resolve(dynamicRackDetail as unknown as T);
 
     default:
       if (command in COMMANDS) {

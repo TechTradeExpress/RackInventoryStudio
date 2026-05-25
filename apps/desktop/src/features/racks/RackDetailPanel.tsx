@@ -257,6 +257,7 @@ export function RackDetailPanel({
           setPlaceModalTargetKind(null);
           setPlaceModalTargetId(null);
         }}
+        onDeviceCreated={() => setTargetReloadToken((t) => t + 1)}
         onPlaced={(newId) => {
           setPlacePlacementOpen(false);
           setPlaceModalDndPayload(null);

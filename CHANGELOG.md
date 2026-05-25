@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased — Beta QA follow-up Milestone E: Create device from Place equipment flow
+
+### Added
+- `PlacePlacementModal`: "Create new device…" button opens `DeviceFormModal` as a layered modal directly within the Place equipment flow, so users never need to leave the placement workflow to create a missing device.
+- After a device is successfully created inline, the Place equipment modal returns with the new device preselected and the original Start U / side / height fields preserved.
+- `DeviceFormModal` now passes the newly created device ID back via `onSaved(newDeviceId)` in add mode (edit mode still calls `onSaved()` with no argument — fully backward-compatible).
+- Global busy overlay (`useBusy`) is used inside `DeviceFormModal` for "Creating device…" and "Saving device…" operations.
+- `onDeviceCreated` callback on `PlacePlacementModal` lets `RackDetailPanel` refresh its palette/device list after an inline creation.
+- Unit tests: expanded `PlacePlacementModal` test suite with 7 new tests covering the full inline create-device flow (button visibility, modal open/cancel, device preselection, field preservation, Place button enablement).
+- E2E smoke test: full create-and-place flow — open rack detail → click empty U slot → create device via inline form → confirm preselection and Start U preserved → click Place → new placement block visible in diagram.
+
 ## Unreleased — Beta QA follow-up Milestone D: Complete drag-and-drop workflow
 
 ### Changed

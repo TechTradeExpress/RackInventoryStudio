@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import {
   placeDevice,
   placeRackObject,
+  listDevices,
+  listDeviceModels,
   type DeviceDto,
   type DeviceModelDto,
   type RackSummaryDto,
@@ -10,6 +12,7 @@ import { useBusy } from "../../lib/appBusy";
 import { Modal } from "../../components/ui/Modal";
 import { Field } from "../../components/ui/Field";
 import { parsePositiveInt } from "./positiveInt";
+import { DeviceFormModal } from "../devices/DeviceFormModal";
 
 type TargetType = "device" | "rack_object";
 
@@ -26,6 +29,11 @@ export interface PlacePlacementModalProps {
   initialTargetId?: string | null;
   onClose: () => void;
   onPlaced: (placementId: string) => void;
+  /**
+   * Called after a device is successfully created from the inline device form,
+   * allowing the parent to refresh its own device/palette state.
+   */
+  onDeviceCreated?: () => void;
 }
 
 export function PlacePlacementModal({
@@ -39,6 +47,7 @@ export function PlacePlacementModal({
   initialTargetId,
   onClose,
   onPlaced,
+  onDeviceCreated,
 }: PlacePlacementModalProps) {
   const { runBusy } = useBusy();
 
@@ -48,6 +57,14 @@ export function PlacePlacementModal({
   const [startUStr, setStartUStr] = useState(startU !== null ? String(startU) : "");
   const [heightUStr, setHeightUStr] = useState("");
   const [error, setError] = useState<string | null>(null);
+
+  // Local device list — synced from prop on open, then managed internally
+  // (refreshed after inline device creation so new device appears immediately).
+  const [localDevices, setLocalDevices] = useState<DeviceDto[]>(availableDevices);
+
+  // Inline device creation state
+  const [createDeviceOpen, setCreateDeviceOpen] = useState(false);
+  const [allModels, setAllModels] = useState<DeviceModelDto[]>([]);
 
   // Reset form when modal opens; apply initial preselection if provided
   useEffect(() => {
@@ -65,8 +82,10 @@ export function PlacePlacementModal({
       setStartUStr(startU !== null ? String(startU) : "");
       setHeightUStr("");
       setError(null);
+      setCreateDeviceOpen(false);
+      setLocalDevices(availableDevices);
     }
-  }, [open, startU, initialTargetKind, initialTargetId]);
+  }, [open, startU, initialTargetKind, initialTargetId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Derive effective height display for selected rack object
   const selectedModel =
@@ -131,166 +150,217 @@ export function PlacePlacementModal({
     }
   }
 
+  async function handleOpenCreateDevice() {
+    try {
+      const models = await listDeviceModels();
+      setAllModels(models.filter((m) => m.device_type !== "rack_object"));
+    } catch {
+      setAllModels([]);
+    }
+    setCreateDeviceOpen(true);
+  }
+
+  async function handleDeviceSaved(newDeviceId?: string) {
+    setCreateDeviceOpen(false);
+    // Preselect immediately so Place button enables without waiting for the list refresh
+    if (newDeviceId) {
+      setDeviceId(newDeviceId);
+      setError(null);
+    }
+    // Refresh device list so the new device option appears in the selector
+    try {
+      const devs = await listDevices();
+      setLocalDevices(devs.filter((d) => !d.is_placed));
+    } catch {
+      // ignore — user can still place the selected device
+    }
+    onDeviceCreated?.();
+  }
+
   const canPlace = targetType === "device" ? !!deviceId : !!deviceModelId;
 
   return (
-    <Modal
-      open={open}
-      title="Place equipment"
-      subtitle={
-        <>
-          {rack.code} · {side === "front" ? "Front" : "Rear"} side
-        </>
-      }
-      onClose={onClose}
-      size="md"
-      footerMessage={error ?? undefined}
-      footerMessageTone={error ? "err" : undefined}
-      footer={
-        <>
-          <button className="btn" onClick={onClose}>
-            Cancel
-          </button>
-          <button
-            className="btn btn-primary"
-            onClick={handlePlace}
-            disabled={!canPlace}
-            data-testid="place-btn"
-          >
-            Place
-          </button>
-        </>
-      }
-    >
-      <div className="form-grid">
-        {/* Target type selector */}
-        <div className="field" style={{ gridColumn: "span 12" }}>
-          <label>Type</label>
-          <div className="row" style={{ gap: 8, marginTop: 4 }}>
-            <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-              <input
-                type="radio"
-                name="target-type"
-                value="device"
-                checked={targetType === "device"}
-                onChange={() => {
-                  setTargetType("device");
-                  setDeviceId("");
-                  setDeviceModelId("");
-                  setError(null);
-                }}
-              />
-              Device
-            </label>
-            <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-              <input
-                type="radio"
-                name="target-type"
-                value="rack_object"
-                checked={targetType === "rack_object"}
-                onChange={() => {
-                  setTargetType("rack_object");
-                  setDeviceId("");
-                  setDeviceModelId("");
-                  setError(null);
-                }}
-              />
-              Rack Object
-            </label>
+    <>
+      {/* Place equipment modal — onClose blocked while device form is layered on top */}
+      <Modal
+        open={open}
+        title="Place equipment"
+        subtitle={
+          <>
+            {rack.code} · {side === "front" ? "Front" : "Rear"} side
+          </>
+        }
+        onClose={createDeviceOpen ? undefined : onClose}
+        size="md"
+        footerMessage={error ?? undefined}
+        footerMessageTone={error ? "err" : undefined}
+        footer={
+          <>
+            <button className="btn" onClick={onClose} disabled={createDeviceOpen}>
+              Cancel
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={handlePlace}
+              disabled={!canPlace || createDeviceOpen}
+              data-testid="place-btn"
+            >
+              Place
+            </button>
+          </>
+        }
+      >
+        <div className="form-grid">
+          {/* Target type selector */}
+          <div className="field" style={{ gridColumn: "span 12" }}>
+            <label>Type</label>
+            <div className="row" style={{ gap: 8, marginTop: 4 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                <input
+                  type="radio"
+                  name="target-type"
+                  value="device"
+                  checked={targetType === "device"}
+                  onChange={() => {
+                    setTargetType("device");
+                    setDeviceId("");
+                    setDeviceModelId("");
+                    setError(null);
+                  }}
+                />
+                Device
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                <input
+                  type="radio"
+                  name="target-type"
+                  value="rack_object"
+                  checked={targetType === "rack_object"}
+                  onChange={() => {
+                    setTargetType("rack_object");
+                    setDeviceId("");
+                    setDeviceModelId("");
+                    setError(null);
+                  }}
+                />
+                Rack Object
+              </label>
+            </div>
           </div>
+
+          {/* Device / rack object selector */}
+          {targetType === "device" ? (
+            <>
+              <Field
+                label={`Device (${localDevices.length} unplaced)`}
+                required
+                className="col-12"
+              >
+                <select
+                  className="ri-input"
+                  value={deviceId}
+                  onChange={(e) => {
+                    setDeviceId(e.target.value);
+                    setError(null);
+                  }}
+                  data-testid="device-select"
+                >
+                  <option value="">— select —</option>
+                  {localDevices.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.code}
+                      {d.name ? ` — ${d.name}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <div className="col-12" style={{ marginTop: -4 }}>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={handleOpenCreateDevice}
+                  data-testid="create-device-btn"
+                >
+                  Create new device…
+                </button>
+              </div>
+            </>
+          ) : (
+            <Field
+              label={`Rack object model (${availableRackObjects.length} available)`}
+              required
+              className="col-12"
+            >
+              <select
+                className="ri-input"
+                value={deviceModelId}
+                onChange={(e) => {
+                  setDeviceModelId(e.target.value);
+                  setError(null);
+                }}
+                data-testid="rack-object-select"
+              >
+                <option value="">— select —</option>
+                {availableRackObjects.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.code} — {m.name} ({m.default_height_u}U)
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
+
+          {/* Start U */}
+          <Field label="Start U" required className="col-6">
+            <input
+              className="ri-input"
+              type="number"
+              min={1}
+              step={1}
+              value={startUStr}
+              onChange={(e) => {
+                setStartUStr(e.target.value);
+                setError(null);
+              }}
+              data-testid="start-u-input"
+            />
+          </Field>
+
+          {/* Height U override */}
+          <Field
+            label="Height U override"
+            help={
+              effectiveHeight !== null
+                ? `Default from model: ${effectiveHeight}U`
+                : "Leave blank to use model default"
+            }
+            className="col-6"
+          >
+            <input
+              className="ri-input"
+              type="number"
+              min={1}
+              step={1}
+              placeholder="—"
+              value={heightUStr}
+              onChange={(e) => {
+                setHeightUStr(e.target.value);
+                setError(null);
+              }}
+              data-testid="height-u-input"
+            />
+          </Field>
         </div>
+      </Modal>
 
-        {/* Device / rack object selector */}
-        {targetType === "device" ? (
-          <Field
-            label={`Device (${availableDevices.length} unplaced)`}
-            required
-            className="col-12"
-          >
-            <select
-              className="ri-input"
-              value={deviceId}
-              onChange={(e) => {
-                setDeviceId(e.target.value);
-                setError(null);
-              }}
-              data-testid="device-select"
-            >
-              <option value="">— select —</option>
-              {availableDevices.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.code}
-                  {d.name ? ` — ${d.name}` : ""}
-                </option>
-              ))}
-            </select>
-          </Field>
-        ) : (
-          <Field
-            label={`Rack object model (${availableRackObjects.length} available)`}
-            required
-            className="col-12"
-          >
-            <select
-              className="ri-input"
-              value={deviceModelId}
-              onChange={(e) => {
-                setDeviceModelId(e.target.value);
-                setError(null);
-              }}
-              data-testid="rack-object-select"
-            >
-              <option value="">— select —</option>
-              {availableRackObjects.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.code} — {m.name} ({m.default_height_u}U)
-                </option>
-              ))}
-            </select>
-          </Field>
-        )}
-
-        {/* Start U */}
-        <Field label="Start U" required className="col-6">
-          <input
-            className="ri-input"
-            type="number"
-            min={1}
-            step={1}
-            value={startUStr}
-            onChange={(e) => {
-              setStartUStr(e.target.value);
-              setError(null);
-            }}
-            data-testid="start-u-input"
-          />
-        </Field>
-
-        {/* Height U override */}
-        <Field
-          label="Height U override"
-          help={
-            effectiveHeight !== null
-              ? `Default from model: ${effectiveHeight}U`
-              : "Leave blank to use model default"
-          }
-          className="col-6"
-        >
-          <input
-            className="ri-input"
-            type="number"
-            min={1}
-            step={1}
-            placeholder="—"
-            value={heightUStr}
-            onChange={(e) => {
-              setHeightUStr(e.target.value);
-              setError(null);
-            }}
-            data-testid="height-u-input"
-          />
-        </Field>
-      </div>
-    </Modal>
+      {/* Inline device creation — layered on top of the place modal */}
+      <DeviceFormModal
+        open={createDeviceOpen}
+        editing={null}
+        models={allModels}
+        onClose={() => setCreateDeviceOpen(false)}
+        onSaved={handleDeviceSaved}
+      />
+    </>
   );
 }
