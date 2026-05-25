@@ -74,6 +74,8 @@ It defines follow-up PRs/milestones that must be completed before beta distribut
 
 ### Milestone C — Rack diagram as primary placement UI
 
+> **Status:** Addressed in branch `ux/rack-diagram-primary-surface` (PR #73).
+
 **Scope**
 
 - Make the rack diagram the primary placement interaction surface.

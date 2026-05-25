@@ -3332,3 +3332,95 @@ Docs update: `.ai/local-diagnostics-logging.md` — added bullet points describi
 - cargo check --workspace: PASS
 - cargo test --workspace: PASS (all desktop Rust tests — incl. 7 new helper tests)
 - cargo clippy --workspace -- -D warnings: PASS
+
+---
+
+## Beta QA Milestone C — Rack diagram as primary placement surface
+
+**Branch:** `ux/rack-diagram-primary-surface`
+**Base branch:** `master`
+
+### Summary
+
+Removed the active-side placement table from Rack Detail. The rack diagram is now the sole placement surface. All placement discovery, selection, and interaction (place, inspect, edit, remove) start from the diagram.
+
+**Placement table removed:** The "Front placements" / "Rear placements" Panel with its U / Name / Type / Model/SKU / Serial / Asset tag / Actions table is gone entirely. No replacement table, list, or card-list was added.
+
+**Diagram-driven flow:**
+- Click an empty U slot → opens Place equipment modal with Start U prefilled (unchanged behavior).
+- Click an occupied placement block → selects it and populates the Placement inspector in the right sidebar.
+- Drag from palette → drops at diagram cell → opens Place equipment modal (unchanged behavior).
+
+**Inspector always visible:** The Placement inspector panel is now always shown in the right sidebar (previously hidden until a placement was selected). When nothing is selected it shows "Select a placement in the diagram" empty state.
+
+**Legend enhanced:** Diagram legend updated to cover all five visual states: Available (click to place), Occupied (click to inspect), Selected, Warning/incomplete, Drop target (drag). Previously only three states were covered and "Selected" was absent.
+
+**Testability:** Added `data-testid="placed-{side}-{placement-id}"` to occupied top cells so E2E tests can reliably locate and click placement blocks.
+
+**No backend changes.** No new Tauri commands. No schema changes.
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `apps/desktop/src/features/racks/RackDetailPanel.tsx` | Removed placement table IIFE block; always render inspector panel; simplified left column to diagram-only |
+| `apps/desktop/src/features/racks/PlacementInspectorPanel.tsx` | Updated empty state copy to reference diagram, not table |
+| `apps/desktop/src/features/racks/RackUnitDiagram.tsx` | Added `data-testid` to occupied top cells; enhanced legend with Selected + Drop target states; updated instruction text |
+| `apps/desktop/e2e/smoke.spec.ts` | Replaced "rack detail and placement table visible" with "rack detail: diagram is primary surface — no placement table"; replaced "rack detail: placement inspector shows no change-side button" with "rack detail: click occupied block selects it and shows inspector" |
+| `docs/BETA_QA_FINDINGS_ACTION_PLAN_EN.md` | Added Milestone C status note |
+| `CHANGELOG.md` | Added Unreleased entry for Milestone C |
+| `.ai/cc-report.md` | This update |
+
+### Tests
+
+```
+git diff --check                              → PASS
+node scripts/check-version-consistency.mjs   → PASS (all v0.1.0)
+npx tsc --noEmit                              → PASS
+Vitest unit tests                            → 373/373 PASS (32 files)
+Playwright e2e                               → 13/13 PASS
+  - "rack detail: diagram is primary surface — no placement table"  NEW ✓
+  - "rack detail: click occupied block selects it and shows inspector" NEW ✓
+  - "rack detail: click empty slot opens place modal"               KEPT ✓
+Vite production build                        → PASS (277 kB JS, 22 kB CSS)
+cargo fmt --all --check                      → PASS
+cargo check --workspace                      → PASS
+cargo test --workspace                       → PASS
+cargo clippy --workspace -- -D warnings      → PASS
+No apps/desktop/package-lock.json           → CONFIRMED
+No tracked .ai/review-context-*.md files    → CONFIRMED
+```
+
+### Risks
+
+- **Visual QA required on Windows 11:** Diagram rendering, legend layout, inspector empty state, and full placement flow need manual verification in the Tauri desktop build. Automated Playwright tests confirm functional correctness against the Vite/web layer with mock data.
+- **Inspector always visible:** The inspector panel now occupies space in the right sidebar even when no placement is selected. On narrow windows the right column (280 px) may feel crowded. No layout changes were made; this is the same column width as before.
+- **No drag-and-drop move within same-side:** Moving a placed item by dragging it to a new U slot (same side) is still Milestone D. The Edit placement modal remains the only way to change Start U.
+
+### Manual QA checklist
+
+1. Open repository.
+2. Locations → Manage racks.
+3. Open rack detail.
+4. Confirm no placement table is visible anywhere in Rack Detail.
+5. Confirm Front/Rear selector works.
+6. Confirm occupied placements are readable directly in the diagram.
+7. Confirm selected placement is visually obvious (gold highlight ring).
+8. Click occupied placement in diagram → inspector updates.
+9. Click empty U slot → Place equipment modal opens with Start U prefilled.
+10. Drag placeable equipment onto diagram if available → modal opens with target preselected if supported.
+11. Edit placement from inspector/modal → diagram updates.
+12. Remove placement → ConfirmDialog appears, confirm removes it from diagram.
+13. Confirm no "Change side", "Move to Rear", or "Move to Front" action is visible.
+14. Confirm diagram legend shows: Available, Occupied, Selected, Warning/incomplete, Drop target.
+15. Confirm inspector shows "Select a placement in the diagram" when nothing is selected.
+
+### Not done
+
+- Drag-and-drop move within same-side rack (Milestone D).
+- Create new device from Place equipment modal (Milestone E).
+- Device-type color coding in diagram blocks (F11 — covered by legend colors, not by block color; deferred).
+
+### Suggested next step
+
+Run Windows 11 manual QA against this branch. If diagram flow is confirmed usable, proceed to Milestone D (complete drag-and-drop workflow).

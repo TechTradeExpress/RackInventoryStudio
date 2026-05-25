@@ -44,7 +44,7 @@ export function PlacementInspectorPanel({
       <EmptyState
         icon={<IcServer size={24} />}
         title="No placement selected"
-        body="Click a unit in the diagram or a row in the placement table."
+        body="Click an occupied slot in the diagram to inspect it."
       />
     );
   }
