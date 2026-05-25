@@ -7,6 +7,7 @@
     "dev": "pnpm --filter @rack-inventory-studio/desktop dev",
     "build": "pnpm --filter @rack-inventory-studio/desktop build",
     "tauri": "pnpm --filter @rack-inventory-studio/desktop tauri",
-    "check:version": "node scripts/check-version-consistency.mjs"
+    "check:version": "node scripts/check-version-consistency.mjs",
+    "bump:version": "node scripts/bump-version.mjs"
   }
 }
