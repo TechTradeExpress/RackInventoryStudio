@@ -3289,3 +3289,46 @@ Fixed by:
 - cargo check: PASS
 - cargo test: PASS (30 desktop Rust tests — 9 new)
 - cargo clippy: PASS
+
+### Repair update 2 — safe fallback for unusable startup custom log dir
+
+**Problem fixed:** `lib.rs` startup code called `let _ = std::fs::create_dir_all(dir)` and silently ignored the error. If the directory could not be created (permission denied, unavailable network share, path with a file as parent, etc.), the app would proceed to pass an uncreatable path to the log plugin instead of falling back to the platform default.
+
+**Fix:** Extracted `resolve_startup_custom_log_dir(config_dir: Option<&Path>) -> Option<PathBuf>` into `app_config.rs`. It validates the persisted path before returning it:
+- Returns `None` if no config dir or no custom path is configured.
+- Returns `None` if the path is relative.
+- Returns `Some(path)` if the path exists and is a directory.
+- Returns `None` if the path exists but is a file (not a directory).
+- Calls `std::fs::create_dir_all` for non-existent paths; returns `Some(path)` on success, `None` on error.
+- Never modifies the saved config — the user can still see and change the setting in Settings.
+
+`lib.rs` startup now calls the helper with one line:
+```rust
+let persisted_custom_log_dir: Option<PathBuf> =
+    resolve_startup_custom_log_dir(early_config_dir.as_deref());
+```
+
+Replaced 3 inline-simulation tests (restart_required group) with 7 proper unit tests using tempdirs:
+- `startup_custom_dir_none_when_no_config`
+- `startup_custom_dir_none_when_config_dir_absent`
+- `startup_custom_dir_returns_existing_dir`
+- `startup_custom_dir_creates_missing_directory`
+- `startup_custom_dir_rejects_relative_path`
+- `startup_custom_dir_rejects_existing_file`
+- `startup_custom_dir_rejects_uncreatable_path`
+
+Kept 3 separate restart_required simulation tests (renamed but same logic) that test the `restart_required` boolean computation path.
+
+Docs update: `.ai/local-diagnostics-logging.md` — added bullet points describing valid/invalid path cases and fallback behavior.
+
+**Checks run after repair:**
+- git diff --check: PASS
+- version consistency (v0.1.0): PASS
+- TypeScript: PASS
+- Vitest: 373/373
+- Playwright e2e: 13/13
+- Vite build: PASS
+- cargo fmt --all --check: PASS
+- cargo check --workspace: PASS
+- cargo test --workspace: PASS (all desktop Rust tests — incl. 7 new helper tests)
+- cargo clippy --workspace -- -D warnings: PASS

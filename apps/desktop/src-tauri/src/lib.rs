@@ -3,7 +3,7 @@ mod commands;
 mod diagnostics;
 mod dto;
 
-use app_config::{load_app_config, resolve_app_config_dir_early, ActiveLogState};
+use app_config::{resolve_app_config_dir_early, resolve_startup_custom_log_dir, ActiveLogState};
 use commands::{
     add_device_cmd, add_device_model_cmd, add_git_remote, add_location_cmd, add_rack_cmd,
     close_repository, commit_repository_changes, create_repository_cmd, delete_device_cmd,
@@ -24,23 +24,10 @@ use std::sync::Mutex;
 pub fn run() {
     // Read persisted config before the Tauri builder starts so the log plugin
     // can be initialised with the correct target directory.
+    // Falls back to None (platform default) if the custom dir is unusable.
     let early_config_dir = resolve_app_config_dir_early();
-    let persisted_custom_log_dir: Option<PathBuf> = early_config_dir
-        .as_deref()
-        .map(load_app_config)
-        .and_then(|cfg| cfg.logs_directory)
-        .map(PathBuf::from)
-        .filter(|p| {
-            // Accept absolute paths that are either an existing directory or
-            // a non-existent path we can attempt to create.
-            p.is_absolute() && (!p.exists() || p.is_dir())
-        });
-
-    // If a valid custom directory is configured, try to create it now so the
-    // log plugin can open the file handle immediately.
-    if let Some(ref dir) = persisted_custom_log_dir {
-        let _ = std::fs::create_dir_all(dir);
-    }
+    let persisted_custom_log_dir: Option<PathBuf> =
+        resolve_startup_custom_log_dir(early_config_dir.as_deref());
 
     // Build the log file target: custom folder or platform LogDir.
     let log_file_target = match &persisted_custom_log_dir {
