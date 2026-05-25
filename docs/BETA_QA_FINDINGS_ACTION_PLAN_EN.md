@@ -56,7 +56,7 @@ It defines follow-up PRs/milestones that must be completed before beta distribut
 
 ### Milestone B — Settings logs actions
 
-> **Status:** Addressed in branch `ux/settings-logs-actions` (PR #XX — update after PR creation).
+> **Status:** Addressed in branch `ux/settings-logs-actions` (PR #72).
 
 **Scope**
 
