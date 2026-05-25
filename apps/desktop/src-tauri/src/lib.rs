@@ -11,7 +11,8 @@ use commands::{
     open_repository_cmd, place_device, place_rack_object, preview_device_csv_import_cmd,
     pull_git_ff_only, push_git_current_branch, read_csv_file, remove_placement,
     save_current_repository, search_repository_cmd, update_device_cmd, update_device_model_cmd,
-    update_location_cmd, update_rack_cmd, validate_current_repository, AppState,
+    update_location_cmd, update_rack_cmd, validate_current_repository,
+    write_device_import_sample_csv, AppState,
 };
 use std::sync::Mutex;
 
@@ -72,6 +73,7 @@ pub fn run() {
             push_git_current_branch,
             pull_git_ff_only,
             read_csv_file,
+            write_device_import_sample_csv,
             search_repository_cmd,
         ])
         .setup(|_app| {

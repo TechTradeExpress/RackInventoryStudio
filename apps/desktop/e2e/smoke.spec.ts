@@ -33,9 +33,6 @@ async function openFixtureRepo(page: Page) {
 test("app shell loads without console errors", async ({ page }) => {
   await page.goto("/");
 
-  await expect(
-    page.getByText("Rack Inventory Studio", { exact: true }),
-  ).toBeVisible();
   // Repository tab is the active/visible tab
   await expect(
     page.getByRole("button", { name: "Repository", exact: true }),
@@ -219,7 +216,7 @@ test("rack detail: click empty slot opens place modal", async ({ page }) => {
   ).not.toBeVisible();
 });
 
-test("rack detail: Change side dialog opens and can be cancelled", async ({ page }) => {
+test("rack detail: placement inspector shows no change-side button", async ({ page }) => {
   await page.goto("/");
   await openFixtureRepo(page);
 
@@ -232,25 +229,18 @@ test("rack detail: Change side dialog opens and can be cancelled", async ({ page
   // Select the fixture placement from the table
   await page.getByRole("cell", { name: "srv-01", exact: true }).click();
 
-  // Inspector should show the "Move to Rear…" change-side button
+  // "Move to Rear" / "Change side" button must NOT be present (removed as unsafe)
   await expect(
     page.getByRole("button", { name: /Move to Rear/i }),
-  ).toBeVisible();
-
-  // Open the confirmation dialog
-  await page.getByRole("button", { name: /Move to Rear/i }).click();
+  ).not.toBeVisible();
   await expect(
-    page.getByRole("dialog", { name: /Move to Rear/i }),
-  ).toBeVisible();
-
-  // Cancel — dialog should close without mutating state
-  await page.getByRole("button", { name: /Cancel/i }).click();
-  await expect(
-    page.getByRole("dialog", { name: /Move to Rear/i }),
+    page.getByRole("button", { name: /Move to Front/i }),
   ).not.toBeVisible();
 
-  // Placement is still selected and on Front
-  await expect(page.getByRole("heading", { name: "Front placements", exact: true })).toBeVisible();
+  // Remove placement button is still present
+  await expect(
+    page.getByRole("button", { name: /Remove placement/i }),
+  ).toBeVisible();
 });
 
 test("git section shows status label and publish guidance", async ({ page }) => {

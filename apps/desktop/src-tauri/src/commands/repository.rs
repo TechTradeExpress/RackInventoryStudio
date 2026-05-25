@@ -286,14 +286,42 @@ pub fn list_racks(state: State<AppState>) -> Result<Vec<RackSummaryDto>, String>
                 .get(&rack.location_id)
                 .map(|l| l.code.clone())
                 .unwrap_or_default();
-            let (front_placement_count, rear_placement_count) = session
+            let pf_opt = session
                 .data
                 .placement_files
                 .iter()
-                .find(|pf| pf.rack_id == rack.id)
+                .find(|pf| pf.rack_id == rack.id);
+            let (front_placement_count, rear_placement_count) = pf_opt
                 .map(|pf| (pf.front.len(), pf.rear.len()))
                 .unwrap_or((0, 0));
             let placement_count = front_placement_count + rear_placement_count;
+
+            // Compute U slots occupied per side using effective_height_u.
+            // Utilization rule: max(front_used_u, rear_used_u) / height_u, since
+            // front and rear share the same physical U space in the cabinet.
+            let used_u = |placements: &[ris_core::Placement]| -> u32 {
+                placements
+                    .iter()
+                    .map(|p| {
+                        let model = match p.target_kind {
+                            PlacementTargetKind::Device => session
+                                .index
+                                .devices_by_id
+                                .get(&p.target_id)
+                                .and_then(|d| d.device_model_id.as_deref())
+                                .and_then(|mid| session.index.device_models_by_id.get(mid)),
+                            PlacementTargetKind::DeviceModel => {
+                                session.index.device_models_by_id.get(&p.target_id)
+                            }
+                        };
+                        p.effective_height_u(model).unwrap_or(1)
+                    })
+                    .sum()
+            };
+            let (front_used_u, rear_used_u) = pf_opt
+                .map(|pf| (used_u(&pf.front), used_u(&pf.rear)))
+                .unwrap_or((0, 0));
+
             RackSummaryDto {
                 id: rack.id.clone(),
                 code: rack.code.clone(),
@@ -307,6 +335,8 @@ pub fn list_racks(state: State<AppState>) -> Result<Vec<RackSummaryDto>, String>
                 front_placement_count,
                 rear_placement_count,
                 placement_count,
+                front_used_u,
+                rear_used_u,
             }
         })
         .collect();
@@ -887,9 +917,20 @@ pub fn delete_device_cmd(id: String, state: State<AppState>) -> Result<(), Strin
     session.delete_device(&id).map_err(|e| e.to_string())
 }
 
-// ── CSV file reader ───────────────────────────────────────────────────────────
+// ── CSV helpers ───────────────────────────────────────────────────────────────
 
 pub const MAX_CSV_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
+
+/// Fixed sample CSV used for the "Download sample CSV" feature.
+/// Columns mirror KNOWN_COLUMNS / REQUIRED_COLUMNS in crates/ris-import/src/csv_reader.rs.
+/// rack_object is not a valid device_type for CSV import.
+pub const DEVICE_IMPORT_SAMPLE_CSV: &str = "\
+code,device_type,name,device_model_code,serial_number,asset_tag,external_ref,status,tags\n\
+srv-demo-01,server,Demo Server 1,,SN-DEMO-001,ASSET-DEMO-001,REF-DEMO-001,in_stock,production\n\
+srv-demo-02,server,Demo Server 2,,,,,planned,staging\n\
+sw-demo-01,network,Demo Switch 1,,,,,in_stock,access;switch\n\
+device-demo-01,other,Demo Other Device,,,,,unknown,\n\
+";
 
 /// Reads a file as UTF-8 text, enforcing a size limit.
 /// Extracted as a pure function so it can be unit-tested without Tauri state.
@@ -914,6 +955,19 @@ pub fn read_csv_content(path: &Path, max_bytes: u64) -> Result<String, String> {
 #[tauri::command]
 pub fn read_csv_file(path: String) -> Result<String, String> {
     read_csv_content(Path::new(&path), MAX_CSV_BYTES)
+}
+
+/// Write the built-in device import sample CSV to the given path.
+/// The path is supplied by the frontend after the user selects it via the native save dialog.
+/// Content is fixed server-side; the frontend cannot supply arbitrary content.
+#[tauri::command]
+pub fn write_device_import_sample_csv(path: String) -> Result<(), String> {
+    let path_ref = std::path::Path::new(&path);
+    if path_ref.is_dir() {
+        return Err(format!("'{}' is a directory, not a file", path));
+    }
+    std::fs::write(path_ref, DEVICE_IMPORT_SAMPLE_CSV.as_bytes())
+        .map_err(|e| format!("Failed to write sample CSV: {e}"))
 }
 
 // ── Search ────────────────────────────────────────────────────────────────────
@@ -955,7 +1009,7 @@ pub fn search_repository_cmd(
 
 #[cfg(test)]
 mod tests {
-    use super::{read_csv_content, MAX_CSV_BYTES};
+    use super::{read_csv_content, DEVICE_IMPORT_SAMPLE_CSV, MAX_CSV_BYTES};
     use std::io::Write;
     use std::path::Path;
 
@@ -1003,5 +1057,54 @@ mod tests {
         tmp.write_all(&vec![b'x'; 101]).unwrap();
         let err = read_csv_content(tmp.path(), limit).unwrap_err();
         assert!(err.to_lowercase().contains("too large"), "got: {err}");
+    }
+
+    // ── DEVICE_IMPORT_SAMPLE_CSV ──────────────────────────────────────────────
+
+    #[test]
+    fn sample_csv_all_rows_have_header_column_count() {
+        let mut lines = DEVICE_IMPORT_SAMPLE_CSV
+            .lines()
+            .filter(|l| !l.trim().is_empty());
+        let header = lines.next().expect("sample CSV must have a header row");
+        let expected_fields = header.split(',').count();
+        assert_eq!(expected_fields, 9, "header should have 9 columns");
+        for (i, line) in lines.enumerate() {
+            let actual = line.split(',').count();
+            assert_eq!(
+                actual,
+                expected_fields,
+                "row {} has {actual} fields, expected {expected_fields}: {line:?}",
+                i + 2,
+            );
+        }
+    }
+
+    #[test]
+    fn sample_csv_parses_without_errors_via_importer() {
+        use ris_import::{preview_csv_import, CsvImportContext, CsvRowAction};
+        let ctx = CsvImportContext::empty();
+        let preview = preview_csv_import(DEVICE_IMPORT_SAMPLE_CSV, &ctx);
+        assert!(
+            preview.issues.is_empty(),
+            "unexpected file-level issues: {:?}",
+            preview.issues
+        );
+        let data_rows = preview.summary.total_rows;
+        assert!(
+            data_rows >= 4,
+            "expected at least 4 data rows, got {data_rows}"
+        );
+        let error_rows = preview.summary.error_rows;
+        assert_eq!(
+            error_rows,
+            0,
+            "expected 0 error rows, got {error_rows}; rows: {:#?}",
+            preview
+                .rows
+                .iter()
+                .filter(|r| r.action == CsvRowAction::SkipDueToError)
+                .collect::<Vec<_>>()
+        );
     }
 }

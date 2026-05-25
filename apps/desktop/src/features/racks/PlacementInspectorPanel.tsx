@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { PlacementDto, RackSummaryDto } from "../../api/tauriClient";
-import { movePlacement, removePlacement } from "../../api/tauriClient";
+import { removePlacement } from "../../api/tauriClient";
 import { useBusy } from "../../lib/appBusy";
 import { Banner } from "../../components/ui/Banner";
 import { EmptyState } from "../../components/ui/EmptyState";
@@ -35,10 +35,6 @@ export function PlacementInspectorPanel({
 }: Props) {
   const { runBusy } = useBusy();
 
-  // Change side confirmation dialog
-  const [changeSideOpen, setChangeSideOpen] = useState(false);
-  const [changeSideError, setChangeSideError] = useState<string | null>(null);
-
   // Remove confirmation dialog
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
@@ -52,10 +48,6 @@ export function PlacementInspectorPanel({
       />
     );
   }
-
-  const currentSide = (side?.toLowerCase() ?? "front") as "front" | "rear";
-  const otherSide = currentSide === "front" ? "rear" : "front";
-  const otherSideLabel = otherSide === "front" ? "Front" : "Rear";
 
   const rows: [string, string | number | null | undefined, boolean?][] = [
     ["Code",            placement.code,                  true],
@@ -71,26 +63,6 @@ export function PlacementInspectorPanel({
     ["Note",            placement.note,                  false],
     ["Tags",            placement.tags.length > 0 ? placement.tags.join(", ") : null, false],
   ];
-
-  async function handleChangeSideConfirm() {
-    if (!placement) return;
-    setChangeSideError(null);
-    try {
-      await runBusy(`Moving to ${otherSideLabel}…`, () =>
-        movePlacement({
-          placement_id: placement.id,
-          new_rack_id: currentRack.id,
-          new_side: otherSide,
-          new_start_u: placement.start_u,
-          new_height_u: placement.height_u,
-        }),
-      );
-      setChangeSideOpen(false);
-      onMoveSuccess(placement.id);
-    } catch (e) {
-      setChangeSideError(String(e));
-    }
-  }
 
   async function executeRemove() {
     if (!placement) return;
@@ -123,26 +95,6 @@ export function PlacementInspectorPanel({
         onCancel={() => setRemoveConfirmOpen(false)}
       />
 
-      <ConfirmDialog
-        open={changeSideOpen}
-        title={`Move to ${otherSideLabel}?`}
-        body={
-          <p style={{ margin: 0, fontSize: 13 }}>
-            Move <strong>{placement.code}</strong> from <strong>{side}</strong> to{" "}
-            <strong>{otherSideLabel}</strong>? It will keep its current U position (U{placement.start_u}).
-            This is an in-memory change until Save is used.
-            {changeSideError && (
-              <span style={{ display: "block", marginTop: 8, color: "var(--st-err-tx)" }}>
-                {changeSideError}
-              </span>
-            )}
-          </p>
-        }
-        confirmLabel={`Move to ${otherSideLabel}`}
-        onConfirm={handleChangeSideConfirm}
-        onCancel={() => { setChangeSideOpen(false); setChangeSideError(null); }}
-      />
-
       <div className="stack-3">
         {/* Detail KV list */}
         <dl className="kv">
@@ -171,17 +123,6 @@ export function PlacementInspectorPanel({
               </button>
             </div>
           )}
-
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 6 }}>Change side</div>
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={() => { setChangeSideError(null); setChangeSideOpen(true); }}
-            >
-              Move to {otherSideLabel}…
-            </button>
-          </div>
 
           <div className="hr" style={{ margin: 0 }} />
 

@@ -38,6 +38,8 @@ vi.mock("../../api/tauriClient", () => ({
       front_placement_count: 0,
       rear_placement_count: 0,
       placement_count: 0,
+      front_used_u: 0,
+      rear_used_u: 0,
     },
     {
       id: "rack-2",
@@ -52,6 +54,8 @@ vi.mock("../../api/tauriClient", () => ({
       front_placement_count: 0,
       rear_placement_count: 0,
       placement_count: 0,
+      front_used_u: 0,
+      rear_used_u: 0,
     },
   ]),
   deleteRack: vi.fn(),
@@ -81,6 +85,45 @@ describe("RacksPanel — no location selected", () => {
     render(<RacksPanel {...BASE_PROPS} />);
     expect(screen.getByText("Select a location to manage its racks")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Add rack/i })).toBeNull();
+  });
+});
+
+describe("RacksPanel — utilization display", () => {
+  it("shows 0% utilization for a rack with no placements", async () => {
+    render(<RacksPanel {...BASE_PROPS} selectedLocation={LOCATION_A} />);
+    await waitFor(() => {
+      expect(screen.getByText("Rack A01")).toBeTruthy();
+    });
+    // Rack A01 has front_used_u=0, rear_used_u=0, height_u=42 → 0%
+    expect(screen.getByText("0%")).toBeTruthy();
+  });
+
+  it("computes utilization from max(front_used_u, rear_used_u) / height_u", async () => {
+    const { listRacks } = await import("../../api/tauriClient");
+    vi.mocked(listRacks).mockResolvedValueOnce([
+      {
+        id: "rack-util",
+        code: "rack-util",
+        name: "Util Rack",
+        location_id: "loc-1",
+        location_code: "warsaw-a",
+        height_u: 10,
+        row: null,
+        description: null,
+        tags: [],
+        front_placement_count: 1,
+        rear_placement_count: 0,
+        placement_count: 1,
+        // 2U placement on front, 0 on rear → max(2,0)/10 = 20%
+        front_used_u: 2,
+        rear_used_u: 0,
+      },
+    ]);
+    render(<RacksPanel {...BASE_PROPS} selectedLocation={LOCATION_A} />);
+    await waitFor(() => {
+      expect(screen.getByText("Util Rack")).toBeTruthy();
+    });
+    expect(screen.getByText("20%")).toBeTruthy();
   });
 });
 

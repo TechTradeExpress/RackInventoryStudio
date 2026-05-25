@@ -36,6 +36,8 @@ It defines follow-up PRs/milestones that must be completed before beta distribut
 
 ### Milestone A — Immediate beta blockers and small UI cleanup
 
+> **Status:** Addressed in branch `fix/beta-qa-milestone-a-blockers` (PR #71).
+
 **Scope**
 
 - Remove the duplicate internal app brand block from the top of the app shell.

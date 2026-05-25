@@ -34,6 +34,8 @@ const FIXTURE_RACK: RackSummaryDto = {
   front_placement_count: 0,
   rear_placement_count: 0,
   placement_count: 0,
+  front_used_u: 0,
+  rear_used_u: 0,
 };
 
 const DEVICE_1: DeviceDto = {

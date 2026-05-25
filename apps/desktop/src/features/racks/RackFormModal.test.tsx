@@ -26,6 +26,8 @@ const FIXTURE_RACK: RackSummaryDto = {
   front_placement_count: 3,
   rear_placement_count: 1,
   placement_count: 4,
+  front_used_u: 6,
+  rear_used_u: 2,
 };
 
 const BASE_PROPS = {

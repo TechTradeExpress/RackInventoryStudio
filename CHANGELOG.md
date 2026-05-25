@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — Beta QA follow-up Milestone A: immediate blockers and small UI cleanup
+
+### Fixed
+- Removed duplicate internal "Rack Inventory Studio" brand block from app header/chrome (native window title already shows it).
+- Removed unsafe "Change side" / "Move to Rear" / "Move to Front" placement actions — moving a placement between front/rear in one step skips overlap checks.
+- Fixed "Download sample CSV" to use Tauri save-file dialog + `write_text_to_file` command instead of broken browser Blob download (browser `<a download>` does not work in Tauri runtime).
+- Fixed Racks list Utilization calculation: now uses `max(front_used_U, rear_used_U) / height_u` (U-slot based) instead of the incorrect `placement_count / (height_u × 2)` (device-count based).
+
 ## Unreleased — beta QA findings action plan (branch `planning/beta-qa-findings-action-plan`)
 
 ### Added

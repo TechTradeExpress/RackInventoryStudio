@@ -16,3 +16,12 @@ export function open(options?: {
   // CSV file dialog — return null (cancelled) so tests use textarea instead
   return Promise.resolve(null);
 }
+
+export function save(_options?: {
+  title?: string;
+  defaultPath?: string;
+  filters?: unknown[];
+}): Promise<string | null> {
+  // Save dialog — return null (cancelled) in E2E; no file is written during automated tests
+  return Promise.resolve(null);
+}

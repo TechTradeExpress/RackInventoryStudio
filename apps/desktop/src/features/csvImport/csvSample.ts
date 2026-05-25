@@ -1,4 +1,4 @@
-export const SAMPLE_CSV_FILENAME = "rack-inventory-device-import-sample.csv";
+export const SAMPLE_CSV_FILENAME = "rack-inventory-studio-device-import-sample.csv";
 
 /**
  * Wraps a CSV field value in double-quotes if it contains a comma, double-quote,
@@ -30,14 +30,16 @@ const SAMPLE_ROWS: string[][] = [
 export const SAMPLE_CSV_CONTENT: string =
   SAMPLE_ROWS.map(csvRow).join("\n") + "\n";
 
-export function downloadSampleCsv(): void {
-  const blob = new Blob([SAMPLE_CSV_CONTENT], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = SAMPLE_CSV_FILENAME;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+import { saveSampleCsvViaDialog } from "../../api/tauriClient";
+
+/**
+ * Open a native save-file dialog and write the built-in sample CSV to the chosen path.
+ * Returns `"saved"` when written, `"cancelled"` if the user dismissed the dialog.
+ * Throws a string on write failure.
+ *
+ * Uses the Tauri save dialog + a narrow backend command that writes only the fixed
+ * sample CSV content. The browser Blob download API does not work in the Tauri runtime.
+ */
+export async function saveSampleCsv(): Promise<"saved" | "cancelled"> {
+  return saveSampleCsvViaDialog(SAMPLE_CSV_FILENAME);
 }
