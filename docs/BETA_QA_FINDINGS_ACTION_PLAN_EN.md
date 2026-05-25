@@ -96,6 +96,8 @@ It defines follow-up PRs/milestones that must be completed before beta distribut
 
 ### Milestone D — Complete drag-and-drop workflow
 
+> **Status:** Addressed in branch `ux/rack-diagram-dnd-workflow` (PR #74).
+
 **Scope**
 
 - Drag from palette to empty U slot (already partially implemented; must work reliably in real desktop use).

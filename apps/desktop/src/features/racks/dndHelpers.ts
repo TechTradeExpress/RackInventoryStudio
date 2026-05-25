@@ -47,7 +47,10 @@ export function getDragPayload(
   event: React.DragEvent | DragEvent,
 ): DndPayload | null {
   const raw = event.dataTransfer?.getData(DND_DATA_TYPE) ?? "";
-  return decodeDndPayload(raw);
+  const fromTransfer = raw ? decodeDndPayload(raw) : null;
+  // Fall back to the in-memory cache when dataTransfer.getData() is unavailable
+  // (e.g. programmatic DragEvents in Playwright E2E simulations).
+  return fromTransfer ?? _activeDragPayload;
 }
 
 // ── Active drag singleton ──────────────────────────────────────────────────────

@@ -224,6 +224,42 @@ describe("PlacePlacementModal — open", () => {
   });
 });
 
+describe("PlacePlacementModal — DnD drop prefill", () => {
+  it("device kind+id+startU prefilled via DnD → Place button enabled", () => {
+    render(
+      <PlacePlacementModal
+        {...BASE_PROPS}
+        initialTargetKind="device"
+        initialTargetId="dev-1"
+        startU={7}
+      />,
+    );
+    const startUInput = screen.getByTestId("start-u-input") as HTMLInputElement;
+    expect(startUInput.value).toBe("7");
+    const select = screen.getByTestId("device-select") as HTMLSelectElement;
+    expect(select.value).toBe("dev-1");
+    const btn = screen.getByTestId("place-btn") as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+  });
+
+  it("rack_object kind+id+startU prefilled via DnD → Place button enabled", () => {
+    render(
+      <PlacePlacementModal
+        {...BASE_PROPS}
+        initialTargetKind="rack_object"
+        initialTargetId="model-2"
+        startU={3}
+      />,
+    );
+    const startUInput = screen.getByTestId("start-u-input") as HTMLInputElement;
+    expect(startUInput.value).toBe("3");
+    const select = screen.getByTestId("rack-object-select") as HTMLSelectElement;
+    expect(select.value).toBe("model-2");
+    const btn = screen.getByTestId("place-btn") as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+  });
+});
+
 describe("PlacePlacementModal — initialTargetKind / initialTargetId preselection", () => {
   it("preselects a device when opened with initialTargetKind='device' and initialTargetId", () => {
     render(

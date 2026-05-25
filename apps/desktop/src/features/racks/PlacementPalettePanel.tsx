@@ -128,9 +128,9 @@ export function PlacementPalettePanel({
                 data-testid={`dnd-device-${d.id}`}
                 className="palette-card"
                 onDragStart={(e) => {
+                  setActiveDragPayload(payload);
                   e.dataTransfer.effectAllowed = "copy";
                   e.dataTransfer.setData(DND_DATA_TYPE, encodeDndPayload(payload));
-                  setActiveDragPayload(payload);
                 }}
                 onDragEnd={() => setActiveDragPayload(null)}
                 title={`Drag to place ${d.code}${modelHeight ? ` (${modelHeight}U)` : ""}`}
@@ -170,9 +170,9 @@ export function PlacementPalettePanel({
                 data-testid={`dnd-model-${m.id}`}
                 className="palette-card"
                 onDragStart={(e) => {
+                  setActiveDragPayload(payload);
                   e.dataTransfer.effectAllowed = "copy";
                   e.dataTransfer.setData(DND_DATA_TYPE, encodeDndPayload(payload));
-                  setActiveDragPayload(payload);
                 }}
                 onDragEnd={() => setActiveDragPayload(null)}
                 title={`Drag to place ${m.code} (${m.default_height_u}U)`}
