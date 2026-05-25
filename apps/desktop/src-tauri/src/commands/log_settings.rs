@@ -5,6 +5,13 @@ use crate::app_config::{
     get_active_logs_dir, get_default_logs_dir, load_app_config, save_app_config, AppConfig,
 };
 
+// `restart_required` is true when the persisted custom directory differs from
+// the directory used by the current running process. This can happen in two
+// ways:
+//  a) User just set a new custom dir — it will take effect on next restart.
+//  b) User just reset to default — the current process still logs to the
+//     custom dir; it will revert to default on next restart.
+
 /// DTO returned by all log-settings commands.
 #[derive(serde::Serialize, Debug)]
 pub struct LogSettingsDto {
@@ -30,7 +37,19 @@ fn build_dto(app: &AppHandle) -> LogSettingsDto {
     let cfg = load_app_config(&config_dir);
     let default_dir = get_default_logs_dir(app);
     let active_dir = get_active_logs_dir(app);
-    let restart_required = cfg.logs_directory.is_some();
+
+    // `restart_required` is true when the persisted setting would produce a
+    // different log directory than the one currently in use. This covers:
+    //  - A new custom directory was just saved; restart needed to activate it.
+    //  - A reset was just performed; restart needed to revert to default.
+    let persisted_dir = cfg
+        .logs_directory
+        .as_deref()
+        .map(std::path::Path::new)
+        .map(std::path::Path::to_path_buf);
+    let effective_after_restart = persisted_dir.clone().unwrap_or_else(|| default_dir.clone());
+    let restart_required = effective_after_restart != active_dir;
+
     LogSettingsDto {
         default_log_dir: default_dir.display().to_string(),
         active_log_dir: active_dir.display().to_string(),

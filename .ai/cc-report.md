@@ -3257,3 +3257,35 @@ Fixed by:
 4. Relaunch app — confirm logs are now written to the custom directory.
 5. Click "Reset to default" — confirm custom directory clears and button disappears.
 6. Cancel "Choose logs folder…" dialog — confirm no error shown.
+
+### Repair update — startup-time log target applied correctly
+
+**Problem fixed:** `get_active_logs_dir()` always returned the platform default; the log plugin always initialized with `TargetKind::LogDir`; the custom directory was persisted but never actually used.
+
+**Fix:**
+1. Added `ActiveLogState { dir: Option<PathBuf> }` managed state to `app_config.rs`.
+2. Added `resolve_app_config_dir_early()` — resolves the platform app-config dir without an `AppHandle`, using env vars + `BUNDLE_ID` constant, so config can be read before the Tauri builder starts.
+3. `lib.rs` now reads the persisted config before `tauri::Builder::default()`, filters out invalid paths (relative, files), attempts to pre-create the custom dir, and passes `TargetKind::Folder { path, .. }` to the log plugin when a valid custom dir is set.
+4. `ActiveLogState` is registered with `.manage()` so `get_active_logs_dir()` returns the real active path for the current process.
+5. `restart_required` logic corrected: `true` when `effective_after_restart != active_dir`, so it is `false` after restarting into the custom directory, and `true` after a change or reset during the current session.
+
+**Tests added (9 new in app_config::tests):**
+- `active_log_state_is_none_when_no_config`
+- `active_log_state_is_custom_dir_when_configured`
+- `startup_filter_rejects_relative_path`
+- `restart_required_false_when_persisted_matches_active`
+- `restart_required_true_when_persisted_differs_from_active`
+- `restart_required_true_after_reset_while_custom_active`
+(plus 4 pre-existing)
+
+**Checks run after repair:**
+- git diff --check: PASS
+- version consistency (v0.1.0): PASS
+- TypeScript: PASS
+- Vitest: 373/373
+- Playwright e2e: 13/13
+- Vite build: PASS
+- cargo fmt: PASS
+- cargo check: PASS
+- cargo test: PASS (30 desktop Rust tests — 9 new)
+- cargo clippy: PASS

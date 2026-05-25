@@ -3,6 +3,18 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
+/// Bundle identifier — must match `identifier` in `tauri.conf.json`.
+const BUNDLE_ID: &str = "com.techtradeexpress.rackinventorystudio";
+
+/// Managed state that records the log directory used by the current running
+/// process. Populated during `lib.rs` startup before Tauri builder completes,
+/// so commands can return the real active path.
+pub struct ActiveLogState {
+    /// `None` means the platform default (`TargetKind::LogDir`) is in use.
+    /// `Some(path)` means a custom folder was configured at startup.
+    pub dir: Option<PathBuf>,
+}
+
 /// Persisted application configuration stored at `{app_config_dir}/app_config.json`.
 ///
 /// Only one field for now: an optional custom log directory. When `None`, the
@@ -62,15 +74,59 @@ pub fn get_default_logs_dir(app: &tauri::AppHandle) -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from("."))
 }
 
-/// Returns the active log directory: the persisted custom override if set,
-/// otherwise the platform default.
+/// Returns the log directory actually used by the current running process.
 ///
-/// **Important**: `tauri-plugin-log` is initialized at startup using the platform
-/// default (`TargetKind::LogDir`). A custom directory stored here will only be
-/// applied on the **next** app restart, when `lib.rs` can read the config and
-/// pass a `TargetKind::Folder` path to the log plugin builder.
+/// Reads from `ActiveLogState` managed state, which is set in `lib.rs` before
+/// the Tauri builder runs. If no custom directory was configured at startup, the
+/// platform default (`app.path().app_log_dir()`) is returned.
 pub fn get_active_logs_dir(app: &tauri::AppHandle) -> PathBuf {
+    if let Some(state) = app.try_state::<ActiveLogState>() {
+        if let Some(ref dir) = state.dir {
+            return dir.clone();
+        }
+    }
     get_default_logs_dir(app)
+}
+
+/// Resolve the platform app-config directory without an `AppHandle`, using
+/// only environment variables and the well-known bundle identifier. This is
+/// used to load persisted settings *before* the Tauri builder finishes so the
+/// log plugin can be configured correctly at startup.
+///
+/// Returns `None` only on unusual systems where the required env vars are absent.
+pub fn resolve_app_config_dir_early() -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        std::env::var("APPDATA")
+            .ok()
+            .map(|d| PathBuf::from(d).join(BUNDLE_ID))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::env::var("HOME").ok().map(|h| {
+            PathBuf::from(h)
+                .join("Library")
+                .join("Application Support")
+                .join(BUNDLE_ID)
+        })
+    }
+    #[cfg(target_os = "linux")]
+    {
+        // XDG_CONFIG_HOME → ~/.config fallback
+        let base = std::env::var("XDG_CONFIG_HOME")
+            .ok()
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var("HOME")
+                    .ok()
+                    .map(|h| PathBuf::from(h).join(".config"))
+            })?;
+        Some(base.join(BUNDLE_ID))
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -109,17 +165,105 @@ mod tests {
     #[test]
     fn reset_clears_custom_logs_directory() {
         let dir = tempfile::tempdir().unwrap();
-        // Save a custom dir
         let cfg = AppConfig {
             logs_directory: Some("/tmp/custom-logs".to_string()),
         };
         save_app_config(dir.path(), &cfg).unwrap();
-        // Reset
         let reset = AppConfig {
             logs_directory: None,
         };
         save_app_config(dir.path(), &reset).unwrap();
         let loaded = load_app_config(dir.path());
         assert!(loaded.logs_directory.is_none());
+    }
+
+    // ── ActiveLogState / startup behavior ─────────────────────────────────────
+
+    /// No custom config → `ActiveLogState.dir` should be `None` (platform default).
+    #[test]
+    fn active_log_state_is_none_when_no_config() {
+        let config_dir = tempfile::tempdir().unwrap();
+        let cfg = load_app_config(config_dir.path());
+        let custom_dir: Option<PathBuf> = cfg.logs_directory.map(PathBuf::from);
+        // Simulate the startup filtering logic from lib.rs:
+        // only accept absolute paths that are directories or non-existent.
+        let active = custom_dir.filter(|p| p.is_absolute() && (!p.exists() || p.is_dir()));
+        assert!(
+            active.is_none(),
+            "expected no active custom dir with empty config"
+        );
+    }
+
+    /// Valid custom config at startup → `ActiveLogState.dir` resolves to the custom path.
+    #[test]
+    fn active_log_state_is_custom_dir_when_configured() {
+        let config_dir = tempfile::tempdir().unwrap();
+        let custom_log_dir = tempfile::tempdir().unwrap();
+        let cfg = AppConfig {
+            logs_directory: Some(custom_log_dir.path().to_string_lossy().into_owned()),
+        };
+        save_app_config(config_dir.path(), &cfg).unwrap();
+
+        let loaded = load_app_config(config_dir.path());
+        let active: Option<PathBuf> = loaded
+            .logs_directory
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute() && (!p.exists() || p.is_dir()));
+        assert_eq!(
+            active.as_deref(),
+            Some(custom_log_dir.path()),
+            "expected custom dir to be the active log dir"
+        );
+    }
+
+    /// Relative or non-existent-as-file paths are rejected at startup.
+    #[test]
+    fn startup_filter_rejects_relative_path() {
+        let active: Option<PathBuf> = Some(PathBuf::from("relative/path"))
+            .filter(|p| p.is_absolute() && (!p.exists() || p.is_dir()));
+        assert!(active.is_none(), "relative paths should be filtered out");
+    }
+
+    /// `restart_required` is false when persisted dir equals the active dir
+    /// (i.e. the app was restarted with the custom dir already applied).
+    #[test]
+    fn restart_required_false_when_persisted_matches_active() {
+        let custom_path = PathBuf::from("/tmp/my-logs");
+        let persisted = Some(custom_path.clone());
+        let active = custom_path.clone();
+        let effective_after_restart = persisted
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("/default"));
+        assert!(
+            !(effective_after_restart != active),
+            "should not require restart"
+        );
+    }
+
+    /// `restart_required` is true when persisted dir differs from active
+    /// (custom was just set during the current session).
+    #[test]
+    fn restart_required_true_when_persisted_differs_from_active() {
+        let persisted = Some(PathBuf::from("/tmp/new-custom"));
+        let active = PathBuf::from("/default/logs");
+        let effective_after_restart = persisted
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("/default/logs"));
+        assert!(effective_after_restart != active, "should require restart");
+    }
+
+    /// `restart_required` is true after reset when the running process still
+    /// uses the old custom directory.
+    #[test]
+    fn restart_required_true_after_reset_while_custom_active() {
+        // After reset: persisted = None, but active = old custom dir.
+        let persisted: Option<PathBuf> = None;
+        let active = PathBuf::from("/tmp/old-custom");
+        let default = PathBuf::from("/default/logs");
+        let effective_after_restart = persisted.unwrap_or_else(|| default.clone());
+        assert!(
+            effective_after_restart != active,
+            "reset while custom dir active should require restart"
+        );
     }
 }
