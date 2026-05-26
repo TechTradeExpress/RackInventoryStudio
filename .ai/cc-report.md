@@ -1,54 +1,34 @@
 ## Summary
 
-Milestone G — Complete rack placement editing workflow, including three QA correction rounds and a final cosmetic cleanup pass (QA round 4).
+Milestone H — Settings logs directory controls.
 
-**QA round 4 / cosmetic cleanup:**
-- **UX copy:** Warning strings in `rackOccupancy.ts` are now sentence-cased and use human-readable names. KV labels in `PlacementInspectorPanel.tsx` cleaned ("Target type", "Height", "Effective height"). "Height U override" → "Height override" field label and error message in both placement modals.
-- **Locations navigation:** Removed the "Manage racks" icon button from each location row. Location name is now a link-button (`aria-label="Open racks for {name}"`) that navigates to racks directly. Four functional areas added: (A) drag-to-move for already placed equipment in the rack diagram, (B) rack diagram multi-column grid layout, (C) "Create new rack object" from the Place equipment modal, (D) "Edit device" / "Edit rack object" from both the Place equipment modal and the placement inspector panel. (E) drag-to-unrack by dropping a placed item onto the Placeable equipment panel.
+The Settings panel now surfaces the full log directory story: active path, default path, custom override, and a clear restart-required notice. Users can open the logs folder in the OS file manager, choose a custom folder, or reset to the platform default — all from the "Diagnostics and logs" section.
 
-**QA round 1 corrections:** Replaced single "Front"-labelled column with multi-column grid (U · Name · Model · Code/SN).
-
-**QA round 2 corrections:**
-- Removed Type, U range, and St. columns.
-- U column shows full U range for multi-U placements (e.g. "U10–U12"); 1U shows "U10".
-- All cells center-aligned. Drag handle moved to Name cell only.
-- Drag-to-unrack implemented: drop placed item on Placeable equipment panel.
-
-**QA round 3 corrections (this session):**
-- **U column as separate rack-unit cells:** The U column is now a dedicated gutter rendered independently of placement content. Each rack unit always has its own 22 px cell showing `U{n}`. For multi-U placements the gutter shows individual cells (U11, U10, …) — no merged range text. The merged range string is used only in tooltips via `label.uRange`.
-- **Selection does not include U gutter:** Selection ring (`box-shadow: inset 0 0 0 2px #ffd700`) and occupied background apply only to the placed equipment content card. The U gutter cells are always neutral (`#f0f0f0` / `#888`).
-- **Placed item drag source is the content card:** The entire placed equipment card (Name / Model / Code SN / Asset tag) is the draggable element with `data-testid="placed-${side}-${p.id}"`. The U gutter cell has no `draggable` attribute and is excluded from the drag source.
-- **Custom drag image:** On drag-start, a palette-card–style element is created off-screen (`position: absolute; left: -9999px`), set via `e.dataTransfer.setDragImage()`, then removed via `requestAnimationFrame`. The image shows occupied blue background, ⠿ icon, label, and U count — analogous to placeable palette cards.
-- **Asset tag column added:** Fifth content column "Asset tag" shows `p.target_asset_tag ?? "—"`. Code/SN column no longer falls back to asset tag (it has its own column).
-- **Layout:** Two-section layout: fixed-width U gutter (60 px) on the left; flex content area (Name flex-2 / Model flex-1 / Code SN flex-1 / Asset tag flex-1) on the right. Both sections share the same scroll container. Occupied placement cards in the content area span `effectiveHeightU × 22 px` height; the U gutter always shows one 22 px cell per rack unit — heights align by construction.
+The core implementation (backend commands, config persistence, startup wiring, frontend UI, and basic tests) was introduced in earlier milestones and was already present on `master`. This PR formally closes Milestone H by:
+- Auditing all requirements against the existing implementation.
+- Adding the missing unit-test scenarios (error display, active path display, custom-dir restart warning).
+- Updating CHANGELOG.md and this report with the full feature description.
+- Confirming no rack placement logic was changed and no version/installer changes were made.
 
 ## Files changed
 
-- `apps/desktop/src/features/racks/rackOccupancy.ts` — warning strings now sentence-cased, human-readable (no raw field names).
-- `apps/desktop/src/features/racks/rackOccupancy.test.ts` — warning assertions updated to match new strings.
-- `apps/desktop/src/features/racks/PlacementInspectorPanel.tsx` — KV labels: "Target kind"→"Target type", "Height U"→"Height", "Eff. height U"→"Effective height".
-- `apps/desktop/src/features/racks/EditPlacementModal.tsx` — field label and error: "Height U override"→"Height override".
-- `apps/desktop/src/features/racks/EditPlacementModal.test.tsx` — assertions updated for new error string.
-- `apps/desktop/src/features/racks/PlacePlacementModal.tsx` — field label and error: "Height U override"→"Height override".
-- `apps/desktop/src/features/locations/LocationsPanel.tsx` — removed IcServer "Manage racks" button; location name is now a link-button calling `onManageRacks`.
-- `apps/desktop/src/features/locations/LocationsPanel.test.tsx` — tests updated: "Manage racks for" → "Open racks for".
-- `apps/desktop/e2e/smoke.spec.ts` — all 12 "Manage racks for Server Room A" replaced with "Open racks for Server Room A".
+### Frontend
+- `apps/desktop/src/features/settings/SettingsPanel.tsx` — "Diagnostics and logs" panel: shows active/default/custom log directory paths; "Open logs folder", "Choose logs folder…", and "Reset to default" buttons; success and error banners; restart-required notice.
+- `apps/desktop/src/api/tauriClient.ts` — `LogSettingsDto`, `getLogSettings`, `openLogsDirectory`, `setLogsDirectory`, `resetLogsDirectory`, `selectDirectory`.
 
-- `apps/desktop/src/features/racks/RackUnitDiagram.tsx` — complete rewrite: two-section layout (U gutter + content area); U gutter with `data-testid="u-cell-${side}-${startU}"` cells; content card with `data-testid="placed-${side}-${p.id}"` is the draggable element; selection only on content card; custom drag image; Asset tag column; Code/SN no longer falls back to asset tag.
-- `apps/desktop/src/features/racks/RackUnitDiagram.test.tsx` — 26 tests (updated): U gutter separate cells, no merged range, selection not on U gutter, content card is draggable, U gutter is not, Asset tag column, column header assertions.
-- `apps/desktop/e2e/smoke.spec.ts` — "diagram is primary surface" extended with Asset tag and U gutter cell assertions; drag-to-move extended with U gutter cell assertions; drag-to-unrack extended with U gutter cell assertion.
-- `apps/desktop/src/features/racks/dndTypes.ts` — `"placement"` kind (from QA round 2).
-- `apps/desktop/src/features/racks/dndHelpers.ts` — `canDropAt` with `excludePlacementId`; `getPayloadHeight` and `decodeDndPayload` for placement kind (from QA round 2).
-- `apps/desktop/src/features/racks/PlacementPalettePanel.tsx` — `onUnplacePlacement` prop; palette drop zone wrapper (from QA round 2).
-- `apps/desktop/src/features/racks/RackDetailPanel.tsx` — `handleUnplacePlacement` wired to `removePlacement` (from QA round 2).
-- `apps/desktop/src/features/racks/PlacePlacementModal.tsx` — "Create new rack object…", "Edit device…", "Edit rack object…" buttons.
-- `apps/desktop/src/features/racks/PlacementInspectorPanel.tsx` — "Edit device…" / "Edit rack object…" buttons.
-- `apps/desktop/src/features/deviceModels/DeviceModelFormModal.tsx` — `onSaved: (newModelId?: string) => void`.
-- `apps/desktop/e2e/mocks/tauri-core.ts` — `remove_placement` marks device `is_placed: false`; `move_placement` moves in-place; `place_rack_object` adds to dynamic detail; `add_device_model_cmd`, `update_device_cmd`, `update_device_model_cmd` handlers.
-- `apps/desktop/src/features/racks/dndHelpers.test.ts` — 7 new tests.
-- `apps/desktop/src/features/racks/PlacePlacementModal.test.tsx` — 9 new tests.
-- `apps/desktop/src/features/racks/PlacementPalettePanel.test.tsx` — 6 tests for palette drop zone.
-- `CHANGELOG.md` — updated Milestone G entry.
+### Backend (Rust / Tauri)
+- `apps/desktop/src-tauri/src/commands/log_settings.rs` — four Tauri commands: get/open/set/reset log directory; `LogSettingsDto`; `build_dto` computes `restart_required`.
+- `apps/desktop/src-tauri/src/app_config.rs` — `AppConfig` (JSON persistence), `ActiveLogState` (managed state), `load_app_config`, `save_app_config`, `get_default_logs_dir`, `get_active_logs_dir`, `resolve_startup_custom_log_dir`, `resolve_app_config_dir_early`.
+- `apps/desktop/src-tauri/src/lib.rs` — log plugin initialised at startup with custom dir (if valid) or `LogDir`; `ActiveLogState` managed; all four commands registered.
+
+### Tests
+- `apps/desktop/src/features/settings/SettingsPanel.test.tsx` — 11 unit tests (4 added this milestone: active path display, open-folder error banner, set-directory error banner, custom-dir restart warning row).
+- `apps/desktop/e2e/mocks/tauri-core.ts` — mock responses for all four log-settings commands.
+- `apps/desktop/e2e/smoke.spec.ts` — two E2E tests covering Settings accessibility and logs directory action buttons.
+
+### Documentation
+- `CHANGELOG.md` — Milestone H unreleased entry.
+- `.ai/cc-report.md` — this file.
 
 ## Tests
 
@@ -58,41 +38,31 @@ node scripts/check-version-consistency.mjs      → 0.1.0 consistent
 node --test scripts/*.test.mjs                  → 17 pass, 0 fail
 node scripts/check-repo-hygiene.mjs             → 8/8 checks passed
 tsc --noEmit (apps/desktop)                     → clean
-vitest run (apps/desktop)                       → 436 pass, 34 files
+vitest run (apps/desktop)                       → 440 pass, 34 files (+4 new tests)
 playwright test (apps/desktop)                  → 21 pass
 cargo fmt --all --check                         → clean
 cargo check --workspace                         → clean
-cargo test --workspace                          → clean
+cargo test --workspace                          → 34 pass
 cargo clippy --workspace -- -D warnings         → clean
-actionlint                                      → not available locally; CI workflow-lint job validates
 ```
-
-(All counts unchanged from QA round 3: cosmetic-only changes, no new test files, no test count changes.)
-
-Hygiene confirmations:
-- no `apps/desktop/package-lock.json` tracked
-- no `.ai/review-context-*.md` tracked (gitignored)
-- no `.github/workflows/windows-diagnostic-installer.yml`
-- no `.ai/windows-diagnostic-installer.md`
 
 ## Risks
 
-- **Custom drag image in test environments:** `e.dataTransfer.setDragImage()` and `document.body.appendChild()` are wrapped in `try/catch`. In jsdom, `setDragImage` is a no-op; the off-screen element is still appended to `document.body` but is removed via `requestAnimationFrame`. Tests that fire `dragstart` will hit this path; `requestAnimationFrame` in jsdom runs synchronously in some setups — verified that tests still pass.
-- **U gutter / content area height alignment:** Heights align by construction: an N-U placement contributes N×22 px to the U gutter (N individual 22 px cells) and N×22 px to the content area (one card with `height: N × 22`). No explicit CSS synchronization is needed.
-- **Drag-to-unrack relies on `_activeDragPayload` singleton** (same as prior rounds). Real browser uses `dataTransfer.getData()`; E2E tests use `setActiveDragPayload` via programmatic drag events.
-- **`isInRange` for occupied rows** checks only the top U of the placement — a pre-existing limitation for detecting partial overlaps of dragged payloads. Not changed.
+- **Log plugin restart requirement:** The custom log directory is applied only at process startup. The frontend communicates this clearly ("Changes will apply after restarting the app."), and `restart_required` in the DTO is `true` whenever the persisted setting differs from the running process's actual directory. Users are never misled about which directory is active.
+- **Startup fallback:** If a persisted custom log path becomes unusable between sessions (network drive gone, permissions revoked), `resolve_startup_custom_log_dir` returns `None` and the app silently falls back to the platform default. The saved config is left intact so the user can see and correct the path in Settings.
+- **Platform open-folder commands:** Uses `explorer.exe` / `open` / `xdg-open`. On unusual Linux desktops without XDG tooling, `xdg-open` may fail — this surfaces as a dismissible error banner.
 
 ## Not done
 
-- Cross-rack drag-to-move (not required per spec).
-- Drag-to-move across front/rear sides (out of scope per spec).
+- Changing the log directory without a restart (would require reinitialising `tauri-plugin-log` at runtime — not supported by the plugin API).
+- Log rotation or size limits (out of scope for this milestone).
 - Version bump (excluded per constraints).
 - Windows installer workflow changes (excluded per constraints).
-- Settings logs folder fix (Milestone H).
+- Rack placement logic was not changed.
 
 ## Suggested next step
 
-Push to `ux/rack-placement-editing-workflow` (PR #82) and run CI. Monitor the `workflow-lint` actionlint job.
+Push to `settings/log-directory-ux`, open PR to `master`, and run CI. Monitor the `workflow-lint` actionlint job.
 
 ## Final review-context handoff
 
