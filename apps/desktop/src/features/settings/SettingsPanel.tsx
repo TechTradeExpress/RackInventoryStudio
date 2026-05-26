@@ -66,7 +66,9 @@ export function SettingsPanel() {
       const updated = await resetLogsDirectory();
       setLogSettings(updated);
       setLogSuccess(
-        "Log directory reset to default. Changes will apply after restarting the app.",
+        updated.restart_required
+          ? "Log directory reset to default. Changes will apply after restarting the app."
+          : "Log directory reset to default.",
       );
     } catch (e: unknown) {
       setLogError(String(e));

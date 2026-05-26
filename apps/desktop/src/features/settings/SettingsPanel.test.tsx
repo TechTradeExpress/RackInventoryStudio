@@ -118,11 +118,17 @@ describe("SettingsPanel", () => {
     expect(mockSetLogsDirectory).toHaveBeenCalledWith("/tmp/custom-logs");
   });
 
-  it("Reset to default: calls resetLogsDirectory and hides Reset button", async () => {
-    // Set up initial state with custom dir so Reset button is visible
+  it("Reset to default: calls resetLogsDirectory, hides Reset button, shows restart notice when needed", async () => {
+    // Start with custom dir set and process still using old custom dir (restart_required: true)
     mockGetLogSettings.mockResolvedValue({
       ...DEFAULT_LOG_SETTINGS,
       custom_log_dir: "/tmp/custom-logs",
+      restart_required: true,
+    });
+    // reset returns restart_required: true (process still uses old dir until restart)
+    mockResetLogsDirectory.mockResolvedValue({
+      ...DEFAULT_LOG_SETTINGS,
+      custom_log_dir: null,
       restart_required: true,
     });
     render(<SettingsPanel />);
@@ -135,11 +141,91 @@ describe("SettingsPanel", () => {
     await waitFor(() => {
       expect(mockResetLogsDirectory).toHaveBeenCalledTimes(1);
     });
-    // After reset, custom_log_dir is null so Reset button should not be visible
+    // Reset button hidden (custom_log_dir is null)
     await waitFor(() => {
       expect(
         screen.queryByRole("button", { name: "Reset to default" }),
       ).toBeNull();
+    });
+    // Restart message shown because process still uses the old custom dir
+    expect(
+      screen.getByText(/Changes will apply after restarting the app/),
+    ).toBeTruthy();
+  });
+
+  it("Reset to default: shows no restart message when process was already on default", async () => {
+    // Custom dir was set in this session but never applied (process always used default)
+    mockGetLogSettings.mockResolvedValue({
+      ...DEFAULT_LOG_SETTINGS,
+      custom_log_dir: "/tmp/custom-logs",
+      restart_required: true,
+    });
+    // reset returns restart_required: false (active dir was already the default)
+    mockResetLogsDirectory.mockResolvedValue(DEFAULT_LOG_SETTINGS);
+    render(<SettingsPanel />);
+
+    const resetBtn = await screen.findByRole("button", {
+      name: "Reset to default",
+    });
+    fireEvent.click(resetBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Log directory reset to default/)).toBeTruthy();
+    });
+    // No restart notice
+    expect(
+      screen.queryByText(/Changes will apply after restarting/),
+    ).toBeNull();
+  });
+
+  it("shows active log directory path from loaded settings", async () => {
+    render(<SettingsPanel />);
+    await waitFor(() => {
+      // getAllByText because default and active share the same path in the fixture
+      expect(
+        screen.getAllByText("/home/user/.local/share/com.test/logs").length,
+      ).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  it("Open logs folder: backend error shows error banner", async () => {
+    mockOpenLogsDirectory.mockRejectedValue(new Error("Cannot open folder"));
+    render(<SettingsPanel />);
+    const btn = await screen.findByRole("button", { name: "Open logs folder" });
+    fireEvent.click(btn);
+    await waitFor(() => {
+      expect(screen.getByText(/Cannot open folder/)).toBeTruthy();
+    });
+  });
+
+  it("Choose logs folder: backend error shows error banner", async () => {
+    mockSelectDirectory.mockResolvedValue("/tmp/bad-path");
+    mockSetLogsDirectory.mockRejectedValue(new Error("Cannot create directory"));
+    render(<SettingsPanel />);
+    const btn = await screen.findByRole("button", {
+      name: "Choose logs folder…",
+    });
+    fireEvent.click(btn);
+    await waitFor(() => {
+      expect(screen.getByText(/Cannot create directory/)).toBeTruthy();
+    });
+    // No success banner
+    expect(
+      screen.queryByText(/Changes will apply after restarting/),
+    ).toBeNull();
+  });
+
+  it("shows custom directory row and restart warning when custom_log_dir is set", async () => {
+    mockGetLogSettings.mockResolvedValue({
+      ...DEFAULT_LOG_SETTINGS,
+      custom_log_dir: "/tmp/custom-logs",
+      restart_required: true,
+    });
+    render(<SettingsPanel />);
+    await waitFor(() => {
+      expect(screen.getByText(/Custom directory/)).toBeTruthy();
+      expect(screen.getByText("/tmp/custom-logs")).toBeTruthy();
+      expect(screen.getByText(/Changes will apply after restart/)).toBeTruthy();
     });
   });
 });

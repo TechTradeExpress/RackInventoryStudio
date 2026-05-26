@@ -148,28 +148,24 @@ export function LocationsPanel({
                   <tr
                     key={loc.id}
                     data-loc-id={loc.id}
-                    className={loc.id === highlightedLocationId ? "tbl-selected" : undefined}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Open racks for ${loc.name}`}
+                    className={`tbl-clickable${loc.id === highlightedLocationId ? " tbl-selected" : ""}`}
+                    onClick={() => onManageRacks?.(loc)}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter" && e.key !== " ") return;
+                      const target = e.target as HTMLElement;
+                      if (
+                        target !== e.currentTarget &&
+                        target.closest('button, a, input, select, textarea, [role="button"]')
+                      ) return;
+                      e.preventDefault();
+                      onManageRacks?.(loc);
+                    }}
                   >
                     <td className="tbl-mono"><strong>{loc.code}</strong></td>
-                    <td>
-                      <button
-                        type="button"
-                        aria-label={`Open racks for ${loc.name}`}
-                        onClick={() => onManageRacks?.(loc)}
-                        style={{
-                          background: "none",
-                          border: "none",
-                          padding: 0,
-                          color: "var(--accent)",
-                          cursor: "pointer",
-                          font: "inherit",
-                          textDecoration: "underline",
-                          textUnderlineOffset: 2,
-                        }}
-                      >
-                        {loc.name}
-                      </button>
-                    </td>
+                    <td>{loc.name}</td>
                     <td>{loc.address ?? <span style={{ color: "var(--tx-4)" }}>—</span>}</td>
                     <td style={{ color: "var(--tx-3)" }}>{loc.description ?? "—"}</td>
                     <td className="tbl-num tbl-mono">{loc.rack_count}</td>
@@ -178,7 +174,10 @@ export function LocationsPanel({
                         {loc.tags.map((t) => <span key={t} className="tag">{t}</span>)}
                       </div>
                     </td>
-                    <td className="tbl-actions">
+                    <td
+                      className="tbl-actions"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <button
                         className="btn btn-ghost btn-sm btn-icon"
                         title="Edit"

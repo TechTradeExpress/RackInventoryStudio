@@ -3,7 +3,7 @@ mod commands;
 mod diagnostics;
 mod dto;
 
-use app_config::{resolve_app_config_dir_early, resolve_startup_custom_log_dir, ActiveLogState};
+use app_config::{resolve_app_config_dir_early, resolve_startup_log_dir, ActiveLogState};
 use commands::{
     add_device_cmd, add_device_model_cmd, add_git_remote, add_location_cmd, add_rack_cmd,
     close_repository, commit_repository_changes, create_repository_cmd, delete_device_cmd,
@@ -17,34 +17,26 @@ use commands::{
     update_location_cmd, update_rack_cmd, validate_current_repository,
     write_device_import_sample_csv, AppState,
 };
-use std::path::PathBuf;
 use std::sync::Mutex;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Read persisted config before the Tauri builder starts so the log plugin
-    // can be initialised with the correct target directory.
-    // Falls back to None (platform default) if the custom dir is unusable.
+    // Resolve a validated, writable log directory before the Tauri builder starts.
+    // `resolve_startup_log_dir` cascades through: custom persisted dir → platform
+    // default → temp dir fallback. Each candidate is checked for writability via a
+    // probe write, so we never hand an unwritable path to tauri-plugin-log (which
+    // would panic with PluginInitialization("log", "Permission denied")).
     let early_config_dir = resolve_app_config_dir_early();
-    let persisted_custom_log_dir: Option<PathBuf> =
-        resolve_startup_custom_log_dir(early_config_dir.as_deref());
+    let log_dir = resolve_startup_log_dir(early_config_dir.as_deref());
 
-    // Build the log file target: custom folder or platform LogDir.
-    let log_file_target = match &persisted_custom_log_dir {
-        Some(dir) => tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Folder {
-            path: dir.clone(),
-            file_name: None,
-        }),
-        None => {
-            tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: None })
-        }
-    };
+    let log_file_target = tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Folder {
+        path: log_dir.clone(),
+        file_name: None,
+    });
 
     // Managed state records which directory this process actually logs to,
     // so `get_active_logs_dir` and the DTO can return the true active path.
-    let active_log_state = ActiveLogState {
-        dir: persisted_custom_log_dir,
-    };
+    let active_log_state = ActiveLogState { dir: log_dir };
 
     tauri::Builder::default()
         .plugin(

@@ -1,5 +1,36 @@
 # Changelog
 
+## Unreleased — Settings logs directory fixes (QA round, repair)
+
+### Fixed
+- `apps/desktop/src-tauri/src/app_config.rs` / `lib.rs`: startup log dir is now validated for writability via a probe-file write before being passed to `tauri-plugin-log`. Introduced `is_dir_writable`, `prepare_log_dir_candidate`, and `resolve_startup_log_dir` helpers that cascade through custom dir → platform default → OS temp dir. Passing an unwritable directory to the plugin previously caused a panic (`PluginInitialization("log", "Permission denied (os error 13)")`).
+- `apps/desktop/src/features/locations/LocationsPanel.tsx`: pressing Enter/Space while focused on an action button (Edit, Delete) no longer bubbles to the row `onKeyDown` and triggers navigation. The guard checks `e.target !== e.currentTarget` before testing whether the event originated from an interactive child element.
+
+## Unreleased — Settings logs directory fixes (QA round)
+
+### Fixed
+- `apps/desktop/src-tauri/src/commands/log_settings.rs`: "Open logs folder" on WSL now detects the WSL environment (via `WSL_DISTRO_NAME` env var and `/proc/sys/kernel/osrelease`), converts the Linux path with `wslpath -w`, and opens it with `explorer.exe`. Native Linux without `xdg-open` returns a friendly message with the folder path rather than exposing the raw OS error.
+- `apps/desktop/src-tauri/src/app_config.rs` / `lib.rs`: startup log plugin now always uses a `Folder` target with the path pre-created (instead of `LogDir`), eliminating a potential startup panic on WSL where lazy `LogDir` path resolution could fail.
+- `apps/desktop/src/features/settings/SettingsPanel.tsx`: "Reset to default" success banner now shows "Changes will apply after restarting the app." only when `restart_required` is true. When the active directory was already the default (e.g. user set a custom dir in this session but never restarted), the banner simply says "Log directory reset to default."
+- `apps/desktop/src/features/locations/LocationsPanel.tsx`: the entire location row is now a clickable navigation target (matching the rack-row pattern). The `<tr>` has `role="button"`, `aria-label="Open racks for {name}"`, and keyboard support (Enter/Space). Action buttons (Edit, Delete) stop event propagation so they do not trigger row navigation.
+
+## Unreleased — Settings logs directory controls (Milestone H)
+
+### Added
+- `apps/desktop/src/features/settings/SettingsPanel.tsx`: "Diagnostics and logs" panel shows the active and default log directory paths; buttons to open the folder in the OS file manager, choose a custom folder, and reset to the platform default.
+- `apps/desktop/src-tauri/src/commands/log_settings.rs`: four Tauri commands — `get_log_settings`, `open_logs_directory`, `set_logs_directory`, `reset_logs_directory` — handling path resolution, directory creation, config persistence, and restart-required signalling.
+- `apps/desktop/src-tauri/src/app_config.rs`: `AppConfig` struct with JSON persistence (`app_config.json`); `ActiveLogState` managed state recording the log directory used by the current process; startup resolution of custom log dir before Tauri builder runs.
+- `apps/desktop/src/api/tauriClient.ts`: `LogSettingsDto` interface and wrappers for all four log-settings commands, plus `selectDirectory()` for the native folder picker.
+- `apps/desktop/e2e/mocks/tauri-core.ts`: E2E mock responses for all four log-settings commands.
+
+### Changed
+- `apps/desktop/lib.rs`: log plugin is initialised at startup with the custom dir (if persisted and valid) via `tauri_plugin_log::TargetKind::Folder`; falls back to `LogDir` if the custom path is unusable.
+
+### Tests
+- `apps/desktop/src/features/settings/SettingsPanel.test.tsx`: 11 unit tests covering section rendering, button presence, open logs folder, choose folder cancel/success/error, set-directory error, reset to default, active path display, and restart warning.
+- `apps/desktop/src-tauri/src/app_config.rs`: 13 Rust unit tests covering load/save round-trip, malformed JSON fallback, reset, startup dir resolution (valid dir, missing dir created, relative path rejected, file path rejected, uncreatable path), and `restart_required` logic.
+- `apps/desktop/e2e/smoke.spec.ts`: two E2E tests — settings accessible without a repo; logs directory actions visible and active path displayed.
+
 ## Unreleased — UX copy and navigation cleanup
 
 ### Changed
