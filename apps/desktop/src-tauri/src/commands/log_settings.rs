@@ -129,12 +129,49 @@ pub fn reset_logs_directory(app: AppHandle) -> Result<LogSettingsDto, String> {
     Ok(build_dto(&app))
 }
 
+/// Detect whether the process is running inside WSL (Windows Subsystem for Linux).
+///
+/// Checks `WSL_DISTRO_NAME` env var (set by WSL 2) and the kernel release
+/// string in `/proc/sys/kernel/osrelease` (contains "microsoft" or "WSL").
+#[cfg(target_os = "linux")]
+fn is_wsl() -> bool {
+    if std::env::var("WSL_DISTRO_NAME").is_ok() {
+        return true;
+    }
+    std::fs::read_to_string("/proc/sys/kernel/osrelease")
+        .map(|s| {
+            let lower = s.to_lowercase();
+            lower.contains("microsoft") || lower.contains("wsl")
+        })
+        .unwrap_or(false)
+}
+
+/// Convert a Linux path to a Windows-style path using `wslpath -w`.
+///
+/// Returns `None` if `wslpath` is not available or conversion fails.
+#[cfg(target_os = "linux")]
+fn wslpath_to_windows(path: &Path) -> Option<String> {
+    let out = std::process::Command::new("wslpath")
+        .arg("-w")
+        .arg(path)
+        .output()
+        .ok()?;
+    if out.status.success() {
+        String::from_utf8(out.stdout)
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    } else {
+        None
+    }
+}
+
 /// Open a directory in the OS file manager.
 ///
-/// Uses platform-specific commands:
 /// - Windows: `explorer.exe <dir>`
 /// - macOS:   `open <dir>`
-/// - Linux:   `xdg-open <dir>`
+/// - Linux/WSL: `explorer.exe <wslpath -w dir>` (falls back to friendly error)
+/// - Linux (native): `xdg-open <dir>` (friendly error if not available)
 fn open_path_in_file_manager(dir: &Path) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
@@ -152,14 +189,55 @@ fn open_path_in_file_manager(dir: &Path) -> Result<(), String> {
     }
     #[cfg(target_os = "linux")]
     {
-        std::process::Command::new("xdg-open")
-            .arg(dir)
-            .spawn()
-            .map_err(|e| format!("Failed to open file manager: {e}"))?;
+        if is_wsl() {
+            // On WSL, convert the Linux path to a Windows path and open via explorer.exe.
+            match wslpath_to_windows(dir) {
+                Some(win_path) => {
+                    std::process::Command::new("explorer.exe")
+                        .arg(&win_path)
+                        .spawn()
+                        .map_err(|_| {
+                            format!(
+                                "Could not open the logs folder in Windows Explorer. \
+                             The folder is at: {}",
+                                dir.display()
+                            )
+                        })?;
+                }
+                None => {
+                    return Err(format!(
+                        "Could not open the logs folder automatically (path conversion failed). \
+                         The folder is at: {}",
+                        dir.display()
+                    ));
+                }
+            }
+        } else {
+            // Native Linux: use xdg-open; give a helpful message if it is not installed.
+            std::process::Command::new("xdg-open")
+                .arg(dir)
+                .spawn()
+                .map_err(|e| {
+                    if e.kind() == std::io::ErrorKind::NotFound {
+                        format!(
+                            "Could not open the logs folder automatically \
+                             (xdg-open is not installed). \
+                             The folder is at: {}",
+                            dir.display()
+                        )
+                    } else {
+                        format!("Failed to open file manager: {e}")
+                    }
+                })?;
+        }
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
-        return Err("Opening file manager is not supported on this platform".to_string());
+        return Err(format!(
+            "Opening the file manager is not supported on this platform. \
+             The folder is at: {}",
+            dir.display()
+        ));
     }
     Ok(())
 }

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — Settings logs directory fixes (QA round)
+
+### Fixed
+- `apps/desktop/src-tauri/src/commands/log_settings.rs`: "Open logs folder" on WSL now detects the WSL environment (via `WSL_DISTRO_NAME` env var and `/proc/sys/kernel/osrelease`), converts the Linux path with `wslpath -w`, and opens it with `explorer.exe`. Native Linux without `xdg-open` returns a friendly message with the folder path rather than exposing the raw OS error.
+- `apps/desktop/src-tauri/src/app_config.rs` / `lib.rs`: startup log plugin now always uses a `Folder` target with the path pre-created (instead of `LogDir`), eliminating a potential startup panic on WSL where lazy `LogDir` path resolution could fail.
+- `apps/desktop/src/features/settings/SettingsPanel.tsx`: "Reset to default" success banner now shows "Changes will apply after restarting the app." only when `restart_required` is true. When the active directory was already the default (e.g. user set a custom dir in this session but never restarted), the banner simply says "Log directory reset to default."
+- `apps/desktop/src/features/locations/LocationsPanel.tsx`: the entire location row is now a clickable navigation target (matching the rack-row pattern). The `<tr>` has `role="button"`, `aria-label="Open racks for {name}"`, and keyboard support (Enter/Space). Action buttons (Edit, Delete) stop event propagation so they do not trigger row navigation.
+
 ## Unreleased — Settings logs directory controls (Milestone H)
 
 ### Added

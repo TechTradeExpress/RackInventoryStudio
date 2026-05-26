@@ -118,11 +118,17 @@ describe("SettingsPanel", () => {
     expect(mockSetLogsDirectory).toHaveBeenCalledWith("/tmp/custom-logs");
   });
 
-  it("Reset to default: calls resetLogsDirectory and hides Reset button", async () => {
-    // Set up initial state with custom dir so Reset button is visible
+  it("Reset to default: calls resetLogsDirectory, hides Reset button, shows restart notice when needed", async () => {
+    // Start with custom dir set and process still using old custom dir (restart_required: true)
     mockGetLogSettings.mockResolvedValue({
       ...DEFAULT_LOG_SETTINGS,
       custom_log_dir: "/tmp/custom-logs",
+      restart_required: true,
+    });
+    // reset returns restart_required: true (process still uses old dir until restart)
+    mockResetLogsDirectory.mockResolvedValue({
+      ...DEFAULT_LOG_SETTINGS,
+      custom_log_dir: null,
       restart_required: true,
     });
     render(<SettingsPanel />);
@@ -135,12 +141,41 @@ describe("SettingsPanel", () => {
     await waitFor(() => {
       expect(mockResetLogsDirectory).toHaveBeenCalledTimes(1);
     });
-    // After reset, custom_log_dir is null so Reset button should not be visible
+    // Reset button hidden (custom_log_dir is null)
     await waitFor(() => {
       expect(
         screen.queryByRole("button", { name: "Reset to default" }),
       ).toBeNull();
     });
+    // Restart message shown because process still uses the old custom dir
+    expect(
+      screen.getByText(/Changes will apply after restarting the app/),
+    ).toBeTruthy();
+  });
+
+  it("Reset to default: shows no restart message when process was already on default", async () => {
+    // Custom dir was set in this session but never applied (process always used default)
+    mockGetLogSettings.mockResolvedValue({
+      ...DEFAULT_LOG_SETTINGS,
+      custom_log_dir: "/tmp/custom-logs",
+      restart_required: true,
+    });
+    // reset returns restart_required: false (active dir was already the default)
+    mockResetLogsDirectory.mockResolvedValue(DEFAULT_LOG_SETTINGS);
+    render(<SettingsPanel />);
+
+    const resetBtn = await screen.findByRole("button", {
+      name: "Reset to default",
+    });
+    fireEvent.click(resetBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Log directory reset to default/)).toBeTruthy();
+    });
+    // No restart notice
+    expect(
+      screen.queryByText(/Changes will apply after restarting/),
+    ).toBeNull();
   });
 
   it("shows active log directory path from loaded settings", async () => {

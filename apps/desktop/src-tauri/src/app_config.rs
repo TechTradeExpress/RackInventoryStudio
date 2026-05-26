@@ -127,6 +127,51 @@ pub fn resolve_startup_custom_log_dir(config_dir: Option<&Path>) -> Option<PathB
     }
 }
 
+/// Resolve the platform default log directory without an `AppHandle`.
+///
+/// Mirrors `tauri-plugin-log`'s `LogDir` target resolution so we can
+/// pre-create the directory and use a `Folder` target at startup, avoiding
+/// potential panics if the log plugin's lazy path resolution fails (observed
+/// on WSL when `LogDir` is used directly).
+///
+/// Returns `None` only on unusual systems where the required env vars are absent.
+pub fn resolve_default_log_dir_early() -> Option<PathBuf> {
+    #[cfg(target_os = "linux")]
+    {
+        // $XDG_DATA_HOME/{bundle_id}/logs  or  ~/.local/share/{bundle_id}/logs
+        let base = std::env::var("XDG_DATA_HOME")
+            .ok()
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var("HOME")
+                    .ok()
+                    .map(|h| PathBuf::from(h).join(".local").join("share"))
+            })?;
+        Some(base.join(BUNDLE_ID).join("logs"))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // %LOCALAPPDATA%\{bundle_id}\logs
+        std::env::var("LOCALAPPDATA")
+            .ok()
+            .map(|d| PathBuf::from(d).join(BUNDLE_ID).join("logs"))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // ~/Library/Logs/{bundle_id}
+        std::env::var("HOME").ok().map(|h| {
+            PathBuf::from(h)
+                .join("Library")
+                .join("Logs")
+                .join(BUNDLE_ID)
+        })
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+    {
+        None
+    }
+}
+
 /// Resolve the platform app-config directory without an `AppHandle`, using
 /// only environment variables and the well-known bundle identifier. This is
 /// used to load persisted settings *before* the Tauri builder finishes so the

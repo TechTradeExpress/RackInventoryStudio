@@ -43,8 +43,8 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("LocationsPanel — location name navigates to racks", () => {
-  it("renders an Open racks button for each location (the name is clickable)", async () => {
+describe("LocationsPanel — location row navigates to racks", () => {
+  it("renders a clickable row for each location with accessible name", async () => {
     render(<LocationsPanel {...BASE_PROPS} />);
     expect(
       await screen.findByRole("button", { name: "Open racks for Warsaw A" }),
@@ -54,11 +54,11 @@ describe("LocationsPanel — location name navigates to racks", () => {
     ).toBeTruthy();
   });
 
-  it("clicking the location name calls onManageRacks with the correct location", async () => {
+  it("clicking the location row calls onManageRacks with the correct location", async () => {
     const onManageRacks = vi.fn();
     render(<LocationsPanel {...BASE_PROPS} onManageRacks={onManageRacks} />);
-    const btn = await screen.findByRole("button", { name: "Open racks for Warsaw A" });
-    fireEvent.click(btn);
+    const row = await screen.findByRole("button", { name: "Open racks for Warsaw A" });
+    fireEvent.click(row);
     await waitFor(() => {
       expect(onManageRacks).toHaveBeenCalledOnce();
       const arg: LocationDto = onManageRacks.mock.calls[0][0];
@@ -67,14 +67,25 @@ describe("LocationsPanel — location name navigates to racks", () => {
     });
   });
 
-  it("clicking the name for the second location calls onManageRacks with the correct location", async () => {
+  it("clicking the row for the second location calls onManageRacks with the correct location", async () => {
     const onManageRacks = vi.fn();
     render(<LocationsPanel {...BASE_PROPS} onManageRacks={onManageRacks} />);
-    const btn = await screen.findByRole("button", { name: "Open racks for Berlin B" });
-    fireEvent.click(btn);
+    const row = await screen.findByRole("button", { name: "Open racks for Berlin B" });
+    fireEvent.click(row);
     await waitFor(() => {
       expect(onManageRacks).toHaveBeenCalledOnce();
       expect(onManageRacks.mock.calls[0][0].id).toBe("loc-2");
+    });
+  });
+
+  it("clicking the actions cell does not trigger row navigation", async () => {
+    const onManageRacks = vi.fn();
+    render(<LocationsPanel {...BASE_PROPS} onManageRacks={onManageRacks} />);
+    await screen.findByRole("button", { name: "Open racks for Warsaw A" });
+    // Click the Edit action button — should NOT trigger row navigation
+    fireEvent.click(screen.getByRole("button", { name: "Edit Warsaw A" }));
+    await waitFor(() => {
+      expect(onManageRacks).not.toHaveBeenCalled();
     });
   });
 });
