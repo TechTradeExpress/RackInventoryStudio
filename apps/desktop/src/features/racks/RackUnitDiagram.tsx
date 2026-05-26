@@ -6,275 +6,74 @@ import {
   getActiveDragPayload,
   getPayloadHeight,
   canDropAt,
+  encodeDndPayload,
+  setActiveDragPayload,
 } from "./dndHelpers";
-import type { DndPayload } from "./dndTypes";
-import { derivePlacementLabel, type PlacementLabelData } from "./rackPlacementLabel";
+import { DND_DATA_TYPE, type DndPayload } from "./dndTypes";
+import { derivePlacementLabel } from "./rackPlacementLabel";
 
 interface Props {
   heightU: number;
   front: PlacementDto[];
   rear: PlacementDto[];
-  /** Which side to display in the diagram. */
   side: "front" | "rear";
   selectedPlacementId: string | null;
   onSelectPlacement: (placement: PlacementDto | null) => void;
   onDropAtCell?: (side: "front" | "rear", startU: number, payload: DndPayload) => void;
-  /** Called when an empty slot is clicked. Opens the place modal. */
   onEmptySlotClick?: (startU: number) => void;
+  onMovePlacement?: (side: "front" | "rear", placementId: string, newStartU: number) => void;
 }
 
-const ROW_H = 22; // px per U row
-const LABEL_W = 36; // px for U-number column
-const SIDE_W = 200; // px per side column
+// ── Layout constants ───────────────────────────────────────────────────────────
+const ROW_H = 22;    // px per rack unit row
+const COL_U = 60;    // px — U gutter width
+const HEADER_H = 28; // px — header row height
 
 const colors = {
   empty: "#f8f8f8",
   emptyBorder: "#e0e0e0",
-  occupied: "#4a90d9",
-  occupiedTop: "#357abd",
+  occupiedBg: "#357abd",
   occupiedText: "#fff",
   occupiedSelected: "#1d4d8a",
   incomplete: "#e8a020",
   incompleteText: "#fff",
   incompleteSelected: "#9b6010",
   selectionRing: "#ffd700",
-  labelBg: "#f0f0f0",
+  gutterBg: "#f0f0f0",
+  gutterText: "#888",
   headerBg: "#e8e8e8",
 };
 
-function cellStyle(
-  state: UnitState,
-  isTopOfStack: boolean,
-  isSelected: boolean,
-): CSSProperties {
-  if (state.kind === "empty") {
-    return {
-      background: colors.empty,
-      borderBottom: `1px solid ${colors.emptyBorder}`,
-      height: ROW_H,
-      cursor: "default",
-    };
-  }
-
-  const base: CSSProperties = {
-    height: ROW_H,
-    fontSize: "0.72rem",
-    overflow: "hidden",
-    whiteSpace: "nowrap" as const,
-    textOverflow: "ellipsis",
-    padding: "0 4px",
-    cursor: "pointer",
-  };
-
-  if (isSelected) {
-    base.boxShadow = `inset 0 0 0 2px ${colors.selectionRing}`;
-  }
-
-  if (state.kind === "incomplete") {
-    return {
-      ...base,
-      background: isSelected ? colors.incompleteSelected : colors.incomplete,
-      borderBottom: "1px solid rgba(0,0,0,0.15)",
-      color: colors.incompleteText,
-    };
-  }
-
-  // occupied
+function contentCell(flex?: number, minWidth?: number, extra?: CSSProperties): CSSProperties {
   return {
-    ...base,
-    background: isSelected
-      ? colors.occupiedSelected
-      : isTopOfStack
-        ? colors.occupiedTop
-        : colors.occupied,
-    borderBottom: isTopOfStack
-      ? "2px solid rgba(0,0,0,0.2)"
-      : "1px solid rgba(0,0,0,0.1)",
-    color: colors.occupiedText,
+    flex,
+    minWidth,
+    overflow: "hidden",
+    whiteSpace: "nowrap",
+    textOverflow: "ellipsis",
+    paddingTop: 0,
+    paddingBottom: 0,
+    paddingLeft: 4,
+    paddingRight: 4,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRight: "1px solid rgba(0,0,0,0.08)",
+    fontSize: "0.72rem",
+    ...extra,
   };
 }
 
-function PlacementLabelContent({ label }: { label: PlacementLabelData }) {
-  const { primary, model, serial, asset, effectiveHeightU } = label;
-
-  if (effectiveHeightU === 1) {
-    return (
-      <span className="rpl-primary rpl-compact">
-        {primary}{model ? ` · ${model}` : ""}
-      </span>
-    );
-  }
-
-  if (effectiveHeightU === 2) {
-    const secondary = [model, serial, asset].filter(Boolean).join(" · ");
-    return (
-      <>
-        <span className="rpl-primary">{primary}</span>
-        {secondary && <span className="rpl-secondary">{secondary}</span>}
-      </>
-    );
-  }
-
-  // 3U+: full stacked label
-  return (
-    <>
-      <span className="rpl-primary">{primary}</span>
-      {model  && <span className="rpl-secondary">{model}</span>}
-      {serial && <span className="rpl-meta">{serial}</span>}
-      {asset  && <span className="rpl-meta">{asset}</span>}
-    </>
-  );
-}
-
-interface SideColumnProps {
-  side: "front" | "rear";
-  units: UnitState[];
-  selectedPlacementId: string | null;
-  onSelectPlacement: (placement: PlacementDto | null) => void;
-  onDropAtCell?: (side: "front" | "rear", startU: number, payload: DndPayload) => void;
-  onEmptySlotClick?: (startU: number) => void;
-}
-
-function SideColumn({
-  side,
-  units,
-  selectedPlacementId,
-  onSelectPlacement,
-  onDropAtCell,
-  onEmptySlotClick,
-}: SideColumnProps) {
-  const [hovered, setHovered] = useState<{
-    startU: number;
-    heightU: number;
-    valid: boolean;
-  } | null>(null);
-
-  function isInRange(cellU: number): boolean {
-    if (!hovered) return false;
-    return cellU >= hovered.startU && cellU <= hovered.startU + hovered.heightU - 1;
-  }
-
-  // units[0] = U1 (bottom), render top-to-bottom so reverse
-  const rows = [...units].reverse();
-  return (
-    <div style={{ width: SIDE_W, flexShrink: 0 }}>
-      {rows.map((state, idx) => {
-        const startU = units.length - idx;
-
-        // Non-top continuation cells of a multi-U occupied block: invisible spacer.
-        // Height stays 0 so the top cell can span the full block height without
-        // pushing subsequent rows out of alignment with the U-number gutter.
-        if (state.kind === "occupied" && !state.isTop) {
-          return <div key={idx} style={{ height: 0, overflow: "hidden" }} />;
-        }
-
-        const isSelected =
-          state.kind !== "empty" &&
-          state.placement.id === selectedPlacementId;
-
-        const baseStyle = cellStyle(
-          state,
-          state.kind === "occupied" && state.isTop,
-          isSelected,
-        );
-
-        // ── Occupied top cell: span full U height, centered label ──────────────
-        if (state.kind === "occupied" && state.isTop) {
-          const label = derivePlacementLabel(state.placement);
-          const hoveredInvalid = isInRange(startU) && hovered !== null && !hovered.valid;
-          const style: CSSProperties = {
-            ...baseStyle,
-            height: label.effectiveHeightU * ROW_H,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            textAlign: "center",
-            gap: 1,
-            overflow: "hidden",
-            ...(hoveredInvalid ? { outline: "2px dashed #cc4444" } : {}),
-          };
-          return (
-            <div
-              key={idx}
-              data-testid={`placed-${side}-${state.placement.id}`}
-              title={label.title}
-              style={style}
-              onClick={() => onSelectPlacement(state.placement)}
-            >
-              <PlacementLabelContent label={label} />
-            </div>
-          );
-        }
-
-        // ── Incomplete cell ─────────────────────────────────────────────────────
-        if (state.kind === "incomplete") {
-          const p = state.placement;
-          const hoveredInvalid = isInRange(startU) && hovered !== null && !hovered.valid;
-          return (
-            <div
-              key={idx}
-              title={p.code}
-              style={hoveredInvalid ? { ...baseStyle, outline: "2px dashed #cc4444" } : baseStyle}
-              onClick={() => onSelectPlacement(p)}
-            >
-              {`⚠ ${p.target_code ?? p.code}`}
-            </div>
-          );
-        }
-
-        // ── Empty cell: drop target ─────────────────────────────────────────────
-        // Highlight the full height-U preview range when dragging over this cell.
-        let style: CSSProperties = {
-          ...baseStyle,
-          cursor: onEmptySlotClick ? "pointer" : "default",
-        };
-        if (isInRange(startU)) {
-          style = hovered!.valid
-            ? { ...style, background: "#c8e6c0", outline: "2px dashed #4a7c3f" }
-            : { ...style, background: "#fde8e8", outline: "2px dashed #cc4444" };
-        }
-
-        return (
-          <div
-            key={idx}
-            data-testid={`drop-cell-${side}-${startU}`}
-            style={style}
-            onClick={() => {
-              onSelectPlacement(null);
-              if (onEmptySlotClick) onEmptySlotClick(startU);
-            }}
-            onDragOver={
-              onDropAtCell
-                ? (e) => {
-                    e.preventDefault();
-                    const payload = getActiveDragPayload();
-                    if (!payload) return;
-                    const payloadH = getPayloadHeight(payload);
-                    const valid = canDropAt(units, startU, payloadH);
-                    e.dataTransfer.dropEffect = valid ? "copy" : "none";
-                    setHovered({ startU, heightU: payloadH, valid });
-                  }
-                : undefined
-            }
-            onDragLeave={onDropAtCell ? () => setHovered(null) : undefined}
-            onDrop={
-              onDropAtCell
-                ? (e) => {
-                    e.preventDefault();
-                    setHovered(null);
-                    const payload = getDragPayload(e);
-                    if (!payload) return;
-                    if (!canDropAt(units, startU, getPayloadHeight(payload))) return;
-                    onDropAtCell(side, startU, payload);
-                  }
-                : undefined
-            }
-          />
-        );
-      })}
-    </div>
-  );
+function headerCell(flex?: number, minWidth?: number): CSSProperties {
+  return {
+    ...contentCell(flex, minWidth),
+    fontWeight: "bold",
+    fontSize: "0.70rem",
+    color: "#444",
+    borderBottom: "1px solid #ccc",
+    paddingTop: 4,
+    paddingBottom: 4,
+  };
 }
 
 export function RackUnitDiagram({
@@ -286,19 +85,34 @@ export function RackUnitDiagram({
   onSelectPlacement,
   onDropAtCell,
   onEmptySlotClick,
+  onMovePlacement,
 }: Props) {
   const activePlacements = side === "front" ? front : rear;
   const activeOcc = buildOccupancy(heightU, activePlacements);
+  const allWarnings = activeOcc.warnings.map((w) => ({
+    side: side === "front" ? "Front" : "Rear",
+    ...w,
+  }));
 
-  const allWarnings = activeOcc.warnings.map((w) => ({ side: side === "front" ? "Front" : "Rear", ...w }));
+  const [hovered, setHovered] = useState<{
+    startU: number;
+    heightU: number;
+    valid: boolean;
+  } | null>(null);
 
-  // U-number column: rendered top-to-bottom, so heightU down to 1
-  const uNumbers = Array.from({ length: heightU }, (_, i) => heightU - i);
+  function isInRange(cellU: number): boolean {
+    if (!hovered) return false;
+    return cellU >= hovered.startU && cellU <= hovered.startU + hovered.heightU - 1;
+  }
+
+  // units[0] = U1 (bottom of rack); render top-to-bottom → reverse
+  const rows = [...activeOcc.units].reverse();
+  const sideLabel = side === "front" ? "Front" : "Rear";
 
   return (
     <div>
       <p style={{ margin: "0 0 0.4rem", fontSize: "0.78rem", color: "#666" }}>
-        U{heightU} at top · U1 at bottom · Click an empty slot to place · Click an occupied block to inspect · Drag from palette
+        {sideLabel} side · U{heightU} at top · U1 at bottom · Click empty row to place · Click to inspect · Drag from palette · Drag card to move · Drag to palette to unplace
       </p>
 
       {/* Legend */}
@@ -312,76 +126,32 @@ export function RackUnitDiagram({
           fontSize: "0.75rem",
         }}
       >
-        <span>
-          <span
-            style={{
-              display: "inline-block",
-              width: 12,
-              height: 12,
-              background: colors.empty,
-              border: `1px solid ${colors.emptyBorder}`,
-              verticalAlign: "middle",
-              marginRight: 3,
-            }}
-          />
-          Available — click to place
-        </span>
-        <span>
-          <span
-            style={{
-              display: "inline-block",
-              width: 12,
-              height: 12,
-              background: colors.occupied,
-              verticalAlign: "middle",
-              marginRight: 3,
-            }}
-          />
-          Occupied — click to inspect
-        </span>
-        <span>
-          <span
-            style={{
-              display: "inline-block",
-              width: 12,
-              height: 12,
-              background: colors.occupiedSelected,
-              boxShadow: `inset 0 0 0 2px ${colors.selectionRing}`,
-              verticalAlign: "middle",
-              marginRight: 3,
-            }}
-          />
-          Selected
-        </span>
-        <span>
-          <span
-            style={{
-              display: "inline-block",
-              width: 12,
-              height: 12,
-              background: colors.incomplete,
-              verticalAlign: "middle",
-              marginRight: 3,
-            }}
-          />
-          Warning / incomplete
-        </span>
-        <span>
-          <span
-            style={{
-              display: "inline-block",
-              width: 12,
-              height: 12,
-              background: "#c8e6c0",
-              border: "1px dashed #4a7c3f",
-              verticalAlign: "middle",
-              marginRight: 3,
-            }}
-          />
-          Drop target (drag)
-        </span>
+        {[
+          [colors.empty, colors.emptyBorder, "solid", "Available — click to place"],
+          ["#357abd", undefined, undefined, "Occupied — click to inspect"],
+          [colors.occupiedSelected, undefined, undefined, "Selected"],
+          [colors.incomplete, undefined, undefined, "Warning / incomplete"],
+          ["#c8e6c0", "#4a7c3f", "dashed", "Drop target (drag)"],
+        ].map(([bg, bdrColor, bdrStyle, label]) => (
+          <span key={label as string}>
+            <span
+              style={{
+                display: "inline-block",
+                width: 12,
+                height: 12,
+                background: bg as string,
+                ...(bdrColor ? { border: `1px ${bdrStyle} ${bdrColor}` } : {}),
+                ...(label === "Selected" ? { boxShadow: `inset 0 0 0 2px ${colors.selectionRing}` } : {}),
+                verticalAlign: "middle",
+                marginRight: 3,
+              }}
+            />
+            {label}
+          </span>
+        ))}
       </div>
 
+      {/* Rack grid */}
       <div
         style={{
           maxHeight: "60vh",
@@ -389,77 +159,288 @@ export function RackUnitDiagram({
           overflowX: "auto",
           border: "1px solid #ddd",
           borderRadius: 3,
+          width: "100%",
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            fontFamily: "monospace",
-            fontSize: "0.78rem",
-          }}
-        >
-          {/* U-number gutter */}
-          <div
-            style={{ width: LABEL_W, flexShrink: 0, background: colors.labelBg }}
-          >
+        <div style={{ display: "flex", minWidth: "fit-content" }}>
+
+          {/* ── U gutter: independent rack-unit numbering ──────────────────
+              One cell per rack unit. Always neutral — never carries selection
+              styling, drag handles, or placement metadata.               */}
+          <div style={{ width: COL_U, flexShrink: 0 }}>
+            {/* U header */}
             <div
               style={{
-                height: ROW_H,
+                height: HEADER_H,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                fontWeight: "bold",
                 background: colors.headerBg,
+                borderRight: "1px solid #bbb",
                 borderBottom: "1px solid #ccc",
+                fontWeight: "bold",
+                fontSize: "0.70rem",
+                color: "#444",
+                position: "sticky",
+                top: 0,
+                zIndex: 2,
               }}
             >
               U
             </div>
-            {uNumbers.map((u) => (
-              <div
-                key={u}
-                style={{
-                  height: ROW_H,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  borderBottom: "1px solid #e0e0e0",
-                  color: "#555",
-                  fontSize: "0.72rem",
-                }}
-              >
-                {u}
-              </div>
-            ))}
+
+            {/* One cell per rack unit — always rendered regardless of occupancy */}
+            {rows.map((_: UnitState, idx: number) => {
+              const startU = heightU - idx;
+              return (
+                <div
+                  key={idx}
+                  data-testid={`u-cell-${side}-${startU}`}
+                  style={{
+                    height: ROW_H,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: colors.gutterBg,
+                    color: colors.gutterText,
+                    borderRight: "1px solid #ccc",
+                    borderBottom: `1px solid ${colors.emptyBorder}`,
+                    fontSize: "0.68rem",
+                    fontWeight: 500,
+                    userSelect: "none",
+                    paddingTop: 0,
+                    paddingBottom: 0,
+                    paddingLeft: 4,
+                    paddingRight: 4,
+                  }}
+                >
+                  {`U${startU}`}
+                </div>
+              );
+            })}
           </div>
 
-          {/* Active side column */}
-          <div style={{ flexShrink: 0 }}>
+          {/* ── Content area: placement cards ──────────────────────────────
+              Multi-U placement cards span their full height here.
+              Selection ring and drag handle live on the card, not the gutter. */}
+          <div style={{ flex: 1, minWidth: 340 }}>
+            {/* Content header */}
             <div
+              aria-label="Rack diagram header"
               style={{
-                height: ROW_H,
-                width: SIDE_W,
                 display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontWeight: "bold",
+                height: HEADER_H,
                 background: colors.headerBg,
-                borderBottom: "1px solid #ccc",
-                borderLeft: "2px solid #bbb",
+                position: "sticky",
+                top: 0,
+                zIndex: 1,
               }}
             >
-              {side === "front" ? "Front" : "Rear"}
+              <div style={headerCell(2, 100)} data-testid="diagram-col-name">Name</div>
+              <div style={headerCell(1, 80)} data-testid="diagram-col-model">Model</div>
+              <div style={headerCell(1, 80)} data-testid="diagram-col-code">Code / SN</div>
+              <div style={{ ...headerCell(1, 80), borderRight: "none" }} data-testid="diagram-col-asset">Asset tag</div>
             </div>
-            <div style={{ borderLeft: "2px solid #bbb" }}>
-              <SideColumn
-                side={side}
-                units={activeOcc.units}
-                selectedPlacementId={selectedPlacementId}
-                onSelectPlacement={onSelectPlacement}
-                onDropAtCell={onDropAtCell}
-                onEmptySlotClick={onEmptySlotClick}
-              />
-            </div>
+
+            {/* Content rows */}
+            {rows.map((state: UnitState, idx: number) => {
+              const startU = heightU - idx;
+
+              // Non-top continuation cell: the card above already spans this height
+              if (state.kind === "occupied" && !state.isTop) {
+                return null;
+              }
+
+              // ── Occupied placement card ────────────────────────────────
+              if (state.kind === "occupied" && state.isTop) {
+                const p = state.placement;
+                const label = derivePlacementLabel(p);
+                const cardH = label.effectiveHeightU * ROW_H;
+                const isSelected = p.id === selectedPlacementId;
+                const hoveredInvalid = isInRange(startU) && hovered !== null && !hovered.valid;
+
+                const modelLabel = label.model ?? "—";
+                const codeLabel =
+                  p.target_code ??
+                  (p.target_serial ? `SN: ${p.target_serial}` : null) ??
+                  "—";
+                const assetLabel = p.target_asset_tag ?? "—";
+
+                return (
+                  <div
+                    key={idx}
+                    data-testid={`placed-${side}-${p.id}`}
+                    title={label.title}
+                    style={{
+                      display: "flex",
+                      height: cardH,
+                      background: isSelected ? colors.occupiedSelected : colors.occupiedBg,
+                      color: colors.occupiedText,
+                      borderBottom: "2px solid rgba(0,0,0,0.18)",
+                      cursor: onMovePlacement ? "grab" : "pointer",
+                      userSelect: "none",
+                      ...(isSelected ? { boxShadow: `inset 0 0 0 2px ${colors.selectionRing}` } : {}),
+                      ...(hoveredInvalid ? { outline: "2px dashed #cc4444" } : {}),
+                    }}
+                    draggable={!!onMovePlacement}
+                    onClick={() => onSelectPlacement(p)}
+                    onDragStart={
+                      onMovePlacement
+                        ? (e) => {
+                            const payload: DndPayload = {
+                              kind: "placement",
+                              placementId: p.id,
+                              startU,
+                              heightU: label.effectiveHeightU,
+                              side,
+                            };
+                            e.dataTransfer.setData(DND_DATA_TYPE, encodeDndPayload(payload));
+                            e.dataTransfer.effectAllowed = "move";
+                            setActiveDragPayload(payload);
+                            // Custom drag image — palette-card shape with placed/occupied color.
+                            // Created off-screen and cleaned up after the browser captures it.
+                            try {
+                              const img = document.createElement("div");
+                              img.style.cssText =
+                                "position:absolute;left:-9999px;top:0;" +
+                                "display:flex;align-items:center;gap:6px;" +
+                                "padding:4px 10px;background:#357abd;color:#fff;" +
+                                "border-radius:4px;font-size:12px;font-weight:600;" +
+                                "white-space:nowrap;overflow:hidden;";
+                              img.textContent = `⠿ ${label.primary} · ${label.effectiveHeightU}U`;
+                              document.body.appendChild(img);
+                              e.dataTransfer.setDragImage(img, 14, 14);
+                              requestAnimationFrame(() => { img.parentNode?.removeChild(img); });
+                            } catch { /* no-op in test environments */ }
+                          }
+                        : undefined
+                    }
+                    onDragEnd={onMovePlacement ? () => setActiveDragPayload(null) : undefined}
+                  >
+                    <div style={contentCell(2, 100, { height: "100%", fontWeight: 600 })}>
+                      <span
+                        style={{
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          maxWidth: "100%",
+                          textAlign: "center",
+                        }}
+                      >
+                        {label.primary}
+                      </span>
+                    </div>
+                    <div style={contentCell(1, 80, { height: "100%" })}>{modelLabel}</div>
+                    <div style={contentCell(1, 80, { height: "100%" })}>{codeLabel}</div>
+                    <div style={contentCell(1, 80, { height: "100%", borderRight: "none" })}>{assetLabel}</div>
+                  </div>
+                );
+              }
+
+              // ── Incomplete row ─────────────────────────────────────────
+              if (state.kind === "incomplete") {
+                const p = state.placement;
+                const isSelected = p.id === selectedPlacementId;
+                const codeLabel = p.target_code ?? p.code;
+                return (
+                  <div
+                    key={idx}
+                    title={p.code}
+                    style={{
+                      display: "flex",
+                      height: ROW_H,
+                      background: isSelected ? colors.incompleteSelected : colors.incomplete,
+                      color: colors.incompleteText,
+                      borderBottom: "1px solid rgba(0,0,0,0.15)",
+                      cursor: "pointer",
+                      userSelect: "none",
+                      ...(isSelected ? { boxShadow: `inset 0 0 0 2px ${colors.selectionRing}` } : {}),
+                    }}
+                    onClick={() => onSelectPlacement(p)}
+                  >
+                    <div style={{ ...contentCell(2, 100), justifyContent: "flex-start" }}>
+                      ⚠ {p.target_name ?? codeLabel}
+                    </div>
+                    <div style={contentCell(1, 80)}>—</div>
+                    <div style={contentCell(1, 80)}>{codeLabel}</div>
+                    <div style={contentCell(1, 80, { borderRight: "none" })}>—</div>
+                  </div>
+                );
+              }
+
+              // ── Empty row: drop target ─────────────────────────────────
+              let dropStyle: CSSProperties = {
+                display: "flex",
+                height: ROW_H,
+                background: colors.empty,
+                borderBottom: `1px solid ${colors.emptyBorder}`,
+                cursor: onEmptySlotClick ? "pointer" : "default",
+                userSelect: "none",
+              };
+              if (isInRange(startU)) {
+                dropStyle = hovered!.valid
+                  ? { ...dropStyle, background: "#c8e6c0", outline: "2px dashed #4a7c3f" }
+                  : { ...dropStyle, background: "#fde8e8", outline: "2px dashed #cc4444" };
+              }
+
+              return (
+                <div
+                  key={idx}
+                  data-testid={`drop-cell-${side}-${startU}`}
+                  style={dropStyle}
+                  onClick={() => {
+                    onSelectPlacement(null);
+                    if (onEmptySlotClick) onEmptySlotClick(startU);
+                  }}
+                  onDragOver={
+                    onDropAtCell || onMovePlacement
+                      ? (e) => {
+                          e.preventDefault();
+                          const payload = getActiveDragPayload();
+                          if (!payload) return;
+                          const payloadH = getPayloadHeight(payload);
+                          const excludeId =
+                            payload.kind === "placement" ? payload.placementId : undefined;
+                          const valid = canDropAt(activeOcc.units, startU, payloadH, excludeId);
+                          e.dataTransfer.dropEffect =
+                            payload.kind === "placement"
+                              ? valid ? "move" : "none"
+                              : valid ? "copy" : "none";
+                          setHovered({ startU, heightU: payloadH, valid });
+                        }
+                      : undefined
+                  }
+                  onDragLeave={
+                    onDropAtCell || onMovePlacement ? () => setHovered(null) : undefined
+                  }
+                  onDrop={
+                    onDropAtCell || onMovePlacement
+                      ? (e) => {
+                          e.preventDefault();
+                          setHovered(null);
+                          const payload = getDragPayload(e) ?? getActiveDragPayload();
+                          if (!payload) return;
+                          const payloadH = getPayloadHeight(payload);
+                          const excludeId =
+                            payload.kind === "placement" ? payload.placementId : undefined;
+                          if (!canDropAt(activeOcc.units, startU, payloadH, excludeId)) return;
+                          if (payload.kind === "placement") {
+                            if (startU === payload.startU && side === payload.side) return;
+                            onMovePlacement?.(side, payload.placementId, startU);
+                          } else {
+                            onDropAtCell?.(side, startU, payload);
+                          }
+                        }
+                      : undefined
+                  }
+                >
+                  <div style={contentCell(2, 100)} />
+                  <div style={contentCell(1, 80)} />
+                  <div style={contentCell(1, 80)} />
+                  <div style={contentCell(1, 80, { borderRight: "none" })} />
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -468,7 +449,10 @@ export function RackUnitDiagram({
         <div
           style={{
             marginTop: "0.5rem",
-            padding: "0.4rem 0.6rem",
+            paddingTop: 6,
+            paddingBottom: 6,
+            paddingLeft: 10,
+            paddingRight: 10,
             background: "#fffbe6",
             border: "1px solid #e6c000",
             borderRadius: 3,
@@ -476,7 +460,7 @@ export function RackUnitDiagram({
           }}
         >
           <strong>Diagram warnings:</strong>
-          <ul style={{ margin: "0.25rem 0 0 1rem", padding: 0 }}>
+          <ul style={{ margin: "0.25rem 0 0 1rem", paddingLeft: 0 }}>
             {allWarnings.map((w, i) => (
               <li key={i}>
                 [{w.side}] {w.placementCode}: {w.reason}

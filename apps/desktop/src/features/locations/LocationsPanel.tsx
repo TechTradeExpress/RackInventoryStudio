@@ -9,7 +9,7 @@ import { Panel } from "../../components/ui/Panel";
 import { Banner } from "../../components/ui/Banner";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
-import { IcPlus, IcEdit, IcTrash, IcMapPin, IcServer } from "../../components/ui/Icon";
+import { IcPlus, IcEdit, IcTrash, IcMapPin } from "../../components/ui/Icon";
 import { LocationFormModal } from "./LocationFormModal";
 
 interface Props {
@@ -151,7 +151,25 @@ export function LocationsPanel({
                     className={loc.id === highlightedLocationId ? "tbl-selected" : undefined}
                   >
                     <td className="tbl-mono"><strong>{loc.code}</strong></td>
-                    <td>{loc.name}</td>
+                    <td>
+                      <button
+                        type="button"
+                        aria-label={`Open racks for ${loc.name}`}
+                        onClick={() => onManageRacks?.(loc)}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          padding: 0,
+                          color: "var(--accent)",
+                          cursor: "pointer",
+                          font: "inherit",
+                          textDecoration: "underline",
+                          textUnderlineOffset: 2,
+                        }}
+                      >
+                        {loc.name}
+                      </button>
+                    </td>
                     <td>{loc.address ?? <span style={{ color: "var(--tx-4)" }}>—</span>}</td>
                     <td style={{ color: "var(--tx-3)" }}>{loc.description ?? "—"}</td>
                     <td className="tbl-num tbl-mono">{loc.rack_count}</td>
@@ -161,14 +179,6 @@ export function LocationsPanel({
                       </div>
                     </td>
                     <td className="tbl-actions">
-                      <button
-                        className="btn btn-ghost btn-sm btn-icon"
-                        title="Manage racks"
-                        aria-label={`Manage racks for ${loc.name}`}
-                        onClick={() => onManageRacks?.(loc)}
-                      >
-                        <IcServer size={12} />
-                      </button>
                       <button
                         className="btn btn-ghost btn-sm btn-icon"
                         title="Edit"

@@ -75,7 +75,8 @@ export interface DeviceModelFormModalProps {
   /** null → add mode, DeviceModelDto → edit mode */
   editing: DeviceModelDto | null;
   onClose: () => void;
-  onSaved: () => void;
+  /** In add mode, called with the new model's ID. In edit mode, called with no argument. */
+  onSaved: (newModelId?: string) => void;
 }
 
 export function DeviceModelFormModal({
@@ -161,8 +162,9 @@ export function DeviceModelFormModal({
           description: form.description.trim() || undefined,
           tags: parseTags(form.tags),
         });
+        onSaved();
       } else {
-        await addDeviceModel({
+        const newModelId = await addDeviceModel({
           device_type: form.deviceType,
           code: codeVal,
           name: form.name.trim(),
@@ -172,8 +174,8 @@ export function DeviceModelFormModal({
           description: form.description.trim() || undefined,
           tags: parseTags(form.tags),
         });
+        onSaved(newModelId);
       }
-      onSaved();
       onClose();
     } catch (e) {
       setError(String(e));

@@ -6,6 +6,8 @@ const CSV_SNIPPET = "code,device_type,status,name\nCSV-DEV-001,server,planned,CS
 const FIXTURE_RACK_OBJECT_ID = "dddddddd-dddd-dddd-dddd-dddddddddddd";
 const FIXTURE_UNPLACED_DEVICE_ID = "22222222-2222-2222-2222-222222222222";
 const FIXTURE_NEW_PLACEMENT_ID = "11111111-1111-1111-1111-111111111111";
+const FIXTURE_PLACEMENT_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+const FIXTURE_NEW_MODEL_ID = "44444444-4444-4444-4444-444444444444";
 
 // ── Console error guard ────────────────────────────────────────────────────────
 // Override the page fixture so every test automatically fails on unexpected
@@ -167,7 +169,7 @@ test("rack detail: diagram is primary surface — no placement table", async ({ 
 
   // Navigate to Racks via Locations → Manage racks
   await page.getByRole("button", { name: "Locations", exact: true }).click();
-  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
+  await page.getByRole("button", { name: "Open racks for Server Room A" }).click();
   await expect(page.getByRole("heading", { name: "Racks" })).toBeVisible();
   await expect(page.getByText("rack-main")).toBeVisible();
 
@@ -191,8 +193,24 @@ test("rack detail: diagram is primary surface — no placement table", async ({ 
   // Table headers that only existed in the placement table must not appear
   await expect(page.getByRole("columnheader", { name: "Asset tag", exact: true })).not.toBeVisible();
 
+  // Diagram grid column headers (multi-column layout)
+  await expect(page.getByTestId("diagram-col-name")).toBeVisible();
+  await expect(page.getByTestId("diagram-col-name")).toHaveText("Name");
+  await expect(page.getByTestId("diagram-col-asset")).toBeVisible();
+  await expect(page.getByTestId("diagram-col-asset")).toHaveText("Asset tag");
+  // "Front" must not appear as a data-column header inside the diagram header row
+  const headerEl = page.locator('[aria-label="Rack diagram header"]');
+  await expect(headerEl).toBeVisible();
+  // Placed item shows its name/label in the diagram
+  await expect(page.getByTestId("placed-front-ffffffff-ffff-ffff-ffff-ffffffffffff")).toContainText("srv-01");
+  // U gutter shows separate rack-unit cells (fixture placement is at U10)
+  await expect(page.getByTestId("u-cell-front-10")).toBeVisible();
+  await expect(page.getByTestId("u-cell-front-10")).toContainText("U10");
+  // U gutter cell is a distinct element from the placement card
+  await expect(page.getByTestId("u-cell-front-10")).not.toHaveAttribute("data-testid", "placed-front-ffffffff-ffff-ffff-ffff-ffffffffffff");
+
   // Palette sidebar is still visible (right column — Placeable equipment)
-  await expect(page.getByText(/Placeable equipment/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Placeable equipment", exact: true })).toBeVisible();
 
   // Inspector empty state is shown when nothing is selected
   await expect(page.getByRole("heading", { name: "Placement inspector", exact: true })).toBeVisible();
@@ -210,7 +228,7 @@ test("rack detail: click empty slot opens place modal", async ({ page }) => {
 
   // Navigate to rack detail
   await page.getByRole("button", { name: "Locations", exact: true }).click();
-  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
+  await page.getByRole("button", { name: "Open racks for Server Room A" }).click();
   await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
   await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
 
@@ -235,7 +253,7 @@ test("rack detail: click occupied block selects it and shows inspector", async (
 
   // Navigate to rack detail
   await page.getByRole("button", { name: "Locations", exact: true }).click();
-  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
+  await page.getByRole("button", { name: "Open racks for Server Room A" }).click();
   await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
   await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
 
@@ -339,7 +357,7 @@ test("rack detail: drag from palette rack_object to empty slot opens modal prefi
 
   // Navigate to rack detail
   await page.getByRole("button", { name: "Locations", exact: true }).click();
-  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
+  await page.getByRole("button", { name: "Open racks for Server Room A" }).click();
   await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
   await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
 
@@ -382,7 +400,7 @@ test("rack detail: drag from palette device to empty slot opens modal prefilled"
 
   // Navigate to rack detail
   await page.getByRole("button", { name: "Locations", exact: true }).click();
-  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
+  await page.getByRole("button", { name: "Open racks for Server Room A" }).click();
   await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
   await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
 
@@ -435,7 +453,7 @@ test("mock state isolation: dynamic mutations reset on page reload", async ({ pa
   await page.goto("/");
   await openFixtureRepo(page);
   await page.getByRole("button", { name: "Locations", exact: true }).click();
-  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
+  await page.getByRole("button", { name: "Open racks for Server Room A" }).click();
   await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
   await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Rack diagram", exact: true })).toBeVisible();
@@ -462,7 +480,7 @@ test("mock state isolation: dynamic mutations reset on page reload", async ({ pa
   await page.goto("/");
   await openFixtureRepo(page);
   await page.getByRole("button", { name: "Locations", exact: true }).click();
-  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
+  await page.getByRole("button", { name: "Open racks for Server Room A" }).click();
   await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
   await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
 
@@ -479,7 +497,7 @@ test("rack detail: create device from place modal and place it", async ({ page }
 
   // Navigate to rack detail
   await page.getByRole("button", { name: "Locations", exact: true }).click();
-  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
+  await page.getByRole("button", { name: "Open racks for Server Room A" }).click();
   await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
   await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Rack diagram", exact: true })).toBeVisible();
@@ -528,4 +546,156 @@ test("rack detail: create device from place modal and place it", async ({ page }
   // Confirm no placement table/list exists (rack diagram is the only surface)
   await expect(page.getByRole("heading", { name: "Front placements", exact: true })).not.toBeVisible();
   await expect(page.getByRole("columnheader", { name: "Asset tag", exact: true })).not.toBeVisible();
+});
+
+test("rack detail: drag placed block to new U position moves it", async ({ page }) => {
+  await page.goto("/");
+  await openFixtureRepo(page);
+
+  // Navigate to rack detail
+  await page.getByRole("button", { name: "Locations", exact: true }).click();
+  await page.getByRole("button", { name: "Open racks for Server Room A" }).click();
+  await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Rack diagram", exact: true })).toBeVisible();
+
+  // Fixture: srv-01 is placed at U10 (front). Drag it to U5.
+  await page.evaluate((placementId: string) => {
+    const source = document.querySelector(`[data-testid="placed-front-${placementId}"]`);
+    const target = document.querySelector('[data-testid="drop-cell-front-5"]');
+    if (!source || !target) {
+      throw new Error(`DnD elements not found: source=${source}, target=${target}`);
+    }
+    const dt = new DataTransfer();
+    source.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer: dt }));
+    target.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: dt }));
+    target.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
+    source.dispatchEvent(new DragEvent("dragend", { bubbles: true, cancelable: true, dataTransfer: dt }));
+  }, FIXTURE_PLACEMENT_ID);
+
+  // Diagram refreshes: placement block should still be visible (moved in mock)
+  await expect(
+    page.getByTestId(`placed-front-${FIXTURE_PLACEMENT_ID}`),
+  ).toBeVisible({ timeout: 8_000 });
+  // U10 is now empty (the old position)
+  await expect(page.getByTestId("drop-cell-front-10")).toBeVisible();
+  // U gutter cells remain separate and visible for both old and new position
+  await expect(page.getByTestId("u-cell-front-10")).toBeVisible();
+  await expect(page.getByTestId("u-cell-front-5")).toBeVisible();
+});
+
+test("rack detail: create rack object from place modal and place it", async ({ page }) => {
+  await page.goto("/");
+  await openFixtureRepo(page);
+
+  // Navigate to rack detail
+  await page.getByRole("button", { name: "Locations", exact: true }).click();
+  await page.getByRole("button", { name: "Open racks for Server Room A" }).click();
+  await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Rack diagram", exact: true })).toBeVisible();
+
+  // Click an empty U slot (U3, front side)
+  await page.getByTestId("drop-cell-front-3").click();
+  await expect(page.getByRole("dialog", { name: "Place equipment" })).toBeVisible();
+
+  // Switch to Rack Object mode
+  await page.getByRole("radio", { name: "Rack Object" }).click();
+
+  // Click "Create new rack object…"
+  await page.getByTestId("create-rack-object-btn").click();
+
+  // DeviceModelFormModal opens
+  await expect(page.getByRole("dialog", { name: "Add device model" })).toBeVisible();
+
+  // Fill the form: device_type=rack_object, code, name, height
+  await page.getByTestId("field-device-type").selectOption("rack_object");
+  await page.getByTestId("field-code").fill("new-bracket-01");
+  await page.getByTestId("field-name").fill("Cable Bracket");
+  await page.getByTestId("field-height-u").fill("1");
+
+  await page.getByRole("button", { name: "Create model", exact: true }).click();
+
+  // DeviceModelFormModal closes, Place equipment modal is back — new model preselected
+  await expect(page.getByRole("dialog", { name: "Add device model" })).not.toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Place equipment" })).toBeVisible();
+
+  // New model is preselected in the rack object selector
+  await expect(page.getByTestId("rack-object-select")).toHaveValue(FIXTURE_NEW_MODEL_ID);
+
+  // Place button enabled
+  await expect(page.getByTestId("place-btn")).toBeEnabled();
+
+  // Click Place
+  await page.getByTestId("place-btn").click();
+
+  // Modal closes and new placement appears in diagram
+  await expect(page.getByRole("dialog", { name: "Place equipment" })).not.toBeVisible();
+  await expect(
+    page.getByTestId(`placed-front-${FIXTURE_NEW_PLACEMENT_ID}`),
+  ).toBeVisible({ timeout: 8_000 });
+});
+
+test("rack detail: inspector shows edit device button for device placements", async ({ page }) => {
+  await page.goto("/");
+  await openFixtureRepo(page);
+
+  // Navigate to rack detail
+  await page.getByRole("button", { name: "Locations", exact: true }).click();
+  await page.getByRole("button", { name: "Open racks for Server Room A" }).click();
+  await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
+
+  // Click the occupied block (device placement)
+  await page.getByTestId(`placed-front-${FIXTURE_PLACEMENT_ID}`).click();
+
+  // Inspector shows edit device button (target_kind === "device")
+  await expect(page.getByTestId("edit-target-device-btn")).toBeVisible();
+});
+
+test("rack detail: drag placed equipment to Placeable equipment panel to unplace it", async ({ page }) => {
+  // IDs from fixture constants
+  const FIXTURE_DEVICE_ID_PLACED = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
+
+  await page.goto("/");
+  await openFixtureRepo(page);
+
+  // Navigate to rack detail
+  await page.getByRole("button", { name: "Locations", exact: true }).click();
+  await page.getByRole("button", { name: "Open racks for Server Room A" }).click();
+  await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Rack diagram", exact: true })).toBeVisible();
+
+  // Verify fixture placement is visible before unplace
+  await expect(page.getByTestId(`placed-front-${FIXTURE_PLACEMENT_ID}`)).toBeVisible();
+
+  // Drag the placed Name cell to the Placeable equipment drop zone
+  await page.evaluate((placementId: string) => {
+    const source = document.querySelector(`[data-testid="placed-front-${placementId}"]`);
+    const target = document.querySelector('[data-testid="palette-drop-zone"]');
+    if (!source || !target) {
+      throw new Error(`DnD elements not found: source=${source}, target=${target}`);
+    }
+    const dt = new DataTransfer();
+    source.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer: dt }));
+    target.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: dt }));
+    target.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
+    source.dispatchEvent(new DragEvent("dragend", { bubbles: true, cancelable: true, dataTransfer: dt }));
+  }, FIXTURE_PLACEMENT_ID);
+
+  // Placement block disappears from diagram
+  await expect(
+    page.getByTestId(`placed-front-${FIXTURE_PLACEMENT_ID}`),
+  ).not.toBeVisible({ timeout: 8_000 });
+
+  // U10 row becomes an empty drop cell
+  await expect(page.getByTestId("drop-cell-front-10")).toBeVisible({ timeout: 8_000 });
+  // U gutter cell for U10 remains visible as separate rack unit numbering
+  await expect(page.getByTestId("u-cell-front-10")).toBeVisible({ timeout: 8_000 });
+
+  // The unplaced device now appears in the Placeable equipment palette
+  await expect(
+    page.getByTestId(`dnd-device-${FIXTURE_DEVICE_ID_PLACED}`),
+  ).toBeVisible({ timeout: 8_000 });
 });

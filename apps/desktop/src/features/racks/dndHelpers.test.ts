@@ -72,6 +72,25 @@ describe("encodeDndPayload / decodeDndPayload", () => {
     expect(decodeDndPayload(encodeDndPayload(payload))).toEqual(payload);
   });
 
+  it("round-trips a placement payload", () => {
+    const payload: DndPayload = {
+      kind: "placement",
+      placementId: "plc-abc",
+      startU: 5,
+      heightU: 2,
+      side: "rear",
+    };
+    expect(decodeDndPayload(encodeDndPayload(payload))).toEqual(payload);
+  });
+
+  it("returns null for a placement payload with invalid side", () => {
+    expect(
+      decodeDndPayload(
+        JSON.stringify({ kind: "placement", placementId: "x", startU: 1, heightU: 1, side: "top" }),
+      ),
+    ).toBeNull();
+  });
+
   it("returns null for an empty string", () => {
     expect(decodeDndPayload("")).toBeNull();
   });
@@ -153,6 +172,46 @@ describe("canDropAt", () => {
   });
 });
 
+// ── canDropAt — excludePlacementId ────────────────────────────────────────────
+
+describe("canDropAt — excludePlacementId", () => {
+  it("treats excluded placement's own cells as empty", () => {
+    const p = makePlacement({ code: "X", id: "p-x", start_u: 2, end_u: 3, effective_height_u: 2 });
+    const { units } = buildOccupancy(4, [p]);
+    // Without exclude: can't drop at U2 (occupied)
+    expect(canDropAt(units, 2, 2)).toBe(false);
+    // With exclude: U2–U3 are treated as empty because they belong to the excluded placement
+    expect(canDropAt(units, 2, 2, "p-x")).toBe(true);
+  });
+
+  it("excludePlacementId does not clear cells belonging to a different placement", () => {
+    const pA = makePlacement({ code: "A", id: "p-a", start_u: 1, end_u: 1, effective_height_u: 1 });
+    const pB = makePlacement({ code: "B", id: "p-b", start_u: 2, end_u: 2, effective_height_u: 1 });
+    const { units } = buildOccupancy(4, [pA, pB]);
+    // Excluding p-a: U1 is free but U2 (p-b) is still blocked
+    expect(canDropAt(units, 1, 2, "p-a")).toBe(false); // U1 free + U2 blocked by p-b
+    expect(canDropAt(units, 1, 1, "p-a")).toBe(true);  // only U1, which belongs to p-a
+  });
+
+  it("allows moving a 2U placement to an adjacent non-overlapping position", () => {
+    const p = makePlacement({ code: "C", id: "p-c", start_u: 3, end_u: 4, effective_height_u: 2 });
+    const { units } = buildOccupancy(6, [p]);
+    // Move from U3–U4 to U1–U2 (no overlap): should be valid even without exclude
+    expect(canDropAt(units, 1, 2)).toBe(true);
+    // Move to U2–U3 (overlaps U3 which belongs to p-c): valid with exclude
+    expect(canDropAt(units, 2, 2)).toBe(false);
+    expect(canDropAt(units, 2, 2, "p-c")).toBe(true);
+  });
+
+  it("still blocks if there is a truly occupied cell in range beyond the excluded one", () => {
+    const pA = makePlacement({ code: "A", id: "p-a", start_u: 2, end_u: 2, effective_height_u: 1 });
+    const pB = makePlacement({ code: "B", id: "p-b", start_u: 4, end_u: 4, effective_height_u: 1 });
+    const { units } = buildOccupancy(5, [pA, pB]);
+    // Excluding p-a, trying to drop a 3U item at U2–U4: U4 is still blocked by p-b
+    expect(canDropAt(units, 2, 3, "p-a")).toBe(false);
+  });
+});
+
 // ── getPayloadHeight ───────────────────────────────────────────────────────────
 
 describe("getPayloadHeight", () => {
@@ -184,6 +243,17 @@ describe("getPayloadHeight", () => {
       defaultHeightU: 2,
     };
     expect(getPayloadHeight(payload)).toBe(2);
+  });
+
+  it("returns heightU for a placement payload", () => {
+    const payload: DndPayload = {
+      kind: "placement",
+      placementId: "plc-1",
+      startU: 3,
+      heightU: 4,
+      side: "front",
+    };
+    expect(getPayloadHeight(payload)).toBe(4);
   });
 });
 

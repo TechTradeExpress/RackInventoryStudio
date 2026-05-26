@@ -37,6 +37,22 @@ export function decodeDndPayload(raw: string): DndPayload | null {
         defaultHeightU: o.defaultHeightU,
       };
     }
+    if (o.kind === "placement") {
+      if (
+        typeof o.placementId !== "string" ||
+        typeof o.startU !== "number" ||
+        typeof o.heightU !== "number" ||
+        (o.side !== "front" && o.side !== "rear")
+      )
+        return null;
+      return {
+        kind: "placement",
+        placementId: o.placementId as string,
+        startU: o.startU as number,
+        heightU: o.heightU as number,
+        side: o.side as "front" | "rear",
+      };
+    }
     return null;
   } catch {
     return null;
@@ -72,10 +88,11 @@ export function getActiveDragPayload(): DndPayload | null {
 
 /**
  * Returns the height in U-units to use for drop target validation.
- * rack_object always carries a concrete height; device falls back to 1U
+ * rack_object and placement carry a concrete height; device falls back to 1U
  * when the model height is not known at drag time.
  */
 export function getPayloadHeight(payload: DndPayload): number {
+  if (payload.kind === "placement") return payload.heightU;
   return payload.defaultHeightU ?? 1;
 }
 
@@ -85,18 +102,30 @@ export function getPayloadHeight(payload: DndPayload): number {
  * Convention (same as buildOccupancy): units[0] = U1 (bottom), units[n-1] = top.
  * A placement from startU to (startU + heightU - 1) must fit entirely within the
  * rack and all cells in that range must be empty.
+ *
+ * Pass `excludePlacementId` when moving an already-placed item so its own cells
+ * are treated as empty during the drop validation.
  */
 export function canDropAt(
   units: UnitState[],
   startU: number,
   heightU: number,
+  excludePlacementId?: string,
 ): boolean {
   if (!Number.isInteger(heightU) || heightU < 1) return false;
   if (!Number.isInteger(startU) || startU < 1) return false;
   const endU = startU + heightU - 1;
   if (endU > units.length) return false;
   for (let u = startU; u <= endU; u++) {
-    if (units[u - 1].kind !== "empty") return false;
+    const state = units[u - 1];
+    if (state.kind === "empty") continue;
+    if (
+      excludePlacementId &&
+      (state.kind === "occupied" || state.kind === "incomplete") &&
+      state.placement.id === excludePlacementId
+    )
+      continue;
+    return false;
   }
   return true;
 }

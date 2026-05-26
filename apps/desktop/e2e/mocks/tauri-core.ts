@@ -13,6 +13,7 @@ const FIXTURE_PLACEMENT_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
 const FIXTURE_NEW_PLACEMENT_ID = "11111111-1111-1111-1111-111111111111";
 export const FIXTURE_UNPLACED_DEVICE_ID = "22222222-2222-2222-2222-222222222222";
 export const FIXTURE_NEW_DEVICE_ID = "33333333-3333-3333-3333-333333333333";
+export const FIXTURE_NEW_MODEL_ID = "44444444-4444-4444-4444-444444444444";
 
 const COMMANDS: Record<string, unknown> = {
   open_repository_cmd: {
@@ -305,6 +306,12 @@ function createInitialDevices(): any[] {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+function createInitialDeviceModels(): any[] {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (COMMANDS.list_device_models as any[]).map((m) => ({ ...m }));
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function createInitialRackDetail(): { front: any[]; rear: any[]; [k: string]: any } {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const base = COMMANDS.get_rack_detail as Record<string, any>;
@@ -320,10 +327,13 @@ function createInitialRackDetail(): { front: any[]; rear: any[]; [k: string]: an
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let dynamicDevices: any[] = createInitialDevices();
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+let dynamicDeviceModels: any[] = createInitialDeviceModels();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let dynamicRackDetail: { front: any[]; rear: any[]; [k: string]: any } = createInitialRackDetail();
 
 export function resetE2eMockState(): void {
   dynamicDevices = createInitialDevices();
+  dynamicDeviceModels = createInitialDeviceModels();
   dynamicRackDetail = createInitialRackDetail();
 }
 
@@ -492,19 +502,144 @@ export function invoke<T>(command: string, args?: unknown): Promise<T> {
           new Error(`[E2E mock] place_rack_object: invalid input args`),
         );
       }
+      const model = dynamicDeviceModels.find((m) => m.id === i.device_model_id);
+      const targetSide = i.side as string;
+      const newPlacement = {
+        id: FIXTURE_NEW_PLACEMENT_ID,
+        code: `plc-${String(i.device_model_id).slice(0, 8)}`,
+        target_kind: "rack_object",
+        target_id: i.device_model_id,
+        target_code: model?.code ?? "rack-obj",
+        target_name: model?.name ?? null,
+        device_type: "rack_object",
+        start_u: i.start_u,
+        height_u: i.height_u ?? null,
+        effective_height_u: (i.height_u as number | null) ?? model?.default_height_u ?? 1,
+        end_u: i.start_u,
+        note: null,
+        tags: [],
+        model_name: model?.name ?? null,
+        model_code: model?.code ?? null,
+        target_serial: null,
+        target_asset_tag: null,
+      };
+      if (targetSide === "rear") {
+        dynamicRackDetail.rear.push(newPlacement);
+      } else {
+        dynamicRackDetail.front.push(newPlacement);
+      }
       return Promise.resolve(FIXTURE_NEW_PLACEMENT_ID as unknown as T);
     }
 
-    case "move_placement":
-      // In-memory mutation — return void success
-      return Promise.resolve(undefined as unknown as T);
+    case "move_placement": {
+      const { input } = (args ?? {}) as { input?: unknown };
+      const i = (input ?? {}) as Record<string, unknown>;
+      if (typeof i.placement_id !== "string" || typeof i.new_start_u !== "number") {
+        return Promise.reject(new Error(`[E2E mock] move_placement: invalid input args`));
+      }
+      const placementId = i.placement_id as string;
+      const newStartU = i.new_start_u as number;
+      const newSide = (i.new_side as string | null | undefined) ?? null;
 
-    case "remove_placement":
-      // In-memory mutation — return void success
+      // Find and remove from current side
+      let placement: unknown | null = null;
+      const frontIdx = dynamicRackDetail.front.findIndex((p: Record<string, unknown>) => p.id === placementId);
+      if (frontIdx !== -1) {
+        placement = dynamicRackDetail.front.splice(frontIdx, 1)[0];
+      } else {
+        const rearIdx = dynamicRackDetail.rear.findIndex((p: Record<string, unknown>) => p.id === placementId);
+        if (rearIdx !== -1) {
+          placement = dynamicRackDetail.rear.splice(rearIdx, 1)[0];
+        }
+      }
+      if (placement) {
+        const updated = { ...(placement as Record<string, unknown>), start_u: newStartU, end_u: newStartU };
+        const destSide = newSide ?? (frontIdx !== -1 ? "front" : "rear");
+        if (destSide === "rear") {
+          dynamicRackDetail.rear.push(updated);
+        } else {
+          dynamicRackDetail.front.push(updated);
+        }
+      }
       return Promise.resolve(undefined as unknown as T);
+    }
+
+    case "remove_placement": {
+      const { input } = (args ?? {}) as { input?: unknown };
+      const i = (input ?? {}) as Record<string, unknown>;
+      if (typeof i.placement_id === "string") {
+        const removed: Record<string, unknown> | undefined =
+          dynamicRackDetail.front.find((p: Record<string, unknown>) => p.id === i.placement_id) ??
+          dynamicRackDetail.rear.find((p: Record<string, unknown>) => p.id === i.placement_id);
+        dynamicRackDetail.front = dynamicRackDetail.front.filter(
+          (p: Record<string, unknown>) => p.id !== i.placement_id,
+        );
+        dynamicRackDetail.rear = dynamicRackDetail.rear.filter(
+          (p: Record<string, unknown>) => p.id !== i.placement_id,
+        );
+        // If removed was a device placement, mark device as unplaced so palette refreshes
+        if (removed?.target_kind === "device" && typeof removed?.target_id === "string") {
+          const devIdx = dynamicDevices.findIndex((d) => d.id === removed.target_id);
+          if (devIdx !== -1) {
+            dynamicDevices[devIdx] = { ...dynamicDevices[devIdx], is_placed: false };
+          }
+        }
+      }
+      return Promise.resolve(undefined as unknown as T);
+    }
+
+    case "add_device_model_cmd": {
+      const { input } = (args ?? {}) as { input?: unknown };
+      const i = (input ?? {}) as Record<string, unknown>;
+      if (typeof i.code !== "string" || typeof i.device_type !== "string") {
+        return Promise.reject(new Error(`[E2E mock] add_device_model_cmd: invalid input args`));
+      }
+      const newModel = {
+        id: FIXTURE_NEW_MODEL_ID,
+        code: i.code,
+        device_type: i.device_type,
+        name: i.name ?? null,
+        vendor: i.vendor ?? null,
+        model_number: i.model ?? null,
+        default_height_u: i.default_height_u ?? 1,
+        description: i.description ?? null,
+        tags: i.tags ?? [],
+      };
+      dynamicDeviceModels.push(newModel);
+      return Promise.resolve(FIXTURE_NEW_MODEL_ID as unknown as T);
+    }
+
+    case "update_device_cmd": {
+      const { input } = (args ?? {}) as { input?: unknown };
+      const i = (input ?? {}) as Record<string, unknown>;
+      if (typeof i.id !== "string") {
+        return Promise.reject(new Error(`[E2E mock] update_device_cmd: invalid input args`));
+      }
+      const idx = dynamicDevices.findIndex((d) => d.id === i.id);
+      if (idx !== -1) {
+        dynamicDevices[idx] = { ...dynamicDevices[idx], ...(i as object) };
+      }
+      return Promise.resolve(undefined as unknown as T);
+    }
+
+    case "update_device_model_cmd": {
+      const { input } = (args ?? {}) as { input?: unknown };
+      const i = (input ?? {}) as Record<string, unknown>;
+      if (typeof i.id !== "string") {
+        return Promise.reject(new Error(`[E2E mock] update_device_model_cmd: invalid input args`));
+      }
+      const idx = dynamicDeviceModels.findIndex((m) => m.id === i.id);
+      if (idx !== -1) {
+        dynamicDeviceModels[idx] = { ...dynamicDeviceModels[idx], ...(i as object) };
+      }
+      return Promise.resolve(undefined as unknown as T);
+    }
 
     case "list_devices":
       return Promise.resolve(dynamicDevices as unknown as T);
+
+    case "list_device_models":
+      return Promise.resolve(dynamicDeviceModels as unknown as T);
 
     case "get_rack_detail":
       return Promise.resolve(dynamicRackDetail as unknown as T);

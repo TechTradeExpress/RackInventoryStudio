@@ -65,7 +65,7 @@ export function EditPlacementModal({
     if (heightUStr.trim() !== "") {
       const hu = parsePositiveInt(heightUStr);
       if (hu === null) {
-        setError("Height U override must be a positive integer if provided.");
+        setError("Height override must be a positive integer if provided.");
         return;
       }
       newHeightU = hu;
@@ -215,9 +215,9 @@ export function EditPlacementModal({
             />
           </Field>
 
-          {/* Height U override */}
+          {/* Height override */}
           <Field
-            label="Height U override"
+            label="Height override"
             help={
               placement.effective_height_u != null
                 ? `Effective: ${placement.effective_height_u}U. Leave empty to use the default/effective height.`

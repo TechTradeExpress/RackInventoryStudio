@@ -43,21 +43,21 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("LocationsPanel — Manage racks button", () => {
-  it("renders Manage racks button for each location", async () => {
+describe("LocationsPanel — location name navigates to racks", () => {
+  it("renders an Open racks button for each location (the name is clickable)", async () => {
     render(<LocationsPanel {...BASE_PROPS} />);
     expect(
-      await screen.findByRole("button", { name: "Manage racks for Warsaw A" }),
+      await screen.findByRole("button", { name: "Open racks for Warsaw A" }),
     ).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: "Manage racks for Berlin B" }),
+      screen.getByRole("button", { name: "Open racks for Berlin B" }),
     ).toBeTruthy();
   });
 
-  it("clicking Manage racks calls onManageRacks with the correct location", async () => {
+  it("clicking the location name calls onManageRacks with the correct location", async () => {
     const onManageRacks = vi.fn();
     render(<LocationsPanel {...BASE_PROPS} onManageRacks={onManageRacks} />);
-    const btn = await screen.findByRole("button", { name: "Manage racks for Warsaw A" });
+    const btn = await screen.findByRole("button", { name: "Open racks for Warsaw A" });
     fireEvent.click(btn);
     await waitFor(() => {
       expect(onManageRacks).toHaveBeenCalledOnce();
@@ -67,10 +67,10 @@ describe("LocationsPanel — Manage racks button", () => {
     });
   });
 
-  it("clicking Manage racks for the second location calls onManageRacks with the correct location", async () => {
+  it("clicking the name for the second location calls onManageRacks with the correct location", async () => {
     const onManageRacks = vi.fn();
     render(<LocationsPanel {...BASE_PROPS} onManageRacks={onManageRacks} />);
-    const btn = await screen.findByRole("button", { name: "Manage racks for Berlin B" });
+    const btn = await screen.findByRole("button", { name: "Open racks for Berlin B" });
     fireEvent.click(btn);
     await waitFor(() => {
       expect(onManageRacks).toHaveBeenCalledOnce();

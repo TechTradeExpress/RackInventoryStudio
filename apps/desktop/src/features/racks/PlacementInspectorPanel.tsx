@@ -18,6 +18,10 @@ interface Props {
   onRemoveSuccess: () => void;
   /** Called when the user clicks "Edit in modal" — opens EditPlacementModal. */
   onOpenEditModal?: () => void;
+  /** Called when the user requests to edit the target device. */
+  onEditTargetDevice?: (deviceId: string) => void;
+  /** Called when the user requests to edit the target rack object model. */
+  onEditTargetModel?: (modelId: string) => void;
 }
 
 function display(value: string | number | null | undefined): string {
@@ -32,6 +36,8 @@ export function PlacementInspectorPanel({
   onMoveSuccess,
   onRemoveSuccess,
   onOpenEditModal,
+  onEditTargetDevice,
+  onEditTargetModel,
 }: Props) {
   const { runBusy } = useBusy();
 
@@ -52,14 +58,14 @@ export function PlacementInspectorPanel({
   const rows: [string, string | number | null | undefined, boolean?][] = [
     ["Code",            placement.code,                  true],
     ["Side",            side,                            false],
-    ["Target kind",     placement.target_kind,           false],
+    ["Target type",     placement.target_kind,           false],
     ["Target code",     placement.target_code,           true],
     ["Target name",     placement.target_name,           false],
     ["Device type",     placement.device_type,           false],
     ["Start U",         placement.start_u,               true],
     ["End U",           placement.end_u,                 true],
-    ["Height U",        placement.height_u,              true],
-    ["Eff. height U",   placement.effective_height_u,    true],
+    ["Height",          placement.height_u,              true],
+    ["Effective height", placement.effective_height_u,  true],
     ["Note",            placement.note,                  false],
     ["Tags",            placement.tags.length > 0 ? placement.tags.join(", ") : null, false],
   ];
@@ -113,14 +119,36 @@ export function PlacementInspectorPanel({
           {onOpenEditModal && (
             <div>
               <div className="eyebrow" style={{ marginBottom: 6 }}>Edit / move</div>
-              <button
-                type="button"
-                className="btn btn-sm btn-primary"
-                onClick={onOpenEditModal}
-                data-testid="open-edit-modal-btn"
-              >
-                Edit placement…
-              </button>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-primary"
+                  onClick={onOpenEditModal}
+                  data-testid="open-edit-modal-btn"
+                >
+                  Edit placement…
+                </button>
+                {placement.target_kind === "device" && onEditTargetDevice && placement.target_id && (
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => onEditTargetDevice(placement.target_id!)}
+                    data-testid="edit-target-device-btn"
+                  >
+                    Edit device…
+                  </button>
+                )}
+                {placement.target_kind === "rack_object" && onEditTargetModel && placement.target_id && (
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => onEditTargetModel(placement.target_id!)}
+                    data-testid="edit-target-model-btn"
+                  >
+                    Edit rack object…
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
