@@ -24,30 +24,30 @@ interface Props {
   onMovePlacement?: (side: "front" | "rear", placementId: string, newStartU: number) => void;
 }
 
-// ── Column layout ──────────────────────────────────────────────────────────────
-// Columns: U (fixed) | Name (flex 2) | Model (flex 1) | Code / SN (flex 1)
-const ROW_H = 22; // px per U row
-const COL_U = 60; // px — wide enough for "U42–U42"
+// ── Layout constants ───────────────────────────────────────────────────────────
+const ROW_H = 22;    // px per rack unit row
+const COL_U = 60;    // px — U gutter width
+const HEADER_H = 28; // px — header row height
 
 const colors = {
   empty: "#f8f8f8",
   emptyBorder: "#e0e0e0",
-  occupiedTop: "#357abd",
+  occupiedBg: "#357abd",
   occupiedText: "#fff",
   occupiedSelected: "#1d4d8a",
   incomplete: "#e8a020",
   incompleteText: "#fff",
   incompleteSelected: "#9b6010",
   selectionRing: "#ffd700",
-  labelBg: "#f0f0f0",
+  gutterBg: "#f0f0f0",
+  gutterText: "#888",
   headerBg: "#e8e8e8",
 };
 
-function dataCellStyle(width?: number, flex?: number, minWidth?: number): CSSProperties {
+function contentCell(flex?: number, minWidth?: number, extra?: CSSProperties): CSSProperties {
   return {
-    ...(width !== undefined ? { width, flexShrink: 0 } : {}),
-    ...(flex !== undefined ? { flex } : {}),
-    ...(minWidth !== undefined ? { minWidth } : {}),
+    flex,
+    minWidth,
     overflow: "hidden",
     whiteSpace: "nowrap",
     textOverflow: "ellipsis",
@@ -60,16 +60,19 @@ function dataCellStyle(width?: number, flex?: number, minWidth?: number): CSSPro
     justifyContent: "center",
     borderRight: "1px solid rgba(0,0,0,0.08)",
     fontSize: "0.72rem",
+    ...extra,
   };
 }
 
-function headerCellStyle(width?: number, flex?: number, minWidth?: number): CSSProperties {
+function headerCell(flex?: number, minWidth?: number): CSSProperties {
   return {
-    ...dataCellStyle(width, flex, minWidth),
+    ...contentCell(flex, minWidth),
     fontWeight: "bold",
     fontSize: "0.70rem",
     color: "#444",
     borderBottom: "1px solid #ccc",
+    paddingTop: 4,
+    paddingBottom: 4,
   };
 }
 
@@ -102,14 +105,14 @@ export function RackUnitDiagram({
     return cellU >= hovered.startU && cellU <= hovered.startU + hovered.heightU - 1;
   }
 
-  // units[0] = U1 (bottom); render top-to-bottom → reverse
+  // units[0] = U1 (bottom of rack); render top-to-bottom → reverse
   const rows = [...activeOcc.units].reverse();
   const sideLabel = side === "front" ? "Front" : "Rear";
 
   return (
     <div>
       <p style={{ margin: "0 0 0.4rem", fontSize: "0.78rem", color: "#666" }}>
-        {sideLabel} side · U{heightU} at top · U1 at bottom · Click empty row to place · Click to inspect · Drag from palette · Drag name cell to move · Drag to palette to unplace
+        {sideLabel} side · U{heightU} at top · U1 at bottom · Click empty row to place · Click to inspect · Drag from palette · Drag card to move · Drag to palette to unplace
       </p>
 
       {/* Legend */}
@@ -148,7 +151,7 @@ export function RackUnitDiagram({
         ))}
       </div>
 
-      {/* Grid */}
+      {/* Rack grid */}
       <div
         style={{
           maxHeight: "60vh",
@@ -159,105 +162,128 @@ export function RackUnitDiagram({
           width: "100%",
         }}
       >
-        {/* Header row */}
-        <div
-          aria-label="Rack diagram header"
-          style={{
-            display: "flex",
-            background: colors.headerBg,
-            position: "sticky",
-            top: 0,
-            zIndex: 1,
-            minWidth: "fit-content",
-          }}
-        >
-          <div style={headerCellStyle(COL_U)}>U</div>
-          <div
-            style={{ ...headerCellStyle(undefined, 2, 100), borderLeft: "2px solid #bbb" }}
-            data-testid="diagram-col-name"
-          >
-            Name
-          </div>
-          <div style={headerCellStyle(undefined, 1, 80)} data-testid="diagram-col-model">Model</div>
-          <div
-            style={{ ...headerCellStyle(undefined, 1, 80), borderRight: "none" }}
-            data-testid="diagram-col-code"
-          >
-            Code / SN
-          </div>
-        </div>
+        <div style={{ display: "flex", minWidth: "fit-content" }}>
 
-        {/* Data rows */}
-        <div style={{ minWidth: "fit-content" }}>
-          {rows.map((state: UnitState, idx: number) => {
-            const startU = heightU - idx;
-
-            // Non-top continuation cell: invisible spacer
-            if (state.kind === "occupied" && !state.isTop) {
-              return <div key={idx} style={{ height: 0, overflow: "hidden" }} />;
-            }
-
-            // ── Occupied top row ─────────────────────────────────────────────
-            if (state.kind === "occupied" && state.isTop) {
-              const p = state.placement;
-              const label = derivePlacementLabel(p);
-              const rowH = label.effectiveHeightU * ROW_H;
-              const isSelected = p.id === selectedPlacementId;
-              const hoveredInvalid = isInRange(startU) && hovered !== null && !hovered.valid;
-
-              const rowStyle: CSSProperties = {
+          {/* ── U gutter: independent rack-unit numbering ──────────────────
+              One cell per rack unit. Always neutral — never carries selection
+              styling, drag handles, or placement metadata.               */}
+          <div style={{ width: COL_U, flexShrink: 0 }}>
+            {/* U header */}
+            <div
+              style={{
+                height: HEADER_H,
                 display: "flex",
-                height: rowH,
-                background: isSelected ? colors.occupiedSelected : colors.occupiedTop,
-                color: colors.occupiedText,
-                borderBottom: "2px solid rgba(0,0,0,0.18)",
-                cursor: "pointer",
-                userSelect: "none",
-                ...(isSelected ? { boxShadow: `inset 0 0 0 2px ${colors.selectionRing}` } : {}),
-                ...(hoveredInvalid ? { outline: "2px dashed #cc4444" } : {}),
-              };
+                alignItems: "center",
+                justifyContent: "center",
+                background: colors.headerBg,
+                borderRight: "1px solid #bbb",
+                borderBottom: "1px solid #ccc",
+                fontWeight: "bold",
+                fontSize: "0.70rem",
+                color: "#444",
+                position: "sticky",
+                top: 0,
+                zIndex: 2,
+              }}
+            >
+              U
+            </div>
 
-              const modelLabel = label.model ?? "—";
-              const codeLabel =
-                p.target_code ??
-                (p.target_asset_tag ? `Asset: ${p.target_asset_tag}` : null) ??
-                (p.target_serial ? `SN: ${p.target_serial}` : null) ??
-                "—";
-
+            {/* One cell per rack unit — always rendered regardless of occupancy */}
+            {rows.map((_: UnitState, idx: number) => {
+              const startU = heightU - idx;
               return (
                 <div
                   key={idx}
-                  data-testid={`placed-row-${side}-${p.id}`}
-                  title={label.title}
-                  style={rowStyle}
-                  onClick={() => onSelectPlacement(p)}
+                  data-testid={`u-cell-${side}-${startU}`}
+                  style={{
+                    height: ROW_H,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: colors.gutterBg,
+                    color: colors.gutterText,
+                    borderRight: "1px solid #ccc",
+                    borderBottom: `1px solid ${colors.emptyBorder}`,
+                    fontSize: "0.68rem",
+                    fontWeight: 500,
+                    userSelect: "none",
+                    paddingTop: 0,
+                    paddingBottom: 0,
+                    paddingLeft: 4,
+                    paddingRight: 4,
+                  }}
                 >
-                  {/* U column — static; shows full U range for multi-U placements */}
-                  <div
-                    style={{
-                      ...dataCellStyle(COL_U),
-                      background: colors.labelBg,
-                      color: "#555",
-                      borderRight: "1px solid #ccc",
-                      height: "100%",
-                      fontSize: "0.68rem",
-                      fontWeight: 500,
-                    }}
-                  >
-                    {label.uRange}
-                  </div>
+                  {`U${startU}`}
+                </div>
+              );
+            })}
+          </div>
 
-                  {/* Name — drag handle; testid here so E2E can target the draggable element */}
+          {/* ── Content area: placement cards ──────────────────────────────
+              Multi-U placement cards span their full height here.
+              Selection ring and drag handle live on the card, not the gutter. */}
+          <div style={{ flex: 1, minWidth: 340 }}>
+            {/* Content header */}
+            <div
+              aria-label="Rack diagram header"
+              style={{
+                display: "flex",
+                height: HEADER_H,
+                background: colors.headerBg,
+                position: "sticky",
+                top: 0,
+                zIndex: 1,
+              }}
+            >
+              <div style={headerCell(2, 100)} data-testid="diagram-col-name">Name</div>
+              <div style={headerCell(1, 80)} data-testid="diagram-col-model">Model</div>
+              <div style={headerCell(1, 80)} data-testid="diagram-col-code">Code / SN</div>
+              <div style={{ ...headerCell(1, 80), borderRight: "none" }} data-testid="diagram-col-asset">Asset tag</div>
+            </div>
+
+            {/* Content rows */}
+            {rows.map((state: UnitState, idx: number) => {
+              const startU = heightU - idx;
+
+              // Non-top continuation cell: the card above already spans this height
+              if (state.kind === "occupied" && !state.isTop) {
+                return null;
+              }
+
+              // ── Occupied placement card ────────────────────────────────
+              if (state.kind === "occupied" && state.isTop) {
+                const p = state.placement;
+                const label = derivePlacementLabel(p);
+                const cardH = label.effectiveHeightU * ROW_H;
+                const isSelected = p.id === selectedPlacementId;
+                const hoveredInvalid = isInRange(startU) && hovered !== null && !hovered.valid;
+
+                const modelLabel = label.model ?? "—";
+                const codeLabel =
+                  p.target_code ??
+                  (p.target_serial ? `SN: ${p.target_serial}` : null) ??
+                  "—";
+                const assetLabel = p.target_asset_tag ?? "—";
+
+                return (
                   <div
+                    key={idx}
                     data-testid={`placed-${side}-${p.id}`}
+                    title={label.title}
                     style={{
-                      ...dataCellStyle(undefined, 2, 100),
-                      fontWeight: 600,
-                      borderLeft: "2px solid rgba(0,0,0,0.15)",
-                      height: "100%",
+                      display: "flex",
+                      height: cardH,
+                      background: isSelected ? colors.occupiedSelected : colors.occupiedBg,
+                      color: colors.occupiedText,
+                      borderBottom: "2px solid rgba(0,0,0,0.18)",
                       cursor: onMovePlacement ? "grab" : "pointer",
+                      userSelect: "none",
+                      ...(isSelected ? { boxShadow: `inset 0 0 0 2px ${colors.selectionRing}` } : {}),
+                      ...(hoveredInvalid ? { outline: "2px dashed #cc4444" } : {}),
                     }}
                     draggable={!!onMovePlacement}
+                    onClick={() => onSelectPlacement(p)}
                     onDragStart={
                       onMovePlacement
                         ? (e) => {
@@ -271,157 +297,151 @@ export function RackUnitDiagram({
                             e.dataTransfer.setData(DND_DATA_TYPE, encodeDndPayload(payload));
                             e.dataTransfer.effectAllowed = "move";
                             setActiveDragPayload(payload);
+                            // Custom drag image — palette-card shape with placed/occupied color.
+                            // Created off-screen and cleaned up after the browser captures it.
+                            try {
+                              const img = document.createElement("div");
+                              img.style.cssText =
+                                "position:absolute;left:-9999px;top:0;" +
+                                "display:flex;align-items:center;gap:6px;" +
+                                "padding:4px 10px;background:#357abd;color:#fff;" +
+                                "border-radius:4px;font-size:12px;font-weight:600;" +
+                                "white-space:nowrap;overflow:hidden;";
+                              img.textContent = `⠿ ${label.primary} · ${label.effectiveHeightU}U`;
+                              document.body.appendChild(img);
+                              e.dataTransfer.setDragImage(img, 14, 14);
+                              requestAnimationFrame(() => { img.parentNode?.removeChild(img); });
+                            } catch { /* no-op in test environments */ }
                           }
                         : undefined
                     }
                     onDragEnd={onMovePlacement ? () => setActiveDragPayload(null) : undefined}
                   >
-                    <span
-                      style={{
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                        maxWidth: "100%",
-                        textAlign: "center",
-                      }}
-                    >
-                      {label.primary}
-                    </span>
+                    <div style={contentCell(2, 100, { height: "100%", fontWeight: 600 })}>
+                      <span
+                        style={{
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          maxWidth: "100%",
+                          textAlign: "center",
+                        }}
+                      >
+                        {label.primary}
+                      </span>
+                    </div>
+                    <div style={contentCell(1, 80, { height: "100%" })}>{modelLabel}</div>
+                    <div style={contentCell(1, 80, { height: "100%" })}>{codeLabel}</div>
+                    <div style={contentCell(1, 80, { height: "100%", borderRight: "none" })}>{assetLabel}</div>
                   </div>
+                );
+              }
 
-                  {/* Model */}
-                  <div style={{ ...dataCellStyle(undefined, 1, 80), height: "100%" }}>
-                    {modelLabel}
+              // ── Incomplete row ─────────────────────────────────────────
+              if (state.kind === "incomplete") {
+                const p = state.placement;
+                const isSelected = p.id === selectedPlacementId;
+                const codeLabel = p.target_code ?? p.code;
+                return (
+                  <div
+                    key={idx}
+                    title={p.code}
+                    style={{
+                      display: "flex",
+                      height: ROW_H,
+                      background: isSelected ? colors.incompleteSelected : colors.incomplete,
+                      color: colors.incompleteText,
+                      borderBottom: "1px solid rgba(0,0,0,0.15)",
+                      cursor: "pointer",
+                      userSelect: "none",
+                      ...(isSelected ? { boxShadow: `inset 0 0 0 2px ${colors.selectionRing}` } : {}),
+                    }}
+                    onClick={() => onSelectPlacement(p)}
+                  >
+                    <div style={{ ...contentCell(2, 100), justifyContent: "flex-start" }}>
+                      ⚠ {p.target_name ?? codeLabel}
+                    </div>
+                    <div style={contentCell(1, 80)}>—</div>
+                    <div style={contentCell(1, 80)}>{codeLabel}</div>
+                    <div style={contentCell(1, 80, { borderRight: "none" })}>—</div>
                   </div>
+                );
+              }
 
-                  {/* Code / SN */}
-                  <div style={{ ...dataCellStyle(undefined, 1, 80), height: "100%", borderRight: "none" }}>
-                    {codeLabel}
-                  </div>
-                </div>
-              );
-            }
-
-            // ── Incomplete row ───────────────────────────────────────────────
-            if (state.kind === "incomplete") {
-              const p = state.placement;
-              const isSelected = p.id === selectedPlacementId;
-              const rowStyle: CSSProperties = {
+              // ── Empty row: drop target ─────────────────────────────────
+              let dropStyle: CSSProperties = {
                 display: "flex",
                 height: ROW_H,
-                background: isSelected ? colors.incompleteSelected : colors.incomplete,
-                color: colors.incompleteText,
-                borderBottom: "1px solid rgba(0,0,0,0.15)",
-                cursor: "pointer",
+                background: colors.empty,
+                borderBottom: `1px solid ${colors.emptyBorder}`,
+                cursor: onEmptySlotClick ? "pointer" : "default",
                 userSelect: "none",
-                ...(isSelected ? { boxShadow: `inset 0 0 0 2px ${colors.selectionRing}` } : {}),
               };
-              const codeLabel = p.target_code ?? p.code;
+              if (isInRange(startU)) {
+                dropStyle = hovered!.valid
+                  ? { ...dropStyle, background: "#c8e6c0", outline: "2px dashed #4a7c3f" }
+                  : { ...dropStyle, background: "#fde8e8", outline: "2px dashed #cc4444" };
+              }
+
               return (
-                <div key={idx} title={p.code} style={rowStyle} onClick={() => onSelectPlacement(p)}>
-                  <div
-                    style={{
-                      ...dataCellStyle(COL_U),
-                      background: colors.labelBg,
-                      color: "#555",
-                      borderRight: "1px solid #ccc",
-                      fontSize: "0.68rem",
-                    }}
-                  >
-                    {`U${p.start_u}`}
-                  </div>
-                  <div style={{ ...dataCellStyle(undefined, 2, 100), borderLeft: "2px solid rgba(0,0,0,0.15)", justifyContent: "flex-start" }}>
-                    ⚠ {p.target_name ?? codeLabel}
-                  </div>
-                  <div style={dataCellStyle(undefined, 1, 80)}>—</div>
-                  <div style={{ ...dataCellStyle(undefined, 1, 80), borderRight: "none" }}>{codeLabel}</div>
+                <div
+                  key={idx}
+                  data-testid={`drop-cell-${side}-${startU}`}
+                  style={dropStyle}
+                  onClick={() => {
+                    onSelectPlacement(null);
+                    if (onEmptySlotClick) onEmptySlotClick(startU);
+                  }}
+                  onDragOver={
+                    onDropAtCell || onMovePlacement
+                      ? (e) => {
+                          e.preventDefault();
+                          const payload = getActiveDragPayload();
+                          if (!payload) return;
+                          const payloadH = getPayloadHeight(payload);
+                          const excludeId =
+                            payload.kind === "placement" ? payload.placementId : undefined;
+                          const valid = canDropAt(activeOcc.units, startU, payloadH, excludeId);
+                          e.dataTransfer.dropEffect =
+                            payload.kind === "placement"
+                              ? valid ? "move" : "none"
+                              : valid ? "copy" : "none";
+                          setHovered({ startU, heightU: payloadH, valid });
+                        }
+                      : undefined
+                  }
+                  onDragLeave={
+                    onDropAtCell || onMovePlacement ? () => setHovered(null) : undefined
+                  }
+                  onDrop={
+                    onDropAtCell || onMovePlacement
+                      ? (e) => {
+                          e.preventDefault();
+                          setHovered(null);
+                          const payload = getDragPayload(e) ?? getActiveDragPayload();
+                          if (!payload) return;
+                          const payloadH = getPayloadHeight(payload);
+                          const excludeId =
+                            payload.kind === "placement" ? payload.placementId : undefined;
+                          if (!canDropAt(activeOcc.units, startU, payloadH, excludeId)) return;
+                          if (payload.kind === "placement") {
+                            if (startU === payload.startU && side === payload.side) return;
+                            onMovePlacement?.(side, payload.placementId, startU);
+                          } else {
+                            onDropAtCell?.(side, startU, payload);
+                          }
+                        }
+                      : undefined
+                  }
+                >
+                  <div style={contentCell(2, 100)} />
+                  <div style={contentCell(1, 80)} />
+                  <div style={contentCell(1, 80)} />
+                  <div style={contentCell(1, 80, { borderRight: "none" })} />
                 </div>
               );
-            }
-
-            // ── Empty row: drop target ───────────────────────────────────────
-            let rowStyle: CSSProperties = {
-              display: "flex",
-              height: ROW_H,
-              background: colors.empty,
-              borderBottom: `1px solid ${colors.emptyBorder}`,
-              cursor: onEmptySlotClick ? "pointer" : "default",
-              userSelect: "none",
-            };
-            if (isInRange(startU)) {
-              rowStyle = hovered!.valid
-                ? { ...rowStyle, background: "#c8e6c0", outline: "2px dashed #4a7c3f" }
-                : { ...rowStyle, background: "#fde8e8", outline: "2px dashed #cc4444" };
-            }
-
-            return (
-              <div
-                key={idx}
-                data-testid={`drop-cell-${side}-${startU}`}
-                style={rowStyle}
-                onClick={() => {
-                  onSelectPlacement(null);
-                  if (onEmptySlotClick) onEmptySlotClick(startU);
-                }}
-                onDragOver={
-                  onDropAtCell || onMovePlacement
-                    ? (e) => {
-                        e.preventDefault();
-                        const payload = getActiveDragPayload();
-                        if (!payload) return;
-                        const payloadH = getPayloadHeight(payload);
-                        const excludeId =
-                          payload.kind === "placement" ? payload.placementId : undefined;
-                        const valid = canDropAt(activeOcc.units, startU, payloadH, excludeId);
-                        e.dataTransfer.dropEffect =
-                          payload.kind === "placement"
-                            ? valid ? "move" : "none"
-                            : valid ? "copy" : "none";
-                        setHovered({ startU, heightU: payloadH, valid });
-                      }
-                    : undefined
-                }
-                onDragLeave={
-                  onDropAtCell || onMovePlacement ? () => setHovered(null) : undefined
-                }
-                onDrop={
-                  onDropAtCell || onMovePlacement
-                    ? (e) => {
-                        e.preventDefault();
-                        setHovered(null);
-                        const payload = getDragPayload(e);
-                        if (!payload) return;
-                        const payloadH = getPayloadHeight(payload);
-                        const excludeId =
-                          payload.kind === "placement" ? payload.placementId : undefined;
-                        if (!canDropAt(activeOcc.units, startU, payloadH, excludeId)) return;
-                        if (payload.kind === "placement") {
-                          if (startU === payload.startU && side === payload.side) return;
-                          onMovePlacement?.(side, payload.placementId, startU);
-                        } else {
-                          onDropAtCell?.(side, startU, payload);
-                        }
-                      }
-                    : undefined
-                }
-              >
-                <div
-                  style={{
-                    ...dataCellStyle(COL_U),
-                    background: colors.labelBg,
-                    color: "#888",
-                    borderRight: "1px solid #ccc",
-                    fontSize: "0.68rem",
-                  }}
-                >
-                  {`U${startU}`}
-                </div>
-                <div style={{ ...dataCellStyle(undefined, 2, 100), borderLeft: "2px solid #bbb" }} />
-                <div style={dataCellStyle(undefined, 1, 80)} />
-                <div style={{ ...dataCellStyle(undefined, 1, 80), borderRight: "none" }} />
-              </div>
-            );
-          })}
+            })}
+          </div>
         </div>
       </div>
 

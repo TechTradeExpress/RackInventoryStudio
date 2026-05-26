@@ -44,14 +44,18 @@ afterEach(() => {
 describe("RackUnitDiagram — column layout", () => {
   it('has a "Name" column header', () => {
     render(<RackUnitDiagram {...BASE_PROPS} />);
-    const nameHeader = screen.getByTestId("diagram-col-name");
-    expect(nameHeader.textContent?.trim()).toBe("Name");
+    expect(screen.getByTestId("diagram-col-name").textContent?.trim()).toBe("Name");
   });
 
   it('has "Model" and "Code / SN" column headers', () => {
     render(<RackUnitDiagram {...BASE_PROPS} />);
     expect(screen.getByTestId("diagram-col-model").textContent?.trim()).toBe("Model");
     expect(screen.getByTestId("diagram-col-code").textContent?.includes("Code")).toBe(true);
+  });
+
+  it('has an "Asset tag" column header', () => {
+    render(<RackUnitDiagram {...BASE_PROPS} />);
+    expect(screen.getByTestId("diagram-col-asset").textContent?.trim()).toBe("Asset tag");
   });
 
   it('does not render "Type", "U range", or "St." as column headers', () => {
@@ -61,7 +65,6 @@ describe("RackUnitDiagram — column layout", () => {
     expect(columnTexts).not.toContain("Type");
     expect(columnTexts).not.toContain("U range");
     expect(columnTexts).not.toContain("St.");
-    expect(columnTexts.some((t) => t === "St.")).toBe(false);
   });
 
   it('does not have "Front" or "Rear" as a data-column header', () => {
@@ -78,44 +81,52 @@ describe("RackUnitDiagram — column layout", () => {
   });
 });
 
-// ── U column range ─────────────────────────────────────────────────────────────
+// ── U gutter (rack-unit numbering) ─────────────────────────────────────────────
+// The U column is rack structure — each rack unit gets its own independent cell.
+// It does not carry selection styling or drag handles.
 
-describe("RackUnitDiagram — U column range", () => {
-  it("shows single U value for 1U placement (e.g. U10)", () => {
-    const p = makePlacement({ id: "p1", start_u: 10, end_u: 10, effective_height_u: 1, height_u: 1 });
-    render(<RackUnitDiagram {...BASE_PROPS} front={[p]} heightU={42} />);
-    const nameCell = screen.getByTestId("placed-front-p1");
-    const row = nameCell.parentElement!;
-    const uCell = row.firstChild as HTMLElement;
-    expect(uCell.textContent).toContain("U10");
+describe("RackUnitDiagram — U gutter (rack unit numbering)", () => {
+  it("shows a U gutter cell for each rack unit position", () => {
+    render(<RackUnitDiagram {...BASE_PROPS} heightU={5} />);
+    for (let u = 1; u <= 5; u++) {
+      expect(screen.getByTestId(`u-cell-front-${u}`).textContent).toContain(`U${u}`);
+    }
   });
 
-  it("shows full U range for multi-U placement (e.g. U5–U7)", () => {
+  it("shows separate individual U gutter cells for a multi-U placement, not a merged range", () => {
     const p = makePlacement({ id: "p2", start_u: 5, end_u: 7, effective_height_u: 3, height_u: 3 });
     render(<RackUnitDiagram {...BASE_PROPS} front={[p]} heightU={42} />);
-    const nameCell = screen.getByTestId("placed-front-p2");
-    const row = nameCell.parentElement!;
-    const uCell = row.firstChild as HTMLElement;
-    expect(uCell.textContent).toContain("U5–U7");
+    // Each rack unit has its own gutter cell
+    expect(screen.getByTestId("u-cell-front-7").textContent).toContain("U7");
+    expect(screen.getByTestId("u-cell-front-6").textContent).toContain("U6");
+    expect(screen.getByTestId("u-cell-front-5").textContent).toContain("U5");
+    // No merged range notation in any U gutter cell
+    for (const u of [5, 6, 7]) {
+      expect(screen.getByTestId(`u-cell-front-${u}`).textContent).not.toContain("–");
+    }
   });
 
-  it("empty row U cell shows U-prefixed number", () => {
+  it("U gutter shows correct label for an occupied unit", () => {
+    const p = makePlacement({ id: "p1", start_u: 10, end_u: 10, effective_height_u: 1, height_u: 1 });
+    render(<RackUnitDiagram {...BASE_PROPS} front={[p]} heightU={42} />);
+    expect(screen.getByTestId("u-cell-front-10").textContent).toContain("U10");
+  });
+
+  it("U gutter shows correct label for an empty unit", () => {
     render(<RackUnitDiagram {...BASE_PROPS} heightU={5} />);
-    const dropCell = screen.getByTestId("drop-cell-front-3");
-    const uCell = dropCell.firstChild as HTMLElement;
-    expect(uCell.textContent).toContain("U3");
+    expect(screen.getByTestId("u-cell-front-3").textContent).toContain("U3");
   });
 });
 
-// ── Occupied row ───────────────────────────────────────────────────────────────
+// ── Occupied placement card ────────────────────────────────────────────────────
 
-describe("RackUnitDiagram — occupied row", () => {
-  const PLACEMENT = makePlacement({ id: "placement-1", start_u: 3 });
+describe("RackUnitDiagram — occupied placement card", () => {
+  // PLACEMENT occupies U3–U4 (2U); the content card has testid placed-front-placement-1
+  const PLACEMENT = makePlacement({ id: "placement-1", start_u: 3, end_u: 4, effective_height_u: 2, height_u: 2 });
 
-  it("renders placed item with its name in the Name cell", () => {
+  it("renders placed item primary label in the content card", () => {
     render(<RackUnitDiagram {...BASE_PROPS} front={[PLACEMENT]} />);
-    const nameCell = screen.getByTestId("placed-front-placement-1");
-    expect(nameCell.textContent).toContain("Production Server");
+    expect(screen.getByTestId("placed-front-placement-1").textContent).toContain("Production Server");
   });
 
   it("renders model_name in the diagram", () => {
@@ -123,7 +134,7 @@ describe("RackUnitDiagram — occupied row", () => {
     expect(screen.getByText("Dell R750")).toBeTruthy();
   });
 
-  it("clicking anywhere in the row calls onSelectPlacement", () => {
+  it("clicking the content card calls onSelectPlacement", () => {
     const onSelect = vi.fn();
     render(
       <RackUnitDiagram {...BASE_PROPS} front={[PLACEMENT]} onSelectPlacement={onSelect} />,
@@ -132,37 +143,63 @@ describe("RackUnitDiagram — occupied row", () => {
     expect(onSelect).toHaveBeenCalledWith(PLACEMENT);
   });
 
-  it("Name cell is draggable when onMovePlacement is provided", () => {
+  it("content card is draggable when onMovePlacement is provided", () => {
     const onMove = vi.fn();
     render(<RackUnitDiagram {...BASE_PROPS} front={[PLACEMENT]} onMovePlacement={onMove} />);
-    const nameCell = screen.getByTestId("placed-front-placement-1");
-    expect(nameCell.getAttribute("draggable")).toBe("true");
+    expect(screen.getByTestId("placed-front-placement-1").getAttribute("draggable")).toBe("true");
   });
 
-  it("Name cell is not draggable when onMovePlacement is omitted", () => {
+  it("content card is not draggable when onMovePlacement is omitted", () => {
     render(<RackUnitDiagram {...BASE_PROPS} front={[PLACEMENT]} />);
-    const nameCell = screen.getByTestId("placed-front-placement-1");
-    expect(nameCell.getAttribute("draggable")).toBe("false");
+    expect(screen.getByTestId("placed-front-placement-1").getAttribute("draggable")).toBe("false");
   });
 
-  it("U cell is not the drag source (not draggable)", () => {
+  it("U gutter cell is not draggable — it is not the drag source", () => {
     const onMove = vi.fn();
     render(<RackUnitDiagram {...BASE_PROPS} front={[PLACEMENT]} onMovePlacement={onMove} />);
-    const nameCell = screen.getByTestId("placed-front-placement-1");
-    const row = nameCell.parentElement!;
-    const uCell = row.firstChild as HTMLElement;
+    // U4 is the top rendered U of the 2U placement (U3–U4)
+    const uCell = screen.getByTestId("u-cell-front-4");
     expect(uCell.getAttribute("draggable")).not.toBe("true");
   });
 
-  it("U cell does not carry the same testid as the draggable Name cell", () => {
-    const onMove = vi.fn();
-    const { container } = render(
-      <RackUnitDiagram {...BASE_PROPS} front={[PLACEMENT]} onMovePlacement={onMove} />,
+  it("U gutter cell is a separate element from the content card", () => {
+    render(<RackUnitDiagram {...BASE_PROPS} front={[PLACEMENT]} />);
+    const card = screen.getByTestId("placed-front-placement-1");
+    const uCell = screen.getByTestId("u-cell-front-4");
+    expect(uCell).not.toBe(card);
+  });
+
+  it("selection ring/background applies to content card but not U gutter cell", () => {
+    render(
+      <RackUnitDiagram
+        {...BASE_PROPS}
+        front={[PLACEMENT]}
+        selectedPlacementId="placement-1"
+      />,
     );
-    const nameCell = screen.getByTestId("placed-front-placement-1");
-    const row = nameCell.parentElement!;
-    const uCell = row.firstChild as HTMLElement;
-    expect(uCell).not.toBe(nameCell);
+    const card = screen.getByTestId("placed-front-placement-1");
+    const uCell = screen.getByTestId("u-cell-front-4");
+    // Content card gets the gold selection ring
+    expect(card.style.boxShadow).toContain("ffd700");
+    // U gutter cell has no selection styling
+    expect(uCell.style.boxShadow).toBe("");
+    expect(uCell.style.background).not.toContain("357abd");
+  });
+
+  it("shows target_asset_tag in Asset tag column when present", () => {
+    const p = makePlacement({ id: "p-at", target_asset_tag: "AT-999" });
+    render(<RackUnitDiagram {...BASE_PROPS} front={[p]} />);
+    expect(screen.getByText("AT-999")).toBeTruthy();
+  });
+
+  it("shows — in Asset tag column when target_asset_tag is null", () => {
+    const p = makePlacement({ id: "p-no-at", target_asset_tag: null });
+    render(<RackUnitDiagram {...BASE_PROPS} front={[p]} />);
+    // The Asset tag column header is visible
+    expect(screen.getByTestId("diagram-col-asset").textContent?.trim()).toBe("Asset tag");
+    // The content card contains the fallback dash
+    const card = screen.getByTestId("placed-front-p-no-at");
+    expect(card.textContent).toContain("—");
   });
 });
 

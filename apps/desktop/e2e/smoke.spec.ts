@@ -193,14 +193,21 @@ test("rack detail: diagram is primary surface — no placement table", async ({ 
   // Table headers that only existed in the placement table must not appear
   await expect(page.getByRole("columnheader", { name: "Asset tag", exact: true })).not.toBeVisible();
 
-  // Diagram grid has a "Name" column header (multi-column layout)
+  // Diagram grid column headers (multi-column layout)
   await expect(page.getByTestId("diagram-col-name")).toBeVisible();
   await expect(page.getByTestId("diagram-col-name")).toHaveText("Name");
+  await expect(page.getByTestId("diagram-col-asset")).toBeVisible();
+  await expect(page.getByTestId("diagram-col-asset")).toHaveText("Asset tag");
   // "Front" must not appear as a data-column header inside the diagram header row
   const headerEl = page.locator('[aria-label="Rack diagram header"]');
   await expect(headerEl).toBeVisible();
   // Placed item shows its name/label in the diagram
   await expect(page.getByTestId("placed-front-ffffffff-ffff-ffff-ffff-ffffffffffff")).toContainText("srv-01");
+  // U gutter shows separate rack-unit cells (fixture placement is at U10)
+  await expect(page.getByTestId("u-cell-front-10")).toBeVisible();
+  await expect(page.getByTestId("u-cell-front-10")).toContainText("U10");
+  // U gutter cell is a distinct element from the placement card
+  await expect(page.getByTestId("u-cell-front-10")).not.toHaveAttribute("data-testid", "placed-front-ffffffff-ffff-ffff-ffff-ffffffffffff");
 
   // Palette sidebar is still visible (right column — Placeable equipment)
   await expect(page.getByRole("heading", { name: "Placeable equipment", exact: true })).toBeVisible();
@@ -572,6 +579,9 @@ test("rack detail: drag placed block to new U position moves it", async ({ page 
   ).toBeVisible({ timeout: 8_000 });
   // U10 is now empty (the old position)
   await expect(page.getByTestId("drop-cell-front-10")).toBeVisible();
+  // U gutter cells remain separate and visible for both old and new position
+  await expect(page.getByTestId("u-cell-front-10")).toBeVisible();
+  await expect(page.getByTestId("u-cell-front-5")).toBeVisible();
 });
 
 test("rack detail: create rack object from place modal and place it", async ({ page }) => {
@@ -681,6 +691,8 @@ test("rack detail: drag placed equipment to Placeable equipment panel to unplace
 
   // U10 row becomes an empty drop cell
   await expect(page.getByTestId("drop-cell-front-10")).toBeVisible({ timeout: 8_000 });
+  // U gutter cell for U10 remains visible as separate rack unit numbering
+  await expect(page.getByTestId("u-cell-front-10")).toBeVisible({ timeout: 8_000 });
 
   // The unplaced device now appears in the Placeable equipment palette
   await expect(
