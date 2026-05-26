@@ -154,10 +154,14 @@ export function LocationsPanel({
                     className={`tbl-clickable${loc.id === highlightedLocationId ? " tbl-selected" : ""}`}
                     onClick={() => onManageRacks?.(loc)}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        onManageRacks?.(loc);
-                      }
+                      if (e.key !== "Enter" && e.key !== " ") return;
+                      const target = e.target as HTMLElement;
+                      if (
+                        target !== e.currentTarget &&
+                        target.closest('button, a, input, select, textarea, [role="button"]')
+                      ) return;
+                      e.preventDefault();
+                      onManageRacks?.(loc);
                     }}
                   >
                     <td className="tbl-mono"><strong>{loc.code}</strong></td>

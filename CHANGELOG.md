@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — Settings logs directory fixes (QA round, repair)
+
+### Fixed
+- `apps/desktop/src-tauri/src/app_config.rs` / `lib.rs`: startup log dir is now validated for writability via a probe-file write before being passed to `tauri-plugin-log`. Introduced `is_dir_writable`, `prepare_log_dir_candidate`, and `resolve_startup_log_dir` helpers that cascade through custom dir → platform default → OS temp dir. Passing an unwritable directory to the plugin previously caused a panic (`PluginInitialization("log", "Permission denied (os error 13)")`).
+- `apps/desktop/src/features/locations/LocationsPanel.tsx`: pressing Enter/Space while focused on an action button (Edit, Delete) no longer bubbles to the row `onKeyDown` and triggers navigation. The guard checks `e.target !== e.currentTarget` before testing whether the event originated from an interactive child element.
+
 ## Unreleased — Settings logs directory fixes (QA round)
 
 ### Fixed

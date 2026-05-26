@@ -10,9 +10,8 @@ const BUNDLE_ID: &str = "com.techtradeexpress.rackinventorystudio";
 /// process. Populated during `lib.rs` startup before Tauri builder completes,
 /// so commands can return the real active path.
 pub struct ActiveLogState {
-    /// `None` means the platform default (`TargetKind::LogDir`) is in use.
-    /// `Some(path)` means a custom folder was configured at startup.
-    pub dir: Option<PathBuf>,
+    /// The actual directory passed to `tauri-plugin-log` at startup.
+    pub dir: PathBuf,
 }
 
 /// Persisted application configuration stored at `{app_config_dir}/app_config.json`.
@@ -77,54 +76,89 @@ pub fn get_default_logs_dir(app: &tauri::AppHandle) -> PathBuf {
 /// Returns the log directory actually used by the current running process.
 ///
 /// Reads from `ActiveLogState` managed state, which is set in `lib.rs` before
-/// the Tauri builder runs. If no custom directory was configured at startup, the
-/// platform default (`app.path().app_log_dir()`) is returned.
+/// the Tauri builder runs. Falls back to the platform default only if managed
+/// state is absent (should not happen in normal operation).
 pub fn get_active_logs_dir(app: &tauri::AppHandle) -> PathBuf {
     if let Some(state) = app.try_state::<ActiveLogState>() {
-        if let Some(ref dir) = state.dir {
-            return dir.clone();
-        }
+        return state.dir.clone();
     }
     get_default_logs_dir(app)
 }
 
-/// Validate and materialise the persisted custom log directory for use at startup.
-///
-/// Returns `Some(dir)` only when:
-/// - the path is absolute,
-/// - the path either already exists as a directory, or
-///   does not exist and `create_dir_all` succeeds.
-///
-/// Returns `None` — falling back to the platform default — when:
-/// - no custom path is configured,
-/// - the path is relative,
-/// - the path already exists but is a file (not a directory),
-/// - the path does not exist and `create_dir_all` fails (e.g. missing drive,
-///   permission denied, unavailable network share).
-///
-/// The saved config is **not** modified; the user can still see the configured
-/// path in Settings and change it.
-pub fn resolve_startup_custom_log_dir(config_dir: Option<&Path>) -> Option<PathBuf> {
-    let config_dir = config_dir?;
-    let cfg = load_app_config(config_dir);
-    let raw = cfg.logs_directory?;
-    let path = PathBuf::from(&raw);
-
-    if !path.is_absolute() {
-        return None;
-    }
-    if path.exists() {
-        if path.is_dir() {
-            return Some(path);
+/// Check whether `path` is a writable directory by creating and immediately
+/// deleting a small probe file inside it.
+pub fn is_dir_writable(path: &Path) -> bool {
+    let probe = path.join(format!(".ris_write_probe_{}", std::process::id()));
+    match std::fs::write(&probe, b"probe") {
+        Ok(()) => {
+            let _ = std::fs::remove_file(&probe);
+            true
         }
-        // Exists but is a file or something else — unusable.
-        return None;
+        Err(_) => false,
     }
-    // Path does not exist — try to create it.
-    match std::fs::create_dir_all(&path) {
-        Ok(()) => Some(path),
-        Err(_) => None,
+}
+
+/// Ensure `path` is a usable log directory: it must be (or become) a directory
+/// and must be writable.
+///
+/// Returns `Ok(path)` on success, `Err(description)` if the path cannot be used.
+pub fn prepare_log_dir_candidate(path: &Path) -> Result<PathBuf, String> {
+    if path.exists() && !path.is_dir() {
+        return Err(format!(
+            "'{}' exists but is not a directory",
+            path.display()
+        ));
     }
+    if !path.exists() {
+        std::fs::create_dir_all(path)
+            .map_err(|e| format!("Cannot create '{}': {e}", path.display()))?;
+    }
+    if !is_dir_writable(path) {
+        return Err(format!("'{}' is not writable", path.display()));
+    }
+    Ok(path.to_path_buf())
+}
+
+/// Determine the log directory to use at startup and ensure it is usable.
+///
+/// Cascades through three candidates in order:
+/// 1. Persisted custom directory (from app config), if configured and usable.
+/// 2. Platform default directory (mirrors `tauri-plugin-log`'s `LogDir` resolution).
+/// 3. `{temp_dir}/{BUNDLE_ID}/logs` as a last-resort fallback.
+///
+/// Each candidate is validated by `prepare_log_dir_candidate` (directory must
+/// exist or be creatable, and must be writable via a probe write). This prevents
+/// passing an unwritable path to `tauri-plugin-log`, which would panic on startup
+/// with `PluginInitialization("log", "Permission denied (os error 13)")`.
+///
+/// Returns the path of the first usable candidate. If all three fail (extremely
+/// unlikely — the OS temp dir is almost always writable), returns the temp-dir
+/// path anyway so startup can continue.
+pub fn resolve_startup_log_dir(config_dir: Option<&Path>) -> PathBuf {
+    // 1. Custom persisted directory.
+    if let Some(cfg_dir) = config_dir {
+        let cfg = load_app_config(cfg_dir);
+        if let Some(raw) = cfg.logs_directory {
+            let path = PathBuf::from(&raw);
+            if path.is_absolute() {
+                if let Ok(v) = prepare_log_dir_candidate(&path) {
+                    return v;
+                }
+            }
+        }
+    }
+    // 2. Platform default directory.
+    if let Some(default) = resolve_default_log_dir_early() {
+        if let Ok(v) = prepare_log_dir_candidate(&default) {
+            return v;
+        }
+    }
+    // 3. Temp dir fallback.
+    let temp = std::env::temp_dir().join(BUNDLE_ID).join("logs");
+    if let Ok(v) = prepare_log_dir_candidate(&temp) {
+        return v;
+    }
+    temp
 }
 
 /// Resolve the platform default log directory without an `AppHandle`.
@@ -261,121 +295,6 @@ mod tests {
         assert!(loaded.logs_directory.is_none());
     }
 
-    // ── resolve_startup_custom_log_dir ────────────────────────────────────────
-
-    /// No config file → returns None (use platform default).
-    #[test]
-    fn startup_custom_dir_none_when_no_config() {
-        let config_dir = tempfile::tempdir().unwrap();
-        let result = resolve_startup_custom_log_dir(Some(config_dir.path()));
-        assert!(result.is_none(), "empty config should yield None");
-    }
-
-    /// None config dir → returns None.
-    #[test]
-    fn startup_custom_dir_none_when_config_dir_absent() {
-        let result = resolve_startup_custom_log_dir(None);
-        assert!(result.is_none());
-    }
-
-    /// Valid existing directory → returns Some(custom_path).
-    #[test]
-    fn startup_custom_dir_returns_existing_dir() {
-        let config_dir = tempfile::tempdir().unwrap();
-        let custom_log_dir = tempfile::tempdir().unwrap();
-        let cfg = AppConfig {
-            logs_directory: Some(custom_log_dir.path().to_string_lossy().into_owned()),
-        };
-        save_app_config(config_dir.path(), &cfg).unwrap();
-
-        let result = resolve_startup_custom_log_dir(Some(config_dir.path()));
-        assert_eq!(
-            result.as_deref(),
-            Some(custom_log_dir.path()),
-            "existing dir should be returned as active"
-        );
-    }
-
-    /// Valid non-existing absolute path → dir is created, returns Some.
-    #[test]
-    fn startup_custom_dir_creates_missing_directory() {
-        let config_dir = tempfile::tempdir().unwrap();
-        // Pick a path that doesn't exist yet inside a real temp dir.
-        let base = tempfile::tempdir().unwrap();
-        let new_dir = base.path().join("nested").join("logs");
-        assert!(!new_dir.exists());
-
-        let cfg = AppConfig {
-            logs_directory: Some(new_dir.to_string_lossy().into_owned()),
-        };
-        save_app_config(config_dir.path(), &cfg).unwrap();
-
-        let result = resolve_startup_custom_log_dir(Some(config_dir.path()));
-        assert_eq!(
-            result.as_deref(),
-            Some(new_dir.as_path()),
-            "non-existing dir should be created and returned"
-        );
-        assert!(new_dir.is_dir(), "directory should have been created");
-    }
-
-    /// Relative path → returns None.
-    #[test]
-    fn startup_custom_dir_rejects_relative_path() {
-        let config_dir = tempfile::tempdir().unwrap();
-        let cfg = AppConfig {
-            logs_directory: Some("relative/path/logs".to_string()),
-        };
-        save_app_config(config_dir.path(), &cfg).unwrap();
-
-        let result = resolve_startup_custom_log_dir(Some(config_dir.path()));
-        assert!(result.is_none(), "relative path should be rejected");
-    }
-
-    /// Path exists but is a file → returns None.
-    #[test]
-    fn startup_custom_dir_rejects_existing_file() {
-        let config_dir = tempfile::tempdir().unwrap();
-        let tmp = tempfile::tempdir().unwrap();
-        let file_path = tmp.path().join("notadir.txt");
-        std::fs::write(&file_path, b"data").unwrap();
-
-        let cfg = AppConfig {
-            logs_directory: Some(file_path.to_string_lossy().into_owned()),
-        };
-        save_app_config(config_dir.path(), &cfg).unwrap();
-
-        let result = resolve_startup_custom_log_dir(Some(config_dir.path()));
-        assert!(
-            result.is_none(),
-            "existing file should be rejected as log dir"
-        );
-    }
-
-    /// Path under a non-existent parent that cannot be created → returns None.
-    /// We simulate this by using a path rooted in a non-existent location.
-    #[test]
-    fn startup_custom_dir_rejects_uncreatable_path() {
-        let config_dir = tempfile::tempdir().unwrap();
-        // Use a path whose parent is an existing file — create_dir_all will fail
-        // because it cannot create a dir where a file already exists.
-        let tmp = tempfile::tempdir().unwrap();
-        let blocking_file = tmp.path().join("block");
-        std::fs::write(&blocking_file, b"x").unwrap();
-        let bad_path = blocking_file.join("subdir"); // parent is a file
-
-        let cfg = AppConfig {
-            logs_directory: Some(bad_path.to_string_lossy().into_owned()),
-        };
-        save_app_config(config_dir.path(), &cfg).unwrap();
-
-        let result = resolve_startup_custom_log_dir(Some(config_dir.path()));
-        assert!(
-            result.is_none(),
-            "uncreatable path should fall back to default"
-        );
-    }
-
     /// `restart_required` is false when persisted dir equals the active dir
     /// (i.e. the app was restarted with the custom dir already applied).
     #[test]
@@ -417,5 +336,111 @@ mod tests {
             effective_after_restart != active,
             "reset while custom dir active should require restart"
         );
+    }
+
+    // ── is_dir_writable ───────────────────────────────────────────────────────
+
+    #[test]
+    fn writable_temp_dir_returns_true() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(is_dir_writable(dir.path()), "temp dir should be writable");
+    }
+
+    #[test]
+    fn file_path_as_dir_returns_false() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("afile.txt");
+        std::fs::write(&file, b"x").unwrap();
+        // Treating a file as the "directory" — probe write inside it must fail.
+        assert!(
+            !is_dir_writable(&file),
+            "file path should not be considered writable as a dir"
+        );
+    }
+
+    // ── prepare_log_dir_candidate ─────────────────────────────────────────────
+
+    #[test]
+    fn prepare_existing_writable_dir_is_ok() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = prepare_log_dir_candidate(dir.path());
+        assert!(result.is_ok(), "existing writable dir should be accepted");
+        assert_eq!(result.unwrap(), dir.path());
+    }
+
+    #[test]
+    fn prepare_creates_missing_directory() {
+        let base = tempfile::tempdir().unwrap();
+        let new_dir = base.path().join("nested").join("logs");
+        assert!(!new_dir.exists());
+        let result = prepare_log_dir_candidate(&new_dir);
+        assert!(result.is_ok(), "missing dir should be created");
+        assert!(new_dir.is_dir(), "directory should exist after prepare");
+    }
+
+    #[test]
+    fn prepare_rejects_existing_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("notadir.txt");
+        std::fs::write(&file, b"data").unwrap();
+        let result = prepare_log_dir_candidate(&file);
+        assert!(result.is_err(), "existing file should be rejected");
+    }
+
+    #[test]
+    fn prepare_rejects_uncreatable_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let blocking_file = tmp.path().join("block");
+        std::fs::write(&blocking_file, b"x").unwrap();
+        // Cannot create a directory whose parent is a file.
+        let bad = blocking_file.join("subdir");
+        let result = prepare_log_dir_candidate(&bad);
+        assert!(result.is_err(), "uncreatable path should be rejected");
+    }
+
+    // ── resolve_startup_log_dir ───────────────────────────────────────────────
+
+    #[test]
+    fn startup_log_dir_uses_valid_custom_dir() {
+        let config_dir = tempfile::tempdir().unwrap();
+        let custom_log_dir = tempfile::tempdir().unwrap();
+        let cfg = AppConfig {
+            logs_directory: Some(custom_log_dir.path().to_string_lossy().into_owned()),
+        };
+        save_app_config(config_dir.path(), &cfg).unwrap();
+
+        let result = resolve_startup_log_dir(Some(config_dir.path()));
+        assert_eq!(
+            result,
+            custom_log_dir.path(),
+            "should use the custom log dir when valid"
+        );
+    }
+
+    #[test]
+    fn startup_log_dir_skips_invalid_custom_and_falls_back() {
+        let config_dir = tempfile::tempdir().unwrap();
+        // Custom dir points inside a file — uncreatable.
+        let tmp = tempfile::tempdir().unwrap();
+        let blocking_file = tmp.path().join("block");
+        std::fs::write(&blocking_file, b"x").unwrap();
+        let bad = blocking_file.join("logs");
+        let cfg = AppConfig {
+            logs_directory: Some(bad.to_string_lossy().into_owned()),
+        };
+        save_app_config(config_dir.path(), &cfg).unwrap();
+
+        let result = resolve_startup_log_dir(Some(config_dir.path()));
+        // Must NOT be the bad path; should have fallen back to default or temp.
+        assert_ne!(result, bad, "should not use the invalid custom dir");
+        assert!(result.is_dir(), "fallback path should be a real directory");
+    }
+
+    #[test]
+    fn startup_log_dir_without_config_returns_a_writable_dir() {
+        let result = resolve_startup_log_dir(None);
+        // Without any config the result should be an existing writable directory.
+        assert!(result.is_dir(), "result should be an existing directory");
+        assert!(is_dir_writable(&result), "result should be writable");
     }
 }

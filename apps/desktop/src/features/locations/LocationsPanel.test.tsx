@@ -88,4 +88,46 @@ describe("LocationsPanel — location row navigates to racks", () => {
       expect(onManageRacks).not.toHaveBeenCalled();
     });
   });
+
+  it("pressing Enter on the row calls onManageRacks", async () => {
+    const onManageRacks = vi.fn();
+    render(<LocationsPanel {...BASE_PROPS} onManageRacks={onManageRacks} />);
+    const row = await screen.findByRole("button", { name: "Open racks for Warsaw A" });
+    fireEvent.keyDown(row, { key: "Enter" });
+    await waitFor(() => {
+      expect(onManageRacks).toHaveBeenCalledOnce();
+      expect(onManageRacks.mock.calls[0][0].id).toBe("loc-1");
+    });
+  });
+
+  it("pressing Space on the row calls onManageRacks", async () => {
+    const onManageRacks = vi.fn();
+    render(<LocationsPanel {...BASE_PROPS} onManageRacks={onManageRacks} />);
+    const row = await screen.findByRole("button", { name: "Open racks for Warsaw A" });
+    fireEvent.keyDown(row, { key: " " });
+    await waitFor(() => {
+      expect(onManageRacks).toHaveBeenCalledOnce();
+    });
+  });
+
+  it("pressing Enter on an action button does not trigger row navigation", async () => {
+    const onManageRacks = vi.fn();
+    render(<LocationsPanel {...BASE_PROPS} onManageRacks={onManageRacks} />);
+    await screen.findByRole("button", { name: "Open racks for Warsaw A" });
+    fireEvent.keyDown(screen.getByRole("button", { name: "Edit Warsaw A" }), { key: "Enter" });
+    // Allow microtasks to flush
+    await waitFor(() => {
+      expect(onManageRacks).not.toHaveBeenCalled();
+    });
+  });
+
+  it("pressing Space on an action button does not trigger row navigation", async () => {
+    const onManageRacks = vi.fn();
+    render(<LocationsPanel {...BASE_PROPS} onManageRacks={onManageRacks} />);
+    await screen.findByRole("button", { name: "Open racks for Warsaw A" });
+    fireEvent.keyDown(screen.getByRole("button", { name: "Delete Warsaw A" }), { key: " " });
+    await waitFor(() => {
+      expect(onManageRacks).not.toHaveBeenCalled();
+    });
+  });
 });
