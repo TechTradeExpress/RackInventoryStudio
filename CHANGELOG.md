@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased — Settings logs directory controls (Milestone H)
+
+### Added
+- `apps/desktop/src/features/settings/SettingsPanel.tsx`: "Diagnostics and logs" panel shows the active and default log directory paths; buttons to open the folder in the OS file manager, choose a custom folder, and reset to the platform default.
+- `apps/desktop/src-tauri/src/commands/log_settings.rs`: four Tauri commands — `get_log_settings`, `open_logs_directory`, `set_logs_directory`, `reset_logs_directory` — handling path resolution, directory creation, config persistence, and restart-required signalling.
+- `apps/desktop/src-tauri/src/app_config.rs`: `AppConfig` struct with JSON persistence (`app_config.json`); `ActiveLogState` managed state recording the log directory used by the current process; startup resolution of custom log dir before Tauri builder runs.
+- `apps/desktop/src/api/tauriClient.ts`: `LogSettingsDto` interface and wrappers for all four log-settings commands, plus `selectDirectory()` for the native folder picker.
+- `apps/desktop/e2e/mocks/tauri-core.ts`: E2E mock responses for all four log-settings commands.
+
+### Changed
+- `apps/desktop/lib.rs`: log plugin is initialised at startup with the custom dir (if persisted and valid) via `tauri_plugin_log::TargetKind::Folder`; falls back to `LogDir` if the custom path is unusable.
+
+### Tests
+- `apps/desktop/src/features/settings/SettingsPanel.test.tsx`: 11 unit tests covering section rendering, button presence, open logs folder, choose folder cancel/success/error, set-directory error, reset to default, active path display, and restart warning.
+- `apps/desktop/src-tauri/src/app_config.rs`: 13 Rust unit tests covering load/save round-trip, malformed JSON fallback, reset, startup dir resolution (valid dir, missing dir created, relative path rejected, file path rejected, uncreatable path), and `restart_required` logic.
+- `apps/desktop/e2e/smoke.spec.ts`: two E2E tests — settings accessible without a repo; logs directory actions visible and active path displayed.
+
 ## Unreleased — UX copy and navigation cleanup
 
 ### Changed

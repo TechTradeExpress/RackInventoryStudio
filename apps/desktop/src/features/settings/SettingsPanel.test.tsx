@@ -142,4 +142,55 @@ describe("SettingsPanel", () => {
       ).toBeNull();
     });
   });
+
+  it("shows active log directory path from loaded settings", async () => {
+    render(<SettingsPanel />);
+    await waitFor(() => {
+      // getAllByText because default and active share the same path in the fixture
+      expect(
+        screen.getAllByText("/home/user/.local/share/com.test/logs").length,
+      ).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  it("Open logs folder: backend error shows error banner", async () => {
+    mockOpenLogsDirectory.mockRejectedValue(new Error("Cannot open folder"));
+    render(<SettingsPanel />);
+    const btn = await screen.findByRole("button", { name: "Open logs folder" });
+    fireEvent.click(btn);
+    await waitFor(() => {
+      expect(screen.getByText(/Cannot open folder/)).toBeTruthy();
+    });
+  });
+
+  it("Choose logs folder: backend error shows error banner", async () => {
+    mockSelectDirectory.mockResolvedValue("/tmp/bad-path");
+    mockSetLogsDirectory.mockRejectedValue(new Error("Cannot create directory"));
+    render(<SettingsPanel />);
+    const btn = await screen.findByRole("button", {
+      name: "Choose logs folder…",
+    });
+    fireEvent.click(btn);
+    await waitFor(() => {
+      expect(screen.getByText(/Cannot create directory/)).toBeTruthy();
+    });
+    // No success banner
+    expect(
+      screen.queryByText(/Changes will apply after restarting/),
+    ).toBeNull();
+  });
+
+  it("shows custom directory row and restart warning when custom_log_dir is set", async () => {
+    mockGetLogSettings.mockResolvedValue({
+      ...DEFAULT_LOG_SETTINGS,
+      custom_log_dir: "/tmp/custom-logs",
+      restart_required: true,
+    });
+    render(<SettingsPanel />);
+    await waitFor(() => {
+      expect(screen.getByText(/Custom directory/)).toBeTruthy();
+      expect(screen.getByText("/tmp/custom-logs")).toBeTruthy();
+      expect(screen.getByText(/Changes will apply after restart/)).toBeTruthy();
+    });
+  });
 });
