@@ -58,14 +58,14 @@ export function PlacementInspectorPanel({
   const rows: [string, string | number | null | undefined, boolean?][] = [
     ["Code",            placement.code,                  true],
     ["Side",            side,                            false],
-    ["Target kind",     placement.target_kind,           false],
+    ["Target type",     placement.target_kind,           false],
     ["Target code",     placement.target_code,           true],
     ["Target name",     placement.target_name,           false],
     ["Device type",     placement.device_type,           false],
     ["Start U",         placement.start_u,               true],
     ["End U",           placement.end_u,                 true],
-    ["Height U",        placement.height_u,              true],
-    ["Eff. height U",   placement.effective_height_u,    true],
+    ["Height",          placement.height_u,              true],
+    ["Effective height", placement.effective_height_u,  true],
     ["Note",            placement.note,                  false],
     ["Tags",            placement.tags.length > 0 ? placement.tags.join(", ") : null, false],
   ];

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — UX copy and navigation cleanup
+
+### Changed
+- `LocationsPanel.tsx`: location name is now a clickable link-button that opens the rack view directly (replaces the separate "Manage racks" icon button, which has been removed).
+- `PlacementInspectorPanel.tsx`: KV labels renamed: "Target kind" → "Target type", "Height U" → "Height", "Eff. height U" → "Effective height".
+- `EditPlacementModal.tsx` / `PlacePlacementModal.tsx`: field label "Height U override" → "Height override"; matching validation error message updated.
+- `rackOccupancy.ts`: occupancy warning strings are now sentence-cased and use human-readable names (e.g. "Start U is less than 1", "Height unknown — shown at start U only", "End U (n) exceeds rack height h — clamped") instead of raw field names.
+
 ## Unreleased — Complete rack placement editing workflow
 
 ### Added

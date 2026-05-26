@@ -1,6 +1,10 @@
 ## Summary
 
-Milestone G — Complete rack placement editing workflow, including three QA correction rounds. Four functional areas added: (A) drag-to-move for already placed equipment in the rack diagram, (B) rack diagram multi-column grid layout, (C) "Create new rack object" from the Place equipment modal, (D) "Edit device" / "Edit rack object" from both the Place equipment modal and the placement inspector panel. (E) drag-to-unrack by dropping a placed item onto the Placeable equipment panel.
+Milestone G — Complete rack placement editing workflow, including three QA correction rounds and a final cosmetic cleanup pass (QA round 4).
+
+**QA round 4 / cosmetic cleanup:**
+- **UX copy:** Warning strings in `rackOccupancy.ts` are now sentence-cased and use human-readable names. KV labels in `PlacementInspectorPanel.tsx` cleaned ("Target type", "Height", "Effective height"). "Height U override" → "Height override" field label and error message in both placement modals.
+- **Locations navigation:** Removed the "Manage racks" icon button from each location row. Location name is now a link-button (`aria-label="Open racks for {name}"`) that navigates to racks directly. Four functional areas added: (A) drag-to-move for already placed equipment in the rack diagram, (B) rack diagram multi-column grid layout, (C) "Create new rack object" from the Place equipment modal, (D) "Edit device" / "Edit rack object" from both the Place equipment modal and the placement inspector panel. (E) drag-to-unrack by dropping a placed item onto the Placeable equipment panel.
 
 **QA round 1 corrections:** Replaced single "Front"-labelled column with multi-column grid (U · Name · Model · Code/SN).
 
@@ -19,6 +23,16 @@ Milestone G — Complete rack placement editing workflow, including three QA cor
 - **Layout:** Two-section layout: fixed-width U gutter (60 px) on the left; flex content area (Name flex-2 / Model flex-1 / Code SN flex-1 / Asset tag flex-1) on the right. Both sections share the same scroll container. Occupied placement cards in the content area span `effectiveHeightU × 22 px` height; the U gutter always shows one 22 px cell per rack unit — heights align by construction.
 
 ## Files changed
+
+- `apps/desktop/src/features/racks/rackOccupancy.ts` — warning strings now sentence-cased, human-readable (no raw field names).
+- `apps/desktop/src/features/racks/rackOccupancy.test.ts` — warning assertions updated to match new strings.
+- `apps/desktop/src/features/racks/PlacementInspectorPanel.tsx` — KV labels: "Target kind"→"Target type", "Height U"→"Height", "Eff. height U"→"Effective height".
+- `apps/desktop/src/features/racks/EditPlacementModal.tsx` — field label and error: "Height U override"→"Height override".
+- `apps/desktop/src/features/racks/EditPlacementModal.test.tsx` — assertions updated for new error string.
+- `apps/desktop/src/features/racks/PlacePlacementModal.tsx` — field label and error: "Height U override"→"Height override".
+- `apps/desktop/src/features/locations/LocationsPanel.tsx` — removed IcServer "Manage racks" button; location name is now a link-button calling `onManageRacks`.
+- `apps/desktop/src/features/locations/LocationsPanel.test.tsx` — tests updated: "Manage racks for" → "Open racks for".
+- `apps/desktop/e2e/smoke.spec.ts` — all 12 "Manage racks for Server Room A" replaced with "Open racks for Server Room A".
 
 - `apps/desktop/src/features/racks/RackUnitDiagram.tsx` — complete rewrite: two-section layout (U gutter + content area); U gutter with `data-testid="u-cell-${side}-${startU}"` cells; content card with `data-testid="placed-${side}-${p.id}"` is the draggable element; selection only on content card; custom drag image; Asset tag column; Code/SN no longer falls back to asset tag.
 - `apps/desktop/src/features/racks/RackUnitDiagram.test.tsx` — 26 tests (updated): U gutter separate cells, no merged range, selection not on U gutter, content card is draggable, U gutter is not, Asset tag column, column header assertions.
@@ -52,6 +66,8 @@ cargo test --workspace                          → clean
 cargo clippy --workspace -- -D warnings         → clean
 actionlint                                      → not available locally; CI workflow-lint job validates
 ```
+
+(All counts unchanged from QA round 3: cosmetic-only changes, no new test files, no test count changes.)
 
 Hygiene confirmations:
 - no `apps/desktop/package-lock.json` tracked

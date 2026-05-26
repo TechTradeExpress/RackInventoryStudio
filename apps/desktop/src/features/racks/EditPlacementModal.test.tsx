@@ -201,8 +201,8 @@ describe("EditPlacementModal — open", () => {
   });
 });
 
-describe("EditPlacementModal — Height U override", () => {
-  it("renders empty Height U override when placement.height_u is null", () => {
+describe("EditPlacementModal — Height override", () => {
+  it("renders empty Height override when placement.height_u is null", () => {
     render(<EditPlacementModal {...BASE_PROPS} />);
     const input = screen.getByTestId("height-u-input") as HTMLInputElement;
     expect(input.value).toBe("");
@@ -264,7 +264,7 @@ describe("EditPlacementModal — Height U override", () => {
     fireEvent.click(screen.getByTestId("save-btn"));
 
     await waitFor(() => {
-      expect(screen.getByText(/Height U override must be a positive integer/)).toBeTruthy();
+      expect(screen.getByText(/Height override must be a positive integer/)).toBeTruthy();
     });
     expect(mockMovePlacement).not.toHaveBeenCalled();
   });
@@ -278,7 +278,7 @@ describe("EditPlacementModal — Height U override", () => {
     fireEvent.click(screen.getByTestId("save-btn"));
 
     await waitFor(() => {
-      expect(screen.getByText(/Height U override must be a positive integer/)).toBeTruthy();
+      expect(screen.getByText(/Height override must be a positive integer/)).toBeTruthy();
     });
     expect(mockMovePlacement).not.toHaveBeenCalled();
   });

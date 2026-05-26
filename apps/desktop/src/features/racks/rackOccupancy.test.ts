@@ -75,14 +75,14 @@ describe("buildOccupancy", () => {
     const { units, warnings } = buildOccupancy(4, [p]);
     expect(units[1].kind).toBe("incomplete");
     expect(units[0].kind).toBe("empty");
-    expect(warnings.some((w) => w.placementCode === "D" && w.reason.includes("height unknown"))).toBe(true);
+    expect(warnings.some((w) => w.placementCode === "D" && w.reason.includes("Height unknown"))).toBe(true);
   });
 
   it("start_u less than 1 returns a warning and does not crash", () => {
     const p = makePlacement({ code: "E", start_u: 0 });
     const { units, warnings } = buildOccupancy(4, [p]);
     expect(units.every((u) => u.kind === "empty")).toBe(true);
-    expect(warnings.some((w) => w.placementCode === "E" && w.reason.includes("start_u < 1"))).toBe(true);
+    expect(warnings.some((w) => w.placementCode === "E" && w.reason.includes("Start U"))).toBe(true);
   });
 
   it("start_u greater than rack height returns a warning and does not crash", () => {

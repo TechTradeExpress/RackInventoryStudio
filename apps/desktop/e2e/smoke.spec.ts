@@ -169,7 +169,7 @@ test("rack detail: diagram is primary surface — no placement table", async ({ 
 
   // Navigate to Racks via Locations → Manage racks
   await page.getByRole("button", { name: "Locations", exact: true }).click();
-  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
+  await page.getByRole("button", { name: "Open racks for Server Room A" }).click();
   await expect(page.getByRole("heading", { name: "Racks" })).toBeVisible();
   await expect(page.getByText("rack-main")).toBeVisible();
 
@@ -228,7 +228,7 @@ test("rack detail: click empty slot opens place modal", async ({ page }) => {
 
   // Navigate to rack detail
   await page.getByRole("button", { name: "Locations", exact: true }).click();
-  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
+  await page.getByRole("button", { name: "Open racks for Server Room A" }).click();
   await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
   await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
 
@@ -253,7 +253,7 @@ test("rack detail: click occupied block selects it and shows inspector", async (
 
   // Navigate to rack detail
   await page.getByRole("button", { name: "Locations", exact: true }).click();
-  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
+  await page.getByRole("button", { name: "Open racks for Server Room A" }).click();
   await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
   await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
 
@@ -357,7 +357,7 @@ test("rack detail: drag from palette rack_object to empty slot opens modal prefi
 
   // Navigate to rack detail
   await page.getByRole("button", { name: "Locations", exact: true }).click();
-  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
+  await page.getByRole("button", { name: "Open racks for Server Room A" }).click();
   await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
   await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
 
@@ -400,7 +400,7 @@ test("rack detail: drag from palette device to empty slot opens modal prefilled"
 
   // Navigate to rack detail
   await page.getByRole("button", { name: "Locations", exact: true }).click();
-  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
+  await page.getByRole("button", { name: "Open racks for Server Room A" }).click();
   await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
   await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
 
@@ -453,7 +453,7 @@ test("mock state isolation: dynamic mutations reset on page reload", async ({ pa
   await page.goto("/");
   await openFixtureRepo(page);
   await page.getByRole("button", { name: "Locations", exact: true }).click();
-  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
+  await page.getByRole("button", { name: "Open racks for Server Room A" }).click();
   await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
   await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Rack diagram", exact: true })).toBeVisible();
@@ -480,7 +480,7 @@ test("mock state isolation: dynamic mutations reset on page reload", async ({ pa
   await page.goto("/");
   await openFixtureRepo(page);
   await page.getByRole("button", { name: "Locations", exact: true }).click();
-  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
+  await page.getByRole("button", { name: "Open racks for Server Room A" }).click();
   await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
   await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
 
@@ -497,7 +497,7 @@ test("rack detail: create device from place modal and place it", async ({ page }
 
   // Navigate to rack detail
   await page.getByRole("button", { name: "Locations", exact: true }).click();
-  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
+  await page.getByRole("button", { name: "Open racks for Server Room A" }).click();
   await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
   await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Rack diagram", exact: true })).toBeVisible();
@@ -554,7 +554,7 @@ test("rack detail: drag placed block to new U position moves it", async ({ page 
 
   // Navigate to rack detail
   await page.getByRole("button", { name: "Locations", exact: true }).click();
-  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
+  await page.getByRole("button", { name: "Open racks for Server Room A" }).click();
   await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
   await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Rack diagram", exact: true })).toBeVisible();
@@ -590,7 +590,7 @@ test("rack detail: create rack object from place modal and place it", async ({ p
 
   // Navigate to rack detail
   await page.getByRole("button", { name: "Locations", exact: true }).click();
-  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
+  await page.getByRole("button", { name: "Open racks for Server Room A" }).click();
   await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
   await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Rack diagram", exact: true })).toBeVisible();
@@ -642,7 +642,7 @@ test("rack detail: inspector shows edit device button for device placements", as
 
   // Navigate to rack detail
   await page.getByRole("button", { name: "Locations", exact: true }).click();
-  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
+  await page.getByRole("button", { name: "Open racks for Server Room A" }).click();
   await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
   await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
 
@@ -662,7 +662,7 @@ test("rack detail: drag placed equipment to Placeable equipment panel to unplace
 
   // Navigate to rack detail
   await page.getByRole("button", { name: "Locations", exact: true }).click();
-  await page.getByRole("button", { name: "Manage racks for Server Room A" }).click();
+  await page.getByRole("button", { name: "Open racks for Server Room A" }).click();
   await page.getByRole("cell", { name: "Main Rack", exact: true }).click();
   await expect(page.getByRole("heading", { name: /Main Rack/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Rack diagram", exact: true })).toBeVisible();

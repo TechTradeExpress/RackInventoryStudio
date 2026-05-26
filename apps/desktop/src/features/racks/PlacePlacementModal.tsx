@@ -126,7 +126,7 @@ export function PlacePlacementModal({
       return "Start U must be a positive integer.";
     }
     if (heightUStr.trim() !== "" && parsePositiveInt(heightUStr) === null) {
-      return "Height U override must be a positive integer if provided.";
+      return "Height override must be a positive integer if provided.";
     }
     if (targetType === "device" && !deviceId) {
       return "Select a device.";
@@ -442,9 +442,9 @@ export function PlacePlacementModal({
             />
           </Field>
 
-          {/* Height U override */}
+          {/* Height override */}
           <Field
-            label="Height U override"
+            label="Height override"
             help={
               effectiveHeight !== null
                 ? `Default from model: ${effectiveHeight}U`

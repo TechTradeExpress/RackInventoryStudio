@@ -27,7 +27,7 @@ export function buildOccupancy(
 
   for (const p of placements) {
     if (p.start_u < 1) {
-      warnings.push({ placementCode: p.code, reason: "start_u < 1" });
+      warnings.push({ placementCode: p.code, reason: "Start U is less than 1" });
       continue;
     }
 
@@ -45,7 +45,7 @@ export function buildOccupancy(
       if (idx >= heightU) {
         warnings.push({
           placementCode: p.code,
-          reason: `start_u ${p.start_u} exceeds rack height ${heightU}`,
+          reason: `Start U (${p.start_u}) exceeds rack height ${heightU}`,
         });
       } else {
         const existing = units[idx];
@@ -56,14 +56,14 @@ export function buildOccupancy(
               : "unknown";
           warnings.push({
             placementCode: p.code,
-            reason: `overlaps U${p.start_u} already occupied by ${prevCode}`,
+            reason: `Overlaps U${p.start_u} already occupied by ${prevCode}`,
           });
         }
         units[idx] = { kind: "incomplete", placement: p };
       }
       warnings.push({
         placementCode: p.code,
-        reason: "height unknown — placement shown at start_u only",
+        reason: "Height unknown — shown at start U only",
       });
       continue;
     }
@@ -71,7 +71,7 @@ export function buildOccupancy(
     if (p.start_u > heightU) {
       warnings.push({
         placementCode: p.code,
-        reason: `start_u ${p.start_u} exceeds rack height ${heightU}`,
+        reason: `Start U (${p.start_u}) exceeds rack height ${heightU}`,
       });
       continue;
     }
@@ -80,7 +80,7 @@ export function buildOccupancy(
     if (endU > heightU) {
       warnings.push({
         placementCode: p.code,
-        reason: `end_u ${endU} exceeds rack height ${heightU} — clamped`,
+        reason: `End U (${endU}) exceeds rack height ${heightU} — clamped`,
       });
     }
 
