@@ -1,12 +1,46 @@
 # Changelog
 
-## Unreleased — Settings logs directory fixes (QA round, repair)
+## v0.1.0-beta.1 — 2026-05-27 — First Windows beta
+
+**Beta release — Windows x64 only. Unsigned installer.**
+
+### Highlights
+
+- **Location inventory** — Create and manage physical site locations. Each location
+  holds an arbitrary number of racks.
+- **Rack placement diagram** — Visual rack unit diagram as the primary placement
+  surface. Drag equipment from the palette to any open U slot. Drag an occupied
+  block to move it; drag it to the palette to unplace it. Multi-U height-aware
+  drop-target preview (green/red). Inspector panel shows selected placement details
+  and provides Edit/Remove actions.
+- **Device and model management** — Full CRUD for devices and device models.
+  CSV device import with preview validation. "Create new device" flow inline
+  inside the Place equipment modal.
+- **Repository workflow** — Create or open a local Git-backed repository. Git
+  status, commit, and push/pull actions without leaving the app.
+- **Settings → Diagnostics and logs** — View the active and default log directory;
+  open it in the OS file manager; choose a custom directory or reset to the
+  platform default. Log-directory changes take effect after restart.
+- **Windows installer** — Unsigned NSIS x64 installer built via GitHub Actions
+  (`Actions → Windows Installer → Run workflow`). SmartScreen warning expected on
+  first run ("More info → Run anyway").
+
+### Known beta limitations
+
+- Windows x64 only. Linux and macOS packages are not provided in this beta.
+- Installer is unsigned. A Windows SmartScreen warning will appear.
+- No auto-update; reinstall from the new installer to upgrade.
+- No code-signing or EV certificate in this release.
+
+---
+
+## v0.1.0-beta.1 — Development history (QA round repair)
 
 ### Fixed
 - `apps/desktop/src-tauri/src/app_config.rs` / `lib.rs`: startup log dir is now validated for writability via a probe-file write before being passed to `tauri-plugin-log`. Introduced `is_dir_writable`, `prepare_log_dir_candidate`, and `resolve_startup_log_dir` helpers that cascade through custom dir → platform default → OS temp dir. Passing an unwritable directory to the plugin previously caused a panic (`PluginInitialization("log", "Permission denied (os error 13)")`).
 - `apps/desktop/src/features/locations/LocationsPanel.tsx`: pressing Enter/Space while focused on an action button (Edit, Delete) no longer bubbles to the row `onKeyDown` and triggers navigation. The guard checks `e.target !== e.currentTarget` before testing whether the event originated from an interactive child element.
 
-## Unreleased — Settings logs directory fixes (QA round)
+## v0.1.0-beta.1 — Settings logs directory fixes (QA round)
 
 ### Fixed
 - `apps/desktop/src-tauri/src/commands/log_settings.rs`: "Open logs folder" on WSL now detects the WSL environment (via `WSL_DISTRO_NAME` env var and `/proc/sys/kernel/osrelease`), converts the Linux path with `wslpath -w`, and opens it with `explorer.exe`. Native Linux without `xdg-open` returns a friendly message with the folder path rather than exposing the raw OS error.
@@ -14,7 +48,7 @@
 - `apps/desktop/src/features/settings/SettingsPanel.tsx`: "Reset to default" success banner now shows "Changes will apply after restarting the app." only when `restart_required` is true. When the active directory was already the default (e.g. user set a custom dir in this session but never restarted), the banner simply says "Log directory reset to default."
 - `apps/desktop/src/features/locations/LocationsPanel.tsx`: the entire location row is now a clickable navigation target (matching the rack-row pattern). The `<tr>` has `role="button"`, `aria-label="Open racks for {name}"`, and keyboard support (Enter/Space). Action buttons (Edit, Delete) stop event propagation so they do not trigger row navigation.
 
-## Unreleased — Settings logs directory controls (Milestone H)
+## v0.1.0-beta.1 — Settings logs directory controls (Milestone H)
 
 ### Added
 - `apps/desktop/src/features/settings/SettingsPanel.tsx`: "Diagnostics and logs" panel shows the active and default log directory paths; buttons to open the folder in the OS file manager, choose a custom folder, and reset to the platform default.
@@ -31,7 +65,7 @@
 - `apps/desktop/src-tauri/src/app_config.rs`: 13 Rust unit tests covering load/save round-trip, malformed JSON fallback, reset, startup dir resolution (valid dir, missing dir created, relative path rejected, file path rejected, uncreatable path), and `restart_required` logic.
 - `apps/desktop/e2e/smoke.spec.ts`: two E2E tests — settings accessible without a repo; logs directory actions visible and active path displayed.
 
-## Unreleased — UX copy and navigation cleanup
+## v0.1.0-beta.1 — UX copy and navigation cleanup
 
 ### Changed
 - `LocationsPanel.tsx`: location name is now a clickable link-button that opens the rack view directly (replaces the separate "Manage racks" icon button, which has been removed).
@@ -39,7 +73,7 @@
 - `EditPlacementModal.tsx` / `PlacePlacementModal.tsx`: field label "Height U override" → "Height override"; matching validation error message updated.
 - `rackOccupancy.ts`: occupancy warning strings are now sentence-cased and use human-readable names (e.g. "Start U is less than 1", "Height unknown — shown at start U only", "End U (n) exceeds rack height h — clamped") instead of raw field names.
 
-## Unreleased — Complete rack placement editing workflow
+## v0.1.0-beta.1 — Complete rack placement editing workflow
 
 ### Added
 - `apps/desktop/src/features/racks/dndTypes.ts`: new `"placement"` DnD payload kind carrying `placementId`, `startU`, `heightU`, `side` — enables drag-to-move of already-placed equipment.
@@ -72,7 +106,7 @@
 - E2E drag-to-move test extended: U gutter cells at old and new positions confirmed visible after move.
 - E2E drag-to-unrack test extended: U gutter cell at U10 confirmed visible after unplace.
 
-## Unreleased — CI runner pinning and workflow linting
+## v0.1.0-beta.1 — CI runner pinning and workflow linting
 
 ### Changed
 - `.github/workflows/ci.yml`: all four Linux CI jobs (`rust`, `version-check`, `scripts`, `frontend`) pinned from `ubuntu-latest` to `ubuntu-24.04` to prevent silent runner image drift.
@@ -80,13 +114,13 @@
 ### Added
 - `.github/workflows/ci.yml`: new `workflow-lint` job running `raven-actions/actionlint@v2` on `ubuntu-24.04` — lints all workflow YAML files on every pull request and push, failing CI on syntax or semantic errors.
 
-## Unreleased — Wire script and hygiene checks into CI
+## v0.1.0-beta.1 — Wire script and hygiene checks into CI
 
 ### Added
 - `.github/workflows/ci.yml`: new `scripts` job ("Script and hygiene checks") — lightweight, checkout-only, no pnpm install. Runs `node --test scripts/*.test.mjs` (17 tests) and `node scripts/check-repo-hygiene.mjs` (8 checks) on every pull request and push.
 - `scripts/check-repo-hygiene.mjs`: two new checks — assert `.github/workflows/windows-diagnostic-installer.yml` is not tracked; assert `.ai/windows-diagnostic-installer.md` is not tracked. CI will now fail if the removed Windows Diagnostic Installer workflow or its CI doc are reintroduced.
 
-## Unreleased — Test and script hardening
+## v0.1.0-beta.1 — Test and script hardening
 
 ### Added
 - `scripts/bump-version.mjs`: `--root <path>` flag (points the script at a fixture directory for isolated testing) and `--dry-run` flag (prints the before/after table without writing files). Added `--root` argument validation, `--dry-run` no-op path, and try/catch error wrapping for all read and write phases.
@@ -100,7 +134,7 @@
 ### Changed
 - `scripts/bump-version.mjs`: fixed "atomically" wording in script header (no real FS transaction); rewritten to `--root`/`--dry-run` aware version with consistent error output.
 
-## Unreleased — Code dead-code and naming cleanup after Beta QA Milestones A–F
+## v0.1.0-beta.1 — Code dead-code and naming cleanup after Beta QA Milestones A–F
 
 ### Removed
 - `RackDetailPanel.tsx`: removed dead `placeModalDndPayload` state (written but never consumed — `PlacePlacementModal` uses `initialTargetKind`/`initialTargetId` instead; 6 setter call-sites also removed).
@@ -110,7 +144,7 @@
 - `RepositoryPanel.tsx`: removed stale "Temporarily render the legacy summary table / will be separated into sidebar in a follow-up" comment.
 - No application behavior changes. No version bump.
 
-## Unreleased — Docs cleanup: align with current beta state (Milestones A–F)
+## v0.1.0-beta.1 — Docs cleanup: align with current beta state (Milestones A–F)
 
 ### Changed
 - `README.md`: updated test counts (374 Rust / 388 Vitest / 16 E2E), current desktop UI capabilities (diagram-first placement, inline device creation, Settings → Diagnostics and logs), roadmap table (Beta QA Milestones A–F all marked Done), v1.0.0 release gate (references BETA_WINDOWS_11_QA_EN.md and BETA_RELEASE_PROCESS_EN.md).
@@ -120,7 +154,7 @@
 - `docs/UI_SCREENS_SPEC_EN.md`: added archival banner (MVP screen spec with pre-hardening placement UI).
 - `docs/USER_WORKFLOWS_EN.md`: added archival banner (MVP workflows with pre-hardening placement flows).
 
-## Unreleased — Beta QA follow-up Milestone F: Release/versioning/installer process
+## v0.1.0-beta.1 — Beta QA follow-up Milestone F: Release/versioning/installer process
 
 ### Added
 - `scripts/bump-version.mjs` — Node ESM helper to update all four canonical version sources atomically (`package.json`, `apps/desktop/package.json`, `Cargo.toml`, `tauri.conf.json`). Usage: `node scripts/bump-version.mjs 0.1.1` or `node scripts/bump-version.mjs 0.2.0-beta.1`. Validates SemVer format, prints a before/after table, does not auto-commit.
@@ -138,7 +172,7 @@
 - `.github/workflows/windows-diagnostic-installer.yml` — Windows Diagnostic Installer workflow removed. Diagnostics logging remains a full app feature accessible via Settings → Diagnostics and logs.
 - `.ai/windows-diagnostic-installer.md` — diagnostic installer CI reference doc removed.
 
-## Unreleased — Beta QA follow-up Milestone E: Create device from Place equipment flow
+## v0.1.0-beta.1 — Beta QA follow-up Milestone E: Create device from Place equipment flow
 
 ### Added
 - `PlacePlacementModal`: "Create new device…" button opens `DeviceFormModal` as a layered modal directly within the Place equipment flow, so users never need to leave the placement workflow to create a missing device.
@@ -149,7 +183,7 @@
 - Unit tests: expanded `PlacePlacementModal` test suite with 7 new tests covering the full inline create-device flow (button visibility, modal open/cancel, device preselection, field preservation, Place button enablement).
 - E2E smoke test: full create-and-place flow — open rack detail → click empty U slot → create device via inline form → confirm preselection and Start U preserved → click Place → new placement block visible in diagram.
 
-## Unreleased — Beta QA follow-up Milestone D: Complete drag-and-drop workflow
+## v0.1.0-beta.1 — Beta QA follow-up Milestone D: Complete drag-and-drop workflow
 
 ### Changed
 - Rack diagram drop targets now show a **height-aware hover preview**: when dragging an item with a known U-height, all cells in the drop range highlight green (valid) or red (blocked), not just the single hovered cell.
@@ -163,7 +197,7 @@
 - Unit tests: `getPayloadHeight` (device with/without height, rack_object), `getDragPayload` fallback (prefers `dataTransfer`, falls back to `_activeDragPayload`, returns null when both empty).
 - Component tests: two new `PlacePlacementModal` tests covering DnD drop prefill for `device` and `rack_object` kinds with `startU` + target id → Place button enabled.
 
-## Unreleased — Beta QA follow-up Milestone C: Rack diagram as primary placement surface
+## v0.1.0-beta.1 — Beta QA follow-up Milestone C: Rack diagram as primary placement surface
 
 ### Changed
 - Removed the active-side placement table (Front placements / Rear placements) from Rack Detail. All placement discovery, selection, and interaction now happens directly in the rack diagram.
@@ -174,7 +208,7 @@
 - Added `data-testid="placed-{side}-{id}"` to occupied placement blocks in the diagram for E2E testability.
 - Edit and Remove placement actions remain in the contextual inspector / EditPlacementModal.
 
-## Unreleased — Beta QA follow-up Milestone B: Settings logs actions
+## v0.1.0-beta.1 — Beta QA follow-up Milestone B: Settings logs actions
 
 ### Added
 - Settings: "Open logs folder" button opens the active logs directory in the OS file manager.
@@ -184,7 +218,7 @@
 - Persisted app config layer (`app_config.json`) for storing the custom log directory override.
 - Changes to the log directory apply after app restart (noted in UI).
 
-## Unreleased — Beta QA follow-up Milestone A: immediate blockers and small UI cleanup
+## v0.1.0-beta.1 — Beta QA follow-up Milestone A: immediate blockers and small UI cleanup
 
 ### Fixed
 - Removed duplicate internal "Rack Inventory Studio" brand block from app header/chrome (native window title already shows it).
@@ -192,7 +226,7 @@
 - Fixed "Download sample CSV" to use Tauri save-file dialog + `write_text_to_file` command instead of broken browser Blob download (browser `<a download>` does not work in Tauri runtime).
 - Fixed Racks list Utilization calculation: now uses `max(front_used_U, rear_used_U) / height_u` (U-slot based) instead of the incorrect `placement_count / (height_u × 2)` (device-count based).
 
-## Unreleased — beta QA findings action plan (branch `planning/beta-qa-findings-action-plan`)
+## v0.1.0-beta.1 — beta QA findings action plan (branch `planning/beta-qa-findings-action-plan`)
 
 ### Added
 
@@ -203,7 +237,7 @@
 - `docs/BETA_HARDENING_PLAN_EN.md` — added link to findings action plan.
 - `README.md` — added link to findings action plan in beta hardening section.
 
-## Unreleased — beta hardening milestone 5: Beta QA and Windows installer validation (branch `qa/beta-windows-installer-validation`)
+## v0.1.0-beta.1 — beta hardening milestone 5: Beta QA and Windows installer validation (branch `qa/beta-windows-installer-validation`)
 
 ### Added
 
@@ -214,26 +248,26 @@
 
 - Removed unused `AddPlacementPanel.tsx` (replaced by `PlacementPalettePanel.tsx` in milestone 4).
 
-## Unreleased — beta hardening milestone 2: versioning and release process (branch `release/versioning-beta-process`)
+## v0.1.0-beta.1 — beta hardening milestone 2: versioning and release process (branch `release/versioning-beta-process`)
 
 - **Version consistency check script** (`scripts/check-version-consistency.mjs`) — Node ESM script that reads the app version from all four canonical sources (`package.json`, `apps/desktop/package.json`, `Cargo.toml`, `tauri.conf.json`), prints a formatted table, and exits non-zero on mismatch. Available as `pnpm check:version`.
 - **CI: version-check job** (`.github/workflows/ci.yml`) — new lightweight job that runs the consistency check on every push and pull request; catches version drift before it reaches a build.
 - **Versioned artifact names** — the Windows Installer workflow extracts the version from `tauri.conf.json` (PowerShell `ConvertFrom-Json` step) and embeds it in the artifact name: `rack-inventory-studio-vX.Y.Z-windows-installer`. Artifact names are unambiguous across builds.
 - **Beta release process documentation** (`docs/BETA_RELEASE_PROCESS_EN.md`) — version policy, beta naming convention, full release checklist (verify consistency → merge → trigger workflow → smoke test → distribute), version bump procedure, and protected-master recommendation.
 
-## Unreleased — beta hardening milestone 1: global busy overlay and Windows Git console hiding (branch `ux/global-busy-git-no-console`, PR #65)
+## v0.1.0-beta.1 — beta hardening milestone 1: global busy overlay and Windows Git console hiding (branch `ux/global-busy-git-no-console`, PR #65)
 
 - **Global application busy overlay** — `AppBusyProvider` / `useBusy` / `runBusy` React context pattern wraps all async operations (open repository, close, save, validate, CSV preview/import, all Git operations). `BusyOverlay` component fades in after 150 ms with a spinner and operation label; pointer events are blocked immediately. Local loading/working state variables removed from all feature panels.
 - **Windows Git console window hiding** — `run_git` helper in `crates/ris-git/src/lib.rs` sets `CREATE_NO_WINDOW` (`0x0800_0000`) via `CommandExt::creation_flags` on Windows-only `#[cfg(windows)]` block; eliminates the flashing console window on every Git operation.
 - **5 Vitest tests** in `apps/desktop/src/lib/appBusy.test.tsx` covering: default state, sets label while running, clears after success, clears after error, re-throws for callers.
 
-## Unreleased — beta hardening planning (branch `planning/beta-hardening-plan`)
+## v0.1.0-beta.1 — beta hardening planning (branch `planning/beta-hardening-plan`)
 
 V1 release paused. Next target is a beta hardening release (Beta 0.2.x).
 
 - **Beta hardening plan** (`docs/BETA_HARDENING_PLAN_EN.md`) — Documents five milestones: global busy overlay + Git console window hiding, versioning and release process, navigation/Settings/terminology cleanup, rack placement UX redesign, and beta QA checklist. Docs-only change, no application code modified.
 
-## Unreleased — post-UI polish QA series (integration branch `integration/post-ui-polish-qa`)
+## v0.1.0-beta.1 — post-UI polish QA series (integration branch `integration/post-ui-polish-qa`)
 
 Nine working branches merged into `integration/post-ui-polish-qa`. Full automated QA passes. Windows 11 manual QA required before final PR to `master`.
 
@@ -249,7 +283,7 @@ Nine working branches merged into `integration/post-ui-polish-qa`. Full automate
 
 **Test totals after integration:** 358 Rust workspace tests · 315 Vitest frontend tests · 10 Playwright smoke tests.
 
-## Unreleased — UI polish (branch `design/claude-ui-polish`)
+## v0.1.0-beta.1 — UI polish (branch `design/claude-ui-polish`)
 
 UI polish and design correction work completed on `design/claude-ui-polish`. Not yet merged to `master`. Manual visual QA on Windows 11 required before release.
 
