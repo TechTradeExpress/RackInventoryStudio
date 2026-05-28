@@ -1,73 +1,74 @@
 ## Summary
 
-Implemented safe SSH passphrase handling for push/pull operations (post-beta 1 follow-up item 2). When a Git operation requires a key passphrase and no ssh-agent has the key loaded, OpenSSH invokes the app binary in askpass helper mode. The app intercepts this via a short-lived localhost TCP session, prompts the user once via a frontend modal, and forwards the passphrase only to SSH via stdout. The passphrase is never stored, logged, or passed through environment variables or CLI arguments.
+Hardened the SSH askpass session handling from PR #86 by fixing five blocking issues raised in code review:
 
-Also updated the post-beta follow-up plan document to reflect the correct implementation direction (removing incorrect "stored passphrase field" approach).
+**A — Hook inheritance prevention**: Git push/pull invoked with askpass env vars now runs with `git -c core.hooksPath=<empty-temp-dir>` so no repository-controlled pre-push or commit-msg hook can inherit `RIS_ASKPASS_PORT`/`RIS_ASKPASS_TOKEN` and connect to the local IPC server. A `TempHooksDir` RAII guard creates and removes the empty directory automatically.
+
+**B — Session lifecycle safety**: Added a `session_id: u64` (CSPRNG) to each `AskpassInner` and `AskpassEnv`. `clear_session(session_id)` compares the id before clearing, so an old timed-out TCP server thread cannot inadvertently clear a newer session. The `cancelled: Arc<AtomicBool>` flag lets `clear_session` / `start_session` signal the background accept-loop to exit without waiting for the full 300 s TCP timeout.
+
+**C — Cryptographically-strong token**: Replaced the timestamp-XOR-PID token with 256 bits of OS CSPRNG randomness via the `getrandom 0.2` crate. Session IDs use 64 bits of CSPRNG. Added `getrandom = "0.2"` to `apps/desktop/src-tauri/Cargo.toml`.
+
+**D — Friendly SSH errors**: Added `ssh_error_message()` helper in `commands/git.rs`. For SSH remotes, it calls `ris_git::classify_git_ssh_error()` on the raw stderr. A match returns a user-friendly message plus `ssh_agent_guidance()` hints; unmatched errors fall back to the raw error string. The raw error is still logged (sanitised).
+
+**E — scp-like URL detection**: `is_ssh_url()` in `ris-git` now recognises any `[user@]host:path` URL where the colon is not followed by `//` (which would indicate a scheme like `git://`). Windows absolute paths (`C:\…`) and local paths (`/`, `~/`, `./`) are explicitly rejected.
 
 ## Files changed
 
 ### Rust (backend)
 
-- `crates/ris-git/src/lib.rs` — Added `push_current_branch_with_env`, `pull_ff_only_with_env` (with `extra_env: &[(&str, &str)]`), kept original functions as wrappers. Added `is_ssh_url()` and `classify_git_ssh_error()`. Added 14 unit tests.
-- `apps/desktop/src-tauri/src/ssh_askpass.rs` — New module. Contains `AskpassState` (Tauri managed state), TCP server loop, `run_as_askpass()` (askpass helper mode entry point), SSH diagnostics (`probe_ssh_add`, `find_ssh_executable`, `get_ssh_version`, `get_core_ssh_command`, `ssh_agent_guidance`), `build_askpass_env_pairs()`, and unit/integration tests including TCP roundtrip tests.
-- `apps/desktop/src-tauri/src/commands/git.rs` — Updated `push_git_current_branch` and `pull_git_ff_only` to accept `State<AskpassState>` and `AppHandle`, detect SSH remotes, and start/clear askpass sessions. Added `respond_ssh_passphrase` and `get_ssh_diagnostics` commands.
-- `apps/desktop/src-tauri/src/commands/mod.rs` — Re-exported `respond_ssh_passphrase` and `get_ssh_diagnostics`.
-- `apps/desktop/src-tauri/src/dto.rs` — Added `SshDiagnosticsDto`.
-- `apps/desktop/src-tauri/src/lib.rs` — Added `mod ssh_askpass`, `pub use ssh_askpass::run_as_askpass`, managed `AskpassState`, registered new commands.
-- `apps/desktop/src-tauri/src/main.rs` — Detects `RIS_ASKPASS_MODE=1` and runs `run_as_askpass()` before the GUI starts.
-
-### TypeScript / React (frontend)
-
-- `apps/desktop/src/api/tauriClient.ts` — Added `SshDiagnosticsDto` interface, `respondSshPassphrase()`, `getSshDiagnostics()` functions.
-- `apps/desktop/src/features/repository/SshPassphraseModal.tsx` — New modal component: shows OpenSSH prompt, password input, Continue/Cancel buttons, ssh-add guidance. Calls `respondSshPassphrase` on submit or cancel. Clears input after each use.
-- `apps/desktop/src/App.tsx` — Added `useEffect` with `listen("ssh-passphrase-requested", ...)` and renders `<SshPassphraseModal>`.
-- `apps/desktop/src/App.nav.test.tsx` — Added mocks for `@tauri-apps/api/event` and `SshPassphraseModal` to prevent test breakage.
-
-### Docs
-
-- `docs/BETA1_FOLLOWUP_PLAN_EN.md` — Section 2 updated: removed incorrect "stored passphrase field" direction; documented correct ssh-agent primary / SSH_ASKPASS secondary / diagnostics approach.
-- `CHANGELOG.md` — Added SSH passphrase prompting, SSH diagnostics, SSH error classification, and security note to Unreleased section.
-
-### Tests
-
-- `apps/desktop/src/features/repository/SshPassphraseModal.test.tsx` — New test file: 8 tests covering modal appearance, submit, cancel, Enter key, input clearing, guidance text.
+- `crates/ris-git/src/lib.rs` — Rewrote `is_ssh_url()` to handle scp-like URLs with arbitrary usernames (not just `git@`). Added 8 new test cases covering scp with/without user, local paths, tilde, relative paths, `git://`, `file://`, unknown schemes.
+- `apps/desktop/src-tauri/Cargo.toml` — Added `getrandom = "0.2"`.
+- `apps/desktop/src-tauri/src/ssh_askpass.rs`
+  - Imports: removed `SystemTime`/`UNIX_EPOCH`; added `AtomicBool`/`Ordering`.
+  - `AskpassInner`: added `session_id: u64` and `cancelled: Arc<AtomicBool>`.
+  - `AskpassEnv`: added `session_id: u64`.
+  - `generate_token()`: 256-bit CSPRNG via `getrandom`.
+  - `generate_session_id()`: 64-bit CSPRNG via `getrandom` (new).
+  - `start_session()`: cancels any existing session before creating new one; passes `session_id` and `cancelled` to the server thread.
+  - `clear_session(session_id)`: guards on session_id match before clearing; signals `cancelled` and wakes blocked `recv_timeout`.
+  - `run_askpass_server()`: checks `cancelled` flag in accept loop; only clears its own session by id at exit.
+  - Tests: updated `askpass_session_lifecycle_create_and_clear` to pass a session_id; added `generate_token_is_64_hex_chars`, `generate_token_is_unique` (updated), `clear_session_with_wrong_id_does_not_clear`.
+- `apps/desktop/src-tauri/src/commands/git.rs`
+  - Added `AskpassEnv` to imports.
+  - Added `ssh_error_message(&GitError, is_ssh: bool) -> String` helper.
+  - `push_git_current_branch`: stores `Option<AskpassEnv>`, passes `is_ssh` as `no_hooks`, clears by `session_id`, uses `ssh_error_message`.
+  - `pull_git_ff_only`: same changes.
 
 ## Security model
 
-- **Passphrase lifetime**: Entered once in the frontend modal → sent via `respondSshPassphrase` Tauri command → forwarded via `mpsc::SyncSender` to TCP thread → written to TCP stream → read from stdout by OpenSSH. Never touches disk, logs, env vars, or CLI args.
-- **Token**: Per-operation random token prevents other processes from connecting to the short-lived TCP server.
-- **IPC binding**: `127.0.0.1` only, random OS-assigned port, lifetime ≤ 300s TCP accept + 60s user response.
-- **Attempt limit**: MAX_ASKPASS_ATTEMPTS=3 prevents infinite passphrase prompt loops.
-- **Cancellation**: If the user cancels or the session times out, `CANCEL\n` is sent to the helper, SSH receives exit code 1 and fails cleanly.
+- **No hook inheritance**: `git -c core.hooksPath=<empty-temp-dir>` is set for every push/pull that carries askpass env vars. The empty directory is created fresh for each operation and removed on drop. Repository hooks cannot see `RIS_ASKPASS_PORT`, `RIS_ASKPASS_TOKEN`, or `SSH_ASKPASS` during their execution.
+- **CSPRNG token**: 256-bit (64 hex chars) random token from OS CSPRNG. Prevents practical guessing or collision within the local TCP socket lifetime.
+- **Session-id lifecycle**: A stale background thread that times out after the user completes an operation cannot clear a newer session started for a subsequent operation.
+- **Passphrase lifetime**: unchanged — never stored, logged, or passed via env/CLI.
 
 ## Tests
 
 ```
-cargo fmt --all --check          — clean
-cargo check -p rack-inventory-studio-desktop — clean (0 warnings)
-cargo clippy -p rack-inventory-studio-desktop -p ris-git -- -D warnings — clean
-cargo test -p rack-inventory-studio-desktop -p ris-git — all pass
-node scripts/check-version-consistency.mjs — all 0.1.0-beta.1
-node scripts/check-repo-hygiene.mjs        — 8/8 checks
-tsc --noEmit (apps/desktop)                — clean
-vitest run                                  — 470 passed, 0 errors
+cargo fmt --all --check                     — clean
+cargo check --workspace                     — clean (0 warnings)
+cargo clippy --workspace -- -D warnings     — clean
+cargo test -p rack-inventory-studio-desktop — 53 passed, 0 failed
+cargo test -p ris-git                       — 50 passed, 0 failed (28 unit + 22 integration)
+node scripts/check-version-consistency.mjs  — all 0.1.0-beta.1
+node scripts/check-repo-hygiene.mjs         — 8/8 checks
+npx tsc --noEmit (apps/desktop)             — clean
+npx vitest run                              — 462 passed, 0 errors
+git diff --check                            — clean
 ```
 
 ## Risks
 
-- `run_as_askpass()` requires the binary to be invocable as a subprocess of SSH. On Windows, the binary path may contain spaces — handled via `current_exe()` which returns the full path; SSH_ASKPASS uses the full path. Spaces in paths should be safe as OpenSSH exec's the path directly.
-- The TCP token is not cryptographically strong (timestamp XOR nanos + PID). Sufficient for the threat model (short-lived local socket, no sensitive data besides passphrase lifetime), but not CSPRNG-quality.
-- SSH diagnostics (`probe_ssh_add`, `find_ssh_executable`) spawn subprocesses with 3-second timeouts. On slow machines these could briefly block the Tauri command thread. These are diagnostic-only and not on the push/pull hot path.
-- `classify_git_ssh_error` is implemented in `ris-git` but not yet surfaced to the frontend via the error DTOs from push/pull — it's available for future use.
+- The `TempHooksDir` temp directory path is deterministic (`ris_nohooks_{pid}`). On a multi-user system a malicious user could pre-create it. Mitigated: `create_dir_all` fails silently and the guard becomes `None` (no hooks suppression, but also no credential exposure); adding a random suffix would be a small future improvement.
+- `try_send(None)` when cancelling a session may silently fail if the channel buffer is already full (i.e., the user already responded). In practice the passphrase will still be delivered correctly; the cancel is effectively a no-op, which is the safe outcome.
 
 ## Not done
 
 - Persistent credential vault / HTTPS token management.
-- Surfacing `classify_git_ssh_error` output in push/pull error messages displayed to the user (function exists, wiring to frontend deferred).
-- SSH diagnostics UI panel in the app (data available via `get_ssh_diagnostics` command but no panel was built in this PR).
+- SSH diagnostics UI panel (data is available via `get_ssh_diagnostics` Tauri command).
 - Linux/macOS packaging changes.
-- App version bump (intentionally left to a release milestone).
+- App version bump (intentionally deferred to release milestone).
+- `TempHooksDir` with random suffix (low-priority hardening).
 
 ## Suggested next step
 
-Wire `classify_git_ssh_error` into the push/pull error DTOs returned to the frontend so users see "Permission denied (publickey). No identities found in SSH agent." instead of raw git stderr. Also build a minimal SSH diagnostics section in the Repository panel that shows agent status and guidance when a push/pull fails.
+Build a minimal "SSH Agent Status" section in the Repository panel that calls `get_ssh_diagnostics` when a push/pull fails with an SSH error and displays the guidance strings inline, so users see actionable steps without opening a terminal.

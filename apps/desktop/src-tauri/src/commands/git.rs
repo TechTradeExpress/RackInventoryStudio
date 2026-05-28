@@ -7,7 +7,7 @@ use crate::dto::{
 };
 use crate::ssh_askpass::{
     build_askpass_env_pairs, find_ssh_executable, get_core_ssh_command, get_ssh_version,
-    probe_ssh_add, ssh_agent_guidance, AskpassState, SshAddStatus,
+    probe_ssh_add, ssh_agent_guidance, AskpassEnv, AskpassState, SshAddStatus,
 };
 
 fn no_session() -> String {
@@ -31,6 +31,27 @@ fn commit_to_dto(c: ris_git::GitCommitSummary) -> GitCommitDto {
         author: c.author,
         date: c.date,
     }
+}
+
+/// Build a user-facing error message for push/pull failures.
+///
+/// For SSH remotes, attempts to classify the raw git stderr and returns a
+/// friendly explanation plus agent guidance. Falls back to the raw error
+/// string when no pattern is recognised or the remote is not SSH.
+fn ssh_error_message(e: &ris_git::GitError, is_ssh: bool) -> String {
+    if is_ssh {
+        if let ris_git::GitError::CommandFailed { ref stderr, .. } = e {
+            if let Some(friendly) = ris_git::classify_git_ssh_error(stderr) {
+                let add_status = probe_ssh_add();
+                let guidance = ssh_agent_guidance(&add_status, true, None);
+                if guidance.is_empty() {
+                    return friendly;
+                }
+                return format!("{}\n\n{}", friendly, guidance.join("\n"));
+            }
+        }
+    }
+    e.to_string()
 }
 
 #[tauri::command]
@@ -144,31 +165,35 @@ pub fn push_git_current_branch(
         .as_deref()
         .map(ris_git::is_ssh_url)
         .unwrap_or(false);
-    let env_owned: Vec<(String, String)> = if is_ssh {
+    let askpass_env: Option<AskpassEnv> = if is_ssh {
         match askpass.start_session(app) {
-            Ok(e) => build_askpass_env_pairs(&e),
+            Ok(e) => Some(e),
             Err(warn) => {
                 log::warn!("askpass session not started, continuing without: {warn}");
-                vec![]
+                None
             }
         }
     } else {
-        vec![]
+        None
     };
+    let env_owned: Vec<(String, String)> = askpass_env
+        .as_ref()
+        .map(build_askpass_env_pairs)
+        .unwrap_or_default();
     let env_refs: Vec<(&str, &str)> = env_owned
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
 
-    let result =
-        ris_git::push_current_branch_with_env(&repo_path, &remote, &env_refs).map_err(|e| {
-            let msg = e.to_string();
-            log::error!("git_push failed: {}", sanitize_error(&msg));
+    let result = ris_git::push_current_branch_with_env(&repo_path, &remote, &env_refs, is_ssh)
+        .map_err(|e| {
+            let msg = ssh_error_message(&e, is_ssh);
+            log::error!("git_push failed: {}", sanitize_error(&e.to_string()));
             msg
         });
 
-    if is_ssh {
-        askpass.clear_session();
+    if let Some(ref env) = askpass_env {
+        askpass.clear_session(env.session_id);
     }
 
     result?;
@@ -208,31 +233,36 @@ pub fn pull_git_ff_only(
         .as_deref()
         .map(ris_git::is_ssh_url)
         .unwrap_or(false);
-    let env_owned: Vec<(String, String)> = if is_ssh {
+    let askpass_env: Option<AskpassEnv> = if is_ssh {
         match askpass.start_session(app) {
-            Ok(e) => build_askpass_env_pairs(&e),
+            Ok(e) => Some(e),
             Err(warn) => {
                 log::warn!("askpass session not started, continuing without: {warn}");
-                vec![]
+                None
             }
         }
     } else {
-        vec![]
+        None
     };
+    let env_owned: Vec<(String, String)> = askpass_env
+        .as_ref()
+        .map(build_askpass_env_pairs)
+        .unwrap_or_default();
     let env_refs: Vec<(&str, &str)> = env_owned
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
 
     log::info!("git_pull: remote={remote}");
-    let pull_result = ris_git::pull_ff_only_with_env(&repo_path, &remote, &env_refs).map_err(|e| {
-        let msg = e.to_string();
-        log::error!("git_pull failed: {}", sanitize_error(&msg));
-        msg
-    });
+    let pull_result = ris_git::pull_ff_only_with_env(&repo_path, &remote, &env_refs, is_ssh)
+        .map_err(|e| {
+            let msg = ssh_error_message(&e, is_ssh);
+            log::error!("git_pull failed: {}", sanitize_error(&e.to_string()));
+            msg
+        });
 
-    if is_ssh {
-        askpass.clear_session();
+    if let Some(ref env) = askpass_env {
+        askpass.clear_session(env.session_id);
     }
 
     pull_result?;

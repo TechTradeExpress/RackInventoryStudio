@@ -25,8 +25,9 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -48,8 +49,10 @@ pub struct AskpassState {
 }
 
 struct AskpassInner {
+    session_id: u64,
     tx: std::sync::mpsc::SyncSender<Option<String>>,
     attempts: u32,
+    cancelled: Arc<AtomicBool>,
 }
 
 /// Environment variables to set on the git subprocess to enable askpass.
@@ -57,6 +60,7 @@ pub struct AskpassEnv {
     pub binary_path: String,
     pub port: u16,
     pub token: String,
+    pub session_id: u64,
 }
 
 impl AskpassState {
@@ -88,23 +92,45 @@ impl AskpassState {
             .port();
 
         let token = generate_token();
+        let session_id = generate_session_id();
+        let cancelled = Arc::new(AtomicBool::new(false));
         let (tx, rx) = std::sync::mpsc::sync_channel::<Option<String>>(1);
 
         {
             let mut guard = self.inner.lock().unwrap();
-            *guard = Some(AskpassInner { tx, attempts: 0 });
+            // Cancel any existing session before replacing it.
+            if let Some(ref old) = *guard {
+                old.cancelled.store(true, Ordering::Relaxed);
+                old.tx.try_send(None).ok();
+            }
+            *guard = Some(AskpassInner {
+                session_id,
+                tx,
+                attempts: 0,
+                cancelled: Arc::clone(&cancelled),
+            });
         }
 
         let inner_arc = Arc::clone(&self.inner);
         let token_for_thread = token.clone();
+        let cancelled_for_thread = Arc::clone(&cancelled);
         std::thread::spawn(move || {
-            run_askpass_server(listener, token_for_thread, rx, app, inner_arc);
+            run_askpass_server(
+                listener,
+                token_for_thread,
+                rx,
+                app,
+                inner_arc,
+                session_id,
+                cancelled_for_thread,
+            );
         });
 
         Ok(AskpassEnv {
             binary_path,
             port,
             token,
+            session_id,
         })
     }
 
@@ -121,24 +147,33 @@ impl AskpassState {
     }
 
     /// Drop the session after the git operation completes.
-    pub fn clear_session(&self) {
-        self.inner.lock().unwrap().take();
+    ///
+    /// The `session_id` guard prevents an old, timed-out TCP server thread from
+    /// clearing a newer session that started after the previous one expired.
+    pub fn clear_session(&self, session_id: u64) {
+        let mut guard = self.inner.lock().unwrap();
+        if guard.as_ref().is_some_and(|i| i.session_id == session_id) {
+            if let Some(ref inner) = *guard {
+                inner.cancelled.store(true, Ordering::Relaxed);
+                inner.tx.try_send(None).ok();
+            }
+            guard.take();
+        }
     }
 }
 
 // ── Token generation ──────────────────────────────────────────────────────────
 
 fn generate_token() -> String {
-    let t = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    // Combine nanos + pid for reasonable uniqueness; not cryptographic but
-    // sufficient for a local 127.0.0.1 socket with a short lifetime.
-    format!(
-        "{:016x}{:08x}",
-        t.subsec_nanos() as u64 ^ t.as_secs(),
-        std::process::id()
-    )
+    let mut bytes = [0u8; 32];
+    getrandom::getrandom(&mut bytes).expect("OS CSPRNG unavailable");
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn generate_session_id() -> u64 {
+    let mut bytes = [0u8; 8];
+    getrandom::getrandom(&mut bytes).expect("OS CSPRNG unavailable");
+    u64::from_ne_bytes(bytes)
 }
 
 // ── TCP server (background thread) ───────────────────────────────────────────
@@ -149,12 +184,17 @@ fn run_askpass_server(
     rx: std::sync::mpsc::Receiver<Option<String>>,
     app: AppHandle,
     state: Arc<Mutex<Option<AskpassInner>>>,
+    own_session_id: u64,
+    cancelled: Arc<AtomicBool>,
 ) {
     listener.set_nonblocking(true).ok();
 
     let deadline = Instant::now() + Duration::from_secs(TCP_ACCEPT_TIMEOUT_SECS);
 
     let stream = loop {
+        if cancelled.load(Ordering::Relaxed) {
+            break None;
+        }
         match listener.accept() {
             Ok((s, _)) => break Some(s),
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -174,8 +214,17 @@ fn run_askpass_server(
         }
     }
 
-    // Clear session when the server thread exits (covers timeout + error paths).
-    state.lock().unwrap().take();
+    // Only clear if this thread still owns the current session.
+    // A newer session may have started after a previous operation timed out.
+    {
+        let mut guard = state.lock().unwrap();
+        if guard
+            .as_ref()
+            .is_some_and(|i| i.session_id == own_session_id)
+        {
+            guard.take();
+        }
+    }
 }
 
 fn handle_askpass_connection(
@@ -653,13 +702,21 @@ mod tests {
     }
 
     #[test]
+    fn generate_token_is_64_hex_chars() {
+        let t = generate_token();
+        assert_eq!(
+            t.len(),
+            64,
+            "CSPRNG token should be 64 hex chars (256 bits)"
+        );
+        assert!(t.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
     fn generate_token_is_unique() {
         let t1 = generate_token();
         let t2 = generate_token();
-        // Not guaranteed unique on very fast hardware, but practically always true.
-        // At minimum both should be non-empty.
-        assert!(!t1.is_empty());
-        assert!(!t2.is_empty());
+        assert_ne!(t1, t2, "CSPRNG tokens should be unique");
     }
 
     #[test]
@@ -689,6 +746,7 @@ mod tests {
             binary_path: "/usr/bin/myapp".to_string(),
             port: 12345,
             token: "abc123".to_string(),
+            session_id: 1,
         };
         let pairs = build_askpass_env_pairs(&env);
         let keys: Vec<&str> = pairs.iter().map(|(k, _)| k.as_str()).collect();
@@ -705,6 +763,7 @@ mod tests {
             binary_path: "/usr/bin/myapp".to_string(),
             port: 12345,
             token: "abc123".to_string(),
+            session_id: 1,
         };
         let pairs = build_askpass_env_pairs(&env);
         // No pair key or value should be named "passphrase" or "password".
@@ -741,9 +800,36 @@ mod tests {
         assert!(state.inner.lock().unwrap().is_none());
         // respond fails with no session
         assert!(state.respond(None).is_err());
-        // clear_session is a no-op when no session exists
-        state.clear_session();
+        // clear_session is a no-op when no session exists (any id)
+        state.clear_session(0);
         assert!(state.inner.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn clear_session_with_wrong_id_does_not_clear() {
+        let (tx, _rx) = std::sync::mpsc::sync_channel(1);
+        let state = AskpassState::new();
+        {
+            let mut guard = state.inner.lock().unwrap();
+            *guard = Some(AskpassInner {
+                session_id: 42,
+                tx,
+                attempts: 0,
+                cancelled: Arc::new(AtomicBool::new(false)),
+            });
+        }
+        // Wrong session_id — should be a no-op.
+        state.clear_session(99);
+        assert!(
+            state.inner.lock().unwrap().is_some(),
+            "session should still exist after wrong id"
+        );
+        // Correct session_id — should clear.
+        state.clear_session(42);
+        assert!(
+            state.inner.lock().unwrap().is_none(),
+            "session should be cleared after correct id"
+        );
     }
 
     #[test]
@@ -760,7 +846,7 @@ mod tests {
 
         // Server thread: accept one connection, send passphrase.
         let server = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
+            let (stream, _) = listener.accept().unwrap();
             let mut write_stream = stream.try_clone().unwrap();
             let mut reader = BufReader::new(&stream);
 

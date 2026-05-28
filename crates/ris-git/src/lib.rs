@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 // ── error ─────────────────────────────────────────────────────────────────────
@@ -469,16 +469,78 @@ pub fn add_remote(repo_path: &Path, name: &str, url: &str) -> Result<(), GitErro
     }
 }
 
+// ── Temporary hooks-disabled directory ───────────────────────────────────────
+
+/// A temporary empty directory used as a safe, hooks-disabled `core.hooksPath`.
+///
+/// Created by the `_with_env` functions when running git with askpass env vars
+/// set, to prevent repo-controlled hook scripts from inheriting
+/// `RIS_ASKPASS_PORT`/`RIS_ASKPASS_TOKEN` and connecting to the local IPC server.
+/// The directory is removed on drop.
+struct TempHooksDir(PathBuf);
+
+impl TempHooksDir {
+    fn create() -> Option<Self> {
+        let dir = std::env::temp_dir().join(format!("ris_nohooks_{}", std::process::id()));
+        // create_dir_all is a no-op if the dir already exists (e.g. from a
+        // previous run that crashed before cleanup). It will always be empty
+        // since we never write files into it.
+        std::fs::create_dir_all(&dir)
+            .ok()
+            .map(|_| TempHooksDir(dir))
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempHooksDir {
+    fn drop(&mut self) {
+        // Ignore errors — if the dir is not empty for any reason, leave it.
+        let _ = std::fs::remove_dir(&self.0);
+    }
+}
+
+// ── Push / Pull ───────────────────────────────────────────────────────────────
+
 /// Push the current branch to `remote`, setting the upstream tracking ref (`-u`).
-/// Pass `extra_env` to inject environment variables such as SSH_ASKPASS into the git subprocess.
+///
+/// `extra_env` injects environment variables (e.g. SSH_ASKPASS) into the git subprocess.
+/// `no_hooks` disables repo-controlled hooks for this invocation by overriding
+/// `core.hooksPath` to an empty temp directory.  Set this to `true` whenever
+/// `extra_env` contains askpass secrets (`RIS_ASKPASS_PORT`/`RIS_ASKPASS_TOKEN`),
+/// because hook processes inherit the git env and could otherwise connect to the
+/// local askpass TCP server and intercept the passphrase flow.
 pub fn push_current_branch_with_env(
     repo_path: &Path,
     remote: &str,
     extra_env: &[(&str, &str)],
+    no_hooks: bool,
 ) -> Result<(), GitError> {
     validate_remote_name(remote)?;
     let branch = current_branch(repo_path)?;
-    let output = run_git_impl(repo_path, &["push", "-u", remote, &branch], extra_env)?;
+
+    // When askpass env is active, override core.hooksPath to a known-empty
+    // temp directory so no pre-push or other client-side hooks can run and
+    // accidentally receive the askpass token/port from the inherited env.
+    let _hooks_guard = if no_hooks {
+        TempHooksDir::create()
+    } else {
+        None
+    };
+    let hooks_cfg: Option<String> = _hooks_guard
+        .as_ref()
+        .map(|d| format!("core.hooksPath={}", d.path().display()));
+
+    let mut args: Vec<&str> = Vec::with_capacity(6);
+    if let Some(ref cfg) = hooks_cfg {
+        args.push("-c");
+        args.push(cfg.as_str());
+    }
+    args.extend_from_slice(&["push", "-u", remote, branch.as_str()]);
+
+    let output = run_git_impl(repo_path, &args, extra_env)?;
     if output.status.success() {
         Ok(())
     } else {
@@ -486,20 +548,21 @@ pub fn push_current_branch_with_env(
     }
 }
 
-/// Push the current branch — convenience wrapper with no extra environment.
+/// Push the current branch — convenience wrapper with no extra environment or hooks override.
 pub fn push_current_branch(repo_path: &Path, remote: &str) -> Result<(), GitError> {
-    push_current_branch_with_env(repo_path, remote, &[])
+    push_current_branch_with_env(repo_path, remote, &[], false)
 }
 
 /// Pull the current branch from `remote` using `--ff-only`.
 ///
-/// Rejects immediately if the working tree is not clean (staged, unstaged, or untracked files),
-/// to avoid ambiguous state after a fast-forward that lands new YAML content.
-/// Pass `extra_env` to inject environment variables such as SSH_ASKPASS into the git subprocess.
+/// Rejects immediately if the working tree is not clean.
+/// `extra_env` injects environment variables (e.g. SSH_ASKPASS) into the git subprocess.
+/// `no_hooks` disables repo-controlled hooks — same rationale as `push_current_branch_with_env`.
 pub fn pull_ff_only_with_env(
     repo_path: &Path,
     remote: &str,
     extra_env: &[(&str, &str)],
+    no_hooks: bool,
 ) -> Result<(), GitError> {
     validate_remote_name(remote)?;
 
@@ -510,11 +573,24 @@ pub fn pull_ff_only_with_env(
     }
 
     let branch = current_branch(repo_path)?;
-    let output = run_git_impl(
-        repo_path,
-        &["pull", "--ff-only", remote, &branch],
-        extra_env,
-    )?;
+
+    let _hooks_guard = if no_hooks {
+        TempHooksDir::create()
+    } else {
+        None
+    };
+    let hooks_cfg: Option<String> = _hooks_guard
+        .as_ref()
+        .map(|d| format!("core.hooksPath={}", d.path().display()));
+
+    let mut args: Vec<&str> = Vec::with_capacity(6);
+    if let Some(ref cfg) = hooks_cfg {
+        args.push("-c");
+        args.push(cfg.as_str());
+    }
+    args.extend_from_slice(&["pull", "--ff-only", remote, branch.as_str()]);
+
+    let output = run_git_impl(repo_path, &args, extra_env)?;
     if output.status.success() {
         Ok(())
     } else {
@@ -522,16 +598,49 @@ pub fn pull_ff_only_with_env(
     }
 }
 
-/// Pull the current branch — convenience wrapper with no extra environment.
+/// Pull the current branch — convenience wrapper with no extra environment or hooks override.
 pub fn pull_ff_only(repo_path: &Path, remote: &str) -> Result<(), GitError> {
-    pull_ff_only_with_env(repo_path, remote, &[])
+    pull_ff_only_with_env(repo_path, remote, &[], false)
 }
 
 // ── SSH helpers ───────────────────────────────────────────────────────────────
 
-/// Returns true when `url` looks like an SSH remote (git@…, ssh://, or ssh+git://).
+/// Returns true when `url` looks like an SSH remote.
+///
+/// Handles:
+/// - Explicit SSH schemes: `ssh://`, `ssh+git://`
+/// - scp-like syntax: `[user@]host:path` (colon not followed by `//`)
+///
+/// Does NOT treat `git://` as SSH (it is an unauthenticated Git protocol).
 pub fn is_ssh_url(url: &str) -> bool {
-    url.starts_with("git@") || url.starts_with("ssh://") || url.starts_with("ssh+git://")
+    if url.starts_with("ssh://") || url.starts_with("ssh+git://") {
+        return true;
+    }
+    // Reject well-known non-SSH schemes and local paths.
+    if url.starts_with("http://")
+        || url.starts_with("https://")
+        || url.starts_with("file://")
+        || url.starts_with('/')
+        || url.starts_with('~')
+        || url.starts_with('.')
+    {
+        return false;
+    }
+    // Reject Windows absolute paths (C:\... or C:/...).
+    let b = url.as_bytes();
+    if b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/')
+    {
+        return false;
+    }
+    // scp-like syntax: [user@]host:path — colon must not be followed by `//`
+    // (which would indicate a scheme like `git://` or `unknown://`).
+    if let Some(colon_pos) = url.find(':') {
+        let after_colon = &url[colon_pos + 1..];
+        if !after_colon.starts_with("//") && !after_colon.is_empty() {
+            return true;
+        }
+    }
+    false
 }
 
 /// Classifies a Git stderr string for common SSH authentication failures.
@@ -675,6 +784,49 @@ mod ssh_tests {
     fn redact_ssh_url_does_not_strip_git_at() {
         // is_ssh_url should handle git@ URLs that do NOT contain credentials
         assert!(is_ssh_url("git@github.com:user/repo.git"));
+    }
+
+    #[test]
+    fn is_ssh_url_recognises_scp_with_non_git_username() {
+        assert!(is_ssh_url("deploy@host.example.com:org/repo.git"));
+        assert!(is_ssh_url("ci-user@gitlab.internal:group/project.git"));
+    }
+
+    #[test]
+    fn is_ssh_url_recognises_scp_without_user() {
+        assert!(is_ssh_url("host.example.com:org/repo.git"));
+    }
+
+    #[test]
+    fn is_ssh_url_rejects_local_absolute_path() {
+        assert!(!is_ssh_url("/home/user/repo"));
+        assert!(!is_ssh_url("/repos/myrepo.git"));
+    }
+
+    #[test]
+    fn is_ssh_url_rejects_tilde_path() {
+        assert!(!is_ssh_url("~/repos/myrepo"));
+    }
+
+    #[test]
+    fn is_ssh_url_rejects_relative_path() {
+        assert!(!is_ssh_url("./repos/myrepo"));
+        assert!(!is_ssh_url("../sibling/repo"));
+    }
+
+    #[test]
+    fn is_ssh_url_rejects_git_scheme() {
+        assert!(!is_ssh_url("git://github.com/org/repo.git"));
+    }
+
+    #[test]
+    fn is_ssh_url_rejects_file_scheme() {
+        assert!(!is_ssh_url("file:///home/user/repo.git"));
+    }
+
+    #[test]
+    fn is_ssh_url_rejects_unknown_scheme_with_double_slash() {
+        assert!(!is_ssh_url("unknown://host/path"));
     }
 }
 
