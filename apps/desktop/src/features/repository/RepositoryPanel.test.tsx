@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import { RepositoryPanel } from "./RepositoryPanel";
 import type { GitStatusDto, OpenRepositoryResultDto, RepositorySummaryDto } from "../../api/tauriClient";
-import { getGitStatus, getGitLog, listGitRemotes } from "../../api/tauriClient";
+import { getGitStatus, getGitLog, listGitRemotes, pullGitFfOnly, pushGitCurrentBranch } from "../../api/tauriClient";
 
 vi.mock("../../api/tauriClient", () => ({
   addGitRemote: vi.fn(),
@@ -225,6 +225,70 @@ describe("RepositoryPanel — Git status cache", () => {
     rerender(<RepositoryPanel {...OPEN_PROPS} summary={null} />);
     expect(getGitStatus).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("button", { name: "Refresh Git status" })).toBeNull();
+  });
+});
+
+// ── Push / Pull state isolation ───────────────────────────────────────────────
+
+const CONNECTED_STATUS: GitStatusDto = {
+  is_repository: true,
+  branch: "main",
+  upstream: "origin/main",
+  ahead: 1,
+  behind: 0,
+  is_clean: true,
+  staged_count: 0,
+  unstaged_count: 0,
+  untracked_count: 0,
+  message: null,
+};
+
+describe("RepositoryPanel — Push/Pull state isolation", () => {
+  beforeEach(() => {
+    vi.mocked(getGitStatus).mockResolvedValue(CONNECTED_STATUS);
+    vi.mocked(getGitLog).mockResolvedValue([]);
+    vi.mocked(listGitRemotes).mockResolvedValue([
+      { name: "origin", url: "git@github.com:org/repo.git" },
+    ]);
+  });
+
+  it("starting a pull clears a stale push error", async () => {
+    vi.mocked(pushGitCurrentBranch).mockRejectedValueOnce(new Error("push-failed-error"));
+    // pull hangs so we can inspect state before it settles
+    vi.mocked(pullGitFfOnly).mockReturnValueOnce(new Promise(() => {}));
+
+    render(<RepositoryPanel {...OPEN_PROPS} />);
+    await waitFor(() => expect(getGitStatus).toHaveBeenCalled());
+
+    // Find the push button in the Remote section (has IcPush icon + "Push" text)
+    const pushBtns = await screen.findAllByRole("button", { name: /Push/ });
+    fireEvent.click(pushBtns[pushBtns.length - 1]);
+    await waitFor(() => expect(screen.queryAllByText(/push-failed-error/).length).toBeGreaterThan(0));
+
+    // Now start pull — stale push error should disappear immediately
+    const pullBtns = screen.getAllByRole("button", { name: /Pull/ });
+    fireEvent.click(pullBtns[pullBtns.length - 1]);
+    await waitFor(() =>
+      expect(screen.queryAllByText(/push-failed-error/).length).toBe(0),
+    );
+  });
+
+  it("starting a push clears a stale pull error", async () => {
+    vi.mocked(pullGitFfOnly).mockRejectedValueOnce(new Error("pull-failed-error"));
+    vi.mocked(pushGitCurrentBranch).mockReturnValueOnce(new Promise(() => {}));
+
+    render(<RepositoryPanel {...OPEN_PROPS} />);
+    await waitFor(() => expect(getGitStatus).toHaveBeenCalled());
+
+    const pullBtns = await screen.findAllByRole("button", { name: /Pull/ });
+    fireEvent.click(pullBtns[pullBtns.length - 1]);
+    await waitFor(() => expect(screen.queryAllByText(/pull-failed-error/).length).toBeGreaterThan(0));
+
+    const pushBtns = screen.getAllByRole("button", { name: /Push/ });
+    fireEvent.click(pushBtns[pushBtns.length - 1]);
+    await waitFor(() =>
+      expect(screen.queryAllByText(/pull-failed-error/).length).toBe(0),
+    );
   });
 });
 

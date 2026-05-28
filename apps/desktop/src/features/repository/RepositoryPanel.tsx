@@ -394,8 +394,11 @@ function GitSection({
   }
 
   async function handlePush() {
+    // Clear all network-op status so only the current operation's result shows.
     setPushError(null);
     setPushSuccess(null);
+    setPullError(null);
+    setPullSuccess(null);
     try {
       await runBusy("Pushing to remote…", () => pushGitCurrentBranch(selectedRemote));
       setPushSuccess(`Pushed to "${selectedRemote}".`);
@@ -406,8 +409,11 @@ function GitSection({
   }
 
   async function handlePull() {
+    // Clear all network-op status so only the current operation's result shows.
     setPullError(null);
     setPullSuccess(null);
+    setPushError(null);
+    setPushSuccess(null);
     try {
       const updatedSummary = await runBusy("Pulling from remote…", () => pullGitFfOnly(selectedRemote));
       setPullSuccess(`Pulled from "${selectedRemote}".`);

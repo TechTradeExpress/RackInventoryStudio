@@ -519,37 +519,100 @@ pub enum GitSecurityMode {
     ///   `RIS_ASKPASS_PORT`/`RIS_ASKPASS_TOKEN` from the subprocess env.
     ///   If the secure directory cannot be created, an error is returned and
     ///   git is **not** spawned.
-    /// - `GIT_SSH` and `GIT_SSH_COMMAND` are removed from the subprocess env
-    ///   so user-configured SSH-wrapper scripts cannot inherit askpass secrets.
-    /// - `core.sshCommand` is overridden with `ssh_command` at the command
-    ///   level, preventing a repo/user-configured SSH wrapper from being used.
+    /// - `GIT_SSH` and `GIT_SSH_COMMAND` env vars are preserved — they are
+    ///   user-controlled and removing them would silently break the user's
+    ///   working SSH configuration.
+    /// - `core.sshCommand` is overridden with `ssh_command` **only** when the
+    ///   repository has a repo-local `core.sshCommand` in `.git/config`, i.e.
+    ///   an untrusted command set by the repository that could inherit askpass
+    ///   secrets. Global/user/system `core.sshCommand` is left untouched so
+    ///   the user's terminal SSH configuration is preserved.
     ///
     /// Note: `RIS_ASKPASS_PORT`, `RIS_ASKPASS_TOKEN`, and `SSH_ASKPASS` are
     /// still present in `extra_env` — they are required so OpenSSH can invoke
     /// the askpass helper. They do not contain the passphrase.
     Askpass {
-        /// Path or name of the SSH executable to use (e.g. `"ssh"` or a
-        /// full path). Overrides `GIT_SSH`, `GIT_SSH_COMMAND`, and any
-        /// repo/user `core.sshCommand` for this invocation only.
+        /// SSH executable to use when overriding a repo-local `core.sshCommand`
+        /// (e.g. `"ssh"` or an absolute path). Only applied when the repo has
+        /// a repo-local `core.sshCommand`; otherwise ignored.
         ssh_command: String,
     },
 }
 
-/// Env vars stripped from the git subprocess in `Askpass` mode.
-const ASKPASS_ENV_REMOVALS: &[&str] = &["GIT_SSH", "GIT_SSH_COMMAND"];
+/// No env vars are removed in askpass mode.
+///
+/// `GIT_SSH` and `GIT_SSH_COMMAND` are user-controlled environment variables
+/// that determine which SSH binary git uses. Removing them would silently break
+/// the user's working terminal SSH configuration (e.g. a custom identity file
+/// or agent socket set via `GIT_SSH_COMMAND`). Repository-controlled SSH
+/// configuration (`core.sshCommand` in `.git/config`) is handled separately —
+/// it is overridden only when set at the repo-local level.
+const ASKPASS_ENV_REMOVALS: &[&str] = &[];
 
-/// Build the `-c` config args and env-removal list for an askpass-hardened invocation.
+/// Returns `true` when `core.sshCommand` is configured at the repository-local
+/// level (`.git/config` or worktree config), as opposed to global/system/user config.
+///
+/// A repo-local `core.sshCommand` could contain an untrusted shell command written
+/// by the repository owner that would run instead of SSH and could read askpass env
+/// vars (`RIS_ASKPASS_PORT`, `RIS_ASKPASS_TOKEN`). We replace it with a safe SSH
+/// binary in askpass mode. Global/user/system values are user-controlled and trusted.
+///
+/// Returns `false` on any error, when the key is not set, or when set only at a
+/// global/system/user level.
+fn is_core_ssh_command_repo_local(repo_path: &Path) -> bool {
+    // `--show-origin` prints "file:<path>\t<value>\n"; exit code 1 = key not set.
+    let config_out = match run_git(
+        repo_path,
+        &["config", "--show-origin", "--get", "core.sshCommand"],
+    ) {
+        Ok(o) if o.status.success() => o,
+        _ => return false,
+    };
+
+    // Format: "file:<path>\t<value>\n"
+    let stdout = String::from_utf8_lossy(&config_out.stdout);
+    let origin = stdout.split('\t').next().unwrap_or("").trim();
+
+    if let Some(file_path) = origin.strip_prefix("file:") {
+        // Git reports repo-local config (`.git/config`, worktree config) as a
+        // *relative* path when the command is run inside the repository working
+        // directory, e.g. "file:.git/config". Global/system/user configs are
+        // always at absolute paths ("/home/user/.gitconfig", "C:\Users\...").
+        //
+        // An absolute path starts with '/' (Unix) or a Windows drive letter
+        // followed by ':' and a separator.
+        let is_absolute = file_path.starts_with('/')
+            || (file_path.len() >= 3
+                && file_path.as_bytes()[0].is_ascii_alphabetic()
+                && file_path.as_bytes()[1] == b':'
+                && (file_path.as_bytes()[2] == b'\\' || file_path.as_bytes()[2] == b'/'));
+        !is_absolute // relative ⇒ repo-local
+    } else {
+        false
+    }
+}
+
+/// Build the `-c` config args for an askpass-hardened git invocation.
+///
+/// - Always adds `core.hooksPath=<unique-temp-dir>` (fail-closed).
+/// - Adds `core.sshCommand=<ssh>` **only** when `ssh_command_override` is `Some`,
+///   i.e. when the caller determined that the repo has a repo-local `core.sshCommand`
+///   that must be neutralised. Global/user SSH configuration is left untouched.
 ///
 /// Returns `(temp_hooks_guard, config_args)`. The guard must remain alive until
-/// the git subprocess has exited. On failure, returns an error and git must not be spawned.
-fn prepare_askpass_hardening(ssh_command: &str) -> Result<(TempHooksDir, Vec<String>), GitError> {
+/// the git subprocess has exited. Failure returns an error; git must not be spawned.
+fn prepare_askpass_hardening(
+    ssh_command_override: Option<&str>,
+) -> Result<(TempHooksDir, Vec<String>), GitError> {
     let dir = TempHooksDir::create()?;
-    let args = vec![
+    let mut args = vec![
         "-c".to_string(),
         format!("core.hooksPath={}", dir.path().display()),
-        "-c".to_string(),
-        format!("core.sshCommand={ssh_command}"),
     ];
+    if let Some(ssh) = ssh_command_override {
+        args.push("-c".to_string());
+        args.push(format!("core.sshCommand={ssh}"));
+    }
     Ok((dir, args))
 }
 
@@ -574,7 +637,15 @@ pub fn push_current_branch_with_env(
     let (_hooks_guard, security_args) = match &security {
         GitSecurityMode::Normal => (None, Vec::new()),
         GitSecurityMode::Askpass { ssh_command } => {
-            let (dir, args) = prepare_askpass_hardening(ssh_command)?;
+            // Only override core.sshCommand when the repo has a repo-local value —
+            // a repo-controlled SSH wrapper could run arbitrary code and inherit
+            // askpass secrets. Preserve global/user/system SSH configuration.
+            let ssh_override = if is_core_ssh_command_repo_local(repo_path) {
+                Some(ssh_command.as_str())
+            } else {
+                None
+            };
+            let (dir, args) = prepare_askpass_hardening(ssh_override)?;
             (Some(dir), args)
         }
     };
@@ -625,7 +696,12 @@ pub fn pull_ff_only_with_env(
     let (_hooks_guard, security_args) = match &security {
         GitSecurityMode::Normal => (None, Vec::new()),
         GitSecurityMode::Askpass { ssh_command } => {
-            let (dir, args) = prepare_askpass_hardening(ssh_command)?;
+            let ssh_override = if is_core_ssh_command_repo_local(repo_path) {
+                Some(ssh_command.as_str())
+            } else {
+                None
+            };
+            let (dir, args) = prepare_askpass_hardening(ssh_override)?;
             (Some(dir), args)
         }
     };
@@ -920,8 +996,8 @@ mod ssh_tests {
     }
 
     #[test]
-    fn prepare_askpass_hardening_produces_correct_args() {
-        let (dir, args) = prepare_askpass_hardening("ssh").expect("hardening");
+    fn prepare_askpass_hardening_produces_hookspath_arg() {
+        let (dir, args) = prepare_askpass_hardening(Some("ssh")).expect("hardening");
         let hooks_arg = format!("core.hooksPath={}", dir.path().display());
         assert!(
             args.contains(&hooks_arg),
@@ -929,18 +1005,18 @@ mod ssh_tests {
         );
         assert!(
             args.contains(&"core.sshCommand=ssh".to_string()),
-            "args must contain core.sshCommand=ssh; got: {args:?}"
+            "args must contain core.sshCommand=ssh when override is Some; got: {args:?}"
         );
         assert!(
             args.iter().filter(|a| *a == "-c").count() >= 2,
-            "must have at least two -c flags"
+            "must have at least two -c flags when override is Some"
         );
     }
 
     #[test]
     fn prepare_askpass_hardening_dirs_are_unique() {
-        let (d1, _) = prepare_askpass_hardening("ssh").expect("first");
-        let (d2, _) = prepare_askpass_hardening("ssh").expect("second");
+        let (d1, _) = prepare_askpass_hardening(None).expect("first");
+        let (d2, _) = prepare_askpass_hardening(None).expect("second");
         assert_ne!(
             d1.path(),
             d2.path(),
@@ -949,46 +1025,99 @@ mod ssh_tests {
     }
 
     #[test]
-    fn askpass_env_removals_include_git_ssh_vars() {
+    fn askpass_env_removals_does_not_strip_user_ssh_vars() {
+        // GIT_SSH and GIT_SSH_COMMAND are user-controlled env vars; removing them
+        // would silently break the user's working terminal SSH configuration.
         assert!(
-            ASKPASS_ENV_REMOVALS.contains(&"GIT_SSH"),
-            "ASKPASS_ENV_REMOVALS must include GIT_SSH"
+            !ASKPASS_ENV_REMOVALS.contains(&"GIT_SSH"),
+            "GIT_SSH must not be in ASKPASS_ENV_REMOVALS — it is user-controlled"
         );
         assert!(
-            ASKPASS_ENV_REMOVALS.contains(&"GIT_SSH_COMMAND"),
-            "ASKPASS_ENV_REMOVALS must include GIT_SSH_COMMAND"
+            !ASKPASS_ENV_REMOVALS.contains(&"GIT_SSH_COMMAND"),
+            "GIT_SSH_COMMAND must not be in ASKPASS_ENV_REMOVALS — it is user-controlled"
         );
     }
 
     #[test]
-    fn askpass_mode_has_ssh_command_override() {
-        let mode = GitSecurityMode::Askpass {
-            ssh_command: "/usr/bin/ssh".to_string(),
-        };
-        if let GitSecurityMode::Askpass { ssh_command } = &mode {
-            let (_, args) = prepare_askpass_hardening(ssh_command).unwrap();
-            assert!(
-                args.contains(&"core.sshCommand=/usr/bin/ssh".to_string()),
-                "askpass mode must override core.sshCommand"
-            );
-        } else {
-            panic!("expected Askpass mode");
-        }
+    fn askpass_mode_has_ssh_command_override_when_explicitly_set() {
+        let (_, args) = prepare_askpass_hardening(Some("/usr/bin/ssh")).unwrap();
+        assert!(
+            args.contains(&"core.sshCommand=/usr/bin/ssh".to_string()),
+            "explicit ssh_command_override must set core.sshCommand; got: {args:?}"
+        );
+    }
+
+    #[test]
+    fn prepare_askpass_hardening_without_override_omits_ssh_command() {
+        // When no repo-local core.sshCommand is present, we must NOT override
+        // core.sshCommand so the user's global/system SSH config is preserved.
+        let (_, args) = prepare_askpass_hardening(None).expect("hardening");
+        assert!(
+            !args.iter().any(|a| a.starts_with("core.sshCommand=")),
+            "args must not contain core.sshCommand when override is None; got: {args:?}"
+        );
+        // core.hooksPath must always be present for hook suppression.
+        assert!(
+            args.iter().any(|a| a.starts_with("core.hooksPath=")),
+            "args must always contain core.hooksPath for hook suppression; got: {args:?}"
+        );
     }
 
     #[test]
     fn normal_mode_build_produces_no_security_args() {
         let mode = GitSecurityMode::Normal;
-        let (_, security_args) = match &mode {
-            GitSecurityMode::Normal => (None::<TempHooksDir>, Vec::<String>::new()),
-            GitSecurityMode::Askpass { ssh_command } => {
-                let (d, a) = prepare_askpass_hardening(ssh_command).unwrap();
-                (Some(d), a)
-            }
+        let security_args: Vec<String> = match &mode {
+            GitSecurityMode::Normal => Vec::new(),
+            GitSecurityMode::Askpass { .. } => prepare_askpass_hardening(None).unwrap().1,
         };
         assert!(
             security_args.is_empty(),
             "Normal mode must produce no security args"
+        );
+    }
+
+    #[test]
+    fn is_core_ssh_command_repo_local_returns_false_for_fresh_repo() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let ok = std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(tmp.path())
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if !ok {
+            return; // git not available, skip
+        }
+        assert!(
+            !is_core_ssh_command_repo_local(tmp.path()),
+            "fresh repo with no core.sshCommand must return false"
+        );
+    }
+
+    #[test]
+    fn is_core_ssh_command_repo_local_returns_true_when_set_in_git_config() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let init_ok = std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(tmp.path())
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if !init_ok {
+            return;
+        }
+        let set_ok = std::process::Command::new("git")
+            .args(["config", "core.sshCommand", "/usr/bin/ssh"])
+            .current_dir(tmp.path())
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if !set_ok {
+            return;
+        }
+        assert!(
+            is_core_ssh_command_repo_local(tmp.path()),
+            "repo-local core.sshCommand in .git/config must be detected as repo-local"
         );
     }
 }

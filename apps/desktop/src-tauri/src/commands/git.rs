@@ -35,19 +35,25 @@ fn commit_to_dto(c: ris_git::GitCommitSummary) -> GitCommitDto {
 
 /// Build a user-facing error message for push/pull failures.
 ///
-/// For SSH remotes, attempts to classify the raw git stderr and returns a
-/// friendly explanation plus agent guidance. Falls back to the raw error
-/// string when no pattern is recognised or the remote is not SSH.
+/// For SSH remotes, classifies the raw git stderr into a friendly explanation
+/// plus agent guidance. Always appends the raw git output so the user can see
+/// the exact failure (e.g. `[ris-askpass]` traces from the helper binary).
+/// Falls back to the raw error string for non-SSH remotes or unrecognised errors.
 fn ssh_error_message(e: &ris_git::GitError, is_ssh: bool) -> String {
     if is_ssh {
         if let ris_git::GitError::CommandFailed { ref stderr, .. } = e {
             if let Some(friendly) = ris_git::classify_git_ssh_error(stderr) {
                 let add_status = probe_ssh_add();
                 let guidance = ssh_agent_guidance(&add_status, true, None);
+                let raw_detail = if !stderr.is_empty() {
+                    format!("\n\nGit output:\n{stderr}")
+                } else {
+                    String::new()
+                };
                 if guidance.is_empty() {
-                    return friendly;
+                    return format!("{friendly}{raw_detail}");
                 }
-                return format!("{}\n\n{}", friendly, guidance.join("\n"));
+                return format!("{friendly}\n\n{}{raw_detail}", guidance.join("\n"));
             }
         }
     }
@@ -149,7 +155,7 @@ pub fn push_git_current_branch(
     askpass: State<AskpassState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    log::info!("git_push: remote={remote}");
+    log::info!("git_push: start remote={remote}");
     let (repo_path, remote_url) = {
         let guard = lock(&state)?;
         let session = guard.as_ref().ok_or_else(no_session)?;
@@ -194,6 +200,10 @@ pub fn push_git_current_branch(
         ris_git::GitSecurityMode::Normal
     };
 
+    log::info!(
+        "git_push: spawning git is_ssh={is_ssh} askpass_active={}",
+        askpass_env.is_some()
+    );
     let result = ris_git::push_current_branch_with_env(&repo_path, &remote, &env_refs, security)
         .map_err(|e| {
             let msg = ssh_error_message(&e, is_ssh);
@@ -271,7 +281,10 @@ pub fn pull_git_ff_only(
         ris_git::GitSecurityMode::Normal
     };
 
-    log::info!("git_pull: remote={remote}");
+    log::info!(
+        "git_pull: spawning git remote={remote} is_ssh={is_ssh} askpass_active={}",
+        askpass_env.is_some()
+    );
     let pull_result = ris_git::pull_ff_only_with_env(&repo_path, &remote, &env_refs, security)
         .map_err(|e| {
             let msg = ssh_error_message(&e, is_ssh);

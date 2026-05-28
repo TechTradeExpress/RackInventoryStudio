@@ -114,6 +114,12 @@ impl AskpassState {
         let inner_arc = Arc::clone(&self.inner);
         let token_for_thread = token.clone();
         let cancelled_for_thread = Arc::clone(&cancelled);
+        log::info!(
+            "askpass: session {} started on port {} (token generated, not logged)",
+            session_id,
+            port
+        );
+
         std::thread::spawn(move || {
             run_askpass_server(
                 listener,
@@ -207,10 +213,29 @@ fn run_askpass_server(
         }
     };
 
+    match &stream {
+        Some(_) => log::info!(
+            "askpass: session {} — helper connected (SSH invoked askpass binary)",
+            own_session_id
+        ),
+        None if cancelled.load(Ordering::Relaxed) => log::info!(
+            "askpass: session {} cancelled before helper connected",
+            own_session_id
+        ),
+        None => log::warn!(
+            "askpass: session {} timed out waiting for helper — SSH may not have invoked \
+             SSH_ASKPASS (check SSH version supports SSH_ASKPASS_REQUIRE=force)",
+            own_session_id
+        ),
+    }
+
     if let Some(stream) = stream {
         if let Err(e) = handle_askpass_connection(stream, &expected_token, &rx, &app, &state) {
             // Redact: never log passphrase. Log only structural errors.
-            log::warn!("askpass session error (passphrase not logged): {e}");
+            log::warn!(
+                "askpass session {} error (passphrase not logged): {e}",
+                own_session_id
+            );
         }
     }
 
@@ -257,8 +282,10 @@ fn handle_askpass_connection(
     // Validate token — reject connections with the wrong token.
     if token != expected_token {
         write_stream.write_all(b"CANCEL\n").ok();
+        // Do NOT log the received or expected token values.
         return Err("Invalid token in askpass connection — rejecting".to_string());
     }
+    log::info!("askpass: helper token accepted");
 
     // Check attempt limit to prevent infinite passphrase loops.
     let at_limit = {
@@ -278,12 +305,14 @@ fn handle_askpass_connection(
     }
 
     let safe_prompt = sanitize_prompt(&prompt);
+    log::info!("askpass: prompt received: {:?}", safe_prompt);
 
     // Emit event to frontend — frontend shows the passphrase modal.
     if let Err(e) = app.emit("ssh-passphrase-requested", &safe_prompt) {
         write_stream.write_all(b"CANCEL\n").ok();
         return Err(format!("Failed to emit passphrase event to frontend: {e}"));
     }
+    log::info!("askpass: ssh-passphrase-requested event emitted to frontend");
 
     // Wait for user response (passphrase or cancel). None = timeout or cancel.
     let passphrase = rx
@@ -291,12 +320,15 @@ fn handle_askpass_connection(
         .ok()
         .flatten();
 
-    if let Some(ref p) = passphrase {
-        let response_bytes = format!("OK\n{p}\n");
+    if let Some(ref _p) = passphrase {
+        // Do NOT log the passphrase value.
+        log::info!("askpass: passphrase received from frontend, forwarding to SSH helper");
+        let response_bytes = format!("OK\n{_p}\n");
         write_stream
             .write_all(response_bytes.as_bytes())
             .map_err(|e| format!("write passphrase to askpass helper: {e}"))?;
     } else {
+        log::info!("askpass: passphrase cancelled or timed out, sending CANCEL to helper");
         write_stream.write_all(b"CANCEL\n").ok();
         // Notify frontend the operation was cancelled (timeout or user cancel).
         app.emit("ssh-passphrase-result", "cancelled").ok();
@@ -349,24 +381,38 @@ pub fn build_askpass_env_pairs(env: &AskpassEnv) -> Vec<(String, String)> {
 /// Called from `main()` when `RIS_ASKPASS_MODE=1` is set.
 /// Returns an exit code: 0 = passphrase printed to stdout, 1 = cancel/error.
 /// The passphrase is written only to stdout (as a pipe to SSH), never logged.
+///
+/// Writes non-secret trace lines to stderr so they appear in git's stderr output
+/// and can be correlated with askpass server logs in the main process.
 pub fn run_as_askpass() -> i32 {
+    eprintln!("[ris-askpass] helper invoked by SSH");
+
     let prompt = std::env::args().nth(1).unwrap_or_default();
 
     let port_str = match std::env::var("RIS_ASKPASS_PORT") {
         Ok(p) => p,
-        Err(_) => return 1,
+        Err(_) => {
+            eprintln!("[ris-askpass] RIS_ASKPASS_PORT not set — askpass env not inherited");
+            return 1;
+        }
     };
-    let token = match std::env::var("RIS_ASKPASS_TOKEN") {
-        Ok(t) => t,
-        Err(_) => return 1,
-    };
+    if std::env::var("RIS_ASKPASS_TOKEN").is_err() {
+        eprintln!("[ris-askpass] RIS_ASKPASS_TOKEN not set — askpass env not inherited");
+        return 1;
+    }
+    let token = std::env::var("RIS_ASKPASS_TOKEN").unwrap();
     let port: u16 = match port_str.parse() {
         Ok(p) => p,
-        Err(_) => return 1,
+        Err(_) => {
+            eprintln!("[ris-askpass] invalid port value");
+            return 1;
+        }
     };
 
+    eprintln!("[ris-askpass] connecting to localhost:{port}");
     match connect_and_get_passphrase(port, &token, &prompt) {
         Ok(Some(passphrase)) => {
+            eprintln!("[ris-askpass] passphrase received, returning to SSH");
             // Write passphrase to stdout for SSH to consume.
             // Use Write trait directly to avoid platform print! quirks.
             use std::io::Write;
@@ -377,8 +423,15 @@ pub fn run_as_askpass() -> i32 {
             stdout.flush().ok();
             0
         }
-        Ok(None) => 1, // Cancelled
-        Err(_) => 1,   // Error (details not logged — avoids logging passphrase-adjacent data)
+        Ok(None) => {
+            eprintln!("[ris-askpass] cancelled by user or timed out");
+            1
+        }
+        Err(e) => {
+            // e does not contain the passphrase — safe to log.
+            eprintln!("[ris-askpass] connection error: {e}");
+            1
+        }
     }
 }
 
@@ -457,8 +510,12 @@ pub fn ssh_agent_guidance(
     }
 
     match add_status {
-        SshAddStatus::HasIdentities(_) => {
-            hints.push("ssh-agent has identities loaded — push/pull should work without a passphrase prompt.".to_string());
+        SshAddStatus::HasIdentities(n) => {
+            hints.push(format!(
+                "SSH agent has {n} key(s) loaded. If push/pull still fails, the required \
+                 key may not be among them, or Git may be using a different SSH \
+                 configuration than the agent expects."
+            ));
         }
         SshAddStatus::NoIdentities => {
             hints.push("ssh-agent is reachable but has no identities. Run: ssh-add ~/.ssh/id_ed25519 (or your key path)".to_string());
@@ -936,5 +993,23 @@ mod tests {
     fn ssh_agent_guidance_has_hint_for_unreachable_agent() {
         let hints = ssh_agent_guidance(&SshAddStatus::AgentUnreachable, true, None);
         assert!(!hints.is_empty());
+    }
+
+    #[test]
+    fn ssh_agent_guidance_has_identities_does_not_claim_should_work() {
+        // "ssh-agent has identities" is a diagnostic fact, not a guarantee.
+        // The hint must not say "should work" because authentication can still
+        // fail if the required key is not among the loaded ones.
+        let hints = ssh_agent_guidance(&SshAddStatus::HasIdentities(2), true, None);
+        assert!(
+            !hints.is_empty(),
+            "HasIdentities must produce a hint for SSH remotes"
+        );
+        for hint in &hints {
+            assert!(
+                !hint.to_ascii_lowercase().contains("should work"),
+                "HasIdentities hint must not claim 'should work': {hint}"
+            );
+        }
     }
 }
