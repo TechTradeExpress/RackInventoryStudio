@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased — Post-beta 1 follow-up
+
+### Fixed
+
+- Windows rack placement drag-and-drop compatibility: `dragDropEnabled: false` in
+  Tauri window config prevents WebView2 from intercepting HTML5 DnD events; payload
+  now written to both custom MIME type and `text/plain` fallback.
+
+### Added
+
+- Post-beta follow-up plan (`docs/BETA1_FOLLOWUP_PLAN_EN.md`) covering six
+  identified issues and their planned resolutions.
+
+---
+
 ## v0.1.0-beta.1 — 2026-05-27 — First Windows beta
 
 **Beta release — Windows x64 only. Unsigned installer.**
