@@ -99,7 +99,7 @@ fn save_then_reload_persists_added_location() {
     session
         .add_location(AddLocationInput {
             id: None,
-            code: "new-room".to_string(),
+            code: Some("new-room".to_string()),
             name: "New Room".to_string(),
             description: None,
             address: None,
@@ -122,7 +122,7 @@ fn second_save_is_unchanged() {
     session
         .add_location(AddLocationInput {
             id: None,
-            code: "another-room".to_string(),
+            code: Some("another-room".to_string()),
             name: "Another Room".to_string(),
             description: None,
             address: None,
@@ -182,7 +182,7 @@ fn add_location_success_increases_count() {
     session
         .add_location(AddLocationInput {
             id: None,
-            code: "room-b".to_string(),
+            code: Some("room-b".to_string()),
             name: "Room B".to_string(),
             description: None,
             address: None,
@@ -199,7 +199,7 @@ fn add_location_duplicate_code_fails() {
     let err = session
         .add_location(AddLocationInput {
             id: None,
-            code: "server-room-a".to_string(),
+            code: Some("server-room-a".to_string()),
             name: "Duplicate".to_string(),
             description: None,
             address: None,
@@ -225,7 +225,7 @@ fn add_rack_success_increases_count_and_creates_placement_file() {
             id: None,
             location_id: None,
             location_code: Some("server-room-a".to_string()),
-            code: "rack-b02".to_string(),
+            code: Some("rack-b02".to_string()),
             name: "Rack B02".to_string(),
             height_u: 42,
             row: None,
@@ -246,7 +246,7 @@ fn add_rack_unknown_location_fails() {
             id: None,
             location_id: None,
             location_code: Some("nonexistent-location".to_string()),
-            code: "rack-x".to_string(),
+            code: Some("rack-x".to_string()),
             name: "Rack X".to_string(),
             height_u: 10,
             row: None,
@@ -268,7 +268,7 @@ fn add_rack_duplicate_code_fails() {
             id: None,
             location_id: None,
             location_code: Some("server-room-a".to_string()),
-            code: "rack-main".to_string(),
+            code: Some("rack-main".to_string()),
             name: "Rack Main Dup".to_string(),
             height_u: 42,
             row: None,
@@ -290,7 +290,7 @@ fn add_rack_zero_height_fails() {
             id: None,
             location_id: None,
             location_code: Some("server-room-a".to_string()),
-            code: "rack-zero".to_string(),
+            code: Some("rack-zero".to_string()),
             name: "Rack Zero".to_string(),
             height_u: 0,
             row: None,
@@ -315,7 +315,7 @@ fn add_rack_save_reload_preserves_rack_and_placement_file() {
             id: Some("12341234-1234-1234-1234-123412341234".to_string()),
             location_id: None,
             location_code: Some("server-room-a".to_string()),
-            code: "rack-saved".to_string(),
+            code: Some("rack-saved".to_string()),
             name: "Rack Saved".to_string(),
             height_u: 10,
             row: None,
@@ -341,7 +341,7 @@ fn add_device_model_success_increases_count() {
         .add_device_model(AddDeviceModelInput {
             id: None,
             device_type: DeviceType::Network,
-            code: "cisco-sw-01".to_string(),
+            code: Some("cisco-sw-01".to_string()),
             name: "Cisco Switch".to_string(),
             vendor: Some("Cisco".to_string()),
             model: None,
@@ -364,7 +364,7 @@ fn add_device_model_duplicate_code_fails() {
         .add_device_model(AddDeviceModelInput {
             id: None,
             device_type: DeviceType::Server,
-            code: "dell-r650".to_string(),
+            code: Some("dell-r650".to_string()),
             name: "Duplicate".to_string(),
             vendor: None,
             model: None,
@@ -386,7 +386,7 @@ fn add_device_model_zero_height_fails() {
         .add_device_model(AddDeviceModelInput {
             id: None,
             device_type: DeviceType::Server,
-            code: "zero-model".to_string(),
+            code: Some("zero-model".to_string()),
             name: "Zero Height".to_string(),
             vendor: None,
             model: None,
@@ -411,7 +411,7 @@ fn add_device_model_save_reload_preserves_model() {
         .add_device_model(AddDeviceModelInput {
             id: None,
             device_type: DeviceType::Storage,
-            code: "netapp-a300".to_string(),
+            code: Some("netapp-a300".to_string()),
             name: "NetApp AFF A300".to_string(),
             vendor: Some("NetApp".to_string()),
             model: None,
@@ -439,7 +439,7 @@ fn add_device_success_increases_count() {
         .add_device(AddDeviceInput {
             id: None,
             device_type: DeviceType::Server,
-            code: "srv-02".to_string(),
+            code: Some("srv-02".to_string()),
             name: Some("Server 02".to_string()),
             device_model_id: None,
             device_model_code: None,
@@ -461,7 +461,7 @@ fn add_device_appears_in_unplaced_list() {
         .add_device(AddDeviceInput {
             id: None,
             device_type: DeviceType::Server,
-            code: "srv-unplaced".to_string(),
+            code: Some("srv-unplaced".to_string()),
             name: Some("Unplaced Server".to_string()),
             device_model_id: None,
             device_model_code: None,
@@ -484,7 +484,7 @@ fn add_device_duplicate_code_fails() {
         .add_device(AddDeviceInput {
             id: None,
             device_type: DeviceType::Server,
-            code: "srv-01".to_string(),
+            code: Some("srv-01".to_string()),
             name: Some("Dup".to_string()),
             device_model_id: None,
             device_model_code: None,
@@ -509,7 +509,7 @@ fn add_device_missing_identity_fails() {
         .add_device(AddDeviceInput {
             id: None,
             device_type: DeviceType::Server,
-            code: "srv-no-identity".to_string(),
+            code: Some("srv-no-identity".to_string()),
             name: None,
             device_model_id: None,
             device_model_code: None,
@@ -535,7 +535,7 @@ fn add_device_model_type_mismatch_fails() {
         .add_device(AddDeviceInput {
             id: None,
             device_type: DeviceType::Network,
-            code: "net-mismatch".to_string(),
+            code: Some("net-mismatch".to_string()),
             name: Some("Net Dev".to_string()),
             device_model_id: None,
             device_model_code: Some("dell-r650".to_string()),
@@ -560,7 +560,7 @@ fn add_device_rack_object_type_rejected() {
         .add_device(AddDeviceInput {
             id: None,
             device_type: DeviceType::RackObject,
-            code: "ro-inst".to_string(),
+            code: Some("ro-inst".to_string()),
             name: Some("Rack Object Instance".to_string()),
             device_model_id: None,
             device_model_code: None,
@@ -586,7 +586,7 @@ fn add_device_duplicate_serial_number_fails() {
         .add_device(AddDeviceInput {
             id: None,
             device_type: DeviceType::Server,
-            code: "srv-dup-sn".to_string(),
+            code: Some("srv-dup-sn".to_string()),
             name: Some("Dup Serial".to_string()),
             device_model_id: None,
             device_model_code: None,
@@ -614,7 +614,7 @@ fn add_device_save_reload_preserves_device() {
         .add_device(AddDeviceInput {
             id: None,
             device_type: DeviceType::Server,
-            code: "srv-persisted".to_string(),
+            code: Some("srv-persisted".to_string()),
             name: Some("Persisted Server".to_string()),
             device_model_id: None,
             device_model_code: None,
@@ -675,7 +675,7 @@ fn add_location_with_existing_device_id_fails() {
     let err = session
         .add_location(AddLocationInput {
             id: Some(device_id),
-            code: "cross-type-loc".to_string(),
+            code: Some("cross-type-loc".to_string()),
             name: "Cross Type Location".to_string(),
             description: None,
             address: None,
@@ -697,7 +697,7 @@ fn add_rack_with_existing_location_id_fails() {
             id: Some(location_id),
             location_code: Some("server-room-a".to_string()),
             location_id: None,
-            code: "cross-type-rack".to_string(),
+            code: Some("cross-type-rack".to_string()),
             name: "Cross Type Rack".to_string(),
             height_u: 10,
             row: None,
@@ -719,7 +719,7 @@ fn add_device_model_with_existing_rack_id_fails() {
         .add_device_model(AddDeviceModelInput {
             id: Some(rack_id),
             device_type: DeviceType::Server,
-            code: "cross-type-model".to_string(),
+            code: Some("cross-type-model".to_string()),
             name: "Cross Type Model".to_string(),
             vendor: None,
             model: None,
@@ -742,7 +742,7 @@ fn add_device_with_existing_model_id_fails() {
         .add_device(AddDeviceInput {
             id: Some(model_id),
             device_type: DeviceType::Server,
-            code: "cross-type-dev".to_string(),
+            code: Some("cross-type-dev".to_string()),
             name: Some("Cross Type Device".to_string()),
             device_model_id: None,
             device_model_code: None,
@@ -769,7 +769,7 @@ fn add_location_duplicate_id_fails() {
     let err = session
         .add_location(AddLocationInput {
             id: Some(existing_id.clone()),
-            code: "room-dup-id".to_string(),
+            code: Some("room-dup-id".to_string()),
             name: "Room Dup ID".to_string(),
             description: None,
             address: None,
@@ -791,7 +791,7 @@ fn add_rack_duplicate_id_fails() {
             id: Some(existing_id.clone()),
             location_code: Some("server-room-a".to_string()),
             location_id: None,
-            code: "rack-dup-id".to_string(),
+            code: Some("rack-dup-id".to_string()),
             name: "Rack Dup ID".to_string(),
             height_u: 10,
             row: None,
@@ -813,7 +813,7 @@ fn add_device_model_duplicate_id_fails() {
         .add_device_model(AddDeviceModelInput {
             id: Some(existing_id.clone()),
             device_type: DeviceType::Server,
-            code: "model-dup-id".to_string(),
+            code: Some("model-dup-id".to_string()),
             name: "Model Dup ID".to_string(),
             vendor: None,
             model: None,
@@ -836,7 +836,7 @@ fn add_device_duplicate_id_fails() {
         .add_device(AddDeviceInput {
             id: Some(existing_id.clone()),
             device_type: DeviceType::Server,
-            code: "dev-dup-id".to_string(),
+            code: Some("dev-dup-id".to_string()),
             name: Some("Dev Dup ID".to_string()),
             device_model_id: None,
             device_model_code: None,
@@ -854,25 +854,44 @@ fn add_device_duplicate_id_fails() {
     );
 }
 
-// ── blank required field rejection ───────────────────────────────────────────
+// ── code generation ───────────────────────────────────────────────────────────
 
 #[test]
-fn add_location_empty_code_fails() {
+fn add_location_without_code_generates_unique_code() {
     let mut session = open_repository(&fixture("valid-repository")).unwrap();
-    let err = session
+    let id = session
         .add_location(AddLocationInput {
             id: None,
-            code: "  ".to_string(),
-            name: "Valid Name".to_string(),
+            code: None,
+            name: "Generated Location".to_string(),
             description: None,
             address: None,
             tags: vec![],
         })
-        .unwrap_err();
+        .unwrap();
+    let loc = session.index.locations_by_id.get(&id).unwrap();
+    assert!(!loc.code.is_empty(), "generated code must be non-empty");
     assert!(
-        matches!(err, ris_application::ApplicationError::InvalidInput(_)),
-        "expected InvalidInput, got {err:?}"
+        loc.code.starts_with("location-"),
+        "generated code should start with 'location-'"
     );
+}
+
+#[test]
+fn add_location_with_blank_code_generates_unique_code() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let id = session
+        .add_location(AddLocationInput {
+            id: None,
+            code: Some("  ".to_string()),
+            name: "Generated Location 2".to_string(),
+            description: None,
+            address: None,
+            tags: vec![],
+        })
+        .unwrap();
+    let loc = session.index.locations_by_id.get(&id).unwrap();
+    assert!(!loc.code.is_empty(), "generated code must be non-empty");
 }
 
 #[test]
@@ -881,7 +900,7 @@ fn add_location_empty_name_fails() {
     let err = session
         .add_location(AddLocationInput {
             id: None,
-            code: "valid-code".to_string(),
+            code: Some("valid-code".to_string()),
             name: "".to_string(),
             description: None,
             address: None,
@@ -895,24 +914,26 @@ fn add_location_empty_name_fails() {
 }
 
 #[test]
-fn add_rack_empty_code_fails() {
+fn add_rack_without_code_generates_unique_code() {
     let mut session = open_repository(&fixture("valid-repository")).unwrap();
-    let err = session
+    let id = session
         .add_rack(AddRackInput {
             id: None,
             location_code: Some("server-room-a".to_string()),
             location_id: None,
-            code: "".to_string(),
-            name: "Valid Name".to_string(),
+            code: None,
+            name: "Generated Rack".to_string(),
             height_u: 10,
             row: None,
             description: None,
             tags: vec![],
         })
-        .unwrap_err();
+        .unwrap();
+    let rack = session.index.racks_by_id.get(&id).unwrap();
+    assert!(!rack.code.is_empty(), "generated code must be non-empty");
     assert!(
-        matches!(err, ris_application::ApplicationError::InvalidInput(_)),
-        "expected InvalidInput, got {err:?}"
+        rack.code.contains("rack-"),
+        "generated rack code should contain 'rack-'"
     );
 }
 
@@ -924,7 +945,7 @@ fn add_rack_empty_name_fails() {
             id: None,
             location_code: Some("server-room-a".to_string()),
             location_id: None,
-            code: "rack-blank-name".to_string(),
+            code: Some("rack-blank-name".to_string()),
             name: "   ".to_string(),
             height_u: 10,
             row: None,
@@ -939,24 +960,26 @@ fn add_rack_empty_name_fails() {
 }
 
 #[test]
-fn add_device_model_empty_code_fails() {
+fn add_device_model_without_code_generates_unique_code() {
     let mut session = open_repository(&fixture("valid-repository")).unwrap();
-    let err = session
+    let id = session
         .add_device_model(AddDeviceModelInput {
             id: None,
             device_type: DeviceType::Server,
-            code: "".to_string(),
-            name: "Valid Name".to_string(),
+            code: None,
+            name: "Generated Model".to_string(),
             vendor: None,
             model: None,
             default_height_u: 1,
             description: None,
             tags: vec![],
         })
-        .unwrap_err();
+        .unwrap();
+    let model = session.index.device_models_by_id.get(&id).unwrap();
+    assert!(!model.code.is_empty(), "generated code must be non-empty");
     assert!(
-        matches!(err, ris_application::ApplicationError::InvalidInput(_)),
-        "expected InvalidInput, got {err:?}"
+        model.code.starts_with("model-server-"),
+        "generated server model code should start with 'model-server-'"
     );
 }
 
@@ -967,7 +990,7 @@ fn add_device_model_empty_name_fails() {
         .add_device_model(AddDeviceModelInput {
             id: None,
             device_type: DeviceType::Server,
-            code: "valid-code".to_string(),
+            code: Some("valid-code".to_string()),
             name: "  ".to_string(),
             vendor: None,
             model: None,
@@ -983,14 +1006,14 @@ fn add_device_model_empty_name_fails() {
 }
 
 #[test]
-fn add_device_empty_code_fails() {
+fn add_device_without_code_generates_unique_code() {
     let mut session = open_repository(&fixture("valid-repository")).unwrap();
-    let err = session
+    let id = session
         .add_device(AddDeviceInput {
             id: None,
             device_type: DeviceType::Server,
-            code: "".to_string(),
-            name: Some("Valid Name".to_string()),
+            code: None,
+            name: Some("Generated Device".to_string()),
             device_model_id: None,
             device_model_code: None,
             serial_number: None,
@@ -1000,10 +1023,12 @@ fn add_device_empty_code_fails() {
             description: None,
             tags: vec![],
         })
-        .unwrap_err();
+        .unwrap();
+    let device = session.index.devices_by_id.get(&id).unwrap();
+    assert!(!device.code.is_empty(), "generated code must be non-empty");
     assert!(
-        matches!(err, ris_application::ApplicationError::InvalidInput(_)),
-        "expected InvalidInput, got {err:?}"
+        device.code.starts_with("device-"),
+        "generated device code should start with 'device-'"
     );
 }
 
@@ -1015,7 +1040,7 @@ fn add_device_blank_identity_fields_fail() {
         .add_device(AddDeviceInput {
             id: None,
             device_type: DeviceType::Server,
-            code: "srv-blank-identity".to_string(),
+            code: Some("srv-blank-identity".to_string()),
             name: Some("  ".to_string()),
             device_model_id: None,
             device_model_code: None,
@@ -1043,7 +1068,7 @@ fn add_device_duplicate_asset_tag_fails() {
         .add_device(AddDeviceInput {
             id: None,
             device_type: DeviceType::Server,
-            code: "srv-with-at".to_string(),
+            code: Some("srv-with-at".to_string()),
             name: Some("Server With Asset Tag".to_string()),
             device_model_id: None,
             device_model_code: None,
@@ -1060,7 +1085,7 @@ fn add_device_duplicate_asset_tag_fails() {
         .add_device(AddDeviceInput {
             id: None,
             device_type: DeviceType::Server,
-            code: "srv-dup-at".to_string(),
+            code: Some("srv-dup-at".to_string()),
             name: Some("Server Dup Asset Tag".to_string()),
             device_model_id: None,
             device_model_code: None,
@@ -1084,7 +1109,7 @@ fn new_server(code: &str) -> AddDeviceInput {
     AddDeviceInput {
         id: None,
         device_type: DeviceType::Server,
-        code: code.to_string(),
+        code: Some(code.to_string()),
         name: Some(code.to_string()),
         device_model_id: None,
         device_model_code: Some("dell-r650".to_string()),
@@ -1101,7 +1126,7 @@ fn new_server_no_model(code: &str) -> AddDeviceInput {
     AddDeviceInput {
         id: None,
         device_type: DeviceType::Server,
-        code: code.to_string(),
+        code: Some(code.to_string()),
         name: Some(code.to_string()),
         device_model_id: None,
         device_model_code: None,
@@ -1871,7 +1896,7 @@ fn add_rack_b(session: &mut ris_application::RepositorySession) -> String {
             id: None,
             location_id: None,
             location_code: Some("server-room-a".to_string()),
-            code: "rack-b".to_string(),
+            code: Some("rack-b".to_string()),
             name: "Rack B".to_string(),
             height_u: 42,
             row: None,
@@ -2233,10 +2258,10 @@ const VALID_CSV: &str = "code,device_type,status,name,serial_number\n\
 srv-import-01,server,in_stock,Import Server One,SN-IMP-001\n\
 srv-import-02,server,planned,Import Server Two,SN-IMP-002\n";
 
-const INVALID_CSV_MISSING_HEADER: &str = "device_type,status,name\nserver,in_stock,Server\n";
+const INVALID_CSV_MISSING_HEADER: &str = "code,status,name\nsrv-x,in_stock,No Type\n";
 
-const INVALID_CSV_ERROR_ROW: &str = "code,device_type,status,name\n\
-,server,in_stock,No Code\n";
+const INVALID_CSV_ERROR_ROW: &str = "device_type,status\n\
+not_a_real_type,in_stock\n";
 
 #[test]
 fn import_devices_csv_valid_creates_devices() {
@@ -2332,7 +2357,6 @@ fn update_location_changes_name_and_preserves_id() {
     session
         .update_location(UpdateLocationInput {
             id: loc.id.clone(),
-            code: loc.code.clone(),
             name: "Renamed Room".to_string(),
             description: Some("desc".to_string()),
             address: None,
@@ -2345,36 +2369,27 @@ fn update_location_changes_name_and_preserves_id() {
 }
 
 #[test]
-fn update_location_duplicate_code_fails() {
+fn update_location_code_is_preserved() {
     let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let loc = session
+        .index
+        .get_location_by_code("server-room-a")
+        .unwrap()
+        .clone();
+    let original_code = loc.code.clone();
     session
-        .add_location(AddLocationInput {
-            id: None,
-            code: "room-b".to_string(),
-            name: "Room B".to_string(),
+        .update_location(UpdateLocationInput {
+            id: loc.id.clone(),
+            name: "Renamed Room".to_string(),
             description: None,
             address: None,
             tags: vec![],
         })
         .unwrap();
-    let room_b = session
-        .index
-        .get_location_by_code("room-b")
-        .unwrap()
-        .clone();
-    let err = session
-        .update_location(UpdateLocationInput {
-            id: room_b.id,
-            code: "server-room-a".to_string(),
-            name: "Room B".to_string(),
-            description: None,
-            address: None,
-            tags: vec![],
-        })
-        .unwrap_err();
-    assert!(
-        matches!(err, ris_application::ApplicationError::DuplicateCode(_)),
-        "expected DuplicateCode, got {err:?}"
+    let updated = session.index.get_location_by_code(&original_code).unwrap();
+    assert_eq!(
+        updated.code, original_code,
+        "code must remain unchanged after update"
     );
 }
 
@@ -2384,7 +2399,6 @@ fn update_location_not_found_fails() {
     let err = session
         .update_location(UpdateLocationInput {
             id: "nonexistent-id".to_string(),
-            code: "code".to_string(),
             name: "Name".to_string(),
             description: None,
             address: None,
@@ -2405,7 +2419,7 @@ fn delete_location_succeeds_when_unreferenced() {
     let id = session
         .add_location(AddLocationInput {
             id: None,
-            code: "empty-room".to_string(),
+            code: Some("empty-room".to_string()),
             name: "Empty Room".to_string(),
             description: None,
             address: None,
@@ -2454,7 +2468,6 @@ fn update_rack_changes_name_and_preserves_id() {
         .update_rack(UpdateRackInput {
             id: rack.id.clone(),
             location_id: loc_id,
-            code: rack.code.clone(),
             name: "Renamed Rack".to_string(),
             height_u: rack.height_u,
             row: None,
@@ -2476,7 +2489,6 @@ fn update_rack_height_reduction_blocked_by_placements() {
         .update_rack(UpdateRackInput {
             id: rack.id.clone(),
             location_id: loc_id,
-            code: rack.code.clone(),
             name: rack.name.clone(),
             height_u: 1,
             row: None,
@@ -2491,42 +2503,26 @@ fn update_rack_height_reduction_blocked_by_placements() {
 }
 
 #[test]
-fn update_rack_duplicate_code_fails() {
+fn update_rack_code_is_preserved() {
     let mut session = open_repository(&fixture("valid-repository")).unwrap();
-    let loc = session
-        .index
-        .get_location_by_code("server-room-a")
-        .unwrap()
-        .clone();
-    let id2 = session
-        .add_rack(AddRackInput {
-            id: None,
-            location_id: Some(loc.id.clone()),
-            location_code: None,
-            code: "rack-b".to_string(),
-            name: "Rack B".to_string(),
-            height_u: 10,
+    let rack = session.index.get_rack_by_code("rack-main").unwrap().clone();
+    let original_code = rack.code.clone();
+    session
+        .update_rack(UpdateRackInput {
+            id: rack.id.clone(),
+            location_id: rack.location_id.clone(),
+            name: "Renamed Rack".to_string(),
+            height_u: rack.height_u,
             row: None,
             description: None,
             tags: vec![],
         })
         .unwrap();
-    let err = session
-        .update_rack(UpdateRackInput {
-            id: id2,
-            location_id: loc.id,
-            code: "rack-main".to_string(),
-            name: "Rack B".to_string(),
-            height_u: 10,
-            row: None,
-            description: None,
-            tags: vec![],
-        })
-        .unwrap_err();
-    assert!(matches!(
-        err,
-        ris_application::ApplicationError::DuplicateCode(_)
-    ));
+    let updated = session.index.get_rack_by_code(&original_code).unwrap();
+    assert_eq!(
+        updated.code, original_code,
+        "code must remain unchanged after update"
+    );
 }
 
 // ── delete_rack ───────────────────────────────────────────────────────────────
@@ -2544,7 +2540,7 @@ fn delete_rack_succeeds_when_empty() {
             id: None,
             location_id: Some(loc.id),
             location_code: None,
-            code: "rack-empty".to_string(),
+            code: Some("rack-empty".to_string()),
             name: "Empty Rack".to_string(),
             height_u: 10,
             row: None,
@@ -2583,7 +2579,6 @@ fn update_device_model_changes_name_preserves_id() {
         .update_device_model(UpdateDeviceModelInput {
             id: model.id.clone(),
             device_type: model.device_type.clone(),
-            code: model.code.clone(),
             name: "Dell R650 Updated".to_string(),
             vendor: model.vendor.clone(),
             model: model.model.clone(),
@@ -2609,7 +2604,6 @@ fn update_device_model_type_change_blocked_by_device_reference() {
         .update_device_model(UpdateDeviceModelInput {
             id: model.id.clone(),
             device_type: DeviceType::Network,
-            code: model.code.clone(),
             name: model.name.clone(),
             vendor: model.vendor.clone(),
             model: model.model.clone(),
@@ -2634,7 +2628,7 @@ fn delete_device_model_succeeds_when_unreferenced() {
         .add_device_model(AddDeviceModelInput {
             id: None,
             device_type: DeviceType::Network,
-            code: "sw-unused".to_string(),
+            code: Some("sw-unused".to_string()),
             name: "Unused Switch".to_string(),
             vendor: None,
             model: None,
@@ -2690,7 +2684,6 @@ fn update_device_changes_name_preserves_id() {
         .update_device(UpdateDeviceInput {
             id: device.id.clone(),
             device_type: device.device_type.clone(),
-            code: device.code.clone(),
             name: Some("Server 01 Updated".to_string()),
             device_model_id: device.device_model_id.clone(),
             serial_number: device.serial_number.clone(),
@@ -2714,7 +2707,6 @@ fn update_device_type_change_blocked_when_placed() {
         .update_device(UpdateDeviceInput {
             id: device.id.clone(),
             device_type: DeviceType::Network,
-            code: device.code.clone(),
             name: device.name.clone(),
             device_model_id: None,
             serial_number: device.serial_number.clone(),
@@ -2732,14 +2724,14 @@ fn update_device_type_change_blocked_when_placed() {
 }
 
 #[test]
-fn update_device_duplicate_code_fails() {
+fn update_device_code_is_preserved() {
     let mut session = open_repository(&fixture("valid-repository")).unwrap();
-    let id2 = session
+    let id = session
         .add_device(AddDeviceInput {
             id: None,
             device_type: DeviceType::Server,
-            code: "srv-02".to_string(),
-            name: Some("Server 02".to_string()),
+            code: Some("srv-preserve-test".to_string()),
+            name: Some("Server Preserve".to_string()),
             device_model_id: None,
             device_model_code: None,
             serial_number: None,
@@ -2750,26 +2742,246 @@ fn update_device_duplicate_code_fails() {
             tags: vec![],
         })
         .unwrap();
-    let device2 = session.index.devices_by_id.get(&id2).unwrap().clone();
-    let err = session
+    session
         .update_device(UpdateDeviceInput {
-            id: device2.id.clone(),
-            device_type: device2.device_type.clone(),
-            code: "srv-01".to_string(),
-            name: device2.name.clone(),
+            id: id.clone(),
+            device_type: DeviceType::Server,
+            name: Some("Server Preserve Updated".to_string()),
             device_model_id: None,
             serial_number: None,
             asset_tag: None,
             external_ref: None,
-            status: device2.status.clone(),
+            status: DeviceStatus::Installed,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap();
+    let updated = session.index.devices_by_id.get(&id).unwrap();
+    assert_eq!(updated.code, "srv-preserve-test");
+    assert_eq!(updated.name.as_deref(), Some("Server Preserve Updated"));
+}
+
+// ── identity field: external_ref only ────────────────────────────────────────
+
+#[test]
+fn add_device_with_only_external_ref_succeeds() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let id = session
+        .add_device(AddDeviceInput {
+            id: None,
+            device_type: DeviceType::Server,
+            code: None,
+            name: None,
+            device_model_id: None,
+            device_model_code: None,
+            serial_number: None,
+            asset_tag: None,
+            external_ref: Some("EXT-ONLY-001".to_string()),
+            status: DeviceStatus::InStock,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap();
+    let dev = session.index.devices_by_id.get(&id).unwrap();
+    assert_eq!(dev.external_ref.as_deref(), Some("EXT-ONLY-001"));
+    assert!(dev.name.is_none());
+    assert!(dev.serial_number.is_none());
+    assert!(dev.asset_tag.is_none());
+}
+
+#[test]
+fn add_device_no_identity_fields_fails() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let err = session
+        .add_device(AddDeviceInput {
+            id: None,
+            device_type: DeviceType::Server,
+            code: None,
+            name: None,
+            device_model_id: None,
+            device_model_code: None,
+            serial_number: None,
+            asset_tag: None,
+            external_ref: None,
+            status: DeviceStatus::InStock,
             description: None,
             tags: vec![],
         })
         .unwrap_err();
-    assert!(matches!(
-        err,
-        ris_application::ApplicationError::DuplicateCode(_)
-    ));
+    assert!(
+        matches!(err, ris_application::ApplicationError::InvalidInput(_)),
+        "expected InvalidInput, got: {err}"
+    );
+}
+
+// ── identifier normalization (trim + case-insensitive) ────────────────────────
+
+#[test]
+fn add_device_serial_number_deduplication_is_case_insensitive() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    session
+        .add_device(AddDeviceInput {
+            id: None,
+            device_type: DeviceType::Server,
+            code: None,
+            name: Some("First".to_string()),
+            device_model_id: None,
+            device_model_code: None,
+            serial_number: Some("SN123".to_string()),
+            asset_tag: None,
+            external_ref: None,
+            status: DeviceStatus::InStock,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap();
+    let err = session
+        .add_device(AddDeviceInput {
+            id: None,
+            device_type: DeviceType::Server,
+            code: None,
+            name: Some("Second".to_string()),
+            device_model_id: None,
+            device_model_code: None,
+            serial_number: Some(" sn123 ".to_string()),
+            asset_tag: None,
+            external_ref: None,
+            status: DeviceStatus::InStock,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap_err();
+    assert!(
+        matches!(
+            err,
+            ris_application::ApplicationError::DuplicateSerialNumber(_)
+        ),
+        "expected DuplicateSerialNumber, got: {err}"
+    );
+}
+
+#[test]
+fn add_device_asset_tag_deduplication_is_case_insensitive() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    session
+        .add_device(AddDeviceInput {
+            id: None,
+            device_type: DeviceType::Server,
+            code: None,
+            name: Some("First".to_string()),
+            device_model_id: None,
+            device_model_code: None,
+            serial_number: None,
+            asset_tag: Some("ASSET-001".to_string()),
+            external_ref: None,
+            status: DeviceStatus::InStock,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap();
+    let err = session
+        .add_device(AddDeviceInput {
+            id: None,
+            device_type: DeviceType::Server,
+            code: None,
+            name: Some("Second".to_string()),
+            device_model_id: None,
+            device_model_code: None,
+            serial_number: None,
+            asset_tag: Some("asset-001".to_string()),
+            external_ref: None,
+            status: DeviceStatus::InStock,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap_err();
+    assert!(
+        matches!(err, ris_application::ApplicationError::DuplicateAssetTag(_)),
+        "expected DuplicateAssetTag, got: {err}"
+    );
+}
+
+#[test]
+fn add_device_external_ref_deduplication_is_case_insensitive_and_trims() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    session
+        .add_device(AddDeviceInput {
+            id: None,
+            device_type: DeviceType::Server,
+            code: None,
+            name: Some("First".to_string()),
+            device_model_id: None,
+            device_model_code: None,
+            serial_number: None,
+            asset_tag: None,
+            external_ref: Some("EXT-001".to_string()),
+            status: DeviceStatus::InStock,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap();
+    let err = session
+        .add_device(AddDeviceInput {
+            id: None,
+            device_type: DeviceType::Server,
+            code: None,
+            name: Some("Second".to_string()),
+            device_model_id: None,
+            device_model_code: None,
+            serial_number: None,
+            asset_tag: None,
+            external_ref: Some(" ext-001 ".to_string()),
+            status: DeviceStatus::InStock,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap_err();
+    assert!(
+        matches!(
+            err,
+            ris_application::ApplicationError::DuplicateExternalRef(_)
+        ),
+        "expected DuplicateExternalRef, got: {err}"
+    );
+}
+
+#[test]
+fn add_device_blank_serial_asset_external_do_not_collide() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    // Both devices have blank/whitespace-only serial, asset, external — no collision
+    session
+        .add_device(AddDeviceInput {
+            id: None,
+            device_type: DeviceType::Server,
+            code: None,
+            name: Some("First".to_string()),
+            device_model_id: None,
+            device_model_code: None,
+            serial_number: Some("   ".to_string()),
+            asset_tag: Some("".to_string()),
+            external_ref: None,
+            status: DeviceStatus::InStock,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap();
+    // Second device also has blank identifiers — should not collide
+    session
+        .add_device(AddDeviceInput {
+            id: None,
+            device_type: DeviceType::Server,
+            code: None,
+            name: Some("Second".to_string()),
+            device_model_id: None,
+            device_model_code: None,
+            serial_number: Some("  ".to_string()),
+            asset_tag: Some("".to_string()),
+            external_ref: None,
+            status: DeviceStatus::InStock,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap(); // must not error
 }
 
 // ── delete_device ─────────────────────────────────────────────────────────────
@@ -2781,7 +2993,7 @@ fn delete_device_succeeds_when_unplaced() {
         .add_device(AddDeviceInput {
             id: None,
             device_type: DeviceType::Server,
-            code: "srv-unplaced".to_string(),
+            code: Some("srv-unplaced".to_string()),
             name: Some("Unplaced".to_string()),
             device_model_id: None,
             device_model_code: None,
@@ -2829,7 +3041,7 @@ fn update_device_preserves_external_ref_and_description_when_provided() {
         .add_device(AddDeviceInput {
             id: None,
             device_type: DeviceType::Server,
-            code: "srv-field-test".to_string(),
+            code: Some("srv-field-test".to_string()),
             name: Some("Field Test Server".to_string()),
             device_model_id: None,
             device_model_code: None,
@@ -2847,7 +3059,6 @@ fn update_device_preserves_external_ref_and_description_when_provided() {
         .update_device(UpdateDeviceInput {
             id: id.clone(),
             device_type: DeviceType::Server,
-            code: "srv-field-test".to_string(),
             name: Some("Field Test Server Renamed".to_string()),
             device_model_id: None,
             serial_number: None,
@@ -2872,7 +3083,7 @@ fn update_device_model_preserves_description_when_provided() {
         .add_device_model(AddDeviceModelInput {
             id: None,
             device_type: DeviceType::Network,
-            code: "sw-desc-test".to_string(),
+            code: Some("sw-desc-test".to_string()),
             name: "Switch Desc Test".to_string(),
             vendor: None,
             model: None,
@@ -2887,7 +3098,6 @@ fn update_device_model_preserves_description_when_provided() {
         .update_device_model(UpdateDeviceModelInput {
             id: id.clone(),
             device_type: DeviceType::Network,
-            code: "sw-desc-test".to_string(),
             name: "Switch Desc Test".to_string(),
             vendor: Some("Cisco".to_string()),
             model: None,

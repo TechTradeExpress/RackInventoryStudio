@@ -36,12 +36,12 @@ pub struct SearchResult {
 }
 
 // score: lower = better
-// 0  exact code match
-// 1  code starts-with
-// 2  code contains
-// 3  name/label exact
-// 4  name/label starts-with
-// 5  name/label contains
+// 0  name/label exact
+// 1  name/label starts-with
+// 2  name/label contains
+// 3  code exact
+// 4  code starts-with
+// 5  code contains
 // 6  other field contains
 fn score_field(haystack: &str, needle: &str, base_score: u8) -> Option<u8> {
     let h = haystack.to_lowercase();
@@ -78,8 +78,8 @@ impl RepositorySession {
 
         // Locations
         for loc in self.data.locations.iter() {
-            let mut sc = score_field(&loc.code, needle, 0);
-            sc = best(sc, score_field(&loc.name, needle, 3));
+            let mut sc = score_field(&loc.name, needle, 0);
+            sc = best(sc, score_field(&loc.code, needle, 3));
             if let Some(d) = &loc.description {
                 sc = best(sc, score_field(d, needle, 6));
             }
@@ -110,8 +110,8 @@ impl RepositorySession {
 
         // Racks
         for rack in self.data.racks.iter() {
-            let mut sc = score_field(&rack.code, needle, 0);
-            sc = best(sc, score_field(&rack.name, needle, 3));
+            let mut sc = score_field(&rack.name, needle, 0);
+            sc = best(sc, score_field(&rack.code, needle, 3));
             if let Some(d) = &rack.description {
                 sc = best(sc, score_field(d, needle, 6));
             }
@@ -147,10 +147,11 @@ impl RepositorySession {
 
         // Devices
         for device in self.data.devices.iter() {
-            let mut sc = score_field(&device.code, needle, 0);
+            let mut sc: Option<u8> = None;
             if let Some(n) = &device.name {
-                sc = best(sc, score_field(n, needle, 3));
+                sc = best(sc, score_field(n, needle, 0));
             }
+            sc = best(sc, score_field(&device.code, needle, 3));
             if let Some(sn) = &device.serial_number {
                 sc = best(sc, score_field(sn, needle, 6));
             }
@@ -189,8 +190,8 @@ impl RepositorySession {
 
         // Device models
         for dm in self.data.device_models.iter() {
-            let mut sc = score_field(&dm.code, needle, 0);
-            sc = best(sc, score_field(&dm.name, needle, 3));
+            let mut sc = score_field(&dm.name, needle, 0);
+            sc = best(sc, score_field(&dm.code, needle, 3));
             if let Some(v) = &dm.vendor {
                 sc = best(sc, score_field(v, needle, 6));
             }
@@ -227,7 +228,7 @@ impl RepositorySession {
         // Placements — code, note, tags + rack fields + target device/model fields
         for indexed in self.index.placements_by_id.values() {
             let p = &indexed.placement;
-            let mut sc = score_field(&p.code, needle, 0);
+            let mut sc = score_field(&p.code, needle, 3);
             if let Some(note) = &p.note {
                 sc = best(sc, score_field(note, needle, 6));
             }

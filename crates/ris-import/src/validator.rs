@@ -76,12 +76,20 @@ fn parse_tags(raw: Option<&str>) -> (Vec<String>, bool) {
 
 // ── duplicate detection ───────────────────────────────────────────────────────
 
+/// Normalize an identifier for uniqueness comparison: trim + lowercase.
+fn norm_id(s: &str) -> String {
+    s.trim().to_lowercase()
+}
+
+/// Find duplicates by normalized (trimmed, lowercased) value.
+/// Returns the set of normalized keys that appear more than once.
 fn find_duplicates<'a>(values: impl Iterator<Item = &'a str>) -> HashSet<String> {
     let mut seen: HashSet<String> = HashSet::new();
     let mut dups: HashSet<String> = HashSet::new();
     for v in values {
-        if !seen.insert(v.to_string()) {
-            dups.insert(v.to_string());
+        let key = norm_id(v);
+        if !key.is_empty() && !seen.insert(key.clone()) {
+            dups.insert(key);
         }
     }
     dups
@@ -95,23 +103,13 @@ fn validate_row(
     dup_codes: &HashSet<String>,
     dup_serials: &HashSet<String>,
     dup_asset_tags: &HashSet<String>,
+    dup_external_refs: &HashSet<String>,
 ) -> CsvDeviceImportPreviewRow {
     let row = raw.row_number;
     let mut issues: Vec<ValidationIssue> = Vec::new();
 
-    // VAL-CSV-003: code required
-    let code = raw.code.as_deref();
-    if code.is_none() {
-        issues.push(csv_row_issue(
-            "VAL-CSV-003",
-            ValidationLevel::Error,
-            "row is missing required field 'code'",
-            row,
-            "code",
-        ));
-    }
-
-    if let Some(code_val) = code {
+    // Code is now optional; when present, validate format and uniqueness.
+    if let Some(code_val) = raw.code.as_deref() {
         // VAL-CSV-004: code format
         if !code_re().is_match(code_val) {
             issues.push(csv_row_issue(
@@ -149,17 +147,18 @@ fn validate_row(
         }
     }
 
-    // VAL-CSV-007: at least one of name, serial_number, asset_tag
+    // VAL-CSV-007: at least one of name, serial_number, asset_tag, external_ref
     let has_name = raw.name.is_some();
     let has_sn = raw.serial_number.is_some();
     let has_at = raw.asset_tag.is_some();
-    if !has_name && !has_sn && !has_at {
+    let has_er = raw.external_ref.is_some();
+    if !has_name && !has_sn && !has_at && !has_er {
         issues.push(csv_row_issue(
             "VAL-CSV-007",
             ValidationLevel::Error,
-            "row must have at least one of: name, serial_number, asset_tag",
+            "row must have at least one of: name, serial_number, asset_tag, external_ref",
             row,
-            "name/serial_number/asset_tag",
+            "name/serial_number/asset_tag/external_ref",
         ));
     }
 
@@ -284,47 +283,78 @@ fn validate_row(
         }
     }
 
-    // VAL-CSV-015/016: serial_number
+    // VAL-CSV-015/016: serial_number (normalize for comparison)
     if let Some(sn) = raw.serial_number.as_deref() {
-        if dup_serials.contains(sn) {
-            issues.push(csv_row_issue(
-                "VAL-CSV-015",
-                ValidationLevel::Error,
-                &format!("serial_number '{}' appears more than once in the CSV", sn),
-                row,
-                "serial_number",
-            ));
-        }
-        if context.has_serial_number(sn) {
-            issues.push(csv_row_issue(
-                "VAL-CSV-016",
-                ValidationLevel::Error,
-                &format!("serial_number '{}' already exists in the repository", sn),
-                row,
-                "serial_number",
-            ));
+        let sn_key = norm_id(sn);
+        if !sn_key.is_empty() {
+            if dup_serials.contains(&sn_key) {
+                issues.push(csv_row_issue(
+                    "VAL-CSV-015",
+                    ValidationLevel::Error,
+                    &format!("serial_number '{}' appears more than once in the CSV", sn),
+                    row,
+                    "serial_number",
+                ));
+            }
+            if context.has_serial_number(&sn_key) {
+                issues.push(csv_row_issue(
+                    "VAL-CSV-016",
+                    ValidationLevel::Error,
+                    &format!("serial_number '{}' already exists in the repository", sn),
+                    row,
+                    "serial_number",
+                ));
+            }
         }
     }
 
-    // VAL-CSV-017/018: asset_tag
+    // VAL-CSV-017/018: asset_tag (normalize for comparison)
     if let Some(at) = raw.asset_tag.as_deref() {
-        if dup_asset_tags.contains(at) {
-            issues.push(csv_row_issue(
-                "VAL-CSV-017",
-                ValidationLevel::Error,
-                &format!("asset_tag '{}' appears more than once in the CSV", at),
-                row,
-                "asset_tag",
-            ));
+        let at_key = norm_id(at);
+        if !at_key.is_empty() {
+            if dup_asset_tags.contains(&at_key) {
+                issues.push(csv_row_issue(
+                    "VAL-CSV-017",
+                    ValidationLevel::Error,
+                    &format!("asset_tag '{}' appears more than once in the CSV", at),
+                    row,
+                    "asset_tag",
+                ));
+            }
+            if context.has_asset_tag(&at_key) {
+                issues.push(csv_row_issue(
+                    "VAL-CSV-018",
+                    ValidationLevel::Error,
+                    &format!("asset_tag '{}' already exists in the repository", at),
+                    row,
+                    "asset_tag",
+                ));
+            }
         }
-        if context.has_asset_tag(at) {
-            issues.push(csv_row_issue(
-                "VAL-CSV-018",
-                ValidationLevel::Error,
-                &format!("asset_tag '{}' already exists in the repository", at),
-                row,
-                "asset_tag",
-            ));
+    }
+
+    // VAL-CSV-020/021: external_ref uniqueness (normalize for comparison)
+    if let Some(er) = raw.external_ref.as_deref() {
+        let er_key = norm_id(er);
+        if !er_key.is_empty() {
+            if dup_external_refs.contains(&er_key) {
+                issues.push(csv_row_issue(
+                    "VAL-CSV-020",
+                    ValidationLevel::Error,
+                    &format!("external_ref '{}' appears more than once in the CSV", er),
+                    row,
+                    "external_ref",
+                ));
+            }
+            if context.has_external_ref(&er_key) {
+                issues.push(csv_row_issue(
+                    "VAL-CSV-021",
+                    ValidationLevel::Error,
+                    &format!("external_ref '{}' already exists in the repository", er),
+                    row,
+                    "external_ref",
+                ));
+            }
         }
     }
 
@@ -448,13 +478,24 @@ pub fn preview_csv_import(csv_content: &str, context: &CsvImportContext) -> CsvD
             .filter_map(|r| r.serial_number.as_deref()),
     );
     let dup_asset_tags = find_duplicates(parsed.rows.iter().filter_map(|r| r.asset_tag.as_deref()));
+    let dup_external_refs =
+        find_duplicates(parsed.rows.iter().filter_map(|r| r.external_ref.as_deref()));
 
     // ── validate rows ─────────────────────────────────────────────────────────
 
     let rows: Vec<CsvDeviceImportPreviewRow> = parsed
         .rows
         .iter()
-        .map(|raw| validate_row(raw, context, &dup_codes, &dup_serials, &dup_asset_tags))
+        .map(|raw| {
+            validate_row(
+                raw,
+                context,
+                &dup_codes,
+                &dup_serials,
+                &dup_asset_tags,
+                &dup_external_refs,
+            )
+        })
         .collect();
 
     // ── summary ───────────────────────────────────────────────────────────────

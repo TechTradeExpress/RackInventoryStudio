@@ -813,7 +813,6 @@ pub fn update_location_cmd(
     session
         .update_location(UpdateLocationInput {
             id: input.id,
-            code: input.code,
             name: input.name,
             description: input.description,
             address: input.address,
@@ -837,7 +836,6 @@ pub fn update_rack_cmd(input: UpdateRackInputDto, state: State<AppState>) -> Res
         .update_rack(UpdateRackInput {
             id: input.id,
             location_id: input.location_id,
-            code: input.code,
             name: input.name,
             height_u: input.height_u,
             row: input.row,
@@ -866,7 +864,6 @@ pub fn update_device_model_cmd(
         .update_device_model(UpdateDeviceModelInput {
             id: input.id,
             device_type,
-            code: input.code,
             name: input.name,
             vendor: input.vendor,
             model: input.model,
@@ -897,7 +894,6 @@ pub fn update_device_cmd(
         .update_device(UpdateDeviceInput {
             id: input.id,
             device_type,
-            code: input.code,
             name: input.name,
             device_model_id: input.device_model_id,
             serial_number: input.serial_number,
@@ -925,11 +921,11 @@ pub const MAX_CSV_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
 /// Columns mirror KNOWN_COLUMNS / REQUIRED_COLUMNS in crates/ris-import/src/csv_reader.rs.
 /// rack_object is not a valid device_type for CSV import.
 pub const DEVICE_IMPORT_SAMPLE_CSV: &str = "\
-code,device_type,name,device_model_code,serial_number,asset_tag,external_ref,status,tags\n\
-srv-demo-01,server,Demo Server 1,,SN-DEMO-001,ASSET-DEMO-001,REF-DEMO-001,in_stock,production\n\
-srv-demo-02,server,Demo Server 2,,,,,planned,staging\n\
-sw-demo-01,network,Demo Switch 1,,,,,in_stock,access;switch\n\
-device-demo-01,other,Demo Other Device,,,,,unknown,\n\
+device_type,name,device_model_code,serial_number,asset_tag,external_ref,status,tags,code\n\
+server,Demo Server 1,,SN-DEMO-001,ASSET-DEMO-001,REF-DEMO-001,in_stock,production,\n\
+server,Demo Server 2,,,,,planned,staging,\n\
+network,Demo Switch 1,,,,,in_stock,access;switch,\n\
+other,Demo Other Device,,,,,unknown,,\n\
 ";
 
 /// Reads a file as UTF-8 text, enforcing a size limit.

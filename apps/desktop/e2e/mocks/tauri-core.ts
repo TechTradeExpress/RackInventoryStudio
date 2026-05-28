@@ -430,14 +430,14 @@ export function invoke<T>(command: string, args?: unknown): Promise<T> {
     case "add_device_cmd": {
       const { input } = (args ?? {}) as { input?: unknown };
       const i = (input ?? {}) as Record<string, unknown>;
-      if (typeof i.code !== "string" || typeof i.device_type !== "string") {
+      if (typeof i.device_type !== "string") {
         return Promise.reject(
           new Error(`[E2E mock] add_device_cmd: invalid input args`),
         );
       }
       dynamicDevices.push({
         id: FIXTURE_NEW_DEVICE_ID,
-        code: i.code,
+        code: "dev-new-01",
         device_type: i.device_type,
         name: i.name ?? null,
         serial_number: i.serial_number ?? null,
@@ -591,12 +591,12 @@ export function invoke<T>(command: string, args?: unknown): Promise<T> {
     case "add_device_model_cmd": {
       const { input } = (args ?? {}) as { input?: unknown };
       const i = (input ?? {}) as Record<string, unknown>;
-      if (typeof i.code !== "string" || typeof i.device_type !== "string") {
+      if (typeof i.device_type !== "string") {
         return Promise.reject(new Error(`[E2E mock] add_device_model_cmd: invalid input args`));
       }
       const newModel = {
         id: FIXTURE_NEW_MODEL_ID,
-        code: i.code,
+        code: "model-new-01",
         device_type: i.device_type,
         name: i.name ?? null,
         vendor: i.vendor ?? null,

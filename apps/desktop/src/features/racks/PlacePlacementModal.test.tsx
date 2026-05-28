@@ -371,9 +371,6 @@ describe("PlacePlacementModal — Create new device flow", () => {
     fireEvent.change(screen.getByTestId("field-device-type"), {
       target: { value: "server" },
     });
-    fireEvent.change(screen.getByTestId("field-code"), {
-      target: { value: "srv-new-01" },
-    });
     fireEvent.change(screen.getByTestId("field-name"), {
       target: { value: "New Server" },
     });
@@ -428,7 +425,6 @@ describe("PlacePlacementModal — Create new device flow", () => {
     fireEvent.click(screen.getByTestId("create-device-btn"));
     await waitFor(() => expect(screen.getByText("Add device")).toBeTruthy());
     fireEvent.change(screen.getByTestId("field-device-type"), { target: { value: "server" } });
-    fireEvent.change(screen.getByTestId("field-code"), { target: { value: "srv-new-01" } });
     fireEvent.change(screen.getByTestId("field-name"), { target: { value: "New Server" } });
     fireEvent.click(screen.getByText("Create device"));
 
@@ -552,9 +548,8 @@ describe("PlacePlacementModal — Create new rack object flow", () => {
     fireEvent.click(screen.getByTestId("create-rack-object-btn"));
     await waitFor(() => expect(screen.getByText("Add device model")).toBeTruthy());
 
-    // Fill minimal form: device_type (rack_object), code, name, height
+    // Fill minimal form: device_type (rack_object), name, height
     fireEvent.change(screen.getByTestId("field-device-type"), { target: { value: "rack_object" } });
-    fireEvent.change(screen.getByTestId("field-code"), { target: { value: "new-rack-obj-01" } });
     fireEvent.change(screen.getByTestId("field-name"), { target: { value: "New Rack Object" } });
     fireEvent.change(screen.getByTestId("field-height-u"), { target: { value: "1" } });
     fireEvent.click(screen.getByText("Create model"));

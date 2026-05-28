@@ -172,7 +172,7 @@ pub struct RemovePlacementInputDto {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AddLocationInputDto {
-    pub code: String,
+    pub code: Option<String>,
     pub name: String,
     pub description: Option<String>,
     pub address: Option<String>,
@@ -183,7 +183,7 @@ pub struct AddLocationInputDto {
 pub struct AddRackInputDto {
     pub location_id: Option<String>,
     pub location_code: Option<String>,
-    pub code: String,
+    pub code: Option<String>,
     pub name: String,
     pub height_u: u32,
     pub row: Option<String>,
@@ -194,7 +194,7 @@ pub struct AddRackInputDto {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AddDeviceModelInputDto {
     pub device_type: String,
-    pub code: String,
+    pub code: Option<String>,
     pub name: String,
     pub vendor: Option<String>,
     pub model: Option<String>,
@@ -206,7 +206,7 @@ pub struct AddDeviceModelInputDto {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AddDeviceInputDto {
     pub device_type: String,
-    pub code: String,
+    pub code: Option<String>,
     pub name: Option<String>,
     pub device_model_id: Option<String>,
     pub serial_number: Option<String>,
@@ -263,7 +263,6 @@ pub struct CsvImportResultDto {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateLocationInputDto {
     pub id: String,
-    pub code: String,
     pub name: String,
     pub description: Option<String>,
     pub address: Option<String>,
@@ -274,7 +273,6 @@ pub struct UpdateLocationInputDto {
 pub struct UpdateRackInputDto {
     pub id: String,
     pub location_id: String,
-    pub code: String,
     pub name: String,
     pub height_u: u32,
     pub row: Option<String>,
@@ -286,7 +284,6 @@ pub struct UpdateRackInputDto {
 pub struct UpdateDeviceModelInputDto {
     pub id: String,
     pub device_type: String,
-    pub code: String,
     pub name: String,
     pub vendor: Option<String>,
     pub model: Option<String>,
@@ -299,7 +296,6 @@ pub struct UpdateDeviceModelInputDto {
 pub struct UpdateDeviceInputDto {
     pub id: String,
     pub device_type: String,
-    pub code: String,
     pub name: Option<String>,
     pub device_model_id: Option<String>,
     pub serial_number: Option<String>,

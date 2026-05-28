@@ -42,6 +42,27 @@ fn make_device(
     }
 }
 
+fn make_device_with_external_ref(
+    id: &str,
+    code: &str,
+    device_type: DeviceType,
+    external_ref: &str,
+) -> Device {
+    Device {
+        id: id.to_string(),
+        code: code.to_string(),
+        device_type,
+        name: Some(code.to_string()),
+        device_model_id: None,
+        serial_number: None,
+        asset_tag: None,
+        external_ref: Some(external_ref.to_string()),
+        status: DeviceStatus::InStock,
+        description: None,
+        tags: vec![],
+    }
+}
+
 fn make_model(id: &str, code: &str, device_type: DeviceType) -> DeviceModel {
     DeviceModel {
         id: id.to_string(),
@@ -132,17 +153,16 @@ fn valid_csv_headers_pass() {
 }
 
 #[test]
-fn missing_required_header_code_reports_val_csv_001() {
+fn csv_without_code_column_is_valid() {
+    // code column is optional; device_type and status are the only required headers
     let csv = "device_type,status,name\nserver,in_stock,Server One\n";
     let preview = ris_import::preview_csv_import(csv, &empty_context());
     assert!(
-        has_code(&preview.issues, "VAL-CSV-001"),
-        "expected VAL-CSV-001 for missing 'code' header"
+        !has_code(&preview.issues, "VAL-CSV-001"),
+        "no VAL-CSV-001 when code column is absent"
     );
-    assert!(
-        preview.rows.is_empty(),
-        "rows should be empty on header error"
-    );
+    assert_eq!(preview.rows.len(), 1);
+    assert_eq!(preview.rows[0].action, CsvRowAction::Create);
 }
 
 #[test]
@@ -167,11 +187,16 @@ fn unknown_column_reports_val_csv_002_warning() {
 // ── code validation ───────────────────────────────────────────────────────────
 
 #[test]
-fn missing_code_reports_val_csv_003() {
+fn blank_code_cell_produces_no_error() {
+    // blank code is treated as absent → will be auto-generated at import time
     let csv = "code,device_type,status,name\n,server,in_stock,Server One\n";
     let preview = ris_import::preview_csv_import(csv, &empty_context());
     let issues = all_issues(&preview);
-    assert!(has_code(&issues, "VAL-CSV-003"), "expected VAL-CSV-003");
+    assert!(
+        !issues.iter().any(|i| i.level == ValidationLevel::Error),
+        "blank code should produce no error"
+    );
+    assert_eq!(preview.rows[0].action, CsvRowAction::Create);
 }
 
 #[test]
@@ -409,6 +434,129 @@ fn asset_tag_exists_in_repo_reports_val_csv_018() {
     assert!(has_code(&issues, "VAL-CSV-018"), "expected VAL-CSV-018");
 }
 
+// ── external_ref validation ───────────────────────────────────────────────────
+
+#[test]
+fn duplicate_external_ref_in_csv_reports_val_csv_020() {
+    let csv = "code,device_type,status,name,external_ref\nsrv-01,server,in_stock,Srv A,EXT-001\nsrv-02,server,in_stock,Srv B,EXT-001\n";
+    let preview = ris_import::preview_csv_import(csv, &empty_context());
+    let issues = all_issues(&preview);
+    assert!(has_code(&issues, "VAL-CSV-020"), "expected VAL-CSV-020");
+    let dup_rows = preview
+        .rows
+        .iter()
+        .filter(|r| has_code(&r.issues, "VAL-CSV-020"))
+        .count();
+    assert_eq!(
+        dup_rows, 2,
+        "both duplicate external_ref rows should be flagged"
+    );
+}
+
+#[test]
+fn external_ref_exists_in_repo_reports_val_csv_021() {
+    let ctx = context_with_devices(vec![make_device_with_external_ref(
+        "aaaa0001-0000-0000-0000-000000000001",
+        "srv-existing",
+        DeviceType::Server,
+        "EXISTING-EXT",
+    )]);
+    let csv =
+        "code,device_type,status,name,external_ref\nsrv-01,server,in_stock,Srv,EXISTING-EXT\n";
+    let preview = ris_import::preview_csv_import(csv, &ctx);
+    let issues = all_issues(&preview);
+    assert!(has_code(&issues, "VAL-CSV-021"), "expected VAL-CSV-021");
+}
+
+// ── case-insensitive / whitespace-trimmed duplicate detection ─────────────────
+
+#[test]
+fn duplicate_serial_number_different_case_reports_val_csv_015() {
+    let csv = "device_type,status,serial_number\nserver,in_stock,SN001\nserver,in_stock,sn001\n";
+    let preview = ris_import::preview_csv_import(csv, &empty_context());
+    let issues = all_issues(&preview);
+    assert!(
+        has_code(&issues, "VAL-CSV-015"),
+        "case-insensitive serial duplicate should report VAL-CSV-015"
+    );
+    let dup_rows = preview
+        .rows
+        .iter()
+        .filter(|r| has_code(&r.issues, "VAL-CSV-015"))
+        .count();
+    assert_eq!(dup_rows, 2, "both case-variant rows should be flagged");
+}
+
+#[test]
+fn serial_number_repo_conflict_different_case_reports_val_csv_016() {
+    let ctx = context_with_devices(vec![make_device(
+        "aaaa0001-0000-0000-0000-000000000001",
+        "srv-existing",
+        DeviceType::Server,
+        Some("EXISTING-SN"),
+        None,
+    )]);
+    let csv = "device_type,status,serial_number\nserver,in_stock, existing-sn \n";
+    let preview = ris_import::preview_csv_import(csv, &ctx);
+    let issues = all_issues(&preview);
+    assert!(
+        has_code(&issues, "VAL-CSV-016"),
+        "case-insensitive + trimmed serial conflict should report VAL-CSV-016"
+    );
+}
+
+#[test]
+fn duplicate_asset_tag_different_case_reports_val_csv_017() {
+    let csv = "device_type,status,asset_tag\nserver,in_stock,TAG001\nserver,in_stock,tag001\n";
+    let preview = ris_import::preview_csv_import(csv, &empty_context());
+    let issues = all_issues(&preview);
+    assert!(
+        has_code(&issues, "VAL-CSV-017"),
+        "case-insensitive asset_tag duplicate should report VAL-CSV-017"
+    );
+    let dup_rows = preview
+        .rows
+        .iter()
+        .filter(|r| has_code(&r.issues, "VAL-CSV-017"))
+        .count();
+    assert_eq!(dup_rows, 2, "both case-variant rows should be flagged");
+}
+
+#[test]
+fn duplicate_external_ref_different_case_and_whitespace_reports_val_csv_020() {
+    let csv =
+        "device_type,status,name,external_ref\nserver,in_stock,Srv A,EXT-001\nserver,in_stock,Srv B, ext-001 \n";
+    let preview = ris_import::preview_csv_import(csv, &empty_context());
+    let issues = all_issues(&preview);
+    assert!(
+        has_code(&issues, "VAL-CSV-020"),
+        "case-insensitive + trimmed external_ref duplicate should report VAL-CSV-020"
+    );
+    let dup_rows = preview
+        .rows
+        .iter()
+        .filter(|r| has_code(&r.issues, "VAL-CSV-020"))
+        .count();
+    assert_eq!(dup_rows, 2, "both case-variant rows should be flagged");
+}
+
+#[test]
+fn external_ref_repo_conflict_different_case_and_whitespace_reports_val_csv_021() {
+    let ctx = context_with_devices(vec![make_device_with_external_ref(
+        "aaaa0001-0000-0000-0000-000000000001",
+        "srv-existing",
+        DeviceType::Server,
+        "EXISTING-EXT",
+    )]);
+    let csv = "device_type,status,name,external_ref\nserver,in_stock,Srv, existing-ext \n";
+    let preview = ris_import::preview_csv_import(csv, &ctx);
+    let issues = all_issues(&preview);
+    assert!(
+        has_code(&issues, "VAL-CSV-021"),
+        "case-insensitive + trimmed external_ref repo conflict should report VAL-CSV-021"
+    );
+}
+
 // ── tags validation ───────────────────────────────────────────────────────────
 
 #[test]
@@ -559,8 +707,8 @@ fn context_from_index_picks_up_existing_data() {
         )],
     );
     assert!(ctx.has_device_code("srv-existing"));
-    assert!(ctx.has_serial_number("SN-EXISTING"));
-    assert!(ctx.has_asset_tag("AT-EXISTING"));
+    assert!(ctx.has_serial_number("sn-existing")); // normalized key
+    assert!(ctx.has_asset_tag("at-existing")); // normalized key
     assert!(ctx.get_device_model_by_code("dell-r650").is_some());
     assert!(!ctx.has_device_code("does-not-exist"));
 }

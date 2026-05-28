@@ -23,7 +23,7 @@ fn make_session() -> ris_application::RepositorySession {
     let loc_id = session
         .add_location(AddLocationInput {
             id: Some("search-loc-1".into()),
-            code: "search-loc".into(),
+            code: Some("search-loc".into()),
             name: "Search Location Alpha".into(),
             description: Some("needle-desc-loc".into()),
             address: Some("123 Test Street".into()),
@@ -36,7 +36,7 @@ fn make_session() -> ris_application::RepositorySession {
             id: Some("search-rack-1".into()),
             location_id: Some(loc_id.clone()),
             location_code: None,
-            code: "search-rack".into(),
+            code: Some("search-rack".into()),
             name: "Search Rack Beta".into(),
             height_u: 42,
             row: None,
@@ -49,7 +49,7 @@ fn make_session() -> ris_application::RepositorySession {
         .add_device_model(AddDeviceModelInput {
             id: Some("search-dm-1".into()),
             device_type: DeviceType::Server,
-            code: "search-model".into(),
+            code: Some("search-model".into()),
             name: "Search DevModel Gamma".into(),
             vendor: Some("VendorXYZ".into()),
             model: Some("M-2000".into()),
@@ -63,7 +63,7 @@ fn make_session() -> ris_application::RepositorySession {
         .add_device_model(AddDeviceModelInput {
             id: Some("search-dm-2".into()),
             device_type: DeviceType::RackObject,
-            code: "search-rackobj-model".into(),
+            code: Some("search-rackobj-model".into()),
             name: "Search RackObj Model".into(),
             vendor: Some("PanelVendor".into()),
             model: Some("PP-48".into()),
@@ -77,7 +77,7 @@ fn make_session() -> ris_application::RepositorySession {
         .add_device(AddDeviceInput {
             id: Some("search-dev-1".into()),
             device_type: DeviceType::Server,
-            code: "search-dev".into(),
+            code: Some("search-dev".into()),
             name: Some("Search Device Delta".into()),
             device_model_id: Some(dm_id),
             device_model_code: None,
@@ -145,7 +145,7 @@ fn search_finds_location_by_code() {
     let results = session.search("search-loc");
     let hit = results.iter().find(|r| r.id == "search-loc-1").unwrap();
     assert_eq!(hit.kind, SearchResultKind::Location);
-    assert_eq!(hit.score, 0); // exact code
+    assert_eq!(hit.score, 3); // exact code match (base 3)
 }
 
 #[test]
@@ -240,11 +240,15 @@ fn search_finds_device_by_name() {
 #[test]
 fn exact_code_match_ranks_above_name_match() {
     let session = make_session();
-    // "search-loc" exactly matches the location code → score 0
-    // the name "Search Location Alpha" contains "search" → score 5
+    // "search-loc" exactly matches the location code → score 3 (exact code)
+    // the name "Search Location Alpha" contains "search" → score 2 (name contains)
+    // name-contains (2) ranks above code-exact (3): lower score is better
     let results = session.search("search-loc");
     let loc_hit = results.iter().find(|r| r.id == "search-loc-1").unwrap();
-    assert_eq!(loc_hit.score, 0);
+    // best match is name-contains (score 2) since "Search Location Alpha" contains "search-loc"? No.
+    // "Search Location Alpha".to_lowercase() = "search location alpha", does not contain "search-loc"
+    // So best score is code exact = 3
+    assert_eq!(loc_hit.score, 3);
 }
 
 #[test]

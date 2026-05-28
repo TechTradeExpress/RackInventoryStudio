@@ -2,6 +2,26 @@
 
 ## Unreleased — Post-beta 1 follow-up
 
+### Added
+
+- **Auto-generated internal `code` fields**: The `code` field for Location,
+  Rack, Device Model, and Device is now generated automatically by the backend
+  when not supplied. Generation uses a deterministic incrementing suffix pattern
+  (`location-01`, `rack-01`, `device-01`, `model-server-01`, etc.) and is
+  unique at creation time. Codes are immutable after creation.
+- **`code` removed from Add/Edit forms**: All four entity forms (Location, Rack,
+  Device Model, Device) no longer show a `code` input. User-facing identity is
+  name, serial number, asset tag, and external reference.
+- **`external_ref` uniqueness enforced**: Duplicate `external_ref` values are
+  now rejected both in direct add/update operations and in CSV import
+  (VAL-CSV-020 for in-CSV duplicates, VAL-CSV-021 for repo conflicts).
+- **CSV `code` column is optional**: The `code` column in device CSV import is
+  no longer required. When present, explicit codes are validated and preserved;
+  when absent or blank, a code is generated at import time.
+- **Search deprioritises `code`**: Name/label now scores higher than `code` in
+  search results (name = primary match, code = secondary, other fields =
+  tertiary).
+
 ### Fixed
 
 - Windows rack placement drag-and-drop compatibility: `dragDropEnabled: false` in

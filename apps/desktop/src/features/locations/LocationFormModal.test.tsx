@@ -57,7 +57,6 @@ describe("LocationFormModal — add mode", () => {
       />,
     );
     expect(screen.getByText("Add location")).toBeTruthy();
-    expect((screen.getByTestId("field-code") as HTMLInputElement).value).toBe("");
     expect((screen.getByTestId("field-name") as HTMLInputElement).value).toBe("");
   });
 
@@ -112,16 +111,35 @@ describe("LocationFormModal — add mode", () => {
         onSaved={onSaved}
       />,
     );
-    fireEvent.change(screen.getByTestId("field-code"), { target: { value: "test-loc" } });
     fireEvent.change(screen.getByTestId("field-name"), { target: { value: "Test Location" } });
     fireEvent.click(screen.getByText("Create location"));
 
     await waitFor(() => {
       expect(mockAdd).toHaveBeenCalledWith(
-        expect.objectContaining({ code: "test-loc", name: "Test Location" }),
+        expect.objectContaining({ name: "Test Location" }),
       );
       expect(onSaved).toHaveBeenCalledOnce();
       expect(onClose).toHaveBeenCalledOnce();
+    });
+  });
+
+  it("does not include code in addLocation call", async () => {
+    const onClose = vi.fn();
+    const onSaved = vi.fn();
+    render(
+      <LocationFormModal
+        open
+        editing={null}
+        onClose={onClose}
+        onSaved={onSaved}
+      />,
+    );
+    fireEvent.change(screen.getByTestId("field-name"), { target: { value: "Test Location" } });
+    fireEvent.click(screen.getByText("Create location"));
+
+    await waitFor(() => {
+      const call = mockAdd.mock.calls[0][0];
+      expect(call).not.toHaveProperty("code");
     });
   });
 
@@ -137,19 +155,6 @@ describe("LocationFormModal — add mode", () => {
     const btn = screen.getByText("Create location") as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
   });
-
-  it("shows format error for invalid code", () => {
-    render(
-      <LocationFormModal
-        open
-        editing={null}
-        onClose={vi.fn()}
-        onSaved={vi.fn()}
-      />,
-    );
-    fireEvent.change(screen.getByTestId("field-code"), { target: { value: "INVALID CODE!" } });
-    expect(screen.getByText(/lowercase letters/i)).toBeTruthy();
-  });
 });
 
 describe("LocationFormModal — edit mode", () => {
@@ -163,25 +168,12 @@ describe("LocationFormModal — edit mode", () => {
       />,
     );
     expect(screen.getByText("Edit location")).toBeTruthy();
-    expect((screen.getByTestId("field-code") as HTMLInputElement).value).toBe("warsaw-a");
     expect((screen.getByTestId("field-name") as HTMLInputElement).value).toBe(
       "Warsaw Server Room A",
     );
   });
 
-  it("disables code field in edit mode", () => {
-    render(
-      <LocationFormModal
-        open
-        editing={FIXTURE_LOC}
-        onClose={vi.fn()}
-        onSaved={vi.fn()}
-      />,
-    );
-    expect((screen.getByTestId("field-code") as HTMLInputElement).disabled).toBe(true);
-  });
-
-  it("calls updateLocation and onSaved/onClose on save", async () => {
+  it("calls updateLocation without code on save", async () => {
     const onClose = vi.fn();
     const onSaved = vi.fn();
     render(
@@ -197,8 +189,10 @@ describe("LocationFormModal — edit mode", () => {
 
     await waitFor(() => {
       expect(mockUpdate).toHaveBeenCalledWith(
-        expect.objectContaining({ id: "loc-1", code: "warsaw-a", name: "Renamed Room" }),
+        expect.objectContaining({ id: "loc-1", name: "Renamed Room" }),
       );
+      const call = mockUpdate.mock.calls[0][0];
+      expect(call).not.toHaveProperty("code");
       expect(onSaved).toHaveBeenCalledOnce();
       expect(onClose).toHaveBeenCalledOnce();
     });
@@ -222,7 +216,6 @@ describe("LocationFormModal — edit mode", () => {
         onSaved={vi.fn()}
       />,
     );
-    expect((screen.getByTestId("field-code") as HTMLInputElement).value).toBe("berlin-b");
     expect((screen.getByTestId("field-name") as HTMLInputElement).value).toBe("Berlin DC");
   });
 });
