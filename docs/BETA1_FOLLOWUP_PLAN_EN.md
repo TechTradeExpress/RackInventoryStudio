@@ -24,18 +24,41 @@ helper writes to both MIME types; `getDragPayload` reads custom MIME → `text/p
 
 ---
 
-## 2. SSH passphrase handling
+## 2. SSH passphrase handling — **being implemented in this PR**
 
 **Symptom**: Push and pull operations that require an SSH passphrase hang
 indefinitely or return a non-descriptive error because the Git process prompts for
-a passphrase on stdin, which is unavailable in a Tauri subprocess.
+a passphrase on stdin, which is unavailable in a Tauri GUI subprocess.
 
-**Plan**: Detect SSH agent availability at startup; if absent, surface a
-configurable passphrase field in the Repository settings panel and inject it via
-`GIT_SSH_COMMAND` (or equivalent) when spawning `git push` / `git pull`.
-Fall back gracefully if the key has no passphrase.
+**Security decision**: SSH private-key passphrases are **never stored** — not in
+settings, localStorage, config files, environment variables, logs, or command-line
+arguments.
 
-**Scope**: Does not change authentication for HTTPS remotes.
+**Correct implementation direction**:
+
+- **Primary path — ssh-agent**: If `ssh-agent` (or Windows OpenSSH Authentication
+  Agent) has the key loaded, push/pull works transparently with no prompt.
+- **Secondary path — one-time `SSH_ASKPASS` prompt**: When OpenSSH requests a
+  passphrase (because the key is passphrase-protected and no agent is available),
+  the app sets `SSH_ASKPASS` to itself and `SSH_ASKPASS_REQUIRE=force`, then
+  intercepts the askpass invocation via a short-lived local IPC session. A modal
+  prompts the user once; the passphrase is returned only to the SSH process that
+  requested it and is cleared immediately after.
+- **SSH diagnostics**: Surface `SSH_AUTH_SOCK`, `ssh-add -l` status, detected
+  `ssh` executable, `ssh -V`, Windows OpenSSH agent service status, and
+  `core.sshCommand` to help users troubleshoot authentication failures.
+- **Better error messages**: Classify common SSH stderr messages (permission
+  denied, no identities, agent failure, host key failure) into user-friendly
+  guidance instead of raw error strings.
+- **Windows guidance**: Recommend Windows OpenSSH Authentication Agent when no
+  agent is detected. If Git for Windows appears to be using its own bundled SSH
+  instead of Windows OpenSSH, surface guidance:
+  `git config --global core.sshCommand "C:/Windows/System32/OpenSSH/ssh.exe"`
+- **HTTPS remotes**: Existing HTTPS behavior is unchanged; SSH diagnostics are
+  not shown for HTTPS remotes.
+
+**Not done in this PR**: persistent credential vault, HTTPS token management,
+Linux/macOS packaging.
 
 ---
 

@@ -502,6 +502,28 @@ export function pullGitFfOnly(remote: string): Promise<RepositorySummaryDto> {
   return invoke("pull_git_ff_only", { remote });
 }
 
+export interface SshDiagnosticsDto {
+  remote_url: string | null;
+  remote_url_is_ssh: boolean;
+  ssh_auth_sock: string | null;
+  ssh_add_status: "has_identities" | "no_identities" | "agent_unreachable" | "command_unavailable" | "unknown";
+  ssh_add_identity_count: number | null;
+  core_ssh_command: string | null;
+  ssh_executable: string | null;
+  ssh_version: string | null;
+  guidance: string[];
+}
+
+/** Deliver the user's passphrase (or null to cancel) to the waiting askpass session. */
+export function respondSshPassphrase(passphrase: string | null): Promise<void> {
+  return invoke("respond_ssh_passphrase", { passphrase });
+}
+
+/** Fetch SSH diagnostics for the currently open repository and optionally a specific remote. */
+export function getSshDiagnostics(remote?: string): Promise<SshDiagnosticsDto> {
+  return invoke("get_ssh_diagnostics", { remote: remote ?? null });
+}
+
 // ── Create repository ─────────────────────────────────────────────────────────
 
 export interface CreateRepositoryInput {

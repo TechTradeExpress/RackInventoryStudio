@@ -341,6 +341,31 @@ pub struct SearchResultDto {
     pub navigation: SearchNavigationDto,
 }
 
+// ── SSH diagnostics DTO ───────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SshDiagnosticsDto {
+    /// Remote URL for the requested remote (None if no repository or remote not found).
+    pub remote_url: Option<String>,
+    /// Whether the remote URL is an SSH URL (git@, ssh://, ssh+git://).
+    pub remote_url_is_ssh: bool,
+    /// Value of SSH_AUTH_SOCK in the app's environment.
+    pub ssh_auth_sock: Option<String>,
+    /// Classified ssh-add -l result: "has_identities", "no_identities", "agent_unreachable",
+    /// "command_unavailable", or "unknown".
+    pub ssh_add_status: String,
+    /// Number of identities loaded in the agent (only set when ssh_add_status = "has_identities").
+    pub ssh_add_identity_count: Option<usize>,
+    /// Value of git config core.sshCommand, if set.
+    pub core_ssh_command: Option<String>,
+    /// Path to the ssh executable found in PATH.
+    pub ssh_executable: Option<String>,
+    /// Output of ssh -V.
+    pub ssh_version: Option<String>,
+    /// User-facing guidance strings for the detected SSH state.
+    pub guidance: Vec<String>,
+}
+
 // ── Git DTOs ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, Deserialize)]

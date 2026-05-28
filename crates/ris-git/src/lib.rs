@@ -100,9 +100,16 @@ pub struct GitRemoteSummary {
 
 // ── internal helpers ──────────────────────────────────────────────────────────
 
-fn run_git(repo_path: &Path, args: &[&str]) -> Result<std::process::Output, GitError> {
+fn run_git_impl(
+    repo_path: &Path,
+    args: &[&str],
+    extra_env: &[(&str, &str)],
+) -> Result<std::process::Output, GitError> {
     let mut cmd = Command::new("git");
     cmd.args(args).current_dir(repo_path);
+    for (k, v) in extra_env {
+        cmd.env(k, v);
+    }
 
     // Suppress the transient console/cmd window that would otherwise flash on
     // Windows when spawning git.exe from a GUI process.
@@ -113,6 +120,10 @@ fn run_git(repo_path: &Path, args: &[&str]) -> Result<std::process::Output, GitE
     }
 
     cmd.output().map_err(GitError::from)
+}
+
+fn run_git(repo_path: &Path, args: &[&str]) -> Result<std::process::Output, GitError> {
+    run_git_impl(repo_path, args, &[])
 }
 
 fn command_error(output: &std::process::Output) -> GitError {
@@ -459,10 +470,15 @@ pub fn add_remote(repo_path: &Path, name: &str, url: &str) -> Result<(), GitErro
 }
 
 /// Push the current branch to `remote`, setting the upstream tracking ref (`-u`).
-pub fn push_current_branch(repo_path: &Path, remote: &str) -> Result<(), GitError> {
+/// Pass `extra_env` to inject environment variables such as SSH_ASKPASS into the git subprocess.
+pub fn push_current_branch_with_env(
+    repo_path: &Path,
+    remote: &str,
+    extra_env: &[(&str, &str)],
+) -> Result<(), GitError> {
     validate_remote_name(remote)?;
     let branch = current_branch(repo_path)?;
-    let output = run_git(repo_path, &["push", "-u", remote, &branch])?;
+    let output = run_git_impl(repo_path, &["push", "-u", remote, &branch], extra_env)?;
     if output.status.success() {
         Ok(())
     } else {
@@ -470,11 +486,21 @@ pub fn push_current_branch(repo_path: &Path, remote: &str) -> Result<(), GitErro
     }
 }
 
+/// Push the current branch — convenience wrapper with no extra environment.
+pub fn push_current_branch(repo_path: &Path, remote: &str) -> Result<(), GitError> {
+    push_current_branch_with_env(repo_path, remote, &[])
+}
+
 /// Pull the current branch from `remote` using `--ff-only`.
 ///
 /// Rejects immediately if the working tree is not clean (staged, unstaged, or untracked files),
 /// to avoid ambiguous state after a fast-forward that lands new YAML content.
-pub fn pull_ff_only(repo_path: &Path, remote: &str) -> Result<(), GitError> {
+/// Pass `extra_env` to inject environment variables such as SSH_ASKPASS into the git subprocess.
+pub fn pull_ff_only_with_env(
+    repo_path: &Path,
+    remote: &str,
+    extra_env: &[(&str, &str)],
+) -> Result<(), GitError> {
     validate_remote_name(remote)?;
 
     // Guard: refuse if working tree is dirty.
@@ -484,11 +510,171 @@ pub fn pull_ff_only(repo_path: &Path, remote: &str) -> Result<(), GitError> {
     }
 
     let branch = current_branch(repo_path)?;
-    let output = run_git(repo_path, &["pull", "--ff-only", remote, &branch])?;
+    let output = run_git_impl(
+        repo_path,
+        &["pull", "--ff-only", remote, &branch],
+        extra_env,
+    )?;
     if output.status.success() {
         Ok(())
     } else {
         Err(command_error(&output))
+    }
+}
+
+/// Pull the current branch — convenience wrapper with no extra environment.
+pub fn pull_ff_only(repo_path: &Path, remote: &str) -> Result<(), GitError> {
+    pull_ff_only_with_env(repo_path, remote, &[])
+}
+
+// ── SSH helpers ───────────────────────────────────────────────────────────────
+
+/// Returns true when `url` looks like an SSH remote (git@…, ssh://, or ssh+git://).
+pub fn is_ssh_url(url: &str) -> bool {
+    url.starts_with("git@") || url.starts_with("ssh://") || url.starts_with("ssh+git://")
+}
+
+/// Classifies a Git stderr string for common SSH authentication failures.
+///
+/// Returns a user-friendly message string when a known pattern is matched, or
+/// `None` when the error does not appear SSH-related.
+pub fn classify_git_ssh_error(stderr: &str) -> Option<String> {
+    let s = stderr.to_ascii_lowercase();
+    if s.contains("permission denied (publickey") || s.contains("permission denied (public key") {
+        return Some(
+            "SSH authentication failed. Your key may require a passphrase or may not be \
+             loaded in ssh-agent. Run ssh-add to add your key."
+                .to_string(),
+        );
+    }
+    if s.contains("could not read from remote repository") {
+        return Some(
+            "Could not read from remote repository. Check your network connection and remote URL."
+                .to_string(),
+        );
+    }
+    if s.contains("agent admitted failure") {
+        return Some(
+            "SSH agent admitted failure signing with the key. Try ssh-add to reload the key."
+                .to_string(),
+        );
+    }
+    if s.contains("no such identity") {
+        return Some(
+            "SSH key identity not found. Run ssh-add to load your key into the agent.".to_string(),
+        );
+    }
+    if s.contains("bad passphrase") {
+        return Some("Incorrect SSH key passphrase. Authentication failed.".to_string());
+    }
+    if s.contains("host key verification failed") {
+        return Some(
+            "SSH host key verification failed. The remote server's host key is untrusted or has \
+             changed. Check ~/.ssh/known_hosts."
+                .to_string(),
+        );
+    }
+    if s.contains("too many authentication failures") {
+        return Some(
+            "Too many SSH authentication attempts failed. Try adding your key to ssh-agent with \
+             ssh-add."
+                .to_string(),
+        );
+    }
+    if s.contains("permission denied") {
+        return Some(
+            "SSH authentication failed. Check that your key is loaded in ssh-agent or that the \
+             key has access to the remote repository."
+                .to_string(),
+        );
+    }
+    None
+}
+
+// ── SSH helper unit tests ─────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod ssh_tests {
+    use super::*;
+
+    #[test]
+    fn is_ssh_url_recognises_git_at_prefix() {
+        assert!(is_ssh_url("git@github.com:org/repo.git"));
+    }
+
+    #[test]
+    fn is_ssh_url_recognises_ssh_scheme() {
+        assert!(is_ssh_url("ssh://git@github.com/org/repo.git"));
+    }
+
+    #[test]
+    fn is_ssh_url_recognises_ssh_git_scheme() {
+        assert!(is_ssh_url("ssh+git://git@github.com/org/repo.git"));
+    }
+
+    #[test]
+    fn is_ssh_url_rejects_https() {
+        assert!(!is_ssh_url("https://github.com/org/repo.git"));
+    }
+
+    #[test]
+    fn is_ssh_url_rejects_http() {
+        assert!(!is_ssh_url("http://github.com/org/repo.git"));
+    }
+
+    #[test]
+    fn is_ssh_url_rejects_empty() {
+        assert!(!is_ssh_url(""));
+    }
+
+    #[test]
+    fn classify_permission_denied_publickey() {
+        let stderr = "git@github.com: Permission denied (publickey).";
+        assert!(classify_git_ssh_error(stderr).is_some());
+        let msg = classify_git_ssh_error(stderr).unwrap();
+        assert!(msg.contains("ssh-agent") || msg.contains("ssh-add"));
+    }
+
+    #[test]
+    fn classify_could_not_read_from_remote() {
+        let msg = classify_git_ssh_error("fatal: Could not read from remote repository.").unwrap();
+        assert!(msg.contains("remote repository"));
+    }
+
+    #[test]
+    fn classify_agent_admitted_failure() {
+        let msg = classify_git_ssh_error(
+            "sign_and_send_pubkey: signing failed: agent admitted failure to sign",
+        )
+        .unwrap();
+        assert!(msg.contains("agent admitted failure"));
+    }
+
+    #[test]
+    fn classify_host_key_verification_failed() {
+        let msg = classify_git_ssh_error("Host key verification failed.").unwrap();
+        assert!(msg.contains("host key"));
+    }
+
+    #[test]
+    fn classify_too_many_failures() {
+        let msg = classify_git_ssh_error(
+            "Received disconnect from host: 2: Too many authentication failures",
+        )
+        .unwrap();
+        assert!(msg.contains("Too many"));
+    }
+
+    #[test]
+    fn classify_returns_none_for_non_ssh_error() {
+        assert!(classify_git_ssh_error("YAML parse error at line 5").is_none());
+        assert!(classify_git_ssh_error("nothing to commit, working tree clean").is_none());
+    }
+
+    #[test]
+    fn redact_ssh_url_does_not_strip_git_at() {
+        // is_ssh_url should handle git@ URLs that do NOT contain credentials
+        assert!(is_ssh_url("git@github.com:user/repo.git"));
     }
 }
 

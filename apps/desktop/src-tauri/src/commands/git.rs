@@ -2,7 +2,13 @@ use tauri::State;
 
 use crate::commands::repository::{build_summary, AppState};
 use crate::diagnostics::sanitize_error;
-use crate::dto::{GitCommitDto, GitRemoteDto, GitStatusDto, RepositorySummaryDto};
+use crate::dto::{
+    GitCommitDto, GitRemoteDto, GitStatusDto, RepositorySummaryDto, SshDiagnosticsDto,
+};
+use crate::ssh_askpass::{
+    build_askpass_env_pairs, find_ssh_executable, get_core_ssh_command, get_ssh_version,
+    probe_ssh_add, ssh_agent_guidance, AskpassState, SshAddStatus,
+};
 
 fn no_session() -> String {
     "No repository is currently open".to_string()
@@ -116,18 +122,56 @@ pub fn add_git_remote(name: String, url: String, state: State<AppState>) -> Resu
 }
 
 #[tauri::command]
-pub fn push_git_current_branch(remote: String, state: State<AppState>) -> Result<(), String> {
+pub fn push_git_current_branch(
+    remote: String,
+    state: State<AppState>,
+    askpass: State<AskpassState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
     log::info!("git_push: remote={remote}");
-    let repo_path = {
+    let (repo_path, remote_url) = {
         let guard = lock(&state)?;
         let session = guard.as_ref().ok_or_else(no_session)?;
-        session.repo_path.clone()
+        let remotes = ris_git::list_remotes(&session.repo_path).unwrap_or_default();
+        let url = remotes
+            .into_iter()
+            .find(|r| r.name == remote)
+            .map(|r| r.url);
+        (session.repo_path.clone(), url)
     };
-    ris_git::push_current_branch(&repo_path, &remote).map_err(|e| {
-        let msg = e.to_string();
-        log::error!("git_push failed: {}", sanitize_error(&msg));
-        msg
-    })?;
+
+    let is_ssh = remote_url
+        .as_deref()
+        .map(ris_git::is_ssh_url)
+        .unwrap_or(false);
+    let env_owned: Vec<(String, String)> = if is_ssh {
+        match askpass.start_session(app) {
+            Ok(e) => build_askpass_env_pairs(&e),
+            Err(warn) => {
+                log::warn!("askpass session not started, continuing without: {warn}");
+                vec![]
+            }
+        }
+    } else {
+        vec![]
+    };
+    let env_refs: Vec<(&str, &str)> = env_owned
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+
+    let result =
+        ris_git::push_current_branch_with_env(&repo_path, &remote, &env_refs).map_err(|e| {
+            let msg = e.to_string();
+            log::error!("git_push failed: {}", sanitize_error(&msg));
+            msg
+        });
+
+    if is_ssh {
+        askpass.clear_session();
+    }
+
+    result?;
     log::info!("git_push ok");
     Ok(())
 }
@@ -145,20 +189,53 @@ pub fn push_git_current_branch(remote: String, state: State<AppState>) -> Result
 pub fn pull_git_ff_only(
     remote: String,
     state: State<AppState>,
+    askpass: State<AskpassState>,
+    app: tauri::AppHandle,
 ) -> Result<RepositorySummaryDto, String> {
     // Release lock before the potentially slow git network operation.
-    let repo_path = {
+    let (repo_path, remote_url) = {
         let guard = lock(&state)?;
         let session = guard.as_ref().ok_or_else(no_session)?;
-        session.repo_path.clone()
+        let remotes = ris_git::list_remotes(&session.repo_path).unwrap_or_default();
+        let url = remotes
+            .into_iter()
+            .find(|r| r.name == remote)
+            .map(|r| r.url);
+        (session.repo_path.clone(), url)
     };
 
+    let is_ssh = remote_url
+        .as_deref()
+        .map(ris_git::is_ssh_url)
+        .unwrap_or(false);
+    let env_owned: Vec<(String, String)> = if is_ssh {
+        match askpass.start_session(app) {
+            Ok(e) => build_askpass_env_pairs(&e),
+            Err(warn) => {
+                log::warn!("askpass session not started, continuing without: {warn}");
+                vec![]
+            }
+        }
+    } else {
+        vec![]
+    };
+    let env_refs: Vec<(&str, &str)> = env_owned
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+
     log::info!("git_pull: remote={remote}");
-    ris_git::pull_ff_only(&repo_path, &remote).map_err(|e| {
+    let pull_result = ris_git::pull_ff_only_with_env(&repo_path, &remote, &env_refs).map_err(|e| {
         let msg = e.to_string();
         log::error!("git_pull failed: {}", sanitize_error(&msg));
         msg
-    })?;
+    });
+
+    if is_ssh {
+        askpass.clear_session();
+    }
+
+    pull_result?;
 
     // Reload session so in-memory state reflects the newly pulled YAML files.
     // If reload fails, the old session remains unchanged.
@@ -192,4 +269,72 @@ pub fn pull_git_ff_only(
         summary.devices_count,
     );
     Ok(summary)
+}
+
+/// Deliver the user's passphrase response (or cancellation) to the waiting askpass session.
+///
+/// Called by the frontend's SshPassphraseModal after the user submits or cancels.
+/// `passphrase: None` cancels the operation. The passphrase is held in memory only for the
+/// duration of the TCP handshake and is never logged or stored.
+#[tauri::command]
+pub fn respond_ssh_passphrase(
+    passphrase: Option<String>,
+    askpass: State<AskpassState>,
+) -> Result<(), String> {
+    askpass.respond(passphrase)
+}
+
+/// Return SSH diagnostics for the currently open repository and specified remote.
+///
+/// All fields are best-effort; missing data is surfaced as `None` rather than an error.
+/// This command is infallible from Tauri's perspective.
+#[tauri::command]
+pub fn get_ssh_diagnostics(remote: Option<String>, state: State<AppState>) -> SshDiagnosticsDto {
+    let (repo_path, remote_url) = match lock(&state) {
+        Ok(guard) => match guard.as_ref() {
+            Some(session) => {
+                let remotes = ris_git::list_remotes(&session.repo_path).unwrap_or_default();
+                let url = if let Some(ref name) = remote {
+                    remotes.into_iter().find(|r| &r.name == name).map(|r| r.url)
+                } else {
+                    remotes.into_iter().next().map(|r| r.url)
+                };
+                (Some(session.repo_path.clone()), url)
+            }
+            None => (None, None),
+        },
+        Err(_) => (None, None),
+    };
+
+    let is_ssh = remote_url
+        .as_deref()
+        .map(ris_git::is_ssh_url)
+        .unwrap_or(false);
+    let ssh_add_status = probe_ssh_add();
+    let ssh_executable = find_ssh_executable();
+    let ssh_version = get_ssh_version();
+    let core_ssh_command = repo_path.as_ref().and_then(|p| get_core_ssh_command(p));
+    let ssh_auth_sock = std::env::var("SSH_AUTH_SOCK").ok();
+
+    let (status_str, identity_count) = match &ssh_add_status {
+        SshAddStatus::HasIdentities(n) => ("has_identities".to_string(), Some(*n)),
+        SshAddStatus::NoIdentities => ("no_identities".to_string(), None),
+        SshAddStatus::AgentUnreachable => ("agent_unreachable".to_string(), None),
+        SshAddStatus::CommandUnavailable => ("command_unavailable".to_string(), None),
+        SshAddStatus::Unknown => ("unknown".to_string(), None),
+    };
+
+    let guidance = ssh_agent_guidance(&ssh_add_status, is_ssh, core_ssh_command.as_deref());
+
+    SshDiagnosticsDto {
+        remote_url,
+        remote_url_is_ssh: is_ssh,
+        ssh_auth_sock,
+        ssh_add_status: status_str,
+        ssh_add_identity_count: identity_count,
+        core_ssh_command,
+        ssh_executable,
+        ssh_version,
+        guidance,
+    }
 }

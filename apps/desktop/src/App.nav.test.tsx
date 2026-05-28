@@ -5,6 +5,10 @@ import { AppBusyProvider } from "./lib/appBusy";
 
 // ── Mock heavy dependencies ────────────────────────────────────────────────────
 
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn().mockResolvedValue(() => {}),
+}));
+
 vi.mock("./api/tauriClient", () => ({
   closeRepository: vi.fn(),
   getRepositorySummary: vi.fn().mockResolvedValue({}),
@@ -56,6 +60,9 @@ vi.mock("./features/settings/SettingsPanel", () => ({
 }));
 vi.mock("./features/search/GlobalSearch", () => ({
   GlobalSearch: () => null,
+}));
+vi.mock("./features/repository/SshPassphraseModal", () => ({
+  SshPassphraseModal: () => null,
 }));
 
 import { App } from "./App";
