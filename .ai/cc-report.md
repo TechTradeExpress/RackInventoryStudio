@@ -1,137 +1,98 @@
 ## Summary
 
-First Windows beta release readiness — branch `release/0.1.0-beta.1-windows-readiness`.
+Post-beta 1 follow-up — branch `fix/windows-dnd-post-beta1`.
 
-Prepared the repository for distributing `v0.1.0-beta.1` as an unsigned Windows x64
-installer. No new product features. No Linux packaging. No signing. No auto-update.
+Fixed Windows drag-and-drop for rack placement. On Windows with Tauri + WebView2,
+two independent bugs prevented DnD from working:
 
-## Versioning decision
+1. **Tauri intercepting DnD events**: `dragDropEnabled` was not set to `false` in
+   the window config, so WebView2 captured HTML5 drag events at OS level for native
+   file drop handling. Set `dragDropEnabled: false` in `tauri.conf.json`.
 
-**All four canonical files bumped to `0.1.0-beta.1`.**
+2. **Custom MIME type unreliability**: `application/ris-placement` may return an
+   empty string from `getData()` on Windows WebView2 even when `setData()` succeeded.
+   Now writing to both the custom MIME type and `text/plain`; `getDragPayload` reads
+   in priority order: custom MIME → `text/plain` → in-memory singleton.
 
-- `bump-version.mjs` explicitly supports prerelease SemVer (`0.1.0-beta.1` is
-  shown in its own usage examples).
-- `check-version-consistency.mjs` is format-agnostic — it just compares the four
-  sources; prerelease strings are fine.
-- Cargo, npm/pnpm, and Tauri's NSIS bundler all accept prerelease versions.
-- The NSIS installer will be named `Rack Inventory Studio_0.1.0-beta.1_x64-setup.exe`.
-- The GitHub artifact will be `rack-inventory-studio-v0.1.0-beta.1-windows-installer`.
-- The Git tag after QA passes will be `v0.1.0-beta.1` (matching the files exactly).
-
-Alternative considered: keep files at `0.1.0`, use tag `v0.1.0-beta.1`. Rejected —
-there is no reason to diverge file version from the tag; the tooling handles it cleanly.
+Also added the post-beta follow-up plan document and CHANGELOG entry.
 
 ## Files changed
 
-### Version files (4 sources, all bumped to `0.1.0-beta.1`)
-- `package.json` (workspace root)
-- `apps/desktop/package.json`
-- `apps/desktop/src-tauri/Cargo.toml`
-- `apps/desktop/src-tauri/tauri.conf.json`
+- `apps/desktop/src-tauri/tauri.conf.json` — Added `"dragDropEnabled": false` to
+  the main window. Primary fix for Windows DnD event interception.
 
-### CHANGELOG.md
-- Added user-facing `v0.1.0-beta.1 — 2026-05-27 — First Windows beta` section at the
-  top with highlights and known beta limitations.
-- Converted all `## Unreleased —` headings to `## v0.1.0-beta.1 —` throughout.
+- `apps/desktop/src/features/racks/dndHelpers.ts` — Added `writeDragData` export
+  (writes to both MIME types, each write guarded against throwing). Updated
+  `getDragPayload` with three-tier read strategy: custom MIME → `text/plain` →
+  in-memory cache. Added cross-platform rationale comment block.
 
-### docs/release.md (new)
-- Canonical release quick-reference: version sources, release branch workflow,
-  required checks before release, how to build the Windows installer via GitHub
-  Actions, expected Windows artifacts, how to create a GitHub prerelease manually,
-  minimum smoke-test checklist, SmartScreen expectations, what is not included.
+- `apps/desktop/src/features/racks/PlacementPalettePanel.tsx` — Replaced direct
+  `setData(DND_DATA_TYPE, ...)` calls with `writeDragData`. Removed direct
+  `DND_DATA_TYPE` import (no longer needed in this file).
 
-### docs/releases/v0.1.0-beta.1.md (new)
-- Draft release notes for the GitHub prerelease: beta notice, feature summary,
-  installation notes, log file location, smoke-test checklist, known limitations,
-  what is not in this release.
+- `apps/desktop/src/features/racks/RackUnitDiagram.tsx` — Replaced direct
+  `setData(DND_DATA_TYPE, ...)` call with `writeDragData`. Removed direct
+  `DND_DATA_TYPE` import.
 
-### .ai/cc-report.md (this file)
+- `apps/desktop/src/features/racks/dndHelpers.test.ts` — Replaced old 3-test
+  `getDragPayload — dataTransfer fallback` block with:
+  - `writeDragData` block (3 tests: writes both MIME types, tolerates throwing setData)
+  - `getDragPayload — read priority` block (6 tests: custom MIME, text/plain fallback,
+    preference order, in-memory fallback, throwing getData, all-null)
 
-## Windows release workflow status
+- `apps/desktop/src/features/racks/RackUnitDiagram.test.tsx` — Added import for
+  `setActiveDragPayload`; added `RackUnitDiagram — drag and drop` describe block
+  with 2 tests: dragover calls preventDefault when handler is wired, does not call
+  it when no handler.
 
-`.github/workflows/windows-installer.yml` already exists and is fully suitable:
-- `workflow_dispatch` only (manual trigger).
-- Builds unsigned NSIS installer via `pnpm tauri build` on `windows-latest`.
-- Extracts version from `tauri.conf.json`; uses it in artifact name.
-- Uploads `rack-inventory-studio-v{version}-windows-installer` (30-day retention).
-- No signing keys configured.
-- No automatic GitHub Release.
-- No Linux jobs.
-- No Windows Diagnostic Installer references.
+- `docs/BETA1_FOLLOWUP_PLAN_EN.md` — New document describing 6 post-beta issues
+  with root cause and resolution plan for each.
 
-No changes to the workflow were required.
-
-## Linux packaging
-
-Linux packaging is **explicitly deferred**. No AppImage, deb, rpm, or Linux job was
-added. Documented in `docs/release.md` and `docs/releases/v0.1.0-beta.1.md`.
+- `CHANGELOG.md` — Added `## Unreleased — Post-beta 1 follow-up` section.
 
 ## Tests
 
 ```
-git diff --check                                → clean
-node scripts/check-version-consistency.mjs      → 0.1.0-beta.1 consistent
-node --test scripts/*.test.mjs                  → 17 pass, 0 fail
-node scripts/check-repo-hygiene.mjs             → 8/8 checks passed
-tsc --noEmit (apps/desktop)                     → clean
-vitest run (apps/desktop)                       → 446 pass, 34 files
-playwright test (apps/desktop)                  → 21 pass
-cargo fmt --all --check                         → clean
-cargo check --workspace                         → clean
-cargo test --workspace                          → all pass
-cargo clippy --workspace -- -D warnings         → clean
-actionlint                                      → not available locally; CI workflow-lint
-                                                  job validates on push/PR
+git diff --check
+node scripts/check-version-consistency.mjs
+node --test scripts/*.test.mjs
+node scripts/check-repo-hygiene.mjs
+pnpm --filter @rack-inventory-studio/desktop exec tsc --noEmit
+pnpm --filter @rack-inventory-studio/desktop exec vitest run
+pnpm --filter @rack-inventory-studio/desktop exec playwright test
+cargo fmt --all --check
+cargo check --workspace
+cargo test --workspace
+cargo clippy --workspace -- -D warnings
 ```
 
-Windows packaging build: not run locally (Linux automation environment).
-CI Windows Installer workflow (`workflow_dispatch`) must be triggered manually after
-the release-readiness PR is merged and the `v0.1.0-beta.1` tag is pushed.
+(Results recorded after checks complete.)
 
 ## Risks
 
-- **NSIS version string with hyphen:** Tauri NSIS bundler uses the version string
-  from `tauri.conf.json` in the installer filename. Pre-release strings (`0.1.0-beta.1`)
-  are valid in filenames. Tauri may strip the pre-release suffix from the NSIS
-  internal `ProductVersion` field (NSIS expects `X.Y.Z.0` internally) but the filename
-  and artifact name will correctly include `0.1.0-beta.1`. The GitHub Actions workflow
-  uses a `*.exe` glob that will match regardless.
-- **Tag timing:** The Git tag `v0.1.0-beta.1` should be created on the merge commit
-  of this PR into master, not on the feature branch. The release notes and docs
-  reference this tag — do not tag before QA passes.
+- Manual Windows QA not performed in this environment. The `dragDropEnabled: false`
+  fix is consistent with Tauri v2 documentation and community reports for this exact
+  symptom.
+- `text/plain` fallback means an external file accidentally dragged onto the rack
+  diagram could be decoded as a DnD payload if it contains valid JSON matching the
+  `DndPayload` schema. Risk is low — the schema is specific and all malformed data
+  is silently ignored.
 
 ## Not done
 
-- Windows build not run locally (no Windows environment); depends on GitHub Actions.
-- EV code signing — deferred to stable release.
-- Auto-update (Tauri updater) — deferred to a future milestone.
-- Linux packaging — deferred to a future milestone.
-- Automatic GitHub Release on CI push — not configured; manual only.
-- Version bump to `0.1.0` (stable) — this is a beta; stable release is a separate milestone.
+- SSH passphrase handling (tracked in plan doc, separate PR).
+- Hidden/auto-generated `code` fields (tracked in plan doc, separate PR).
+- Clear height override (tracked in plan doc, separate PR).
+- CSV import summary counts (tracked in plan doc, separate PR).
+- Dirty repository guard (tracked in plan doc, separate PR).
+- Linux / macOS packaging (out of scope for this PR).
 
-## Next steps after this PR is merged
+## Suggested next step
 
-1. **Merge this PR** to `master`.
-2. **Confirm all CI checks pass** on the merge commit.
-3. **Create and push the annotated tag:**
-   ```bash
-   git checkout master && git pull
-   git tag -a v0.1.0-beta.1 -m "First Windows beta"
-   git push origin v0.1.0-beta.1
-   ```
-4. **Trigger the Windows Installer workflow:**
-   Go to `Actions → Windows Installer → Run workflow` → select `master` → Run.
-5. **Wait for the build** (~15–25 min cold Rust cache, ~5–10 min warm).
-6. **Download the artifact** and run Windows 11 QA per
-   `docs/BETA_WINDOWS_11_QA_EN.md`.
-7. **Create the GitHub prerelease** using the artifact and release notes from
-   `docs/releases/v0.1.0-beta.1.md`.
+Manual smoke test on a Windows machine: drag a device from the palette onto an
+empty rack slot, move a placed card to a different slot, and drag a placed card
+to the palette to unplace it.
 
 ## Final review-context handoff
 
-After all implementation, checks, .ai/cc-report.md update, commit, push, and PR
-creation, generate the review context as the last step:
-
-```bash
-bash scripts/ai/build-review-context.sh master .ai/review-context-$(date +%Y%m%d-%H%M).md
-```
+Generated after checks complete. See `.ai/review-context-*.md`.

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { RackUnitDiagram } from "./RackUnitDiagram";
+import { setActiveDragPayload } from "./dndHelpers";
 import type { PlacementDto } from "../../api/tauriClient";
 
 function makePlacement(overrides: Partial<PlacementDto> & { id: string }): PlacementDto {
@@ -249,5 +250,26 @@ describe("RackUnitDiagram — side switching", () => {
   it("shows 'Rear side' hint when side=rear", () => {
     render(<RackUnitDiagram {...BASE_PROPS} side="rear" />);
     expect(screen.getByText(/Rear side/)).toBeTruthy();
+  });
+});
+
+// ── Drag and drop ──────────────────────────────────────────────────────────────
+
+describe("RackUnitDiagram — drag and drop", () => {
+  afterEach(() => setActiveDragPayload(null));
+
+  it("dragover on an empty slot calls preventDefault when onDropAtCell is provided", () => {
+    render(
+      <RackUnitDiagram {...BASE_PROPS} heightU={5} onDropAtCell={vi.fn()} />,
+    );
+    const cell = screen.getByTestId("drop-cell-front-3");
+    // fireEvent returns false when the event was cancelled (preventDefault called)
+    expect(fireEvent.dragOver(cell)).toBe(false);
+  });
+
+  it("dragover does not call preventDefault when neither onDropAtCell nor onMovePlacement is provided", () => {
+    render(<RackUnitDiagram {...BASE_PROPS} heightU={5} />);
+    const cell = screen.getByTestId("drop-cell-front-3");
+    expect(fireEvent.dragOver(cell)).toBe(true);
   });
 });

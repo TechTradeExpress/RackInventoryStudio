@@ -6,9 +6,10 @@ import {
   getPayloadHeight,
   getDragPayload,
   setActiveDragPayload,
+  writeDragData,
 } from "./dndHelpers";
 import { buildOccupancy } from "./rackOccupancy";
-import type { DndPayload } from "./dndTypes";
+import { DND_DATA_TYPE, type DndPayload } from "./dndTypes";
 import type { PlacementDto } from "../../api/tauriClient";
 
 // ── Fixture helpers ────────────────────────────────────────────────────────────
@@ -257,16 +258,79 @@ describe("getPayloadHeight", () => {
   });
 });
 
-// ── getDragPayload — _activeDragPayload fallback ───────────────────────────────
+// ── writeDragData ──────────────────────────────────────────────────────────────
 
-describe("getDragPayload — dataTransfer fallback", () => {
-  it("returns payload from _activeDragPayload when dataTransfer.getData returns empty string", () => {
-    const payload: DndPayload = {
-      kind: "device",
-      deviceId: "id-1",
-      deviceCode: "D1",
-      defaultHeightU: 1,
-    };
+describe("writeDragData", () => {
+  it("writes to custom MIME type and text/plain", () => {
+    const stored: Record<string, string> = {};
+    const mockDt = {
+      setData: (type: string, val: string) => { stored[type] = val; },
+    } as unknown as DataTransfer;
+    const payload: DndPayload = { kind: "device", deviceId: "x", deviceCode: "X", defaultHeightU: 1 };
+    const encoded = encodeDndPayload(payload);
+    writeDragData(mockDt, encoded);
+    expect(stored[DND_DATA_TYPE]).toBe(encoded);
+    expect(stored["text/plain"]).toBe(encoded);
+  });
+
+  it("does not throw when setData throws for custom MIME", () => {
+    const mockDt = {
+      setData: (type: string) => {
+        if (type === DND_DATA_TYPE) throw new Error("not allowed");
+      },
+    } as unknown as DataTransfer;
+    const payload: DndPayload = { kind: "device", deviceId: "x", deviceCode: "X", defaultHeightU: 1 };
+    expect(() => writeDragData(mockDt, encodeDndPayload(payload))).not.toThrow();
+  });
+
+  it("does not throw when setData throws for all MIME types", () => {
+    const mockDt = {
+      setData: () => { throw new Error("not allowed"); },
+    } as unknown as DataTransfer;
+    const payload: DndPayload = { kind: "device", deviceId: "x", deviceCode: "X", defaultHeightU: 1 };
+    expect(() => writeDragData(mockDt, encodeDndPayload(payload))).not.toThrow();
+  });
+});
+
+// ── getDragPayload — read priority ────────────────────────────────────────────
+
+describe("getDragPayload — read priority", () => {
+  it("returns payload from custom MIME when present", () => {
+    const payload: DndPayload = { kind: "device", deviceId: "id-1", deviceCode: "D1", defaultHeightU: 1 };
+    setActiveDragPayload(null);
+    const fakeEvent = {
+      dataTransfer: { getData: (type: string) => type === DND_DATA_TYPE ? encodeDndPayload(payload) : "" },
+    } as unknown as DragEvent;
+    expect(getDragPayload(fakeEvent)).toEqual(payload);
+  });
+
+  it("reads text/plain fallback when custom MIME returns empty (Windows WebView2 compatibility)", () => {
+    const payload: DndPayload = { kind: "device", deviceId: "id-1", deviceCode: "D1", defaultHeightU: 1 };
+    setActiveDragPayload(null);
+    const fakeEvent = {
+      dataTransfer: {
+        getData: (type: string) => type === "text/plain" ? encodeDndPayload(payload) : "",
+      },
+    } as unknown as DragEvent;
+    expect(getDragPayload(fakeEvent)).toEqual(payload);
+    setActiveDragPayload(null);
+  });
+
+  it("prefers custom MIME over text/plain when both are set", () => {
+    const customPayload: DndPayload = { kind: "device", deviceId: "custom", deviceCode: "C", defaultHeightU: 1 };
+    const textPayload: DndPayload = { kind: "device", deviceId: "text", deviceCode: "T", defaultHeightU: 2 };
+    setActiveDragPayload(null);
+    const fakeEvent = {
+      dataTransfer: {
+        getData: (type: string) =>
+          type === DND_DATA_TYPE ? encodeDndPayload(customPayload) : encodeDndPayload(textPayload),
+      },
+    } as unknown as DragEvent;
+    expect(getDragPayload(fakeEvent)).toEqual(customPayload);
+  });
+
+  it("returns payload from _activeDragPayload when both dataTransfer entries return empty", () => {
+    const payload: DndPayload = { kind: "device", deviceId: "id-1", deviceCode: "D1", defaultHeightU: 1 };
     setActiveDragPayload(payload);
     const fakeEvent = {
       dataTransfer: { getData: () => "" },
@@ -275,28 +339,17 @@ describe("getDragPayload — dataTransfer fallback", () => {
     setActiveDragPayload(null);
   });
 
-  it("prefers dataTransfer payload over _activeDragPayload when both are set", () => {
-    const transferPayload: DndPayload = {
-      kind: "device",
-      deviceId: "id-1",
-      deviceCode: "D1",
-      defaultHeightU: 1,
-    };
-    const cachedPayload: DndPayload = {
-      kind: "device",
-      deviceId: "id-2",
-      deviceCode: "D2",
-      defaultHeightU: 2,
-    };
-    setActiveDragPayload(cachedPayload);
+  it("handles getData throwing gracefully, falls back to in-memory cache", () => {
+    const payload: DndPayload = { kind: "device", deviceId: "x", deviceCode: "X", defaultHeightU: 1 };
+    setActiveDragPayload(payload);
     const fakeEvent = {
-      dataTransfer: { getData: () => encodeDndPayload(transferPayload) },
+      dataTransfer: { getData: () => { throw new Error("not allowed"); } },
     } as unknown as DragEvent;
-    expect(getDragPayload(fakeEvent)).toEqual(transferPayload);
+    expect(getDragPayload(fakeEvent)).toEqual(payload);
     setActiveDragPayload(null);
   });
 
-  it("returns null when both dataTransfer and _activeDragPayload are empty", () => {
+  it("returns null when all sources are empty", () => {
     setActiveDragPayload(null);
     const fakeEvent = {
       dataTransfer: { getData: () => "" },

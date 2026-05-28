@@ -2,6 +2,27 @@ import type React from "react";
 import { DND_DATA_TYPE, type DndPayload } from "./dndTypes";
 import type { UnitState } from "./rackOccupancy";
 
+// ── Cross-platform DataTransfer write/read ─────────────────────────────────────
+// On Windows with Tauri + WebView2, custom MIME types may not survive the DnD
+// lifecycle (getData returns "" even when setData succeeded). Writing to
+// text/plain as a fallback ensures the payload is readable on all platforms.
+// dragDropEnabled must also be set to false in tauri.conf.json so that WebView2
+// does not intercept HTML5 DnD events for native file drop handling.
+
+/**
+ * Write the encoded DnD payload to the DataTransfer object.
+ *
+ * Writes to both the custom MIME type and text/plain. The text/plain entry
+ * acts as a compatibility fallback for Windows WebView2, where custom MIME
+ * types may return an empty string from getData() in some event contexts.
+ * Both writes are individually guarded — setData can throw in restricted
+ * environments (e.g. outside a dragstart handler).
+ */
+export function writeDragData(dt: DataTransfer, encoded: string): void {
+  try { dt.setData(DND_DATA_TYPE, encoded); } catch { /* ignore */ }
+  try { dt.setData("text/plain", encoded); } catch { /* ignore */ }
+}
+
 export function encodeDndPayload(payload: DndPayload): string {
   return JSON.stringify(payload);
 }
@@ -62,11 +83,28 @@ export function decodeDndPayload(raw: string): DndPayload | null {
 export function getDragPayload(
   event: React.DragEvent | DragEvent,
 ): DndPayload | null {
-  const raw = event.dataTransfer?.getData(DND_DATA_TYPE) ?? "";
-  const fromTransfer = raw ? decodeDndPayload(raw) : null;
-  // Fall back to the in-memory cache when dataTransfer.getData() is unavailable
-  // (e.g. programmatic DragEvents in Playwright E2E simulations).
-  return fromTransfer ?? _activeDragPayload;
+  const dt = event.dataTransfer;
+  if (dt) {
+    // 1. Custom MIME type (preferred; set by writeDragData on drag start).
+    try {
+      const raw = dt.getData(DND_DATA_TYPE);
+      if (raw) {
+        const p = decodeDndPayload(raw);
+        if (p) return p;
+      }
+    } catch { /* ignore — getData can throw outside a drop handler */ }
+    // 2. text/plain fallback — more reliable on Windows WebView2.
+    try {
+      const raw = dt.getData("text/plain");
+      if (raw) {
+        const p = decodeDndPayload(raw);
+        if (p) return p;
+      }
+    } catch { /* ignore */ }
+  }
+  // 3. In-memory cache — used by Playwright E2E and dragover handlers where
+  //    the spec forbids reading dataTransfer outside dragstart/drop.
+  return _activeDragPayload;
 }
 
 // ── Active drag singleton ──────────────────────────────────────────────────────

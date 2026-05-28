@@ -8,8 +8,8 @@ import {
 } from "../../api/tauriClient";
 import { Panel } from "../../components/ui/Panel";
 import { Banner } from "../../components/ui/Banner";
-import { encodeDndPayload, setActiveDragPayload, getDragPayload, getActiveDragPayload } from "./dndHelpers";
-import { DND_DATA_TYPE } from "./dndTypes";
+import { encodeDndPayload, writeDragData, setActiveDragPayload, getDragPayload, getActiveDragPayload } from "./dndHelpers";
+
 
 interface Props {
   rack: RackSummaryDto;
@@ -178,7 +178,7 @@ export function PlacementPalettePanel({
                 onDragStart={(e) => {
                   setActiveDragPayload(payload);
                   e.dataTransfer.effectAllowed = "copy";
-                  e.dataTransfer.setData(DND_DATA_TYPE, encodeDndPayload(payload));
+                  writeDragData(e.dataTransfer, encodeDndPayload(payload));
                 }}
                 onDragEnd={() => setActiveDragPayload(null)}
                 title={`Drag to place ${d.code}${modelHeight ? ` (${modelHeight}U)` : ""}`}
@@ -220,7 +220,7 @@ export function PlacementPalettePanel({
                 onDragStart={(e) => {
                   setActiveDragPayload(payload);
                   e.dataTransfer.effectAllowed = "copy";
-                  e.dataTransfer.setData(DND_DATA_TYPE, encodeDndPayload(payload));
+                  writeDragData(e.dataTransfer, encodeDndPayload(payload));
                 }}
                 onDragEnd={() => setActiveDragPayload(null)}
                 title={`Drag to place ${m.code} (${m.default_height_u}U)`}

@@ -7,9 +7,10 @@ import {
   getPayloadHeight,
   canDropAt,
   encodeDndPayload,
+  writeDragData,
   setActiveDragPayload,
 } from "./dndHelpers";
-import { DND_DATA_TYPE, type DndPayload } from "./dndTypes";
+import type { DndPayload } from "./dndTypes";
 import { derivePlacementLabel } from "./rackPlacementLabel";
 
 interface Props {
@@ -294,7 +295,7 @@ export function RackUnitDiagram({
                               heightU: label.effectiveHeightU,
                               side,
                             };
-                            e.dataTransfer.setData(DND_DATA_TYPE, encodeDndPayload(payload));
+                            writeDragData(e.dataTransfer, encodeDndPayload(payload));
                             e.dataTransfer.effectAllowed = "move";
                             setActiveDragPayload(payload);
                             // Custom drag image — palette-card shape with placed/occupied color.
