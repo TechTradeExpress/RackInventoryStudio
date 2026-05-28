@@ -12,6 +12,22 @@
 
 - Post-beta follow-up plan (`docs/BETA1_FOLLOWUP_PLAN_EN.md`) covering six
   identified issues and their planned resolutions.
+- **SSH passphrase prompting**: When a push or pull requires a key passphrase
+  and no ssh-agent has the key loaded, a one-time modal prompts the user. The
+  passphrase is passed directly to SSH via a short-lived localhost TCP session;
+  it is never stored in config, logs, environment variables, or files.
+- **SSH diagnostics**: `get_ssh_diagnostics` command surfaces `ssh-add -l`
+  status, `SSH_AUTH_SOCK`, detected SSH executable and version,
+  `core.sshCommand`, and user-facing guidance for common agent/configuration
+  issues.
+- **SSH error classification**: Common SSH stderr messages (permission denied,
+  agent failure, bad passphrase, host key failure) are mapped to user-friendly
+  guidance rather than raw error strings.
+
+### Security
+
+- SSH private-key passphrases are never stored: not in settings, localStorage,
+  config files, environment variables, logs, or command-line arguments.
 
 ---
 

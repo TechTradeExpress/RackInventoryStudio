@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { useBusy } from "./lib/appBusy";
 import {
   closeRepository,
@@ -24,6 +25,7 @@ import { DevicesPanel } from "./features/devices/DevicesPanel";
 import { DeviceModelsPanel } from "./features/deviceModels/DeviceModelsPanel";
 import { CsvImportPanel } from "./features/csvImport/CsvImportPanel";
 import { SettingsPanel } from "./features/settings/SettingsPanel";
+import { SshPassphraseModal } from "./features/repository/SshPassphraseModal";
 import {
   GlobalSearch,
   type SearchNavigationEvent,
@@ -81,7 +83,19 @@ export function App() {
     placementId?: string;
   } | null>(null);
 
+  const [askpassPrompt, setAskpassPrompt] = useState<string | null>(null);
+
   const isOpen = summary !== null;
+
+  // Listen for SSH passphrase requests emitted by the backend askpass session.
+  useEffect(() => {
+    const unlisten = listen<string>("ssh-passphrase-requested", (event) => {
+      setAskpassPrompt(event.payload);
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
 
   function handleSaveSuccess() {
     setHasUnsavedChanges(false);
@@ -499,6 +513,12 @@ export function App() {
           )}
         </main>
       </div>
+
+      <SshPassphraseModal
+        open={askpassPrompt !== null}
+        prompt={askpassPrompt ?? ""}
+        onDismiss={() => setAskpassPrompt(null)}
+      />
     </div>
   );
 }
