@@ -185,7 +185,16 @@ pub fn push_git_current_branch(
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
 
-    let result = ris_git::push_current_branch_with_env(&repo_path, &remote, &env_refs, is_ssh)
+    let security = if is_ssh {
+        let ssh_cmd = find_ssh_executable().unwrap_or_else(|| "ssh".to_string());
+        ris_git::GitSecurityMode::Askpass {
+            ssh_command: ssh_cmd,
+        }
+    } else {
+        ris_git::GitSecurityMode::Normal
+    };
+
+    let result = ris_git::push_current_branch_with_env(&repo_path, &remote, &env_refs, security)
         .map_err(|e| {
             let msg = ssh_error_message(&e, is_ssh);
             log::error!("git_push failed: {}", sanitize_error(&e.to_string()));
@@ -253,8 +262,17 @@ pub fn pull_git_ff_only(
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
 
+    let security = if is_ssh {
+        let ssh_cmd = find_ssh_executable().unwrap_or_else(|| "ssh".to_string());
+        ris_git::GitSecurityMode::Askpass {
+            ssh_command: ssh_cmd,
+        }
+    } else {
+        ris_git::GitSecurityMode::Normal
+    };
+
     log::info!("git_pull: remote={remote}");
-    let pull_result = ris_git::pull_ff_only_with_env(&repo_path, &remote, &env_refs, is_ssh)
+    let pull_result = ris_git::pull_ff_only_with_env(&repo_path, &remote, &env_refs, security)
         .map_err(|e| {
             let msg = ssh_error_message(&e, is_ssh);
             log::error!("git_pull failed: {}", sanitize_error(&e.to_string()));

@@ -274,3 +274,95 @@ fn parse_status_with_no_upstream() {
     assert!(s.ahead.is_none());
     assert!(s.behind.is_none());
 }
+
+// ── GitSecurityMode::Askpass integration tests ────────────────────────────────
+
+#[test]
+fn askpass_mode_push_to_local_remote_succeeds() {
+    // Verify that push with GitSecurityMode::Askpass works correctly against a
+    // local file:// remote (hooks override is transparent for local operations).
+    if !git_available() {
+        return;
+    }
+    let tmp = tempfile::TempDir::new().unwrap();
+    let bare_path = init_bare(tmp.path(), "remote.git");
+
+    let workdir = tmp.path().join("work");
+    std::fs::create_dir_all(&workdir).unwrap();
+    setup_working_repo_with_commit(&workdir);
+
+    let remote_url = format!("file://{}", bare_path.display());
+    ris_git::add_remote(&workdir, "origin", &remote_url).unwrap();
+
+    let result = ris_git::push_current_branch_with_env(
+        &workdir,
+        "origin",
+        &[],
+        ris_git::GitSecurityMode::Askpass {
+            ssh_command: "ssh".to_string(),
+        },
+    );
+    assert!(
+        result.is_ok(),
+        "askpass-mode push to local remote must succeed: {result:?}"
+    );
+}
+
+#[test]
+fn askpass_mode_pull_from_local_remote_succeeds() {
+    // Verify that pull with GitSecurityMode::Askpass fast-forwards correctly.
+    if !git_available() {
+        return;
+    }
+    let tmp = tempfile::TempDir::new().unwrap();
+    let bare_path = init_bare(tmp.path(), "remote.git");
+
+    // repo_a: push initial commit
+    let repo_a = tmp.path().join("repo_a");
+    std::fs::create_dir_all(&repo_a).unwrap();
+    setup_working_repo_with_commit(&repo_a);
+    let remote_url = format!("file://{}", bare_path.display());
+    ris_git::add_remote(&repo_a, "origin", &remote_url).unwrap();
+    ris_git::push_current_branch(&repo_a, "origin").unwrap();
+
+    // repo_b: clone and add a new commit
+    let repo_b = tmp.path().join("repo_b");
+    clone_repo(&bare_path, &repo_b);
+    configure_identity(&repo_b);
+    std::fs::write(repo_b.join("extra.yaml"), "extra").unwrap();
+    ris_git::commit_all(&repo_b, "Second commit").unwrap();
+    ris_git::push_current_branch(&repo_b, "origin").unwrap();
+
+    // repo_a: pull with askpass mode should fast-forward
+    let result = ris_git::pull_ff_only_with_env(
+        &repo_a,
+        "origin",
+        &[],
+        ris_git::GitSecurityMode::Askpass {
+            ssh_command: "ssh".to_string(),
+        },
+    );
+    assert!(
+        result.is_ok(),
+        "askpass-mode pull from local remote must succeed: {result:?}"
+    );
+}
+
+#[test]
+fn normal_mode_push_unaffected_by_security_refactor() {
+    // Regression: push_current_branch (Normal mode) must still work after
+    // the GitSecurityMode refactor.
+    if !git_available() {
+        return;
+    }
+    let tmp = tempfile::TempDir::new().unwrap();
+    let bare_path = init_bare(tmp.path(), "remote.git");
+
+    let workdir = tmp.path().join("work");
+    std::fs::create_dir_all(&workdir).unwrap();
+    setup_working_repo_with_commit(&workdir);
+    ris_git::add_remote(&workdir, "origin", &bare_path.to_string_lossy()).unwrap();
+
+    let result = ris_git::push_current_branch(&workdir, "origin");
+    assert!(result.is_ok(), "normal-mode push must succeed: {result:?}");
+}

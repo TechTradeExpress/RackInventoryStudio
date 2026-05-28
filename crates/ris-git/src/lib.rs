@@ -1,5 +1,6 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
+use tempfile::TempDir;
 
 // ── error ─────────────────────────────────────────────────────────────────────
 
@@ -104,11 +105,15 @@ fn run_git_impl(
     repo_path: &Path,
     args: &[&str],
     extra_env: &[(&str, &str)],
+    remove_env: &[&str],
 ) -> Result<std::process::Output, GitError> {
     let mut cmd = Command::new("git");
     cmd.args(args).current_dir(repo_path);
     for (k, v) in extra_env {
         cmd.env(k, v);
+    }
+    for k in remove_env {
+        cmd.env_remove(k);
     }
 
     // Suppress the transient console/cmd window that would otherwise flash on
@@ -123,7 +128,7 @@ fn run_git_impl(
 }
 
 fn run_git(repo_path: &Path, args: &[&str]) -> Result<std::process::Output, GitError> {
-    run_git_impl(repo_path, args, &[])
+    run_git_impl(repo_path, args, &[], &[])
 }
 
 fn command_error(output: &std::process::Output) -> GitError {
@@ -471,76 +476,120 @@ pub fn add_remote(repo_path: &Path, name: &str, url: &str) -> Result<(), GitErro
 
 // ── Temporary hooks-disabled directory ───────────────────────────────────────
 
-/// A temporary empty directory used as a safe, hooks-disabled `core.hooksPath`.
+/// Temporary empty directory used as a `core.hooksPath` override.
 ///
-/// Created by the `_with_env` functions when running git with askpass env vars
-/// set, to prevent repo-controlled hook scripts from inheriting
-/// `RIS_ASKPASS_PORT`/`RIS_ASKPASS_TOKEN` and connecting to the local IPC server.
-/// The directory is removed on drop.
-struct TempHooksDir(PathBuf);
+/// Backed by `tempfile::TempDir` which guarantees:
+/// - a unique directory name (no deterministic or PID-based suffix),
+/// - a newly-created directory (fails if the OS cannot allocate one),
+/// - automatic removal on drop.
+///
+/// Hook suppression is **fail-closed**: if `create()` returns an error,
+/// callers must not spawn git with askpass environment variables.
+struct TempHooksDir(TempDir);
 
 impl TempHooksDir {
-    fn create() -> Option<Self> {
-        let dir = std::env::temp_dir().join(format!("ris_nohooks_{}", std::process::id()));
-        // create_dir_all is a no-op if the dir already exists (e.g. from a
-        // previous run that crashed before cleanup). It will always be empty
-        // since we never write files into it.
-        std::fs::create_dir_all(&dir)
-            .ok()
-            .map(|_| TempHooksDir(dir))
+    fn create() -> Result<Self, GitError> {
+        tempfile::Builder::new()
+            .prefix("ris-nohooks-")
+            .tempdir()
+            .map(TempHooksDir)
+            .map_err(|e| {
+                GitError::InvalidInput(format!(
+                    "Cannot create secure hooks override directory: {e}"
+                ))
+            })
     }
 
     fn path(&self) -> &Path {
-        &self.0
+        self.0.path()
     }
 }
 
-impl Drop for TempHooksDir {
-    fn drop(&mut self) {
-        // Ignore errors — if the dir is not empty for any reason, leave it.
-        let _ = std::fs::remove_dir(&self.0);
-    }
+// ── Security mode ─────────────────────────────────────────────────────────────
+
+/// Controls security hardening applied to a git subprocess.
+#[derive(Debug)]
+pub enum GitSecurityMode {
+    /// Standard operation — no additional environment hardening.
+    Normal,
+    /// Askpass-enabled operation — applies fail-closed hardening:
+    ///
+    /// - `core.hooksPath` is overridden to a newly-created, uniquely-named,
+    ///   empty temp directory so repo-controlled hooks cannot run and inherit
+    ///   `RIS_ASKPASS_PORT`/`RIS_ASKPASS_TOKEN` from the subprocess env.
+    ///   If the secure directory cannot be created, an error is returned and
+    ///   git is **not** spawned.
+    /// - `GIT_SSH` and `GIT_SSH_COMMAND` are removed from the subprocess env
+    ///   so user-configured SSH-wrapper scripts cannot inherit askpass secrets.
+    /// - `core.sshCommand` is overridden with `ssh_command` at the command
+    ///   level, preventing a repo/user-configured SSH wrapper from being used.
+    ///
+    /// Note: `RIS_ASKPASS_PORT`, `RIS_ASKPASS_TOKEN`, and `SSH_ASKPASS` are
+    /// still present in `extra_env` — they are required so OpenSSH can invoke
+    /// the askpass helper. They do not contain the passphrase.
+    Askpass {
+        /// Path or name of the SSH executable to use (e.g. `"ssh"` or a
+        /// full path). Overrides `GIT_SSH`, `GIT_SSH_COMMAND`, and any
+        /// repo/user `core.sshCommand` for this invocation only.
+        ssh_command: String,
+    },
+}
+
+/// Env vars stripped from the git subprocess in `Askpass` mode.
+const ASKPASS_ENV_REMOVALS: &[&str] = &["GIT_SSH", "GIT_SSH_COMMAND"];
+
+/// Build the `-c` config args and env-removal list for an askpass-hardened invocation.
+///
+/// Returns `(temp_hooks_guard, config_args)`. The guard must remain alive until
+/// the git subprocess has exited. On failure, returns an error and git must not be spawned.
+fn prepare_askpass_hardening(ssh_command: &str) -> Result<(TempHooksDir, Vec<String>), GitError> {
+    let dir = TempHooksDir::create()?;
+    let args = vec![
+        "-c".to_string(),
+        format!("core.hooksPath={}", dir.path().display()),
+        "-c".to_string(),
+        format!("core.sshCommand={ssh_command}"),
+    ];
+    Ok((dir, args))
 }
 
 // ── Push / Pull ───────────────────────────────────────────────────────────────
 
 /// Push the current branch to `remote`, setting the upstream tracking ref (`-u`).
 ///
-/// `extra_env` injects environment variables (e.g. SSH_ASKPASS) into the git subprocess.
-/// `no_hooks` disables repo-controlled hooks for this invocation by overriding
-/// `core.hooksPath` to an empty temp directory.  Set this to `true` whenever
-/// `extra_env` contains askpass secrets (`RIS_ASKPASS_PORT`/`RIS_ASKPASS_TOKEN`),
-/// because hook processes inherit the git env and could otherwise connect to the
-/// local askpass TCP server and intercept the passphrase flow.
+/// `extra_env` injects environment variables into the git subprocess (e.g. SSH askpass vars).
+/// `security` controls whether askpass hardening is applied. Use `GitSecurityMode::Askpass`
+/// whenever `extra_env` contains `RIS_ASKPASS_PORT`/`RIS_ASKPASS_TOKEN`; hook suppression
+/// and SSH-wrapper neutralisation are fail-closed in that mode.
 pub fn push_current_branch_with_env(
     repo_path: &Path,
     remote: &str,
     extra_env: &[(&str, &str)],
-    no_hooks: bool,
+    security: GitSecurityMode,
 ) -> Result<(), GitError> {
     validate_remote_name(remote)?;
     let branch = current_branch(repo_path)?;
 
-    // When askpass env is active, override core.hooksPath to a known-empty
-    // temp directory so no pre-push or other client-side hooks can run and
-    // accidentally receive the askpass token/port from the inherited env.
-    let _hooks_guard = if no_hooks {
-        TempHooksDir::create()
-    } else {
-        None
+    // _hooks_guard must remain alive until run_git_impl returns (RAII cleanup).
+    let (_hooks_guard, security_args) = match &security {
+        GitSecurityMode::Normal => (None, Vec::new()),
+        GitSecurityMode::Askpass { ssh_command } => {
+            let (dir, args) = prepare_askpass_hardening(ssh_command)?;
+            (Some(dir), args)
+        }
     };
-    let hooks_cfg: Option<String> = _hooks_guard
-        .as_ref()
-        .map(|d| format!("core.hooksPath={}", d.path().display()));
+    let remove_env: &[&str] = match &security {
+        GitSecurityMode::Normal => &[],
+        GitSecurityMode::Askpass { .. } => ASKPASS_ENV_REMOVALS,
+    };
 
-    let mut args: Vec<&str> = Vec::with_capacity(6);
-    if let Some(ref cfg) = hooks_cfg {
-        args.push("-c");
-        args.push(cfg.as_str());
+    let mut args: Vec<&str> = Vec::with_capacity(security_args.len() + 4);
+    for s in &security_args {
+        args.push(s.as_str());
     }
     args.extend_from_slice(&["push", "-u", remote, branch.as_str()]);
 
-    let output = run_git_impl(repo_path, &args, extra_env)?;
+    let output = run_git_impl(repo_path, &args, extra_env, remove_env)?;
     if output.status.success() {
         Ok(())
     } else {
@@ -548,25 +597,24 @@ pub fn push_current_branch_with_env(
     }
 }
 
-/// Push the current branch — convenience wrapper with no extra environment or hooks override.
+/// Push the current branch — convenience wrapper with no extra environment and normal security.
 pub fn push_current_branch(repo_path: &Path, remote: &str) -> Result<(), GitError> {
-    push_current_branch_with_env(repo_path, remote, &[], false)
+    push_current_branch_with_env(repo_path, remote, &[], GitSecurityMode::Normal)
 }
 
 /// Pull the current branch from `remote` using `--ff-only`.
 ///
 /// Rejects immediately if the working tree is not clean.
-/// `extra_env` injects environment variables (e.g. SSH_ASKPASS) into the git subprocess.
-/// `no_hooks` disables repo-controlled hooks — same rationale as `push_current_branch_with_env`.
+/// `extra_env` injects environment variables into the git subprocess.
+/// `security` controls askpass hardening — see `push_current_branch_with_env` for details.
 pub fn pull_ff_only_with_env(
     repo_path: &Path,
     remote: &str,
     extra_env: &[(&str, &str)],
-    no_hooks: bool,
+    security: GitSecurityMode,
 ) -> Result<(), GitError> {
     validate_remote_name(remote)?;
 
-    // Guard: refuse if working tree is dirty.
     let s = status(repo_path)?;
     if s.is_repository && !s.is_clean {
         return Err(GitError::DirtyWorkingTree);
@@ -574,23 +622,25 @@ pub fn pull_ff_only_with_env(
 
     let branch = current_branch(repo_path)?;
 
-    let _hooks_guard = if no_hooks {
-        TempHooksDir::create()
-    } else {
-        None
+    let (_hooks_guard, security_args) = match &security {
+        GitSecurityMode::Normal => (None, Vec::new()),
+        GitSecurityMode::Askpass { ssh_command } => {
+            let (dir, args) = prepare_askpass_hardening(ssh_command)?;
+            (Some(dir), args)
+        }
     };
-    let hooks_cfg: Option<String> = _hooks_guard
-        .as_ref()
-        .map(|d| format!("core.hooksPath={}", d.path().display()));
+    let remove_env: &[&str] = match &security {
+        GitSecurityMode::Normal => &[],
+        GitSecurityMode::Askpass { .. } => ASKPASS_ENV_REMOVALS,
+    };
 
-    let mut args: Vec<&str> = Vec::with_capacity(6);
-    if let Some(ref cfg) = hooks_cfg {
-        args.push("-c");
-        args.push(cfg.as_str());
+    let mut args: Vec<&str> = Vec::with_capacity(security_args.len() + 5);
+    for s in &security_args {
+        args.push(s.as_str());
     }
     args.extend_from_slice(&["pull", "--ff-only", remote, branch.as_str()]);
 
-    let output = run_git_impl(repo_path, &args, extra_env)?;
+    let output = run_git_impl(repo_path, &args, extra_env, remove_env)?;
     if output.status.success() {
         Ok(())
     } else {
@@ -598,9 +648,9 @@ pub fn pull_ff_only_with_env(
     }
 }
 
-/// Pull the current branch — convenience wrapper with no extra environment or hooks override.
+/// Pull the current branch — convenience wrapper with no extra environment and normal security.
 pub fn pull_ff_only(repo_path: &Path, remote: &str) -> Result<(), GitError> {
-    pull_ff_only_with_env(repo_path, remote, &[], false)
+    pull_ff_only_with_env(repo_path, remote, &[], GitSecurityMode::Normal)
 }
 
 // ── SSH helpers ───────────────────────────────────────────────────────────────
@@ -827,6 +877,119 @@ mod ssh_tests {
     #[test]
     fn is_ssh_url_rejects_unknown_scheme_with_double_slash() {
         assert!(!is_ssh_url("unknown://host/path"));
+    }
+
+    // ── Askpass hardening tests ────────────────────────────────────────────────
+
+    #[test]
+    fn temp_hooks_dir_creates_unique_empty_dirs() {
+        let d1 = TempHooksDir::create().expect("first create");
+        let d2 = TempHooksDir::create().expect("second create");
+        assert_ne!(
+            d1.path(),
+            d2.path(),
+            "temp hooks dirs must have unique paths"
+        );
+        assert!(d1.path().is_dir(), "first hooks dir must exist");
+        assert!(d2.path().is_dir(), "second hooks dir must exist");
+        assert_eq!(
+            d1.path().read_dir().unwrap().count(),
+            0,
+            "hooks dir must be empty"
+        );
+    }
+
+    #[test]
+    fn temp_hooks_dir_does_not_use_deterministic_pid_suffix() {
+        let pid = std::process::id().to_string();
+        let d = TempHooksDir::create().expect("create");
+        let path_str = d.path().to_string_lossy();
+        assert!(
+            !path_str.contains(&format!("ris_nohooks_{pid}")),
+            "path must not use the old deterministic PID-based name; got: {path_str}"
+        );
+    }
+
+    #[test]
+    fn temp_hooks_dir_is_removed_on_drop() {
+        let path = {
+            let d = TempHooksDir::create().expect("create");
+            d.path().to_path_buf()
+        };
+        assert!(!path.exists(), "temp hooks dir must be removed on drop");
+    }
+
+    #[test]
+    fn prepare_askpass_hardening_produces_correct_args() {
+        let (dir, args) = prepare_askpass_hardening("ssh").expect("hardening");
+        let hooks_arg = format!("core.hooksPath={}", dir.path().display());
+        assert!(
+            args.contains(&hooks_arg),
+            "args must contain core.hooksPath=<dir>; got: {args:?}"
+        );
+        assert!(
+            args.contains(&"core.sshCommand=ssh".to_string()),
+            "args must contain core.sshCommand=ssh; got: {args:?}"
+        );
+        assert!(
+            args.iter().filter(|a| *a == "-c").count() >= 2,
+            "must have at least two -c flags"
+        );
+    }
+
+    #[test]
+    fn prepare_askpass_hardening_dirs_are_unique() {
+        let (d1, _) = prepare_askpass_hardening("ssh").expect("first");
+        let (d2, _) = prepare_askpass_hardening("ssh").expect("second");
+        assert_ne!(
+            d1.path(),
+            d2.path(),
+            "each hardening call must produce a unique temp dir"
+        );
+    }
+
+    #[test]
+    fn askpass_env_removals_include_git_ssh_vars() {
+        assert!(
+            ASKPASS_ENV_REMOVALS.contains(&"GIT_SSH"),
+            "ASKPASS_ENV_REMOVALS must include GIT_SSH"
+        );
+        assert!(
+            ASKPASS_ENV_REMOVALS.contains(&"GIT_SSH_COMMAND"),
+            "ASKPASS_ENV_REMOVALS must include GIT_SSH_COMMAND"
+        );
+    }
+
+    #[test]
+    fn askpass_mode_has_ssh_command_override() {
+        let mode = GitSecurityMode::Askpass {
+            ssh_command: "/usr/bin/ssh".to_string(),
+        };
+        if let GitSecurityMode::Askpass { ssh_command } = &mode {
+            let (_, args) = prepare_askpass_hardening(ssh_command).unwrap();
+            assert!(
+                args.contains(&"core.sshCommand=/usr/bin/ssh".to_string()),
+                "askpass mode must override core.sshCommand"
+            );
+        } else {
+            panic!("expected Askpass mode");
+        }
+    }
+
+    #[test]
+    fn normal_mode_build_produces_no_security_args() {
+        let mode = GitSecurityMode::Normal;
+        let (_, security_args) = match &mode {
+            GitSecurityMode::Normal => (None::<TempHooksDir>, Vec::<String>::new()),
+            GitSecurityMode::Askpass { ssh_command } => {
+                let (d, a) = prepare_askpass_hardening(ssh_command).unwrap();
+                (Some(d), a)
+            }
+        };
+        assert!(
+            security_args.is_empty(),
+            "Normal mode must produce no security args"
+        );
     }
 }
 

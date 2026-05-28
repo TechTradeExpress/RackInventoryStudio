@@ -5,7 +5,7 @@ edition = "2021"
 description = "Git adapter."
 
 [dependencies]
+tempfile = "3"
 
 [dev-dependencies]
-tempfile = "3"
 

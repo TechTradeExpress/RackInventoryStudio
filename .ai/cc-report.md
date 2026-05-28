@@ -1,45 +1,63 @@
 ## Summary
 
-Hardened the SSH askpass session handling from PR #86 by fixing five blocking issues raised in code review:
+Hardened the SSH askpass session handling from PR #86 with two rounds of security fixes.
 
-**A — Hook inheritance prevention**: Git push/pull invoked with askpass env vars now runs with `git -c core.hooksPath=<empty-temp-dir>` so no repository-controlled pre-push or commit-msg hook can inherit `RIS_ASKPASS_PORT`/`RIS_ASKPASS_TOKEN` and connect to the local IPC server. A `TempHooksDir` RAII guard creates and removes the empty directory automatically.
+**Round 1 (A–E) — original fixes:**
 
-**B — Session lifecycle safety**: Added a `session_id: u64` (CSPRNG) to each `AskpassInner` and `AskpassEnv`. `clear_session(session_id)` compares the id before clearing, so an old timed-out TCP server thread cannot inadvertently clear a newer session. The `cancelled: Arc<AtomicBool>` flag lets `clear_session` / `start_session` signal the background accept-loop to exit without waiting for the full 300 s TCP timeout.
+**A — Hook inheritance prevention**: Git push/pull invoked with askpass env vars now runs with `git -c core.hooksPath=<empty-unique-dir>` so no repository-controlled pre-push or commit-msg hook can inherit `RIS_ASKPASS_PORT`/`RIS_ASKPASS_TOKEN` and connect to the local IPC server.
 
-**C — Cryptographically-strong token**: Replaced the timestamp-XOR-PID token with 256 bits of OS CSPRNG randomness via the `getrandom 0.2` crate. Session IDs use 64 bits of CSPRNG. Added `getrandom = "0.2"` to `apps/desktop/src-tauri/Cargo.toml`.
+**B — Session lifecycle safety**: Added `session_id: u64` (CSPRNG) to `AskpassInner` and `AskpassEnv`. `clear_session(session_id)` compares the id before clearing so a stale background thread cannot wipe a newer session. The `cancelled: Arc<AtomicBool>` flag signals the accept-loop to exit without waiting the full 300 s TCP timeout.
 
-**D — Friendly SSH errors**: Added `ssh_error_message()` helper in `commands/git.rs`. For SSH remotes, it calls `ris_git::classify_git_ssh_error()` on the raw stderr. A match returns a user-friendly message plus `ssh_agent_guidance()` hints; unmatched errors fall back to the raw error string. The raw error is still logged (sanitised).
+**C — Cryptographically-strong token**: Replaced timestamp-XOR-PID token with 256 bits of OS CSPRNG randomness via `getrandom 0.2`. Session IDs use 64-bit CSPRNG.
 
-**E — scp-like URL detection**: `is_ssh_url()` in `ris-git` now recognises any `[user@]host:path` URL where the colon is not followed by `//` (which would indicate a scheme like `git://`). Windows absolute paths (`C:\…`) and local paths (`/`, `~/`, `./`) are explicitly rejected.
+**D — Friendly SSH errors**: `ssh_error_message()` helper classifies raw git stderr and returns user-friendly text plus `ssh_agent_guidance()` hints for SSH remotes; unmatched errors fall back to the raw string.
+
+**E — scp-like URL detection**: `is_ssh_url()` now recognises `[user@]host:path` URLs where the colon is not followed by `//`. Windows absolute paths (`C:\…`) and local paths (`/`, `~/`, `./`) are explicitly rejected.
+
+**Round 2 — fail-closed hardening:**
+
+**F — Secure unique temp hooks directory (fail-closed)**: Replaced the deterministic `ris_nohooks_{pid}` path and `create_dir_all` (which accepts pre-existing directories) with `tempfile::Builder::new().prefix("ris-nohooks-").tempdir()`. `TempHooksDir::create()` now returns `Result<Self, GitError>`. If creation fails the error propagates immediately — Git is never spawned with askpass env vars active. Cleanup is handled by the `TempDir` drop impl; no manual `fs::remove_dir_all` needed.
+
+**G — SSH wrapper env hardening**: Added `ASKPASS_ENV_REMOVALS: &[&str] = &["GIT_SSH", "GIT_SSH_COMMAND"]`. When `GitSecurityMode::Askpass` is active, both variables are removed from the git subprocess environment so an inherited SSH wrapper configured in the user's shell cannot intercept askpass secrets. `core.sshCommand` is overridden per-command with `-c core.sshCommand=<ssh_path>` (not a permanent config change) to pin the SSH binary.
+
+**H — Testable command construction**: Introduced `GitSecurityMode { Normal | Askpass { ssh_command } }` enum and extracted `prepare_askpass_hardening(ssh_command) -> Result<(TempHooksDir, Vec<String>), GitError>`. Tests can assert presence/absence of `-c core.hooksPath=` and `-c core.sshCommand=` without spawning git.
+
+## Security model
+
+- **Fail-closed**: If `TempHooksDir::create()` fails, `push_current_branch_with_env` / `pull_ff_only_with_env` return `Err` immediately. Git is never spawned when we cannot guarantee hook isolation.
+- **No hook inheritance**: `git -c core.hooksPath=<unique-temp-dir>` overrides hooks for the duration of push/pull. The temp dir is newly-created, empty, and unique per operation.
+- **No SSH wrapper inheritance**: `GIT_SSH` and `GIT_SSH_COMMAND` are removed from the subprocess env. `core.sshCommand` is set to the located OpenSSH binary for the duration of the command only.
+- **CSPRNG token**: 256-bit (64 hex chars) random token from OS CSPRNG prevents practical guessing within the local TCP socket lifetime.
+- **Session-id lifecycle**: Stale background threads cannot clear newer sessions.
+- **Passphrase lifetime**: Never stored, logged, or passed via env/CLI.
 
 ## Files changed
 
 ### Rust (backend)
 
-- `crates/ris-git/src/lib.rs` — Rewrote `is_ssh_url()` to handle scp-like URLs with arbitrary usernames (not just `git@`). Added 8 new test cases covering scp with/without user, local paths, tilde, relative paths, `git://`, `file://`, unknown schemes.
+- `crates/ris-git/Cargo.toml` — Moved `tempfile = "3"` from `[dev-dependencies]` to `[dependencies]` (needed in production code for `TempHooksDir`).
+- `crates/ris-git/src/lib.rs`
+  - `run_git_impl`: added `remove_env: &[&str]` parameter; each key is removed from subprocess env.
+  - `TempHooksDir`: replaced `PathBuf`-based deterministic impl with `tempfile::TempDir`; `create()` returns `Result<Self, GitError>` (fail-closed).
+  - `GitSecurityMode`: new public enum `Normal | Askpass { ssh_command: String }`.
+  - `ASKPASS_ENV_REMOVALS`: `&["GIT_SSH", "GIT_SSH_COMMAND"]`.
+  - `prepare_askpass_hardening`: internal function returning `(TempHooksDir, Vec<String>)` with `-c core.hooksPath=<dir>` and `-c core.sshCommand=<ssh>` args.
+  - `push_current_branch_with_env` / `pull_ff_only_with_env`: accept `GitSecurityMode`; propagate `prepare_askpass_hardening` errors before spawning git.
+  - `is_ssh_url()`: rewrote to handle scp-like URLs with arbitrary usernames; rejects local paths and `git://`/`file://` schemes.
+  - New unit tests: `temp_hooks_dir_creates_unique_empty_dirs`, `temp_hooks_dir_does_not_use_deterministic_pid_suffix`, `temp_hooks_dir_is_removed_on_drop`, `prepare_askpass_hardening_produces_correct_args`, `prepare_askpass_hardening_dirs_are_unique`, `askpass_env_removals_include_git_ssh_vars`, `askpass_mode_has_ssh_command_override`, `normal_mode_build_produces_no_security_args`.
+- `crates/ris-git/tests/git_remote_tests.rs` — Added integration tests: `askpass_mode_push_to_local_remote_succeeds`, `askpass_mode_pull_from_local_remote_succeeds`, `normal_mode_push_unaffected_by_security_refactor`.
 - `apps/desktop/src-tauri/Cargo.toml` — Added `getrandom = "0.2"`.
 - `apps/desktop/src-tauri/src/ssh_askpass.rs`
-  - Imports: removed `SystemTime`/`UNIX_EPOCH`; added `AtomicBool`/`Ordering`.
-  - `AskpassInner`: added `session_id: u64` and `cancelled: Arc<AtomicBool>`.
+  - `AskpassInner`: added `session_id: u64`, `cancelled: Arc<AtomicBool>`.
   - `AskpassEnv`: added `session_id: u64`.
   - `generate_token()`: 256-bit CSPRNG via `getrandom`.
-  - `generate_session_id()`: 64-bit CSPRNG via `getrandom` (new).
-  - `start_session()`: cancels any existing session before creating new one; passes `session_id` and `cancelled` to the server thread.
-  - `clear_session(session_id)`: guards on session_id match before clearing; signals `cancelled` and wakes blocked `recv_timeout`.
-  - `run_askpass_server()`: checks `cancelled` flag in accept loop; only clears its own session by id at exit.
-  - Tests: updated `askpass_session_lifecycle_create_and_clear` to pass a session_id; added `generate_token_is_64_hex_chars`, `generate_token_is_unique` (updated), `clear_session_with_wrong_id_does_not_clear`.
+  - `generate_session_id()`: 64-bit CSPRNG (new).
+  - `start_session()`: cancels existing session before creating new one.
+  - `clear_session(session_id)`: guards on session_id match; signals `cancelled`.
+  - `run_askpass_server()`: checks `cancelled` in accept loop.
 - `apps/desktop/src-tauri/src/commands/git.rs`
-  - Added `AskpassEnv` to imports.
-  - Added `ssh_error_message(&GitError, is_ssh: bool) -> String` helper.
-  - `push_git_current_branch`: stores `Option<AskpassEnv>`, passes `is_ssh` as `no_hooks`, clears by `session_id`, uses `ssh_error_message`.
-  - `pull_git_ff_only`: same changes.
-
-## Security model
-
-- **No hook inheritance**: `git -c core.hooksPath=<empty-temp-dir>` is set for every push/pull that carries askpass env vars. The empty directory is created fresh for each operation and removed on drop. Repository hooks cannot see `RIS_ASKPASS_PORT`, `RIS_ASKPASS_TOKEN`, or `SSH_ASKPASS` during their execution.
-- **CSPRNG token**: 256-bit (64 hex chars) random token from OS CSPRNG. Prevents practical guessing or collision within the local TCP socket lifetime.
-- **Session-id lifecycle**: A stale background thread that times out after the user completes an operation cannot clear a newer session started for a subsequent operation.
-- **Passphrase lifetime**: unchanged — never stored, logged, or passed via env/CLI.
+  - `ssh_error_message()`: friendly SSH error helper.
+  - `push_git_current_branch` / `pull_git_ff_only`: use `GitSecurityMode::Askpass { ssh_command }`, clear by `session_id`.
 
 ## Tests
 
@@ -48,27 +66,40 @@ cargo fmt --all --check                     — clean
 cargo check --workspace                     — clean (0 warnings)
 cargo clippy --workspace -- -D warnings     — clean
 cargo test -p rack-inventory-studio-desktop — 53 passed, 0 failed
-cargo test -p ris-git                       — 50 passed, 0 failed (28 unit + 22 integration)
+cargo test -p ris-git                       — 61 passed, 0 failed (36 unit + 25 integration)
 node scripts/check-version-consistency.mjs  — all 0.1.0-beta.1
-node scripts/check-repo-hygiene.mjs         — 8/8 checks
 npx tsc --noEmit (apps/desktop)             — clean
-npx vitest run                              — 462 passed, 0 errors
+npx vitest run (apps/desktop)               — 462 passed, 0 errors
 git diff --check                            — clean
 ```
 
+Manual QA of SSH passphrase flow against a live remote has not been performed in this automated session and remains required before merging.
+
 ## Risks
 
-- The `TempHooksDir` temp directory path is deterministic (`ris_nohooks_{pid}`). On a multi-user system a malicious user could pre-create it. Mitigated: `create_dir_all` fails silently and the guard becomes `None` (no hooks suppression, but also no credential exposure); adding a random suffix would be a small future improvement.
-- `try_send(None)` when cancelling a session may silently fail if the channel buffer is already full (i.e., the user already responded). In practice the passphrase will still be delivered correctly; the cancel is effectively a no-op, which is the safe outcome.
+- `try_send(None)` when cancelling a session may silently fail if the channel buffer is already full (the user already responded). The passphrase is still delivered correctly; the cancel is effectively a no-op — the safe outcome.
+- `core.sshCommand` override assumes the located `ssh` binary is OpenSSH-compatible. If `find_ssh_executable()` returns a non-standard SSH wrapper the override may break SSH authentication. Mitigated by `find_ssh_executable` preferring known-good paths.
 
 ## Not done
 
+- Manual QA of SSH passphrase flow against a real remote.
 - Persistent credential vault / HTTPS token management.
 - SSH diagnostics UI panel (data is available via `get_ssh_diagnostics` Tauri command).
 - Linux/macOS packaging changes.
 - App version bump (intentionally deferred to release milestone).
-- `TempHooksDir` with random suffix (low-priority hardening).
+- `TempHooksDir` random suffix (now moot — `tempfile::tempdir()` already provides uniqueness).
 
 ## Suggested next step
 
 Build a minimal "SSH Agent Status" section in the Repository panel that calls `get_ssh_diagnostics` when a push/pull fails with an SSH error and displays the guidance strings inline, so users see actionable steps without opening a terminal.
+
+## Final review-context handoff
+
+After all implementation, checks, and `.ai/cc-report.md` update, generate the review context as the last step using a timestamped filename.
+The base branch for this repository is `master` unless explicitly instructed otherwise.
+
+```bash
+bash scripts/ai/build-review-context.sh master .ai/review-context-$(date +%Y%m%d-%H%M).md
+```
+
+The file `.ai/review-context-YYYYMMDD-HHMM.md` should be attached or pasted to ChatGPT as the code review context before approving the milestone.
