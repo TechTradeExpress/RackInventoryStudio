@@ -150,7 +150,7 @@ describe("DeviceFormModal — add mode", () => {
     });
     // status defaults to "planned", so it's set
     expect(
-      screen.getByText(/at least one of name, serial number, or asset tag/i),
+      screen.getByText(/at least one of name, serial number, asset tag, or external reference/i),
     ).toBeTruthy();
   });
 
@@ -218,6 +218,49 @@ describe("DeviceFormModal — add mode", () => {
       const call = mockAdd.mock.calls[0][0];
       expect(call).not.toHaveProperty("code");
       // Add mode: onSaved receives the new device ID returned by addDevice
+      expect(onSaved).toHaveBeenCalledWith("new-dev-id");
+      expect(onClose).toHaveBeenCalledOnce();
+    });
+  });
+
+  it("allows creating a device with only external_ref as identifier", async () => {
+    const onClose = vi.fn();
+    const onSaved = vi.fn();
+    render(
+      <DeviceFormModal
+        open
+        editing={null}
+        models={MODELS}
+        onClose={onClose}
+        onSaved={onSaved}
+      />,
+    );
+
+    fireEvent.change(screen.getByTestId("field-device-type"), {
+      target: { value: "server" },
+    });
+    // Fill only external_ref — name, serial, asset_tag all blank
+    fireEvent.change(
+      screen.getByPlaceholderText("optional — CMDB ID, ticket, URL"),
+      { target: { value: "CMDB-42" } },
+    );
+
+    const btn = screen.getByText("Create device") as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+
+    fireEvent.click(btn);
+
+    await waitFor(() => {
+      expect(mockAdd).toHaveBeenCalledWith(
+        expect.objectContaining({
+          device_type: "server",
+          external_ref: "CMDB-42",
+        }),
+      );
+      const call = mockAdd.mock.calls[0][0];
+      expect(call.name).toBeUndefined();
+      expect(call.serial_number).toBeUndefined();
+      expect(call.asset_tag).toBeUndefined();
       expect(onSaved).toHaveBeenCalledWith("new-dev-id");
       expect(onClose).toHaveBeenCalledOnce();
     });

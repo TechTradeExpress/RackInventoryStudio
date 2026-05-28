@@ -468,6 +468,95 @@ fn external_ref_exists_in_repo_reports_val_csv_021() {
     assert!(has_code(&issues, "VAL-CSV-021"), "expected VAL-CSV-021");
 }
 
+// ── case-insensitive / whitespace-trimmed duplicate detection ─────────────────
+
+#[test]
+fn duplicate_serial_number_different_case_reports_val_csv_015() {
+    let csv = "device_type,status,serial_number\nserver,in_stock,SN001\nserver,in_stock,sn001\n";
+    let preview = ris_import::preview_csv_import(csv, &empty_context());
+    let issues = all_issues(&preview);
+    assert!(
+        has_code(&issues, "VAL-CSV-015"),
+        "case-insensitive serial duplicate should report VAL-CSV-015"
+    );
+    let dup_rows = preview
+        .rows
+        .iter()
+        .filter(|r| has_code(&r.issues, "VAL-CSV-015"))
+        .count();
+    assert_eq!(dup_rows, 2, "both case-variant rows should be flagged");
+}
+
+#[test]
+fn serial_number_repo_conflict_different_case_reports_val_csv_016() {
+    let ctx = context_with_devices(vec![make_device(
+        "aaaa0001-0000-0000-0000-000000000001",
+        "srv-existing",
+        DeviceType::Server,
+        Some("EXISTING-SN"),
+        None,
+    )]);
+    let csv = "device_type,status,serial_number\nserver,in_stock, existing-sn \n";
+    let preview = ris_import::preview_csv_import(csv, &ctx);
+    let issues = all_issues(&preview);
+    assert!(
+        has_code(&issues, "VAL-CSV-016"),
+        "case-insensitive + trimmed serial conflict should report VAL-CSV-016"
+    );
+}
+
+#[test]
+fn duplicate_asset_tag_different_case_reports_val_csv_017() {
+    let csv = "device_type,status,asset_tag\nserver,in_stock,TAG001\nserver,in_stock,tag001\n";
+    let preview = ris_import::preview_csv_import(csv, &empty_context());
+    let issues = all_issues(&preview);
+    assert!(
+        has_code(&issues, "VAL-CSV-017"),
+        "case-insensitive asset_tag duplicate should report VAL-CSV-017"
+    );
+    let dup_rows = preview
+        .rows
+        .iter()
+        .filter(|r| has_code(&r.issues, "VAL-CSV-017"))
+        .count();
+    assert_eq!(dup_rows, 2, "both case-variant rows should be flagged");
+}
+
+#[test]
+fn duplicate_external_ref_different_case_and_whitespace_reports_val_csv_020() {
+    let csv =
+        "device_type,status,name,external_ref\nserver,in_stock,Srv A,EXT-001\nserver,in_stock,Srv B, ext-001 \n";
+    let preview = ris_import::preview_csv_import(csv, &empty_context());
+    let issues = all_issues(&preview);
+    assert!(
+        has_code(&issues, "VAL-CSV-020"),
+        "case-insensitive + trimmed external_ref duplicate should report VAL-CSV-020"
+    );
+    let dup_rows = preview
+        .rows
+        .iter()
+        .filter(|r| has_code(&r.issues, "VAL-CSV-020"))
+        .count();
+    assert_eq!(dup_rows, 2, "both case-variant rows should be flagged");
+}
+
+#[test]
+fn external_ref_repo_conflict_different_case_and_whitespace_reports_val_csv_021() {
+    let ctx = context_with_devices(vec![make_device_with_external_ref(
+        "aaaa0001-0000-0000-0000-000000000001",
+        "srv-existing",
+        DeviceType::Server,
+        "EXISTING-EXT",
+    )]);
+    let csv = "device_type,status,name,external_ref\nserver,in_stock,Srv, existing-ext \n";
+    let preview = ris_import::preview_csv_import(csv, &ctx);
+    let issues = all_issues(&preview);
+    assert!(
+        has_code(&issues, "VAL-CSV-021"),
+        "case-insensitive + trimmed external_ref repo conflict should report VAL-CSV-021"
+    );
+}
+
 // ── tags validation ───────────────────────────────────────────────────────────
 
 #[test]
@@ -618,8 +707,8 @@ fn context_from_index_picks_up_existing_data() {
         )],
     );
     assert!(ctx.has_device_code("srv-existing"));
-    assert!(ctx.has_serial_number("SN-EXISTING"));
-    assert!(ctx.has_asset_tag("AT-EXISTING"));
+    assert!(ctx.has_serial_number("sn-existing")); // normalized key
+    assert!(ctx.has_asset_tag("at-existing")); // normalized key
     assert!(ctx.get_device_model_by_code("dell-r650").is_some());
     assert!(!ctx.has_device_code("does-not-exist"));
 }

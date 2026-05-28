@@ -9,9 +9,15 @@ pub struct DeviceModelInfo {
     pub device_type: DeviceType,
 }
 
+fn norm_id(s: &str) -> String {
+    s.trim().to_lowercase()
+}
+
 /// Repository data needed for CSV import validation.
 ///
 /// Built from `RepositoryIndex`; owns its data so it can outlive the index.
+/// Identifier sets (serial_number, asset_tag, external_ref) are stored as
+/// normalized (trimmed, lowercased) keys for case-insensitive uniqueness checks.
 pub struct CsvImportContext {
     device_codes: HashSet<String>,
     serial_numbers: HashSet<String>,
@@ -29,13 +35,22 @@ impl CsvImportContext {
         let mut external_refs = HashSet::new();
         for dev in index.devices_by_id.values() {
             if let Some(sn) = &dev.serial_number {
-                serial_numbers.insert(sn.clone());
+                let key = norm_id(sn);
+                if !key.is_empty() {
+                    serial_numbers.insert(key);
+                }
             }
             if let Some(at) = &dev.asset_tag {
-                asset_tags.insert(at.clone());
+                let key = norm_id(at);
+                if !key.is_empty() {
+                    asset_tags.insert(key);
+                }
             }
             if let Some(er) = &dev.external_ref {
-                external_refs.insert(er.clone());
+                let key = norm_id(er);
+                if !key.is_empty() {
+                    external_refs.insert(key);
+                }
             }
         }
 
@@ -77,14 +92,17 @@ impl CsvImportContext {
         self.device_codes.contains(code)
     }
 
+    /// `sn` must already be normalized (trimmed, lowercased) by the caller.
     pub fn has_serial_number(&self, sn: &str) -> bool {
         self.serial_numbers.contains(sn)
     }
 
+    /// `at` must already be normalized (trimmed, lowercased) by the caller.
     pub fn has_asset_tag(&self, at: &str) -> bool {
         self.asset_tags.contains(at)
     }
 
+    /// `er` must already be normalized (trimmed, lowercased) by the caller.
     pub fn has_external_ref(&self, er: &str) -> bool {
         self.external_refs.contains(er)
     }

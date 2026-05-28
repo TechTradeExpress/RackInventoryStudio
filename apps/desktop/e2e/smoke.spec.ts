@@ -515,9 +515,8 @@ test("rack detail: create device from place modal and place it", async ({ page }
   // DeviceFormModal opens on top
   await expect(page.getByRole("dialog", { name: "Add device" })).toBeVisible();
 
-  // Fill minimal valid form: type + code + name (name satisfies identifier requirement)
+  // Fill minimal valid form: type + name (name satisfies identifier requirement)
   await page.getByTestId("field-device-type").selectOption("server");
-  await page.getByTestId("field-code").fill("new-device-01");
   await page.getByTestId("field-name").fill("New Device 01");
 
   // "Create device" button should now be enabled
@@ -608,9 +607,8 @@ test("rack detail: create rack object from place modal and place it", async ({ p
   // DeviceModelFormModal opens
   await expect(page.getByRole("dialog", { name: "Add device model" })).toBeVisible();
 
-  // Fill the form: device_type=rack_object, code, name, height
+  // Fill the form: device_type=rack_object, name, height
   await page.getByTestId("field-device-type").selectOption("rack_object");
-  await page.getByTestId("field-code").fill("new-bracket-01");
   await page.getByTestId("field-name").fill("Cable Bracket");
   await page.getByTestId("field-height-u").fill("1");
 

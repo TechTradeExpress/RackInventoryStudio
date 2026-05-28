@@ -2761,6 +2761,229 @@ fn update_device_code_is_preserved() {
     assert_eq!(updated.name.as_deref(), Some("Server Preserve Updated"));
 }
 
+// ── identity field: external_ref only ────────────────────────────────────────
+
+#[test]
+fn add_device_with_only_external_ref_succeeds() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let id = session
+        .add_device(AddDeviceInput {
+            id: None,
+            device_type: DeviceType::Server,
+            code: None,
+            name: None,
+            device_model_id: None,
+            device_model_code: None,
+            serial_number: None,
+            asset_tag: None,
+            external_ref: Some("EXT-ONLY-001".to_string()),
+            status: DeviceStatus::InStock,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap();
+    let dev = session.index.devices_by_id.get(&id).unwrap();
+    assert_eq!(dev.external_ref.as_deref(), Some("EXT-ONLY-001"));
+    assert!(dev.name.is_none());
+    assert!(dev.serial_number.is_none());
+    assert!(dev.asset_tag.is_none());
+}
+
+#[test]
+fn add_device_no_identity_fields_fails() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let err = session
+        .add_device(AddDeviceInput {
+            id: None,
+            device_type: DeviceType::Server,
+            code: None,
+            name: None,
+            device_model_id: None,
+            device_model_code: None,
+            serial_number: None,
+            asset_tag: None,
+            external_ref: None,
+            status: DeviceStatus::InStock,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap_err();
+    assert!(
+        matches!(err, ris_application::ApplicationError::InvalidInput(_)),
+        "expected InvalidInput, got: {err}"
+    );
+}
+
+// ── identifier normalization (trim + case-insensitive) ────────────────────────
+
+#[test]
+fn add_device_serial_number_deduplication_is_case_insensitive() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    session
+        .add_device(AddDeviceInput {
+            id: None,
+            device_type: DeviceType::Server,
+            code: None,
+            name: Some("First".to_string()),
+            device_model_id: None,
+            device_model_code: None,
+            serial_number: Some("SN123".to_string()),
+            asset_tag: None,
+            external_ref: None,
+            status: DeviceStatus::InStock,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap();
+    let err = session
+        .add_device(AddDeviceInput {
+            id: None,
+            device_type: DeviceType::Server,
+            code: None,
+            name: Some("Second".to_string()),
+            device_model_id: None,
+            device_model_code: None,
+            serial_number: Some(" sn123 ".to_string()),
+            asset_tag: None,
+            external_ref: None,
+            status: DeviceStatus::InStock,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap_err();
+    assert!(
+        matches!(
+            err,
+            ris_application::ApplicationError::DuplicateSerialNumber(_)
+        ),
+        "expected DuplicateSerialNumber, got: {err}"
+    );
+}
+
+#[test]
+fn add_device_asset_tag_deduplication_is_case_insensitive() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    session
+        .add_device(AddDeviceInput {
+            id: None,
+            device_type: DeviceType::Server,
+            code: None,
+            name: Some("First".to_string()),
+            device_model_id: None,
+            device_model_code: None,
+            serial_number: None,
+            asset_tag: Some("ASSET-001".to_string()),
+            external_ref: None,
+            status: DeviceStatus::InStock,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap();
+    let err = session
+        .add_device(AddDeviceInput {
+            id: None,
+            device_type: DeviceType::Server,
+            code: None,
+            name: Some("Second".to_string()),
+            device_model_id: None,
+            device_model_code: None,
+            serial_number: None,
+            asset_tag: Some("asset-001".to_string()),
+            external_ref: None,
+            status: DeviceStatus::InStock,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap_err();
+    assert!(
+        matches!(err, ris_application::ApplicationError::DuplicateAssetTag(_)),
+        "expected DuplicateAssetTag, got: {err}"
+    );
+}
+
+#[test]
+fn add_device_external_ref_deduplication_is_case_insensitive_and_trims() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    session
+        .add_device(AddDeviceInput {
+            id: None,
+            device_type: DeviceType::Server,
+            code: None,
+            name: Some("First".to_string()),
+            device_model_id: None,
+            device_model_code: None,
+            serial_number: None,
+            asset_tag: None,
+            external_ref: Some("EXT-001".to_string()),
+            status: DeviceStatus::InStock,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap();
+    let err = session
+        .add_device(AddDeviceInput {
+            id: None,
+            device_type: DeviceType::Server,
+            code: None,
+            name: Some("Second".to_string()),
+            device_model_id: None,
+            device_model_code: None,
+            serial_number: None,
+            asset_tag: None,
+            external_ref: Some(" ext-001 ".to_string()),
+            status: DeviceStatus::InStock,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap_err();
+    assert!(
+        matches!(
+            err,
+            ris_application::ApplicationError::DuplicateExternalRef(_)
+        ),
+        "expected DuplicateExternalRef, got: {err}"
+    );
+}
+
+#[test]
+fn add_device_blank_serial_asset_external_do_not_collide() {
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    // Both devices have blank/whitespace-only serial, asset, external — no collision
+    session
+        .add_device(AddDeviceInput {
+            id: None,
+            device_type: DeviceType::Server,
+            code: None,
+            name: Some("First".to_string()),
+            device_model_id: None,
+            device_model_code: None,
+            serial_number: Some("   ".to_string()),
+            asset_tag: Some("".to_string()),
+            external_ref: None,
+            status: DeviceStatus::InStock,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap();
+    // Second device also has blank identifiers — should not collide
+    session
+        .add_device(AddDeviceInput {
+            id: None,
+            device_type: DeviceType::Server,
+            code: None,
+            name: Some("Second".to_string()),
+            device_model_id: None,
+            device_model_code: None,
+            serial_number: Some("  ".to_string()),
+            asset_tag: Some("".to_string()),
+            external_ref: None,
+            status: DeviceStatus::InStock,
+            description: None,
+            tags: vec![],
+        })
+        .unwrap(); // must not error
+}
+
 // ── delete_device ─────────────────────────────────────────────────────────────
 
 #[test]

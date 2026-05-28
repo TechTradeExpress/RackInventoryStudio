@@ -153,7 +153,8 @@ export function DeviceFormModal({
   const hasIdentifier =
     form.name.trim() !== "" ||
     form.serialNumber.trim() !== "" ||
-    form.assetTag.trim() !== "";
+    form.assetTag.trim() !== "" ||
+    form.externalRef.trim() !== "";
 
   const canSave =
     !missingType &&
@@ -169,7 +170,7 @@ export function DeviceFormModal({
     ];
     if (missing.length) return `Required: ${missing.join(", ")}`;
     if (!hasIdentifier)
-      return "Required: at least one of name, serial number, or asset tag.";
+      return "Required: at least one of name, serial number, asset tag, or external reference.";
     return null;
   })();
 

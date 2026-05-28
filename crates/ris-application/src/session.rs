@@ -134,6 +134,21 @@ fn opt_has_nonblank(opt: &Option<String>) -> bool {
     opt.as_deref().map(|s| !is_blank(s)).unwrap_or(false)
 }
 
+/// Normalize an identifier for uniqueness comparison: trim whitespace, lowercase.
+/// Returns None when the value is blank after trimming.
+fn normalize_id(s: &str) -> Option<String> {
+    let t = s.trim();
+    if t.is_empty() {
+        None
+    } else {
+        Some(t.to_lowercase())
+    }
+}
+
+fn opt_normalize_id(opt: &Option<String>) -> Option<String> {
+    opt.as_deref().and_then(normalize_id)
+}
+
 // ── Code generation ───────────────────────────────────────────────────────────
 
 fn generate_location_code(index: &ris_repository::RepositoryIndex) -> String {
@@ -451,9 +466,11 @@ impl RepositorySession {
         if !opt_has_nonblank(&input.name)
             && !opt_has_nonblank(&input.serial_number)
             && !opt_has_nonblank(&input.asset_tag)
+            && !opt_has_nonblank(&input.external_ref)
         {
             return Err(ApplicationError::InvalidInput(
-                "at least one of name, serial_number, or asset_tag must be non-blank".into(),
+                "at least one of name, serial_number, asset_tag, or external_ref must be non-blank"
+                    .into(),
             ));
         }
 
@@ -500,33 +517,54 @@ impl RepositorySession {
             None
         };
 
-        // uniqueness checks for serial / asset tag / external_ref
-        if let Some(ref sn) = input.serial_number {
+        // uniqueness checks: trim + case-insensitive, store trimmed original
+        let sn_trimmed = input
+            .serial_number
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        if let Some(ref sn) = sn_trimmed {
+            let sn_norm = sn.to_lowercase();
             if self
                 .data
                 .devices
                 .iter()
-                .any(|d| d.serial_number.as_deref() == Some(sn.as_str()))
+                .any(|d| opt_normalize_id(&d.serial_number).as_deref() == Some(sn_norm.as_str()))
             {
                 return Err(ApplicationError::DuplicateSerialNumber(sn.clone()));
             }
         }
-        if let Some(ref at) = input.asset_tag {
+        let at_trimmed = input
+            .asset_tag
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        if let Some(ref at) = at_trimmed {
+            let at_norm = at.to_lowercase();
             if self
                 .data
                 .devices
                 .iter()
-                .any(|d| d.asset_tag.as_deref() == Some(at.as_str()))
+                .any(|d| opt_normalize_id(&d.asset_tag).as_deref() == Some(at_norm.as_str()))
             {
                 return Err(ApplicationError::DuplicateAssetTag(at.clone()));
             }
         }
-        if let Some(ref er) = input.external_ref {
+        let er_trimmed = input
+            .external_ref
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        if let Some(ref er) = er_trimmed {
+            let er_norm = er.to_lowercase();
             if self
                 .data
                 .devices
                 .iter()
-                .any(|d| d.external_ref.as_deref() == Some(er.as_str()))
+                .any(|d| opt_normalize_id(&d.external_ref).as_deref() == Some(er_norm.as_str()))
             {
                 return Err(ApplicationError::DuplicateExternalRef(er.clone()));
             }
@@ -539,9 +577,9 @@ impl RepositorySession {
             device_type: input.device_type,
             name: input.name,
             device_model_id: resolved_model_id,
-            serial_number: input.serial_number,
-            asset_tag: input.asset_tag,
-            external_ref: input.external_ref,
+            serial_number: sn_trimmed,
+            asset_tag: at_trimmed,
+            external_ref: er_trimmed,
             status: input.status,
             description: input.description,
             tags: input.tags,
@@ -747,9 +785,11 @@ impl RepositorySession {
         if !opt_has_nonblank(&input.name)
             && !opt_has_nonblank(&input.serial_number)
             && !opt_has_nonblank(&input.asset_tag)
+            && !opt_has_nonblank(&input.external_ref)
         {
             return Err(ApplicationError::InvalidInput(
-                "at least one of name, serial_number, or asset_tag must be non-blank".into(),
+                "at least one of name, serial_number, asset_tag, or external_ref must be non-blank"
+                    .into(),
             ));
         }
         let current_type = self
@@ -797,34 +837,51 @@ impl RepositorySession {
             None
         };
         // Serial uniqueness: exclude self.
-        if let Some(ref sn) = input.serial_number {
-            let conflict = self
-                .data
-                .devices
-                .iter()
-                .any(|d| d.id != input.id && d.serial_number.as_deref() == Some(sn.as_str()));
+        // Uniqueness checks: trim + case-insensitive, store trimmed original, exclude self.
+        let sn_trimmed = input
+            .serial_number
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        if let Some(ref sn) = sn_trimmed {
+            let sn_norm = sn.to_lowercase();
+            let conflict = self.data.devices.iter().any(|d| {
+                d.id != input.id
+                    && opt_normalize_id(&d.serial_number).as_deref() == Some(sn_norm.as_str())
+            });
             if conflict {
                 return Err(ApplicationError::DuplicateSerialNumber(sn.clone()));
             }
         }
-        // Asset tag uniqueness: exclude self.
-        if let Some(ref at) = input.asset_tag {
-            let conflict = self
-                .data
-                .devices
-                .iter()
-                .any(|d| d.id != input.id && d.asset_tag.as_deref() == Some(at.as_str()));
+        let at_trimmed = input
+            .asset_tag
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        if let Some(ref at) = at_trimmed {
+            let at_norm = at.to_lowercase();
+            let conflict = self.data.devices.iter().any(|d| {
+                d.id != input.id
+                    && opt_normalize_id(&d.asset_tag).as_deref() == Some(at_norm.as_str())
+            });
             if conflict {
                 return Err(ApplicationError::DuplicateAssetTag(at.clone()));
             }
         }
-        // External ref uniqueness: exclude self.
-        if let Some(ref er) = input.external_ref {
-            let conflict = self
-                .data
-                .devices
-                .iter()
-                .any(|d| d.id != input.id && d.external_ref.as_deref() == Some(er.as_str()));
+        let er_trimmed = input
+            .external_ref
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        if let Some(ref er) = er_trimmed {
+            let er_norm = er.to_lowercase();
+            let conflict = self.data.devices.iter().any(|d| {
+                d.id != input.id
+                    && opt_normalize_id(&d.external_ref).as_deref() == Some(er_norm.as_str())
+            });
             if conflict {
                 return Err(ApplicationError::DuplicateExternalRef(er.clone()));
             }
@@ -838,9 +895,9 @@ impl RepositorySession {
         device.device_type = input.device_type;
         device.name = input.name;
         device.device_model_id = resolved_model_id;
-        device.serial_number = input.serial_number;
-        device.asset_tag = input.asset_tag;
-        device.external_ref = input.external_ref;
+        device.serial_number = sn_trimmed;
+        device.asset_tag = at_trimmed;
+        device.external_ref = er_trimmed;
         device.status = input.status;
         device.description = input.description;
         device.tags = input.tags;
