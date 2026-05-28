@@ -22,10 +22,13 @@ function makeRow(
   };
 }
 
-function makePreview(rows: CsvImportPreviewRowDto[]): CsvImportPreviewDto {
+function makePreview(
+  rows: CsvImportPreviewRowDto[],
+  fileIssues: CsvImportPreviewDto["file_issues"] = [],
+): CsvImportPreviewDto {
   return {
-    summary: { total_rows: rows.length, valid_rows: 0, error_rows: 0, warning_count: 0 },
-    file_issues: [],
+    summary: { total_rows: rows.length, valid_rows: 0, error_rows: 0, warning_rows: 0 },
+    file_issues: fileIssues,
     rows,
   };
 }
@@ -66,6 +69,7 @@ describe("deriveCsvImportUiSummary", () => {
   });
 
   it("does not double-count warning rows in mixed preview", () => {
+    // 2 clean importable, 1 importable-with-warning, 1 skipped (no warning)
     const rows: CsvImportPreviewRowDto[] = [
       makeRow("create"),
       makeRow("create"),
@@ -77,10 +81,35 @@ describe("deriveCsvImportUiSummary", () => {
       totalRows: 4,
       importableRows: 3,
       cleanRows: 2,
-      warningRows: 1,
+      warningRows: 1, // only the importable warning row (skipped row has no warning)
       skippedRows: 1,
     });
-    // Key invariant: importableRows === cleanRows + warningRows (no double-count)
+    // importableRows === cleanRows + importable_warning_rows (no double-count within importable)
     expect(result.importableRows).toBe(result.cleanRows + result.warningRows);
+  });
+
+  it("counts a skipped row with a warning in warningRows", () => {
+    // Preferred semantics: warningRows includes ALL rows with warnings, even error rows.
+    const rows: CsvImportPreviewRowDto[] = [
+      makeRow("create"),
+      makeRow("skip_due_to_error", true), // error row that also has a warning
+    ];
+    const result = deriveCsvImportUiSummary(makePreview(rows));
+    expect(result.totalRows).toBe(2);
+    expect(result.importableRows).toBe(1);
+    expect(result.skippedRows).toBe(1);
+    expect(result.warningRows).toBe(1); // the skipped row has a warning
+    expect(result.cleanRows).toBe(1); // the importable row has no warning
+    // warningRows and skippedRows can refer to the same row — that is intentional
+  });
+
+  it("file-level warning does not count in warningRows", () => {
+    const rows: CsvImportPreviewRowDto[] = [makeRow("create")];
+    const fileIssues: CsvImportPreviewDto["file_issues"] = [
+      { code: "VAL-CSV-002", level: "warning", message: "unknown column ignored", details: null },
+    ];
+    const result = deriveCsvImportUiSummary(makePreview(rows, fileIssues));
+    expect(result.warningRows).toBe(0); // file-level warning must not count as a row warning
+    expect(result.cleanRows).toBe(1);
   });
 });

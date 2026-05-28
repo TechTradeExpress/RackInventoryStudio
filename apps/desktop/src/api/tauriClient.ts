@@ -375,7 +375,7 @@ export interface CsvImportSummaryDto {
   total_rows: number;
   valid_rows: number;
   error_rows: number;
-  warning_count: number;
+  warning_rows: number;
 }
 
 export interface CsvImportPreviewRowDto {

@@ -83,7 +83,7 @@ optional; `external_ref` uniqueness is enforced across all import paths.
 
 ---
 
-## 4. Clear height override
+## 4. Clear height override ✅ IMPLEMENTED
 
 **Symptom**: Once a per-placement height override is set, there is no UI affordance
 to reset it back to the model default. The inspector shows the current height but
@@ -93,9 +93,18 @@ provides no "Clear override" action.
 field. Submits `height_u: null` to the backend, which causes the effective height
 to fall back to `device_model.default_height_u`.
 
+**Implemented** (`fix/beta1-height-override-import-summary`): Root cause was that
+`move_placement_within_side` and `move_placement` in `session.rs` both fell back to
+the existing override when `new_height_u` was `None`, and only updated the stored
+value when `new_height_u` was `Some`. Fixed by removing the `or(existing_height_u)`
+fallback in the effective-height calculation (so clearing always falls back to model
+default) and replacing the `if let Some` update block with a direct assignment
+(`placement.height_u = input.new_height_u`). Clearing the height override now
+persists correctly to the repository file.
+
 ---
 
-## 5. CSV import summary counts
+## 5. CSV import summary counts ✅ IMPLEMENTED
 
 **Symptom**: After a CSV device import the confirmation modal shows the raw outcome
 ("3 created, 1 updated, 0 skipped") but does not distinguish between rows that were
@@ -106,6 +115,14 @@ Users cannot tell whether data was silently dropped.
 `created`, `updated`, `skipped_duplicate`, and `failed_validation`. Surface all
 four in the confirmation UI. Export a downloadable error report when
 `failed_validation > 0`.
+
+**Implemented** (`fix/beta1-height-override-import-summary`): Root cause was that
+`CsvImportSummary.warning_count` counted individual warning *issues* (not *rows*),
+and also incorrectly included file-level/header warnings in the row count. Fixed by
+renaming to `warning_rows` and computing it as the number of data rows that have at
+least one warning issue (including rows that also have errors; file-level warnings
+excluded). Frontend `deriveCsvImportUiSummary` updated to count all warning rows
+consistently. UI labels updated to say "Rows with at least one warning".
 
 ---
 

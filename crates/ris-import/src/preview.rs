@@ -13,8 +13,9 @@ pub struct CsvImportSummary {
     pub total_rows: usize,
     pub valid_rows: usize,
     pub error_rows: usize,
-    /// Total number of WARNING issues across all rows and file-level.
-    pub warning_count: usize,
+    /// Number of data rows that have at least one WARNING issue (includes rows that also have errors).
+    /// File-level/header warnings are not counted here.
+    pub warning_rows: usize,
 }
 
 #[derive(Debug, Clone)]

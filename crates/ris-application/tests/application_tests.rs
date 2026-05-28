@@ -1731,6 +1731,222 @@ fn move_placement_save_reload_preserves_new_start_u() {
     assert_eq!(ip.placement.start_u, 5);
 }
 
+// ── height override / clear ───────────────────────────────────────────────────
+
+#[test]
+fn clear_height_override_uses_model_default_within_side() {
+    // Place a device with an explicit height override, then clear it.
+    // After clearing, height_u must be None and effective height must equal model default.
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let dev_id = session.add_device(new_server("srv-height-clear")).unwrap();
+    let plc_code = "plc-height-clear";
+    session
+        .place_device(PlaceDeviceInput {
+            id: None,
+            code: Some(plc_code.into()),
+            rack_id: None,
+            rack_code: Some("rack-main".into()),
+            side: PlacementSide::Front,
+            device_id: Some(dev_id.clone()),
+            device_code: None,
+            start_u: 1,
+            height_u: Some(3), // set explicit override
+            note: None,
+            tags: vec![],
+        })
+        .unwrap();
+
+    // Confirm override is stored
+    let ip_before = session
+        .index
+        .get_placement_by_code(plc_code)
+        .unwrap()
+        .placement
+        .clone();
+    assert_eq!(
+        ip_before.height_u,
+        Some(3),
+        "override should be set before clear"
+    );
+
+    // Clear the override (new_height_u = None)
+    session
+        .move_placement_within_side(MovePlacementInput {
+            placement_id: None,
+            placement_code: Some(plc_code.into()),
+            new_start_u: 1,
+            new_height_u: None,
+        })
+        .unwrap();
+
+    // Override must now be None; effective height must fall back to model default (1U)
+    let ip_after = session
+        .index
+        .get_placement_by_code(plc_code)
+        .unwrap()
+        .placement
+        .clone();
+    assert_eq!(
+        ip_after.height_u, None,
+        "clearing override must store None, not 0 or old value"
+    );
+    let model_default = 1u32; // dell-r650 has default_height_u = 1
+    let eff = ip_after.effective_height_u(
+        session.index.device_models_by_id.get(
+            session
+                .index
+                .devices_by_id
+                .get(&dev_id)
+                .unwrap()
+                .device_model_id
+                .as_deref()
+                .unwrap(),
+        ),
+    );
+    assert_eq!(
+        eff,
+        Some(model_default),
+        "effective height must equal model default after clear"
+    );
+}
+
+#[test]
+fn clear_height_override_persists_to_disk() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    copy_dir_all(&fixture("valid-repository"), tmp.path());
+
+    let mut session = open_repository(tmp.path()).unwrap();
+    let dev_id = session.add_device(new_server("srv-persist-clear")).unwrap();
+    let plc_code = "plc-persist-clear";
+    session
+        .place_device(PlaceDeviceInput {
+            id: None,
+            code: Some(plc_code.into()),
+            rack_id: None,
+            rack_code: Some("rack-main".into()),
+            side: PlacementSide::Front,
+            device_id: Some(dev_id),
+            device_code: None,
+            start_u: 2,
+            height_u: Some(2), // set override
+            note: None,
+            tags: vec![],
+        })
+        .unwrap();
+
+    // Clear the override and save
+    session
+        .move_placement_within_side(MovePlacementInput {
+            placement_id: None,
+            placement_code: Some(plc_code.into()),
+            new_start_u: 2,
+            new_height_u: None,
+        })
+        .unwrap();
+    session.save().unwrap();
+
+    // Reload and confirm override is gone
+    let s2 = open_repository(tmp.path()).unwrap();
+    let ip = s2
+        .index
+        .get_placement_by_code(plc_code)
+        .expect("placement not found after reload");
+    assert_eq!(
+        ip.placement.height_u, None,
+        "height override must remain cleared after save/reload"
+    );
+}
+
+#[test]
+fn clear_height_override_fails_when_no_model_and_no_height() {
+    // Place a device without a model and without a height override; then attempt
+    // to move it without providing a height.  This must return EffectiveHeightMissing.
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    // Create a device with no model so there is no default height to fall back to
+    let dev_id = session
+        .add_device(new_server_no_model("srv-no-model-height"))
+        .unwrap();
+    let plc_code = "plc-no-model";
+    session
+        .place_device(PlaceDeviceInput {
+            id: None,
+            code: Some(plc_code.into()),
+            rack_id: None,
+            rack_code: Some("rack-main".into()),
+            side: PlacementSide::Front,
+            device_id: Some(dev_id),
+            device_code: None,
+            start_u: 3,
+            height_u: Some(1), // must provide height since no model
+            note: None,
+            tags: vec![],
+        })
+        .unwrap();
+
+    // Now attempt to clear the override (new_height_u=None) with no model to fall back to
+    let err = session
+        .move_placement_within_side(MovePlacementInput {
+            placement_id: None,
+            placement_code: Some(plc_code.into()),
+            new_start_u: 3,
+            new_height_u: None, // clear override, but no model default exists
+        })
+        .unwrap_err();
+    assert!(
+        matches!(
+            err,
+            ris_application::ApplicationError::EffectiveHeightMissing(_)
+        ),
+        "expected EffectiveHeightMissing, got {err:?}"
+    );
+}
+
+#[test]
+fn clear_height_override_via_move_placement() {
+    // Same test as clear_height_override_uses_model_default_within_side but via move_placement()
+    let mut session = open_repository(&fixture("valid-repository")).unwrap();
+    let dev_id = session.add_device(new_server("srv-move-clear")).unwrap();
+    let plc_code = "plc-move-clear";
+    session
+        .place_device(PlaceDeviceInput {
+            id: None,
+            code: Some(plc_code.into()),
+            rack_id: None,
+            rack_code: Some("rack-main".into()),
+            side: PlacementSide::Front,
+            device_id: Some(dev_id),
+            device_code: None,
+            start_u: 4,
+            height_u: Some(2),
+            note: None,
+            tags: vec![],
+        })
+        .unwrap();
+
+    let rack_id = session.list_racks()[0].id.clone();
+    session
+        .move_placement(MovePlacementToTargetInput {
+            placement_id: None,
+            placement_code: Some(plc_code.into()),
+            new_rack_id: Some(rack_id),
+            new_side: Some(PlacementSide::Front),
+            new_start_u: 4,
+            new_height_u: None, // clear the override
+        })
+        .unwrap();
+
+    let ip = session
+        .index
+        .get_placement_by_code(plc_code)
+        .unwrap()
+        .placement
+        .clone();
+    assert_eq!(
+        ip.height_u, None,
+        "move_placement must also clear the override when None is sent"
+    );
+}
+
 // ── remove_placement ──────────────────────────────────────────────────────────
 
 #[test]
