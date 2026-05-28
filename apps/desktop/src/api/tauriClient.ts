@@ -230,7 +230,7 @@ export function removePlacement(input: RemovePlacementInput): Promise<void> {
 // ── Mutation commands ─────────────────────────────────────────────────────────
 
 export interface AddLocationInput {
-  code: string;
+  code?: string;
   name: string;
   description?: string;
   address?: string;
@@ -244,7 +244,7 @@ export function addLocation(input: AddLocationInput): Promise<string> {
 export interface AddRackInput {
   location_id?: string;
   location_code?: string;
-  code: string;
+  code?: string;
   name: string;
   height_u: number;
   row?: string;
@@ -258,7 +258,7 @@ export function addRack(input: AddRackInput): Promise<string> {
 
 export interface AddDeviceModelInput {
   device_type: string;
-  code: string;
+  code?: string;
   name: string;
   vendor?: string;
   model?: string;
@@ -273,7 +273,7 @@ export function addDeviceModel(input: AddDeviceModelInput): Promise<string> {
 
 export interface AddDeviceInput {
   device_type: string;
-  code: string;
+  code?: string;
   name?: string;
   device_model_id?: string;
   serial_number?: string;
@@ -290,7 +290,6 @@ export function addDevice(input: AddDeviceInput): Promise<string> {
 
 export interface UpdateLocationInput {
   id: string;
-  code: string;
   name: string;
   description?: string;
   address?: string;
@@ -308,7 +307,6 @@ export function deleteLocation(id: string): Promise<void> {
 export interface UpdateRackInput {
   id: string;
   location_id: string;
-  code: string;
   name: string;
   height_u: number;
   row?: string;
@@ -327,7 +325,6 @@ export function deleteRack(id: string): Promise<void> {
 export interface UpdateDeviceModelInput {
   id: string;
   device_type: string;
-  code: string;
   name: string;
   vendor?: string;
   model?: string;
@@ -347,7 +344,6 @@ export function deleteDeviceModel(id: string): Promise<void> {
 export interface UpdateDeviceInput {
   id: string;
   device_type: string;
-  code: string;
   name?: string;
   device_model_id?: string;
   serial_number?: string;

@@ -21,7 +21,6 @@ const DEVICE_TYPES = [
 
 interface FormState {
   deviceType: string;
-  code: string;
   name: string;
   vendor: string;
   modelNumber: string;
@@ -32,7 +31,6 @@ interface FormState {
 
 const EMPTY: FormState = {
   deviceType: "",
-  code: "",
   name: "",
   vendor: "",
   modelNumber: "",
@@ -44,7 +42,6 @@ const EMPTY: FormState = {
 function modelToForm(m: DeviceModelDto): FormState {
   return {
     deviceType: m.device_type,
-    code: m.code,
     name: m.name,
     vendor: m.vendor ?? "",
     modelNumber: m.model_number ?? "",
@@ -108,14 +105,7 @@ export function DeviceModelFormModal({
     ) =>
       setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  const codeVal = form.code.trim();
-  const codeFormatErr =
-    !isEdit && codeVal !== "" && !/^[a-z0-9._-]+$/.test(codeVal)
-      ? "Use lowercase letters, digits, hyphens, underscores or dots."
-      : null;
-
   const missingType = !form.deviceType;
-  const missingCode = !codeVal;
   const missingName = !form.name.trim();
   const missingHeight = !form.heightU.trim();
   const invalidHeight =
@@ -123,24 +113,20 @@ export function DeviceModelFormModal({
 
   const canSave =
     !missingType &&
-    !missingCode &&
     !missingName &&
     !missingHeight &&
     !invalidHeight &&
-    !codeFormatErr &&
     !submitting;
 
   const footerMsg: string | null = (() => {
     if (error) return error;
     const missing = [
       ...(missingType ? ["device type"] : []),
-      ...(missingCode ? ["code"] : []),
       ...(missingName ? ["name"] : []),
       ...(missingHeight ? ["height"] : []),
     ];
     if (missing.length) return `Required: ${missing.join(", ")}`;
     if (invalidHeight) return "Height (U) must be a positive integer.";
-    if (codeFormatErr) return codeFormatErr;
     return null;
   })();
 
@@ -154,7 +140,6 @@ export function DeviceModelFormModal({
         await updateDeviceModel({
           id: editing.id,
           device_type: form.deviceType,
-          code: editing.code,
           name: form.name.trim(),
           vendor: form.vendor.trim() || undefined,
           model: form.modelNumber.trim() || undefined,
@@ -166,7 +151,6 @@ export function DeviceModelFormModal({
       } else {
         const newModelId = await addDeviceModel({
           device_type: form.deviceType,
-          code: codeVal,
           name: form.name.trim(),
           vendor: form.vendor.trim() || undefined,
           model: form.modelNumber.trim() || undefined,
@@ -248,35 +232,14 @@ export function DeviceModelFormModal({
             </p>
           </Field>
         )}
-        <Field
-          className="col-6"
-          label="Code"
-          required={!isEdit}
-          help={
-            !isEdit
-              ? "Lowercase letters, digits, hyphens, underscores, dots."
-              : undefined
-          }
-          error={codeFormatErr}
-        >
-          <input
-            className="input mono"
-            value={form.code}
-            onChange={set("code")}
-            placeholder="e.g. dell-r750"
-            disabled={isEdit || submitting}
-            autoFocus={!isEdit}
-            data-testid="field-code"
-          />
-        </Field>
-        <Field className="col-6" label="Name" required>
+        <Field label="Name" required>
           <input
             className="input"
             value={form.name}
             onChange={set("name")}
             placeholder="e.g. PowerEdge R750"
             disabled={submitting}
-            autoFocus={isEdit}
+            autoFocus
             data-testid="field-name"
           />
         </Field>

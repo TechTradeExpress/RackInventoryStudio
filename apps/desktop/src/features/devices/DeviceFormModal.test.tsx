@@ -105,7 +105,6 @@ describe("DeviceFormModal — add mode", () => {
       />,
     );
     expect(screen.getByText("Add device")).toBeTruthy();
-    expect((screen.getByTestId("field-code") as HTMLInputElement).value).toBe("");
     expect((screen.getByTestId("field-name") as HTMLInputElement).value).toBe("");
   });
 
@@ -136,7 +135,7 @@ describe("DeviceFormModal — add mode", () => {
     expect(btn.disabled).toBe(true);
   });
 
-  it("shows identifier required message when type/code/status are set but no name/serial/asset", () => {
+  it("shows identifier required message when type and status are set but no name/serial/asset", () => {
     render(
       <DeviceFormModal
         open
@@ -148,9 +147,6 @@ describe("DeviceFormModal — add mode", () => {
     );
     fireEvent.change(screen.getByTestId("field-device-type"), {
       target: { value: "server" },
-    });
-    fireEvent.change(screen.getByTestId("field-code"), {
-      target: { value: "srv-test" },
     });
     // status defaults to "planned", so it's set
     expect(
@@ -188,23 +184,7 @@ describe("DeviceFormModal — add mode", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it("shows code format error for invalid code", () => {
-    render(
-      <DeviceFormModal
-        open
-        editing={null}
-        models={MODELS}
-        onClose={vi.fn()}
-        onSaved={vi.fn()}
-      />,
-    );
-    fireEvent.change(screen.getByTestId("field-code"), {
-      target: { value: "INVALID CODE!" },
-    });
-    expect(screen.getByText(/lowercase letters/i)).toBeTruthy();
-  });
-
-  it("calls addDevice, onSaved with new device ID, and onClose on valid submit", async () => {
+  it("calls addDevice without code, onSaved with new device ID, and onClose on valid submit", async () => {
     const onClose = vi.fn();
     const onSaved = vi.fn();
     render(
@@ -220,9 +200,6 @@ describe("DeviceFormModal — add mode", () => {
     fireEvent.change(screen.getByTestId("field-device-type"), {
       target: { value: "server" },
     });
-    fireEvent.change(screen.getByTestId("field-code"), {
-      target: { value: "srv-test-01" },
-    });
     // status already "planned"
     fireEvent.change(screen.getByTestId("field-name"), {
       target: { value: "Test Server" },
@@ -234,11 +211,12 @@ describe("DeviceFormModal — add mode", () => {
       expect(mockAdd).toHaveBeenCalledWith(
         expect.objectContaining({
           device_type: "server",
-          code: "srv-test-01",
           name: "Test Server",
           status: "planned",
         }),
       );
+      const call = mockAdd.mock.calls[0][0];
+      expect(call).not.toHaveProperty("code");
       // Add mode: onSaved receives the new device ID returned by addDevice
       expect(onSaved).toHaveBeenCalledWith("new-dev-id");
       expect(onClose).toHaveBeenCalledOnce();
@@ -310,9 +288,6 @@ describe("DeviceFormModal — edit mode", () => {
       />,
     );
     expect(screen.getByText("Edit device")).toBeTruthy();
-    expect((screen.getByTestId("field-code") as HTMLInputElement).value).toBe(
-      "srv-prod-01",
-    );
     expect((screen.getByTestId("field-name") as HTMLInputElement).value).toBe(
       "Production Web Server",
     );
@@ -321,22 +296,7 @@ describe("DeviceFormModal — edit mode", () => {
     ).toBe("SN123456");
   });
 
-  it("disables code field in edit mode", () => {
-    render(
-      <DeviceFormModal
-        open
-        editing={FIXTURE_DEVICE}
-        models={MODELS}
-        onClose={vi.fn()}
-        onSaved={vi.fn()}
-      />,
-    );
-    expect(
-      (screen.getByTestId("field-code") as HTMLInputElement).disabled,
-    ).toBe(true);
-  });
-
-  it("calls updateDevice, onSaved without ID, and onClose on valid edit", async () => {
+  it("calls updateDevice without code, onSaved without ID, and onClose on valid edit", async () => {
     const onClose = vi.fn();
     const onSaved = vi.fn();
     render(
@@ -358,11 +318,12 @@ describe("DeviceFormModal — edit mode", () => {
       expect(mockUpdate).toHaveBeenCalledWith(
         expect.objectContaining({
           id: "dev-1",
-          code: "srv-prod-01",
           name: "Renamed Server",
           status: "installed",
         }),
       );
+      const call = mockUpdate.mock.calls[0][0];
+      expect(call).not.toHaveProperty("code");
       // Edit mode: onSaved receives no device ID (undefined)
       expect(onSaved).toHaveBeenCalledWith(/* no argument */);
       expect(onClose).toHaveBeenCalledOnce();
@@ -396,9 +357,6 @@ describe("DeviceFormModal — edit mode", () => {
         onClose={vi.fn()}
         onSaved={vi.fn()}
       />,
-    );
-    expect((screen.getByTestId("field-code") as HTMLInputElement).value).toBe(
-      "net-sw-01",
     );
     expect((screen.getByTestId("field-name") as HTMLInputElement).value).toBe(
       "Core Switch",

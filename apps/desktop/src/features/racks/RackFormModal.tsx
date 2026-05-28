@@ -12,7 +12,6 @@ import {
 const DEFAULT_RACK_HEIGHT_U = 42;
 
 interface FormState {
-  code: string;
   name: string;
   heightU: string;
   row: string;
@@ -21,7 +20,6 @@ interface FormState {
 }
 
 const EMPTY: FormState = {
-  code: "",
   name: "",
   heightU: String(DEFAULT_RACK_HEIGHT_U),
   row: "",
@@ -31,7 +29,6 @@ const EMPTY: FormState = {
 
 function rackToForm(rack: RackSummaryDto): FormState {
   return {
-    code: rack.code,
     name: rack.name,
     heightU: String(rack.height_u),
     row: rack.row ?? "",
@@ -97,36 +94,25 @@ export function RackFormModal({
     ) =>
       setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  const codeVal = form.code.trim();
-  const codeFormatErr =
-    !isEdit && codeVal !== "" && !/^[a-z0-9._-]+$/.test(codeVal)
-      ? "Use lowercase letters, digits, hyphens, underscores or dots."
-      : null;
-
-  const missingCode = !codeVal;
   const missingName = !form.name.trim();
   const missingHeight = !form.heightU.trim();
   const invalidHeight =
     !missingHeight && parsePositiveInt(form.heightU) === null;
 
   const canSave =
-    !missingCode &&
     !missingName &&
     !missingHeight &&
     !invalidHeight &&
-    !codeFormatErr &&
     !submitting;
 
   const footerMsg: string | null = (() => {
     if (error) return error;
     const missing = [
-      ...(missingCode ? ["code"] : []),
       ...(missingName ? ["name"] : []),
       ...(missingHeight ? ["height"] : []),
     ];
     if (missing.length) return `Required: ${missing.join(", ")}`;
     if (invalidHeight) return "Height (U) must be a positive integer.";
-    if (codeFormatErr) return codeFormatErr;
     return null;
   })();
 
@@ -140,7 +126,6 @@ export function RackFormModal({
         await updateRack({
           id: editing.id,
           location_id: locationId,
-          code: editing.code,
           name: form.name.trim(),
           height_u: heightU,
           row: form.row.trim() || undefined,
@@ -150,7 +135,6 @@ export function RackFormModal({
       } else {
         await addRack({
           location_id: locationId,
-          code: codeVal,
           name: form.name.trim(),
           height_u: heightU,
           row: form.row.trim() || undefined,
@@ -212,35 +196,14 @@ export function RackFormModal({
             data-testid="field-location"
           />
         </Field>
-        <Field
-          className="col-6"
-          label="Code"
-          required={!isEdit}
-          help={
-            !isEdit
-              ? "Lowercase letters, digits, hyphens, underscores, dots. Immutable after creation."
-              : undefined
-          }
-          error={codeFormatErr}
-        >
-          <input
-            className="input mono"
-            value={form.code}
-            onChange={set("code")}
-            placeholder="e.g. rack-a01"
-            disabled={isEdit || submitting}
-            autoFocus={!isEdit}
-            data-testid="field-code"
-          />
-        </Field>
-        <Field className="col-6" label="Name" required>
+        <Field label="Name" required>
           <input
             className="input"
             value={form.name}
             onChange={set("name")}
             placeholder="e.g. Rack A01"
             disabled={submitting}
-            autoFocus={isEdit}
+            autoFocus
             data-testid="field-name"
           />
         </Field>

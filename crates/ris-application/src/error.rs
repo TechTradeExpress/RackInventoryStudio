@@ -16,6 +16,8 @@ pub enum ApplicationError {
     DuplicateSerialNumber(String),
     #[error("duplicate asset tag: {0}")]
     DuplicateAssetTag(String),
+    #[error("duplicate external reference: {0}")]
+    DuplicateExternalRef(String),
     #[error("invalid input: {0}")]
     InvalidInput(String),
     #[error("collision: {0}")]

@@ -31,7 +31,6 @@ const DEVICE_STATUSES = [
 
 interface FormState {
   deviceType: string;
-  code: string;
   name: string;
   status: string;
   deviceModelId: string;
@@ -44,7 +43,6 @@ interface FormState {
 
 const EMPTY: FormState = {
   deviceType: "",
-  code: "",
   name: "",
   status: "planned",
   deviceModelId: "",
@@ -58,7 +56,6 @@ const EMPTY: FormState = {
 function deviceToForm(dev: DeviceDto): FormState {
   return {
     deviceType: dev.device_type,
-    code: dev.code,
     name: dev.name ?? "",
     status: dev.status,
     deviceModelId: dev.device_model_id ?? "",
@@ -74,7 +71,6 @@ function isDirty(form: FormState, editing: DeviceDto | null): boolean {
   if (!editing) {
     return (
       form.deviceType !== "" ||
-      form.code !== "" ||
       form.name !== "" ||
       form.status !== "planned" ||
       form.deviceModelId !== "" ||
@@ -152,14 +148,7 @@ export function DeviceFormModal({
     ? models.filter((m) => m.device_type === form.deviceType)
     : models;
 
-  const codeVal = form.code.trim();
-  const codeFormatErr =
-    !isEdit && codeVal !== "" && !/^[a-z0-9._-]+$/.test(codeVal)
-      ? "Use lowercase letters, digits, hyphens, underscores or dots."
-      : null;
-
   const missingType = !form.deviceType;
-  const missingCode = !codeVal;
   const missingStatus = !form.status;
   const hasIdentifier =
     form.name.trim() !== "" ||
@@ -168,23 +157,19 @@ export function DeviceFormModal({
 
   const canSave =
     !missingType &&
-    !missingCode &&
     !missingStatus &&
     hasIdentifier &&
-    !codeFormatErr &&
     !submitting;
 
   const footerMsg: string | null = (() => {
     if (error) return error;
     const missing = [
       ...(missingType ? ["device type"] : []),
-      ...(missingCode ? ["code"] : []),
       ...(missingStatus ? ["status"] : []),
     ];
     if (missing.length) return `Required: ${missing.join(", ")}`;
     if (!hasIdentifier)
       return "Required: at least one of name, serial number, or asset tag.";
-    if (codeFormatErr) return codeFormatErr;
     return null;
   })();
 
@@ -199,7 +184,6 @@ export function DeviceFormModal({
           updateDevice({
             id: editing.id,
             device_type: form.deviceType,
-            code: editing.code,
             name: form.name.trim() || undefined,
             device_model_id: form.deviceModelId || undefined,
             serial_number: form.serialNumber.trim() || undefined,
@@ -215,7 +199,6 @@ export function DeviceFormModal({
         const newId = await runBusy("Creating device…", () =>
           addDevice({
             device_type: form.deviceType,
-            code: codeVal,
             name: form.name.trim() || undefined,
             device_model_id: form.deviceModelId || undefined,
             serial_number: form.serialNumber.trim() || undefined,
@@ -276,7 +259,7 @@ export function DeviceFormModal({
             <div className="form-section-title">Identity</div>
           </div>
 
-          <Field className="col-4" label="Device type" required>
+          <Field className="col-6" label="Device type" required>
             <select
               className="input"
               value={form.deviceType}
@@ -293,29 +276,7 @@ export function DeviceFormModal({
             </select>
           </Field>
 
-          <Field
-            className="col-4"
-            label="Code"
-            required={!isEdit}
-            help={
-              !isEdit
-                ? "Lowercase letters, digits, hyphens, underscores, dots."
-                : undefined
-            }
-            error={codeFormatErr}
-          >
-            <input
-              className="input mono"
-              value={form.code}
-              onChange={(e) => set("code", e)}
-              placeholder="e.g. srv-prod-01"
-              disabled={isEdit || submitting}
-              autoFocus={!isEdit}
-              data-testid="field-code"
-            />
-          </Field>
-
-          <Field className="col-4" label="Status" required>
+          <Field className="col-6" label="Status" required>
             <select
               className="input"
               value={form.status}
@@ -338,7 +299,7 @@ export function DeviceFormModal({
               onChange={(e) => set("name", e)}
               placeholder="e.g. Production Web Server 01"
               disabled={submitting}
-              autoFocus={isEdit}
+              autoFocus
               data-testid="field-name"
             />
           </Field>

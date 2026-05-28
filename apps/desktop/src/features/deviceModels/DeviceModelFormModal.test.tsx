@@ -60,7 +60,6 @@ describe("DeviceModelFormModal — add mode", () => {
       />,
     );
     expect(screen.getByText("Add device model")).toBeTruthy();
-    expect((screen.getByTestId("field-code") as HTMLInputElement).value).toBe("");
     expect((screen.getByTestId("field-name") as HTMLInputElement).value).toBe("");
     expect((screen.getByTestId("field-height-u") as HTMLInputElement).value).toBe("");
   });
@@ -143,22 +142,7 @@ describe("DeviceModelFormModal — add mode", () => {
     expect(screen.getByText(/Vendor or catalog model identifier/i)).toBeTruthy();
   });
 
-  it("shows code format error for invalid code", () => {
-    render(
-      <DeviceModelFormModal
-        open
-        editing={null}
-        onClose={vi.fn()}
-        onSaved={vi.fn()}
-      />,
-    );
-    fireEvent.change(screen.getByTestId("field-code"), {
-      target: { value: "INVALID CODE!" },
-    });
-    expect(screen.getByText(/lowercase letters/i)).toBeTruthy();
-  });
-
-  it("calls addDeviceModel, onSaved, onClose on valid submit", async () => {
+  it("calls addDeviceModel without code, onSaved, onClose on valid submit", async () => {
     const onClose = vi.fn();
     const onSaved = vi.fn();
     render(
@@ -173,9 +157,6 @@ describe("DeviceModelFormModal — add mode", () => {
     fireEvent.change(screen.getByTestId("field-device-type"), {
       target: { value: "server" },
     });
-    fireEvent.change(screen.getByTestId("field-code"), {
-      target: { value: "hp-dl380" },
-    });
     fireEvent.change(screen.getByTestId("field-name"), {
       target: { value: "ProLiant DL380" },
     });
@@ -189,11 +170,12 @@ describe("DeviceModelFormModal — add mode", () => {
       expect(mockAdd).toHaveBeenCalledWith(
         expect.objectContaining({
           device_type: "server",
-          code: "hp-dl380",
           name: "ProLiant DL380",
           default_height_u: 2,
         }),
       );
+      const call = mockAdd.mock.calls[0][0];
+      expect(call).not.toHaveProperty("code");
       expect(onSaved).toHaveBeenCalledOnce();
       expect(onClose).toHaveBeenCalledOnce();
     });
@@ -211,24 +193,11 @@ describe("DeviceModelFormModal — edit mode", () => {
       />,
     );
     expect(screen.getByText("Edit device model")).toBeTruthy();
-    expect((screen.getByTestId("field-code") as HTMLInputElement).value).toBe("dell-r750");
     expect((screen.getByTestId("field-name") as HTMLInputElement).value).toBe("PowerEdge R750");
     expect((screen.getByTestId("field-height-u") as HTMLInputElement).value).toBe("2");
   });
 
-  it("disables code field in edit mode", () => {
-    render(
-      <DeviceModelFormModal
-        open
-        editing={FIXTURE_MODEL}
-        onClose={vi.fn()}
-        onSaved={vi.fn()}
-      />,
-    );
-    expect((screen.getByTestId("field-code") as HTMLInputElement).disabled).toBe(true);
-  });
-
-  it("calls updateDeviceModel, onSaved, onClose on valid edit", async () => {
+  it("calls updateDeviceModel without code on valid edit", async () => {
     const onClose = vi.fn();
     const onSaved = vi.fn();
     render(
@@ -249,11 +218,12 @@ describe("DeviceModelFormModal — edit mode", () => {
       expect(mockUpdate).toHaveBeenCalledWith(
         expect.objectContaining({
           id: "model-1",
-          code: "dell-r750",
           name: "PowerEdge R750 XL",
           default_height_u: 2,
         }),
       );
+      const call = mockUpdate.mock.calls[0][0];
+      expect(call).not.toHaveProperty("code");
       expect(onSaved).toHaveBeenCalledOnce();
       expect(onClose).toHaveBeenCalledOnce();
     });
@@ -318,7 +288,6 @@ describe("DeviceModelFormModal — edit mode", () => {
         onSaved={vi.fn()}
       />,
     );
-    expect((screen.getByTestId("field-code") as HTMLInputElement).value).toBe("cisco-c9300");
     expect((screen.getByTestId("field-name") as HTMLInputElement).value).toBe("Catalyst 9300");
     expect((screen.getByTestId("field-height-u") as HTMLInputElement).value).toBe("1");
   });

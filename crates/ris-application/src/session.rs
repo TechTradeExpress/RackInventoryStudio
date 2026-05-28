@@ -21,7 +21,8 @@ pub struct RepositorySession {
 pub struct AddLocationInput {
     /// Override UUID for deterministic tests.
     pub id: Option<String>,
-    pub code: String,
+    /// None or blank → backend generates a unique code automatically.
+    pub code: Option<String>,
     pub name: String,
     pub description: Option<String>,
     pub address: Option<String>,
@@ -34,7 +35,8 @@ pub struct AddRackInput {
     /// One of location_id or location_code must be provided.
     pub location_id: Option<String>,
     pub location_code: Option<String>,
-    pub code: String,
+    /// None or blank → backend generates a unique code automatically.
+    pub code: Option<String>,
     pub name: String,
     pub height_u: u32,
     pub row: Option<String>,
@@ -46,7 +48,8 @@ pub struct AddDeviceModelInput {
     /// Override UUID for deterministic tests.
     pub id: Option<String>,
     pub device_type: DeviceType,
-    pub code: String,
+    /// None or blank → backend generates a unique code automatically.
+    pub code: Option<String>,
     pub name: String,
     pub vendor: Option<String>,
     pub model: Option<String>,
@@ -59,7 +62,8 @@ pub struct AddDeviceInput {
     /// Override UUID for deterministic tests.
     pub id: Option<String>,
     pub device_type: DeviceType,
-    pub code: String,
+    /// None or blank → backend generates a unique code automatically.
+    pub code: Option<String>,
     pub name: Option<String>,
     /// Provide model id directly, or use device_model_code for code-based lookup.
     pub device_model_id: Option<String>,
@@ -74,7 +78,6 @@ pub struct AddDeviceInput {
 
 pub struct UpdateLocationInput {
     pub id: String,
-    pub code: String,
     pub name: String,
     pub description: Option<String>,
     pub address: Option<String>,
@@ -84,7 +87,6 @@ pub struct UpdateLocationInput {
 pub struct UpdateRackInput {
     pub id: String,
     pub location_id: String,
-    pub code: String,
     pub name: String,
     pub height_u: u32,
     pub row: Option<String>,
@@ -95,7 +97,6 @@ pub struct UpdateRackInput {
 pub struct UpdateDeviceModelInput {
     pub id: String,
     pub device_type: DeviceType,
-    pub code: String,
     pub name: String,
     pub vendor: Option<String>,
     pub model: Option<String>,
@@ -107,7 +108,6 @@ pub struct UpdateDeviceModelInput {
 pub struct UpdateDeviceInput {
     pub id: String,
     pub device_type: DeviceType,
-    pub code: String,
     pub name: Option<String>,
     pub device_model_id: Option<String>,
     pub serial_number: Option<String>,
@@ -132,6 +132,67 @@ fn is_blank(s: &str) -> bool {
 
 fn opt_has_nonblank(opt: &Option<String>) -> bool {
     opt.as_deref().map(|s| !is_blank(s)).unwrap_or(false)
+}
+
+// ── Code generation ───────────────────────────────────────────────────────────
+
+fn generate_location_code(index: &ris_repository::RepositoryIndex) -> String {
+    for n in 1u32.. {
+        let code = format!("location-{n:02}");
+        if !index.locations_by_code.contains_key(&code) {
+            return code;
+        }
+    }
+    unreachable!()
+}
+
+fn generate_rack_code(
+    index: &ris_repository::RepositoryIndex,
+    location_code: Option<&str>,
+) -> String {
+    let prefix = match location_code {
+        Some(lc) if !lc.is_empty() => format!("{lc}-rack-"),
+        _ => "rack-".to_string(),
+    };
+    for n in 1u32.. {
+        let code = format!("{prefix}{n:02}");
+        if !index.racks_by_code.contains_key(&code) {
+            return code;
+        }
+    }
+    unreachable!()
+}
+
+fn generate_device_model_code(
+    index: &ris_repository::RepositoryIndex,
+    device_type: &DeviceType,
+) -> String {
+    let prefix = match device_type {
+        DeviceType::Server => "model-server-",
+        DeviceType::Network => "model-network-",
+        DeviceType::Storage => "model-storage-",
+        DeviceType::Ups => "model-ups-",
+        DeviceType::Appliance => "model-appliance-",
+        DeviceType::RackObject => "model-rack-obj-",
+        DeviceType::Other => "model-other-",
+    };
+    for n in 1u32.. {
+        let code = format!("{prefix}{n:02}");
+        if !index.device_models_by_code.contains_key(&code) {
+            return code;
+        }
+    }
+    unreachable!()
+}
+
+fn generate_device_code(index: &ris_repository::RepositoryIndex) -> String {
+    for n in 1u32.. {
+        let code = format!("device-{n:02}");
+        if !index.devices_by_code.contains_key(&code) {
+            return code;
+        }
+    }
+    unreachable!()
 }
 
 impl RepositorySession {
@@ -219,11 +280,6 @@ impl RepositorySession {
     // ── Mutations ─────────────────────────────────────────────────────────────
 
     pub fn add_location(&mut self, input: AddLocationInput) -> Result<String, ApplicationError> {
-        if is_blank(&input.code) {
-            return Err(ApplicationError::InvalidInput(
-                "code must not be blank".into(),
-            ));
-        }
         if is_blank(&input.name) {
             return Err(ApplicationError::InvalidInput(
                 "name must not be blank".into(),
@@ -234,13 +290,19 @@ impl RepositorySession {
                 return Err(ApplicationError::DuplicateId(id.clone()));
             }
         }
-        if self.index.locations_by_code.contains_key(&input.code) {
-            return Err(ApplicationError::DuplicateCode(input.code));
-        }
+        let code = match input.code.as_deref() {
+            Some(c) if !is_blank(c) => {
+                if self.index.locations_by_code.contains_key(c) {
+                    return Err(ApplicationError::DuplicateCode(c.to_string()));
+                }
+                c.to_string()
+            }
+            _ => generate_location_code(&self.index),
+        };
         let id = input.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         self.data.locations.push(Location {
             id: id.clone(),
-            code: input.code,
+            code,
             name: input.name,
             description: input.description,
             address: input.address,
@@ -251,11 +313,6 @@ impl RepositorySession {
     }
 
     pub fn add_rack(&mut self, input: AddRackInput) -> Result<String, ApplicationError> {
-        if is_blank(&input.code) {
-            return Err(ApplicationError::InvalidInput(
-                "code must not be blank".into(),
-            ));
-        }
         if is_blank(&input.name) {
             return Err(ApplicationError::InvalidInput(
                 "name must not be blank".into(),
@@ -291,14 +348,25 @@ impl RepositorySession {
                 "height_u must be > 0".into(),
             ));
         }
-        if self.index.racks_by_code.contains_key(&input.code) {
-            return Err(ApplicationError::DuplicateCode(input.code));
-        }
+        let location_code = self
+            .index
+            .locations_by_id
+            .get(&location_id)
+            .map(|l| l.code.as_str());
+        let code = match input.code.as_deref() {
+            Some(c) if !is_blank(c) => {
+                if self.index.racks_by_code.contains_key(c) {
+                    return Err(ApplicationError::DuplicateCode(c.to_string()));
+                }
+                c.to_string()
+            }
+            _ => generate_rack_code(&self.index, location_code),
+        };
 
         let id = input.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         self.data.racks.push(Rack {
             id: id.clone(),
-            code: input.code,
+            code,
             name: input.name,
             location_id,
             height_u: input.height_u,
@@ -320,11 +388,6 @@ impl RepositorySession {
         &mut self,
         input: AddDeviceModelInput,
     ) -> Result<String, ApplicationError> {
-        if is_blank(&input.code) {
-            return Err(ApplicationError::InvalidInput(
-                "code must not be blank".into(),
-            ));
-        }
         if is_blank(&input.name) {
             return Err(ApplicationError::InvalidInput(
                 "name must not be blank".into(),
@@ -340,13 +403,19 @@ impl RepositorySession {
                 "default_height_u must be > 0".into(),
             ));
         }
-        if self.index.device_models_by_code.contains_key(&input.code) {
-            return Err(ApplicationError::DuplicateCode(input.code));
-        }
+        let code = match input.code.as_deref() {
+            Some(c) if !is_blank(c) => {
+                if self.index.device_models_by_code.contains_key(c) {
+                    return Err(ApplicationError::DuplicateCode(c.to_string()));
+                }
+                c.to_string()
+            }
+            _ => generate_device_model_code(&self.index, &input.device_type),
+        };
         let id = input.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         self.data.device_models.push(DeviceModel {
             id: id.clone(),
-            code: input.code,
+            code,
             device_type: input.device_type,
             name: input.name,
             vendor: input.vendor,
@@ -360,11 +429,6 @@ impl RepositorySession {
     }
 
     pub fn add_device(&mut self, input: AddDeviceInput) -> Result<String, ApplicationError> {
-        if is_blank(&input.code) {
-            return Err(ApplicationError::InvalidInput(
-                "code must not be blank".into(),
-            ));
-        }
         if let Some(ref id) = input.id {
             if self.id_exists_globally(id) {
                 return Err(ApplicationError::DuplicateId(id.clone()));
@@ -375,9 +439,15 @@ impl RepositorySession {
                 "device_type rack_object is not allowed for device instances".into(),
             ));
         }
-        if self.index.devices_by_code.contains_key(&input.code) {
-            return Err(ApplicationError::DuplicateCode(input.code));
-        }
+        let code = match input.code.as_deref() {
+            Some(c) if !is_blank(c) => {
+                if self.index.devices_by_code.contains_key(c) {
+                    return Err(ApplicationError::DuplicateCode(c.to_string()));
+                }
+                c.to_string()
+            }
+            _ => generate_device_code(&self.index),
+        };
         if !opt_has_nonblank(&input.name)
             && !opt_has_nonblank(&input.serial_number)
             && !opt_has_nonblank(&input.asset_tag)
@@ -430,7 +500,7 @@ impl RepositorySession {
             None
         };
 
-        // uniqueness checks for serial / asset tag
+        // uniqueness checks for serial / asset tag / external_ref
         if let Some(ref sn) = input.serial_number {
             if self
                 .data
@@ -451,11 +521,21 @@ impl RepositorySession {
                 return Err(ApplicationError::DuplicateAssetTag(at.clone()));
             }
         }
+        if let Some(ref er) = input.external_ref {
+            if self
+                .data
+                .devices
+                .iter()
+                .any(|d| d.external_ref.as_deref() == Some(er.as_str()))
+            {
+                return Err(ApplicationError::DuplicateExternalRef(er.clone()));
+            }
+        }
 
         let id = input.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         self.data.devices.push(Device {
             id: id.clone(),
-            code: input.code,
+            code,
             device_type: input.device_type,
             name: input.name,
             device_model_id: resolved_model_id,
@@ -471,11 +551,6 @@ impl RepositorySession {
     }
 
     pub fn update_location(&mut self, input: UpdateLocationInput) -> Result<(), ApplicationError> {
-        if is_blank(&input.code) {
-            return Err(ApplicationError::InvalidInput(
-                "code must not be blank".into(),
-            ));
-        }
         if is_blank(&input.name) {
             return Err(ApplicationError::InvalidInput(
                 "name must not be blank".into(),
@@ -487,19 +562,12 @@ impl RepositorySession {
                 input.id
             )));
         }
-        // Code uniqueness: allowed if unchanged (same id owns that code).
-        if let Some(existing) = self.index.locations_by_code.get(&input.code) {
-            if existing.id != input.id {
-                return Err(ApplicationError::DuplicateCode(input.code));
-            }
-        }
         let loc = self
             .data
             .locations
             .iter_mut()
             .find(|l| l.id == input.id)
             .unwrap();
-        loc.code = input.code;
         loc.name = input.name;
         loc.description = input.description;
         loc.address = input.address;
@@ -523,11 +591,6 @@ impl RepositorySession {
     }
 
     pub fn update_rack(&mut self, input: UpdateRackInput) -> Result<(), ApplicationError> {
-        if is_blank(&input.code) {
-            return Err(ApplicationError::InvalidInput(
-                "code must not be blank".into(),
-            ));
-        }
         if is_blank(&input.name) {
             return Err(ApplicationError::InvalidInput(
                 "name must not be blank".into(),
@@ -546,11 +609,6 @@ impl RepositorySession {
                 "location id: {}",
                 input.location_id
             )));
-        }
-        if let Some(existing) = self.index.racks_by_code.get(&input.code) {
-            if existing.id != input.id {
-                return Err(ApplicationError::DuplicateCode(input.code));
-            }
         }
         // Reject height reduction if any placement would fall outside the new bounds.
         for ip in self.index.get_placements_for_rack(&input.id) {
@@ -571,7 +629,6 @@ impl RepositorySession {
             .find(|r| r.id == input.id)
             .unwrap();
         rack.location_id = input.location_id;
-        rack.code = input.code;
         rack.name = input.name;
         rack.height_u = input.height_u;
         rack.row = input.row;
@@ -606,11 +663,6 @@ impl RepositorySession {
         &mut self,
         input: UpdateDeviceModelInput,
     ) -> Result<(), ApplicationError> {
-        if is_blank(&input.code) {
-            return Err(ApplicationError::InvalidInput(
-                "code must not be blank".into(),
-            ));
-        }
         if is_blank(&input.name) {
             return Err(ApplicationError::InvalidInput(
                 "name must not be blank".into(),
@@ -646,11 +698,6 @@ impl RepositorySession {
                 ));
             }
         }
-        if let Some(existing) = self.index.device_models_by_code.get(&input.code) {
-            if existing.id != input.id {
-                return Err(ApplicationError::DuplicateCode(input.code));
-            }
-        }
         let model = self
             .data
             .device_models
@@ -658,7 +705,6 @@ impl RepositorySession {
             .find(|m| m.id == input.id)
             .unwrap();
         model.device_type = input.device_type;
-        model.code = input.code;
         model.name = input.name;
         model.vendor = input.vendor;
         model.model = input.model;
@@ -693,11 +739,6 @@ impl RepositorySession {
     }
 
     pub fn update_device(&mut self, input: UpdateDeviceInput) -> Result<(), ApplicationError> {
-        if is_blank(&input.code) {
-            return Err(ApplicationError::InvalidInput(
-                "code must not be blank".into(),
-            ));
-        }
         if input.device_type == DeviceType::RackObject {
             return Err(ApplicationError::InvalidInput(
                 "device_type rack_object is not allowed for device instances".into(),
@@ -730,11 +771,6 @@ impl RepositorySession {
                     "Cannot change device_type because the device is currently placed in a rack."
                         .into(),
                 ));
-            }
-        }
-        if let Some(existing) = self.index.devices_by_code.get(&input.code) {
-            if existing.id != input.id {
-                return Err(ApplicationError::DuplicateCode(input.code));
             }
         }
         // Resolve and validate model if provided.
@@ -782,6 +818,17 @@ impl RepositorySession {
                 return Err(ApplicationError::DuplicateAssetTag(at.clone()));
             }
         }
+        // External ref uniqueness: exclude self.
+        if let Some(ref er) = input.external_ref {
+            let conflict = self
+                .data
+                .devices
+                .iter()
+                .any(|d| d.id != input.id && d.external_ref.as_deref() == Some(er.as_str()));
+            if conflict {
+                return Err(ApplicationError::DuplicateExternalRef(er.clone()));
+            }
+        }
         let device = self
             .data
             .devices
@@ -789,7 +836,6 @@ impl RepositorySession {
             .find(|d| d.id == input.id)
             .unwrap();
         device.device_type = input.device_type;
-        device.code = input.code;
         device.name = input.name;
         device.device_model_id = resolved_model_id;
         device.serial_number = input.serial_number;
@@ -878,7 +924,7 @@ impl RepositorySession {
             self.add_device(AddDeviceInput {
                 id: None,
                 device_type,
-                code: row.code.clone().unwrap_or_default(),
+                code: row.code.clone(),
                 name: row.name.clone(),
                 device_model_id: row.resolved_device_model_id.clone(),
                 device_model_code: None,

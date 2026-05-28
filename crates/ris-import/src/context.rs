@@ -16,6 +16,7 @@ pub struct CsvImportContext {
     device_codes: HashSet<String>,
     serial_numbers: HashSet<String>,
     asset_tags: HashSet<String>,
+    external_refs: HashSet<String>,
     device_models_by_code: HashMap<String, DeviceModelInfo>,
 }
 
@@ -25,12 +26,16 @@ impl CsvImportContext {
 
         let mut serial_numbers = HashSet::new();
         let mut asset_tags = HashSet::new();
+        let mut external_refs = HashSet::new();
         for dev in index.devices_by_id.values() {
             if let Some(sn) = &dev.serial_number {
                 serial_numbers.insert(sn.clone());
             }
             if let Some(at) = &dev.asset_tag {
                 asset_tags.insert(at.clone());
+            }
+            if let Some(er) = &dev.external_ref {
+                external_refs.insert(er.clone());
             }
         }
 
@@ -52,6 +57,7 @@ impl CsvImportContext {
             device_codes,
             serial_numbers,
             asset_tags,
+            external_refs,
             device_models_by_code,
         }
     }
@@ -62,6 +68,7 @@ impl CsvImportContext {
             device_codes: HashSet::new(),
             serial_numbers: HashSet::new(),
             asset_tags: HashSet::new(),
+            external_refs: HashSet::new(),
             device_models_by_code: HashMap::new(),
         }
     }
@@ -76,6 +83,10 @@ impl CsvImportContext {
 
     pub fn has_asset_tag(&self, at: &str) -> bool {
         self.asset_tags.contains(at)
+    }
+
+    pub fn has_external_ref(&self, er: &str) -> bool {
+        self.external_refs.contains(er)
     }
 
     pub fn get_device_model_by_code(&self, code: &str) -> Option<&DeviceModelInfo> {

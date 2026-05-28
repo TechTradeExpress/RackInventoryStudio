@@ -95,23 +95,13 @@ fn validate_row(
     dup_codes: &HashSet<String>,
     dup_serials: &HashSet<String>,
     dup_asset_tags: &HashSet<String>,
+    dup_external_refs: &HashSet<String>,
 ) -> CsvDeviceImportPreviewRow {
     let row = raw.row_number;
     let mut issues: Vec<ValidationIssue> = Vec::new();
 
-    // VAL-CSV-003: code required
-    let code = raw.code.as_deref();
-    if code.is_none() {
-        issues.push(csv_row_issue(
-            "VAL-CSV-003",
-            ValidationLevel::Error,
-            "row is missing required field 'code'",
-            row,
-            "code",
-        ));
-    }
-
-    if let Some(code_val) = code {
+    // Code is now optional; when present, validate format and uniqueness.
+    if let Some(code_val) = raw.code.as_deref() {
         // VAL-CSV-004: code format
         if !code_re().is_match(code_val) {
             issues.push(csv_row_issue(
@@ -328,6 +318,28 @@ fn validate_row(
         }
     }
 
+    // VAL-CSV-020/021: external_ref uniqueness
+    if let Some(er) = raw.external_ref.as_deref() {
+        if dup_external_refs.contains(er) {
+            issues.push(csv_row_issue(
+                "VAL-CSV-020",
+                ValidationLevel::Error,
+                &format!("external_ref '{}' appears more than once in the CSV", er),
+                row,
+                "external_ref",
+            ));
+        }
+        if context.has_external_ref(er) {
+            issues.push(csv_row_issue(
+                "VAL-CSV-021",
+                ValidationLevel::Error,
+                &format!("external_ref '{}' already exists in the repository", er),
+                row,
+                "external_ref",
+            ));
+        }
+    }
+
     // VAL-CSV-019: tag format
     let (tags, has_empty_segment) = parse_tags(raw.tags.as_deref());
     if has_empty_segment {
@@ -448,13 +460,24 @@ pub fn preview_csv_import(csv_content: &str, context: &CsvImportContext) -> CsvD
             .filter_map(|r| r.serial_number.as_deref()),
     );
     let dup_asset_tags = find_duplicates(parsed.rows.iter().filter_map(|r| r.asset_tag.as_deref()));
+    let dup_external_refs =
+        find_duplicates(parsed.rows.iter().filter_map(|r| r.external_ref.as_deref()));
 
     // ── validate rows ─────────────────────────────────────────────────────────
 
     let rows: Vec<CsvDeviceImportPreviewRow> = parsed
         .rows
         .iter()
-        .map(|raw| validate_row(raw, context, &dup_codes, &dup_serials, &dup_asset_tags))
+        .map(|raw| {
+            validate_row(
+                raw,
+                context,
+                &dup_codes,
+                &dup_serials,
+                &dup_asset_tags,
+                &dup_external_refs,
+            )
+        })
         .collect();
 
     // ── summary ───────────────────────────────────────────────────────────────

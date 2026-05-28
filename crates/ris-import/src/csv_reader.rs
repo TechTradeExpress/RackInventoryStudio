@@ -12,7 +12,7 @@ pub(crate) const KNOWN_COLUMNS: &[&str] = &[
     "tags",
 ];
 
-pub(crate) const REQUIRED_COLUMNS: &[&str] = &["code", "device_type", "status"];
+pub(crate) const REQUIRED_COLUMNS: &[&str] = &["device_type", "status"];
 
 pub(crate) struct CsvDeviceRowRaw {
     pub row_number: usize,

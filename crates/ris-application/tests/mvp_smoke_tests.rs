@@ -51,7 +51,7 @@ fn mvp_smoke_full_workflow() {
     let loc_id = session
         .add_location(AddLocationInput {
             id: None,
-            code: "smoke-dc".to_string(),
+            code: Some("smoke-dc".to_string()),
             name: "Smoke Data Center".to_string(),
             description: None,
             address: None,
@@ -67,7 +67,7 @@ fn mvp_smoke_full_workflow() {
             id: None,
             location_id: Some(loc_id.clone()),
             location_code: None,
-            code: "smoke-rack-01".to_string(),
+            code: Some("smoke-rack-01".to_string()),
             name: "Smoke Rack 01".to_string(),
             height_u: 42,
             row: None,
@@ -83,7 +83,7 @@ fn mvp_smoke_full_workflow() {
         .add_device_model(AddDeviceModelInput {
             id: None,
             device_type: DeviceType::Server,
-            code: "smoke-server-model".to_string(),
+            code: Some("smoke-server-model".to_string()),
             name: "Smoke Server Model".to_string(),
             vendor: None,
             model: None,
@@ -103,7 +103,7 @@ fn mvp_smoke_full_workflow() {
         .add_device_model(AddDeviceModelInput {
             id: None,
             device_type: DeviceType::RackObject,
-            code: "smoke-patch".to_string(),
+            code: Some("smoke-patch".to_string()),
             name: "Smoke Patch Panel".to_string(),
             vendor: None,
             model: None,
@@ -123,7 +123,7 @@ fn mvp_smoke_full_workflow() {
         .add_device(AddDeviceInput {
             id: None,
             device_type: DeviceType::Server,
-            code: "smoke-srv-01".to_string(),
+            code: Some("smoke-srv-01".to_string()),
             name: Some("Smoke Server 01".to_string()),
             device_model_id: None,
             device_model_code: Some("smoke-server-model".to_string()),
