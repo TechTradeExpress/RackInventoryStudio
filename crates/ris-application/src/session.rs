@@ -958,7 +958,7 @@ impl RepositorySession {
             ));
         }
 
-        let warning_count = preview.summary.warning_count;
+        let warning_count = preview.summary.warning_rows;
         let mut created_count = 0usize;
 
         for row in &preview.rows {
@@ -1374,7 +1374,7 @@ impl RepositorySession {
         &mut self,
         input: MovePlacementInput,
     ) -> Result<(), ApplicationError> {
-        let (placement_id, rack_id, side, existing_height_u, target_kind, target_id) = {
+        let (placement_id, rack_id, side, target_kind, target_id) = {
             let ip = self.resolve_placement(
                 input.placement_id.as_deref(),
                 input.placement_code.as_deref(),
@@ -1383,7 +1383,6 @@ impl RepositorySession {
                 ip.placement.id.clone(),
                 ip.rack_id.clone(),
                 ip.side.clone(),
-                ip.placement.height_u,
                 ip.placement.target_kind.clone(),
                 ip.placement.target_id.clone(),
             )
@@ -1398,9 +1397,11 @@ impl RepositorySession {
             rack.height_u
         };
 
+        // When new_height_u is None the override is being cleared; fall back to model
+        // default for the bounds check.  Do NOT fall back to existing_height_u here —
+        // that would silently preserve a stale override instead of clearing it.
         let new_height = input
             .new_height_u
-            .or(existing_height_u)
             .or_else(|| match &target_kind {
                 PlacementTargetKind::DeviceModel => self
                     .index
@@ -1416,9 +1417,11 @@ impl RepositorySession {
                     .map(|m| m.default_height_u),
             })
             .ok_or_else(|| {
-                ApplicationError::EffectiveHeightMissing(format!(
-                    "placement {placement_id} has no height and no model default"
-                ))
+                ApplicationError::EffectiveHeightMissing(
+                    "placement has no height override and no model default height: \
+                     cannot determine effective height"
+                        .into(),
+                )
             })?;
 
         let range = PlacementRange::try_new(input.new_start_u, new_height).ok_or_else(|| {
@@ -1429,7 +1432,7 @@ impl RepositorySession {
         })?;
         if range.end_u > rack_height {
             return Err(ApplicationError::OutOfRackBounds(format!(
-                "new position end_u {} exceeds rack height_u {rack_height}",
+                "new position ends at U{} but rack is only {rack_height}U tall",
                 range.end_u
             )));
         }
@@ -1454,9 +1457,7 @@ impl RepositorySession {
             .ok_or_else(|| ApplicationError::NotFound(format!("placement id: {placement_id}")))?;
 
         p.start_u = input.new_start_u;
-        if let Some(new_h) = input.new_height_u {
-            p.height_u = Some(new_h);
-        }
+        p.height_u = input.new_height_u; // None clears the override; Some(x) sets it
 
         self.rebuild_index();
         Ok(())
@@ -1505,7 +1506,7 @@ impl RepositorySession {
         &mut self,
         input: MovePlacementToTargetInput,
     ) -> Result<(), ApplicationError> {
-        let (placement_id, src_rack_id, src_side, existing_height_u, target_kind, target_id) = {
+        let (placement_id, src_rack_id, src_side, target_kind, target_id) = {
             let ip = self.resolve_placement(
                 input.placement_id.as_deref(),
                 input.placement_code.as_deref(),
@@ -1514,7 +1515,6 @@ impl RepositorySession {
                 ip.placement.id.clone(),
                 ip.rack_id.clone(),
                 ip.side.clone(),
-                ip.placement.height_u,
                 ip.placement.target_kind.clone(),
                 ip.placement.target_id.clone(),
             )
@@ -1533,9 +1533,10 @@ impl RepositorySession {
             .ok_or_else(|| ApplicationError::NotFound(format!("rack id: {dst_rack_id}")))?
             .height_u;
 
+        // When new_height_u is None the override is being cleared; fall back to model
+        // default for the bounds check.  Do NOT fall back to existing_height_u here.
         let new_height = input
             .new_height_u
-            .or(existing_height_u)
             .or_else(|| match &target_kind {
                 PlacementTargetKind::DeviceModel => self
                     .index
@@ -1551,9 +1552,11 @@ impl RepositorySession {
                     .map(|m| m.default_height_u),
             })
             .ok_or_else(|| {
-                ApplicationError::EffectiveHeightMissing(format!(
-                    "placement {placement_id} has no height and no model default"
-                ))
+                ApplicationError::EffectiveHeightMissing(
+                    "placement has no height override and no model default height: \
+                     cannot determine effective height"
+                        .into(),
+                )
             })?;
 
         let range = PlacementRange::try_new(input.new_start_u, new_height).ok_or_else(|| {
@@ -1564,7 +1567,7 @@ impl RepositorySession {
         })?;
         if range.end_u > dst_rack_height {
             return Err(ApplicationError::OutOfRackBounds(format!(
-                "new position end_u {} exceeds rack height_u {dst_rack_height}",
+                "new position ends at U{} but rack is only {dst_rack_height}U tall",
                 range.end_u
             )));
         }
@@ -1601,9 +1604,7 @@ impl RepositorySession {
         };
 
         placement.start_u = input.new_start_u;
-        if let Some(new_h) = input.new_height_u {
-            placement.height_u = Some(new_h);
-        }
+        placement.height_u = input.new_height_u; // None clears the override; Some(x) sets it
 
         // Insert into destination (find_or_create_placement_file_idx may push a new entry).
         let dst_pf_idx = self.find_or_create_placement_file_idx(&dst_rack_id);

@@ -419,7 +419,7 @@ pub fn preview_csv_import(csv_content: &str, context: &CsvImportContext) -> CsvD
                     total_rows: 0,
                     valid_rows: 0,
                     error_rows: 0,
-                    warning_count: 0,
+                    warning_rows: 0,
                 },
             };
         }
@@ -442,10 +442,6 @@ pub fn preview_csv_import(csv_content: &str, context: &CsvImportContext) -> CsvD
         .iter()
         .any(|i| i.level == ValidationLevel::Error)
     {
-        let warning_count = file_issues
-            .iter()
-            .filter(|i| i.level == ValidationLevel::Warning)
-            .count();
         return CsvDeviceImportPreview {
             rows: vec![],
             issues: file_issues,
@@ -453,7 +449,7 @@ pub fn preview_csv_import(csv_content: &str, context: &CsvImportContext) -> CsvD
                 total_rows: 0,
                 valid_rows: 0,
                 error_rows: 0,
-                warning_count,
+                warning_rows: 0, // no rows were parsed; file-level warnings don't count here
             },
         };
     }
@@ -507,16 +503,13 @@ pub fn preview_csv_import(csv_content: &str, context: &CsvImportContext) -> CsvD
         .count();
     let valid_rows = total_rows - error_rows;
 
-    let row_warnings: usize = rows
+    // Count rows with at least one warning (not individual warning issues).
+    // Rows that have both errors and warnings still count here.
+    // File-level/header warnings are not included.
+    let warning_rows = rows
         .iter()
-        .flat_map(|r| r.issues.iter())
-        .filter(|i| i.level == ValidationLevel::Warning)
+        .filter(|r| r.issues.iter().any(|i| i.level == ValidationLevel::Warning))
         .count();
-    let file_warnings: usize = file_issues
-        .iter()
-        .filter(|i| i.level == ValidationLevel::Warning)
-        .count();
-    let warning_count = row_warnings + file_warnings;
 
     CsvDeviceImportPreview {
         rows,
@@ -525,7 +518,7 @@ pub fn preview_csv_import(csv_content: &str, context: &CsvImportContext) -> CsvD
             total_rows,
             valid_rows,
             error_rows,
-            warning_count,
+            warning_rows,
         },
     }
 }

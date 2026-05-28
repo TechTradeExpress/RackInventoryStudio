@@ -761,7 +761,7 @@ pub fn preview_device_csv_import_cmd(
             total_rows: preview.summary.total_rows,
             valid_rows: preview.summary.valid_rows,
             error_rows: preview.summary.error_rows,
-            warning_count: preview.summary.warning_count,
+            warning_rows: preview.summary.warning_rows,
         },
         file_issues: preview.issues.iter().map(issue_to_csv_dto).collect(),
         rows,

@@ -230,7 +230,7 @@ pub struct CsvImportSummaryDto {
     pub total_rows: usize,
     pub valid_rows: usize,
     pub error_rows: usize,
-    pub warning_count: usize,
+    pub warning_rows: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

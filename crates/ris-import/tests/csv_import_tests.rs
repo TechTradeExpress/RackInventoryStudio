@@ -652,14 +652,102 @@ fn preview_does_not_mutate_repository_context() {
 
 #[test]
 fn summary_counts_are_correct() {
-    // Row 1: valid
-    // Row 2: invalid (bad code format)
+    // Row 1: valid; Row 2: invalid (bad code format)
     let csv =
         "code,device_type,status,name\nsrv-01,server,in_stock,Good\nBad!,server,in_stock,Bad\n";
     let preview = ris_import::preview_csv_import(csv, &empty_context());
     assert_eq!(preview.summary.total_rows, 2);
     assert_eq!(preview.summary.valid_rows, 1);
     assert_eq!(preview.summary.error_rows, 1);
+    assert_eq!(preview.summary.warning_rows, 0);
+}
+
+#[test]
+fn summary_one_row_with_warning_counts_as_one_warning_row() {
+    // VAL-CSV-019 (malformed tags) is the only row-level warning in the current validator.
+    // A single row with a malformed tag must produce warning_rows=1, not inflated.
+    let csv = "device_type,status,name,tags\nserver,in_stock,Srv,good;;extra\n";
+    let preview = ris_import::preview_csv_import(csv, &empty_context());
+    assert_eq!(
+        preview.summary.warning_rows, 1,
+        "one row with one warning → warning_rows=1"
+    );
+    assert_eq!(preview.summary.error_rows, 0);
+
+    // Two rows each with a malformed tag → warning_rows=2
+    let csv2 =
+        "device_type,status,name,tags\nserver,in_stock,A,;;bad\nserver,in_stock,B,also;;bad\n";
+    let preview2 = ris_import::preview_csv_import(csv2, &empty_context());
+    assert_eq!(
+        preview2.summary.warning_rows, 2,
+        "two rows with warnings → warning_rows=2"
+    );
+}
+
+#[test]
+fn summary_row_with_both_error_and_warning_counts_in_both() {
+    // A row with malformed tags (VAL-CSV-019 warning) AND no identity (VAL-CSV-007 error)
+    // must count in BOTH error_rows and warning_rows.
+    //
+    // Row 1: no identity fields (VAL-CSV-007 error) AND malformed tags (VAL-CSV-019 warning)
+    // Row 2: valid row with a name so identity is satisfied
+    let csv = "device_type,status,name,tags\nserver,in_stock,,;;bad\nserver,in_stock,Srv B,clean\n";
+    let preview = ris_import::preview_csv_import(csv, &empty_context());
+    // Row 0 has no identity (VAL-CSV-007) AND malformed tag (VAL-CSV-019)
+    assert_eq!(
+        preview.summary.error_rows, 1,
+        "row with no identity is an error row"
+    );
+    assert_eq!(
+        preview.summary.warning_rows, 1,
+        "same row also has a warning → warning_rows=1 (counts in both)"
+    );
+    assert_eq!(preview.summary.valid_rows, 1, "row 2 is valid");
+}
+
+#[test]
+fn summary_file_level_warning_does_not_inflate_warning_rows() {
+    // An unknown column produces a file-level (VAL-CSV-002) warning.
+    // This must not be counted in warning_rows.
+    let csv = "device_type,status,name,UNKNOWN_COL\nserver,in_stock,Srv A,ignored\n";
+    let preview = ris_import::preview_csv_import(csv, &empty_context());
+    // File-level unknown-column warning
+    assert!(
+        preview.issues.iter().any(|i| i.code == "VAL-CSV-002"),
+        "expected VAL-CSV-002 file-level warning"
+    );
+    // Row should have no issues (the unknown column is just ignored at row level)
+    assert_eq!(
+        preview.summary.warning_rows, 0,
+        "file-level warning must not count as row warning"
+    );
+    assert_eq!(preview.summary.error_rows, 0);
+    assert_eq!(preview.summary.valid_rows, 1);
+}
+
+#[test]
+fn summary_missing_required_header_produces_zero_row_counts() {
+    // When a required header is missing the parser returns early with no rows parsed.
+    // warning_rows must be 0 (no rows = no row warnings).
+    let csv = "name,status\nGood Server,in_stock\n"; // missing device_type
+    let preview = ris_import::preview_csv_import(csv, &empty_context());
+    assert_eq!(
+        preview.rows.len(),
+        0,
+        "no rows parsed when required header missing"
+    );
+    assert_eq!(preview.summary.error_rows, 0);
+    assert_eq!(
+        preview.summary.warning_rows, 0,
+        "file-level header error must not inflate warning_rows"
+    );
+    assert!(
+        preview
+            .issues
+            .iter()
+            .any(|i| i.level == ris_core::ValidationLevel::Error),
+        "expected file-level error for missing required header"
+    );
 }
 
 // ── multi-row valid import ────────────────────────────────────────────────────

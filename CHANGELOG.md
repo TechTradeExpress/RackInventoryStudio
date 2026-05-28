@@ -27,6 +27,18 @@
 - Windows rack placement drag-and-drop compatibility: `dragDropEnabled: false` in
   Tauri window config prevents WebView2 from intercepting HTML5 DnD events; payload
   now written to both custom MIME type and `text/plain` fallback.
+- **Clear height override now works**: Setting a per-placement height back to "model
+  default" (sending `height_u: null`) previously had no effect because
+  `move_placement` and `move_placement_within_side` fell back to the existing stored
+  override when `new_height_u` was `None`. The fallback is removed; `None` now
+  directly clears the stored override so the effective height reverts to the model
+  default.
+- **CSV import warning-row count is now accurate**: `CsvImportSummary.warning_rows`
+  (formerly `warning_count`) now counts *rows* with at least one warning issue,
+  not individual issues. File-level/header warnings are excluded. Rows that have
+  both errors and warnings are counted once in `warning_rows`. The frontend
+  `deriveCsvImportUiSummary` helper was updated with consistent semantics and the
+  import panel copy updated to "Rows with at least one warning".
 
 ### Added
 

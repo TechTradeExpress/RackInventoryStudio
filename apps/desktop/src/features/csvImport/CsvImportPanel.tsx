@@ -343,9 +343,9 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
             {preview && (
               <Panel title="Outcome">
                 <div className="stack-3">
-                  <SummaryRow tone="ok"   label="Will create" value={importableRows} desc="Rows that will be imported" />
-                  <SummaryRow tone="warn" label="Warnings"    value={warningRows}   desc="Importable rows with warnings — review after import" />
-                  <SummaryRow tone="err"  label="Skipped"     value={skippedRows}   desc="Need fixes in source CSV" />
+                  <SummaryRow tone="ok"   label="Will create" value={importableRows} desc="Rows with no errors that will be imported" />
+                  <SummaryRow tone="warn" label="Warnings"    value={warningRows}   desc="Rows with at least one warning (may overlap with Skipped)" />
+                  <SummaryRow tone="err"  label="Skipped"     value={skippedRows}   desc="Rows with errors — fix in source CSV before importing" />
                 </div>
               </Panel>
             )}

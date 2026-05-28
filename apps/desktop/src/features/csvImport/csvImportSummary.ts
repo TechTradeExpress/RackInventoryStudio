@@ -19,7 +19,13 @@ export function deriveCsvImportUiSummary(
     (r) => r.action !== "skip_due_to_error",
   ).length;
 
-  const warningRows = preview.rows.filter(
+  // Rows with at least one warning, including rows that also have errors.
+  const warningRows = preview.rows.filter((r) =>
+    r.issues.some((i) => i.level === "warning"),
+  ).length;
+
+  // Importable rows with at least one warning (for cleanRows calculation).
+  const importableWarningRows = preview.rows.filter(
     (r) =>
       r.action !== "skip_due_to_error" &&
       r.issues.some((i) => i.level === "warning"),
@@ -32,7 +38,7 @@ export function deriveCsvImportUiSummary(
   return {
     totalRows: preview.rows.length,
     importableRows,
-    cleanRows: importableRows - warningRows,
+    cleanRows: importableRows - importableWarningRows,
     warningRows,
     skippedRows,
   };
