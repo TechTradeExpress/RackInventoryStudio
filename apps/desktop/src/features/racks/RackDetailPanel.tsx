@@ -65,6 +65,9 @@ export function RackDetailPanel({
   const [selectedPlacement, setSelectedPlacement] = useState<PlacementDto | null>(null);
   const [targetReloadToken, setTargetReloadToken] = useState(0);
   const [mutationMessage, setMutationMessage] = useState<string | null>(null);
+  // Device IDs unplaced during this session (chronological, last = most recent).
+  // Used to sort the palette so recently unplaced devices appear first.
+  const [recentlyUnplacedDeviceIds, setRecentlyUnplacedDeviceIds] = useState<string[]>([]);
 
   // Available devices/models for the place modal (kept in sync via targetReloadToken)
   const [availableDevices, setAvailableDevices] = useState<DeviceDto[]>([]);
@@ -94,6 +97,7 @@ export function RackDetailPanel({
     setSelectedPlacement(null);
     setActiveSide("front");
     setMutationMessage(null);
+    setRecentlyUnplacedDeviceIds([]);
     getRackDetail(rack.id)
       .then((newDetail) => {
         setDetail(newDetail);
@@ -265,9 +269,19 @@ export function RackDetailPanel({
 
   async function handleUnplacePlacement(placementId: string) {
     try {
+      // Look up device ID before removing so recency tracking works after refresh.
+      const placement =
+        detail?.front.find((p) => p.id === placementId) ??
+        detail?.rear.find((p) => p.id === placementId);
+      const deviceId =
+        placement?.target_kind === "device" ? placement.target_id : null;
+
       await removePlacement({ placement_id: placementId });
       if (selectedPlacement?.id === placementId) {
         setSelectedPlacement(null);
+      }
+      if (deviceId) {
+        setRecentlyUnplacedDeviceIds((prev) => [...prev, deviceId]);
       }
       refreshAfterMutation({ selectId: null, bumpTargets: true });
     } catch (e) {
@@ -466,6 +480,7 @@ export function RackDetailPanel({
                 onPlaceDevice={handlePalettePlaceDevice}
                 onPlaceRackObject={handlePaletteRackObject}
                 onUnplacePlacement={handleUnplacePlacement}
+                recentlyUnplacedDeviceIds={recentlyUnplacedDeviceIds}
               />
 
               <Panel
