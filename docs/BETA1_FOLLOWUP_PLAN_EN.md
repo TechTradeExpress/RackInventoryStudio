@@ -126,7 +126,39 @@ consistently. UI labels updated to say "Rows with at least one warning".
 
 ---
 
-## 6. Dirty repository guard
+## 6. Git push must use configured origin remote and preserve SSH aliases
+
+**Symptom**: A configured `origin` remote may be an SSH scp-like alias defined in
+`~/.ssh/config`, for example `origin = ssh-alias:owner/repo.git`. RIS must push
+using the remote **name** `origin`, not a reconstructed or normalised URL.
+Replacing the configured remote with a hardcoded `git@github.com:...` URL would
+bypass the alias and break key selection, identity file lookup, port mapping, and
+any other custom SSH behaviour the alias provides.
+
+**Required push behaviour**:
+- No configured upstream for the current branch →
+  `git push -u origin <current-branch>` (sets tracking on first push)
+- Upstream already configured →
+  `git push origin <current-branch>` (safe push by name, no `-u` redundancy)
+- RIS must **not** rewrite, normalise, or replace scp-like SSH alias remotes such as
+  `ssh-alias:owner/repo.git` with `git@github.com:owner/repo.git`.
+- SSH aliases from `~/.ssh/config` must be preserved end-to-end — they may select
+  the correct key, identity file, host, port, and passphrase behaviour.
+- Askpass must be attached to the same Git push execution path.
+- If `origin` is missing, RIS must show a clear error and must **not** invent a
+  GitHub URL.
+- If the current branch cannot be determined (detached HEAD), RIS must show a clear
+  error and must not attempt push.
+- Tests must use synthetic/local test repositories and command-construction
+  assertions; no private real remote required.
+
+**SSH classification** (for askpass enablement only — the URL is never used as a
+push target):
+- Recognised as SSH: `git@github.com:owner/repo.git`, `ssh://...`,
+  `ssh-alias:owner/repo.git`, `user@host:path/repo.git`
+- Not SSH: `https://...`, `http://...`, local paths, Windows absolute paths
+
+## 7. Dirty repository guard
 
 **Symptom**: If the user closes the app or switches repositories while there are
 uncommitted local changes, those changes are silently retained in the working tree
