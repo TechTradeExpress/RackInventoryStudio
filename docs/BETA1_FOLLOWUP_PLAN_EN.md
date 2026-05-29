@@ -231,36 +231,46 @@ application with correct default paths and a visible app icon.
 
 **Plan**:
 
-- **Application / installer icon**: Add the app icon to the NSIS installer
-  package and to the installed `.exe` file, if supported by the current Tauri
-  packaging setup. Verify icon appears in Add/Remove Programs and on the Desktop
-  shortcut (if created).
+- **Application / installer icon**: Explicit icon configuration in
+  `tauri.conf.json` (`bundle.icon`) ensures the NSIS installer and installed
+  executable use the app icon. Verify icon appears in Add/Remove Programs.
 
-- **Default installation directory**: Change the default NSIS installation
-  prefix to:
-  `C:\Program Files\TechTradeExpress\RackInventoryStudio`
-  (instead of the generic Tauri default). Consistent vendor-prefixed path avoids
-  collisions and matches Windows conventions for per-machine software.
+- **Default installation directory**: Configure the NSIS installer for
+  per-machine installation (`bundle.windows.nsis.installMode: "perMachine"`)
+  so the default install path is under `C:\Program Files\`. The exact
+  vendor-prefixed path `C:\Program Files\TechTradeExpress\RackInventoryStudio`
+  requires a custom NSIS template (future work; tracked under PR G).
 
 - **Default logs directory**: Set the application's default logs directory to:
   `C:\ProgramData\TechTradeExpress\RackInventoryStudio\logs`
   **Do not** place writable log files under `Program Files`; standard Windows
   non-admin users do not have write permission there. `ProgramData` is writable
   by all users and is the conventional location for per-machine app data.
+  Change `resolve_default_log_dir_early()` and `get_default_logs_dir()` to use
+  `%PROGRAMDATA%\TechTradeExpress\RackInventoryStudio\logs` on Windows instead
+  of the previous `%LOCALAPPDATA%\{bundle_id}\logs`.
 
-- **Settings UI**: The Settings panel must show the effective logs path (default
-  or user-overridden).
+- **Settings UI**: The Settings panel shows the effective logs path (default or
+  user-overridden). Fallback text updated to show the ProgramData path.
 
-- **Open logs folder**: The "Open logs folder" button must open the effective
-  logs directory in Windows Explorer, including the ProgramData path when using
-  defaults.
+- **Open logs folder**: The "Open logs folder" button opens the effective logs
+  directory in Windows Explorer, including the ProgramData path when using
+  defaults. Already implemented in the log-settings infrastructure.
 
-- **Reset to defaults**: "Reset to defaults" for the logs path must restore the
-  ProgramData path, not the old default.
+- **Reset to defaults**: "Reset to defaults" for the logs path restores the
+  ProgramData path (after the default is changed in code). Already implemented.
+
+**Implemented** (`feat/windows-installer-polish-programdata-logs`):
+- `bundle.icon` wired explicitly in `tauri.conf.json`.
+- `installMode: "perMachine"` set — default install base is now `C:\Program Files\`.
+- Windows default logs path changed to
+  `C:\ProgramData\TechTradeExpress\RackInventoryStudio\logs`.
+- Settings fallback text updated.
+- Unit tests for Windows path construction added (platform-safe).
 
 ---
 
-## 10. Hide technical `code` from user-facing UI
+## 10. Hide technical `code` from user-facing UI (PR E)
 
 **Goal**: Remove the internal `code` field from all normal user-facing surfaces.
 Users should interact with records by name, not by machine-generated codes.
@@ -285,5 +295,55 @@ and CSV exports. It was never intended as a primary display label.
   - `Unnamed device` (not `device-07`)
   - `Unnamed rack` (not `rack-02`)
   - `Unnamed location` (not `location-01`)
+- **Device/model display names**: In device tables and device-related views, show
+  the related model's `name` — not the model `code` — as the primary display value.
+  Keep using the stable model `code` internally for all references and actions.
+  If a model has no `name`, show `Unnamed model` rather than the technical code.
+  This is a specific part of the broader code-hiding effort.
 - Add regression tests in the implementation PR to assert that `code` values do
   not appear in main user-facing view snapshots or rendered output.
+
+---
+
+## 11. Rack diagram unplaced devices UX (PR D)
+
+**Goal**: Improve the drag-and-drop ergonomics for unplacing devices from a rack
+and managing the unplaced devices area.
+
+**Plan**:
+
+- **Persistent drop target**: The unplaced devices area must remain a visible,
+  usable drop target even when it contains no unplaced devices. A large, stable
+  "Drop here to unplace device" zone ensures users can always find the target
+  without hunting for a tiny list item.
+
+- **Explicit unplace action**: Add a non-DnD fallback — an explicit
+  "Remove from rack" / "Unplace" action on placed devices (e.g. context menu,
+  inline button). Removing/unplacing a device must not require dragging; some
+  users or scenarios (keyboard-only, accessibility) may not support DnD.
+
+- **Unplaced devices list cap**: Limit the number of unplaced devices visible in
+  the palette area to 6 items. This prevents the palette from growing
+  unboundedly and pushing other controls off-screen on installations with many
+  unplaced devices.
+
+- **Recency ordering**: Prefer showing the most recently unplaced devices in the
+  6-item view if recency can be determined from existing data without changing the
+  repository data structure. If recency cannot be determined safely from current
+  data, use the existing stable order and document the limitation. The full
+  unplaced devices list must remain accessible elsewhere (e.g. a "Show all
+  unplaced" action or a separate panel).
+
+---
+
+## PR Grouping
+
+The remaining follow-up items are grouped into five PRs for focused review:
+
+| PR | Label | Plan item(s) | Status |
+|---|---|---|---|
+| C | Windows installer polish and ProgramData logs | Item 9 | Implemented |
+| D | Rack diagram unplaced devices UX | Item 11 | Planned |
+| E | Hide technical `code` from UI; device/model display names | Item 10 | Planned |
+| F | Dirty repository guard | Item 7 | Planned |
+| G | Release/signing/versioning hardening (custom NSIS path, code signing) | — | Planned |

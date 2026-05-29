@@ -140,7 +140,7 @@ export function SettingsPanel() {
                 </p>
                 <p style={{ margin: "0 0 8px" }}>
                   <span className="code">
-                    %APPDATA%\com.techtradeexpress.rackinventorystudio\logs\
+                    %ProgramData%\TechTradeExpress\RackInventoryStudio\logs
                   </span>
                 </p>
                 <p style={{ margin: "0 0 4px", fontWeight: 600 }}>

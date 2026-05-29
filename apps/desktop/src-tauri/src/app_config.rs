@@ -6,6 +6,14 @@ use tauri::Manager;
 /// Bundle identifier — must match `identifier` in `tauri.conf.json`.
 const BUNDLE_ID: &str = "com.techtradeexpress.rackinventorystudio";
 
+/// Vendor and app folder names used for the Windows ProgramData log path.
+/// Produces `%PROGRAMDATA%\TechTradeExpress\RackInventoryStudio\logs`.
+/// Available on Windows and in test builds (tests exercise path construction on all platforms).
+#[cfg(any(target_os = "windows", test))]
+const WINDOWS_VENDOR: &str = "TechTradeExpress";
+#[cfg(any(target_os = "windows", test))]
+const WINDOWS_APP_DIR: &str = "RackInventoryStudio";
+
 /// Managed state that records the log directory used by the current running
 /// process. Populated during `lib.rs` startup before Tauri builder completes,
 /// so commands can return the real active path.
@@ -60,17 +68,35 @@ pub fn save_app_config(config_dir: &Path, config: &AppConfig) -> Result<(), Stri
     std::fs::write(&path, contents).map_err(|e| format!("Cannot write config file: {e}"))
 }
 
-/// Returns the platform default log directory: the same path `tauri-plugin-log`
-/// uses when `TargetKind::LogDir` is configured (i.e. `app.path().app_log_dir()`).
+/// Build the Windows default log path from a `%PROGRAMDATA%` root value.
 ///
-/// In Tauri v2 this resolves to:
-/// - Windows: `%LOCALAPPDATA%\{bundle_id}\logs\`
+/// Returns `{programdata}\TechTradeExpress\RackInventoryStudio\logs`.
+///
+/// Available on Windows and in test builds so that path-construction tests can
+/// run on Linux CI without requiring Windows-specific path syntax.
+#[cfg(any(target_os = "windows", test))]
+pub fn windows_log_dir_from_programdata(programdata: &str) -> PathBuf {
+    PathBuf::from(programdata)
+        .join(WINDOWS_VENDOR)
+        .join(WINDOWS_APP_DIR)
+        .join("logs")
+}
+
+/// Returns the platform default log directory.
+///
+/// Resolves to:
+/// - Windows: `%PROGRAMDATA%\TechTradeExpress\RackInventoryStudio\logs`
 /// - Linux:   `$XDG_DATA_HOME/{bundle_id}/logs/`
 /// - macOS:   `~/Library/Logs/{bundle_id}/`
+///
+/// Uses `resolve_default_log_dir_early()` as the primary source so that this
+/// function and the startup log resolver always agree on the default path.
 pub fn get_default_logs_dir(app: &tauri::AppHandle) -> PathBuf {
-    app.path()
-        .app_log_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
+    resolve_default_log_dir_early().unwrap_or_else(|| {
+        app.path()
+            .app_log_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+    })
 }
 
 /// Returns the log directory actually used by the current running process.
@@ -185,10 +211,11 @@ pub fn resolve_default_log_dir_early() -> Option<PathBuf> {
     }
     #[cfg(target_os = "windows")]
     {
-        // %LOCALAPPDATA%\{bundle_id}\logs
-        std::env::var("LOCALAPPDATA")
+        // %PROGRAMDATA%\TechTradeExpress\RackInventoryStudio\logs
+        // ProgramData is writable by all users; Program Files is not.
+        std::env::var("PROGRAMDATA")
             .ok()
-            .map(|d| PathBuf::from(d).join(BUNDLE_ID).join("logs"))
+            .map(|d| windows_log_dir_from_programdata(&d))
     }
     #[cfg(target_os = "macos")]
     {
@@ -442,5 +469,40 @@ mod tests {
         // Without any config the result should be an existing writable directory.
         assert!(result.is_dir(), "result should be an existing directory");
         assert!(is_dir_writable(&result), "result should be writable");
+    }
+
+    // ── windows_log_dir_from_programdata ─────────────────────────────────────
+    // These tests are platform-independent: they pass a synthetic base path and
+    // verify the component structure without relying on real Windows env vars.
+
+    #[test]
+    fn windows_log_dir_appends_vendor_app_logs_components() {
+        // Use a Unix-style base path so the test works on Linux CI as well.
+        let dir = windows_log_dir_from_programdata("/fake/ProgramData");
+        // Verify leaf component is "logs"
+        assert_eq!(dir.file_name().unwrap(), "logs");
+        // Parent must be "RackInventoryStudio"
+        let parent = dir.parent().unwrap();
+        assert_eq!(parent.file_name().unwrap(), "RackInventoryStudio");
+        // Grandparent must be "TechTradeExpress"
+        let grandparent = parent.parent().unwrap();
+        assert_eq!(grandparent.file_name().unwrap(), "TechTradeExpress");
+    }
+
+    #[test]
+    fn windows_log_dir_is_deterministic() {
+        let a = windows_log_dir_from_programdata("/fake/ProgramData");
+        let b = windows_log_dir_from_programdata("/fake/ProgramData");
+        assert_eq!(a, b, "same input must produce same path");
+    }
+
+    #[test]
+    fn windows_log_dir_reflects_programdata_root() {
+        let dir = windows_log_dir_from_programdata("/mnt/c/ProgramData");
+        // The path must start from the given root.
+        assert!(
+            dir.starts_with("/mnt/c/ProgramData"),
+            "path must be rooted at the given ProgramData value"
+        );
     }
 }
