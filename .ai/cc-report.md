@@ -2,7 +2,7 @@
 
 ## Branch
 
-`feat/windows-installer-polish-programdata-logs` — two commits.
+`feat/windows-installer-polish-programdata-logs` — two original commits + one review-blocker fix.
 
 ---
 
@@ -26,6 +26,19 @@ Updated `docs/BETA1_FOLLOWUP_PLAN_EN.md`:
 
 Three files changed; no behavior change on Linux/macOS.
 
+### Commit 3 — `fix(installer): set explicit NSIS installer icon` *(review-blocker fix)*
+
+`bundle.icon` controls the application executable icon but does NOT wire the icon
+into the NSIS installer UI itself. The review identified that `bundle.windows.nsis`
+needs separate `installerIcon` and `uninstallerIcon` fields.
+
+Added to `bundle.windows.nsis` in `tauri.conf.json`:
+- `installerIcon`: `"icons/icon.ico"` — icon shown in the NSIS installer window
+  and in Add/Remove Programs for the installer entry.
+- `uninstallerIcon`: `"icons/icon.ico"` — icon shown in the NSIS uninstaller
+  window. Supported in tauri-utils 2.9.0 (confirmed from source). No existing
+  icon asset was created; `icons/icon.ico` already existed.
+
 ---
 
 ## Installer config changes
@@ -36,6 +49,8 @@ Three files changed; no behavior change on Linux/macOS.
 |---|---|---|
 | `bundle.icon` | absent (auto-discovered) | Explicit array: 32x32.png, 128x128.png, 128x128@2x.png, icon.icns, icon.ico |
 | `bundle.windows.nsis.installMode` | absent (default: `currentUser`) | `"perMachine"` |
+| `bundle.windows.nsis.installerIcon` | absent | `"icons/icon.ico"` |
+| `bundle.windows.nsis.uninstallerIcon` | absent | `"icons/icon.ico"` |
 
 **Effect of `perMachine`**: default install base changes from
 `%LOCALAPPDATA%\Rack Inventory Studio` to `C:\Program Files\Rack Inventory Studio`.
@@ -84,10 +99,20 @@ New `SettingsPanel.test.tsx` test:
 ## App icon status
 
 Icon assets already existed in `apps/desktop/src-tauri/icons/` (generated in a
-prior PR). The `bundle.icon` array was absent, relying on Tauri auto-discovery.
-Adding it explicitly ensures the icons are wired into the NSIS installer and
-installed executable regardless of Tauri CLI version behavior. The `.ico` file is
-used for the Windows executable and Add/Remove Programs entry.
+prior PR).
+
+`bundle.icon` controls which icon is embedded in the compiled application
+**executable** (`.exe`) and is used by Tauri for the app window icon. It does
+**not** set the NSIS installer window icon.
+
+The NSIS installer and uninstaller each have their own separate icon fields in
+`bundle.windows.nsis`:
+- `installerIcon` — icon displayed in the NSIS installer window header and used
+  for the Add/Remove Programs entry of the installed application.
+- `uninstallerIcon` — icon displayed in the NSIS uninstaller window.
+
+Both are now set to `icons/icon.ico`. Confirmed supported in tauri-utils 2.9.0
+(the version used by this project).
 
 ---
 
@@ -115,12 +140,17 @@ actionlint                           — not available locally; CI workflow-lint
 Build a new Windows installer from this branch after merge:
 
 1. Build installer: trigger Windows Installer workflow on this branch.
-2. **Install on Windows**: run the installer as a normal (non-admin) user.
-   - Confirm UAC prompt for per-machine install (expected — installs to Program Files).
-   - Confirm default install directory is `C:\Program Files\Rack Inventory Studio`
-     (vendor-prefixed path deferred to PR G).
-3. **App icon**: verify installer and installed `.exe` show the app icon.
-   Check Add/Remove Programs for the icon.
+2. **Install on Windows**: launch the installer from a standard (non-admin) user
+   account.
+   - A UAC elevation prompt is expected and required — `perMachine` installs to
+     `C:\Program Files\` which requires administrator rights. A user without
+     admin credentials or the ability to elevate cannot install this build.
+   - After elevation, confirm default install directory is
+     `C:\Program Files\Rack Inventory Studio`
+     (exact vendor-prefixed path deferred to PR G).
+3. **App icon**: verify the NSIS installer window and uninstaller window both
+   display the app icon. Check that Add/Remove Programs shows the app icon after
+   installation.
 4. **Launch app** as a normal non-admin user.
 5. **Logs directory**: open Settings → Diagnostics and logs.
    - Confirm "Default logs location" shows
