@@ -17,7 +17,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Install system dependencies
         run: |
@@ -52,7 +52,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Check version consistency
         run: node scripts/check-version-consistency.mjs
@@ -63,7 +63,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Run script tests
         run: node --test scripts/*.test.mjs
@@ -77,7 +77,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
@@ -106,7 +106,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Run actionlint
         uses: raven-actions/actionlint@v2
