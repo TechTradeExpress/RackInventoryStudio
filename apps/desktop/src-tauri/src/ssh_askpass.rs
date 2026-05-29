@@ -33,7 +33,12 @@ use tauri::{AppHandle, Emitter};
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 /// Time the frontend has to respond to the passphrase prompt.
-const USER_TIMEOUT_SECS: u64 = 60;
+///
+/// 120 seconds gives the user enough time to read the prompt, enter a
+/// passphrase, and submit even on a slow machine.  The backend helper has a
+/// slightly longer read timeout so it does not close the TCP connection before
+/// the user has finished.
+const USER_TIMEOUT_SECS: u64 = 120;
 
 /// Maximum time to wait for SSH to call our askpass helper after git starts.
 const TCP_ACCEPT_TIMEOUT_SECS: u64 = 300;
@@ -53,6 +58,20 @@ struct AskpassInner {
     tx: std::sync::mpsc::SyncSender<Option<String>>,
     attempts: u32,
     cancelled: Arc<AtomicBool>,
+}
+
+/// Payload emitted to the frontend when OpenSSH requests a passphrase.
+#[derive(serde::Serialize, Clone)]
+pub struct SshPassphraseRequestedPayload {
+    pub session_id: u64,
+    pub prompt: String,
+}
+
+/// Payload emitted when the active askpass session ends without a user
+/// response (timeout, cancel, or push completion while modal is open).
+#[derive(serde::Serialize, Clone)]
+pub struct SshPassphraseSessionEndedPayload {
+    pub session_id: u64,
 }
 
 /// Environment variables to set on the git subprocess to enable askpass.
@@ -141,14 +160,44 @@ impl AskpassState {
     }
 
     /// Send a passphrase (or `None` = cancel) to the waiting askpass server thread.
-    pub fn respond(&self, passphrase: Option<String>) -> Result<(), String> {
+    ///
+    /// `session_id` must match the active session.  A mismatch (stale response
+    /// from a previously expired session) returns a typed error so the frontend
+    /// can show a friendly "request expired, retry Push" message rather than a
+    /// confusing raw error string.
+    pub fn respond(&self, session_id: u64, passphrase: Option<String>) -> Result<(), String> {
         let guard = self.inner.lock().unwrap();
         match guard.as_ref() {
-            Some(inner) => inner
-                .tx
-                .send(passphrase)
-                .map_err(|_| "SSH passphrase session is no longer active".to_string()),
-            None => Err("No active SSH passphrase session".to_string()),
+            Some(inner) => {
+                if inner.session_id != session_id {
+                    log::warn!(
+                        "askpass: respond called with stale session_id {} (active: {})",
+                        session_id,
+                        inner.session_id
+                    );
+                    return Err("This SSH passphrase request expired or was replaced. \
+                         Please retry Push."
+                        .to_string());
+                }
+                log::info!(
+                    "askpass: session {} — passphrase response received",
+                    session_id
+                );
+                inner.tx.send(passphrase).map_err(|_| {
+                    "This SSH passphrase request expired or was replaced. \
+                     Please retry Push."
+                        .to_string()
+                })
+            }
+            None => {
+                log::warn!(
+                    "askpass: respond called for session_id {} but no session is active",
+                    session_id
+                );
+                Err("This SSH passphrase request expired or was replaced. \
+                     Please retry Push."
+                    .to_string())
+            }
         }
     }
 
@@ -156,7 +205,22 @@ impl AskpassState {
     ///
     /// The `session_id` guard prevents an old, timed-out TCP server thread from
     /// clearing a newer session that started after the previous one expired.
-    pub fn clear_session(&self, session_id: u64) {
+    /// Emits `ssh-passphrase-session-ended` so the frontend can close any
+    /// still-open passphrase modal gracefully.
+    pub fn clear_session(&self, session_id: u64, app: &AppHandle) {
+        if self.clear_session_inner(session_id) {
+            app.emit(
+                "ssh-passphrase-session-ended",
+                &SshPassphraseSessionEndedPayload { session_id },
+            )
+            .ok();
+        }
+    }
+
+    /// State-only session teardown (no Tauri event).  Used internally and in tests
+    /// where an `AppHandle` is not available.  Returns `true` if the session was
+    /// actually present and cleared.
+    fn clear_session_inner(&self, session_id: u64) -> bool {
         let mut guard = self.inner.lock().unwrap();
         if guard.as_ref().is_some_and(|i| i.session_id == session_id) {
             if let Some(ref inner) = *guard {
@@ -164,6 +228,10 @@ impl AskpassState {
                 inner.tx.try_send(None).ok();
             }
             guard.take();
+            log::info!("askpass: session {} cleared", session_id);
+            true
+        } else {
+            false
         }
     }
 }
@@ -230,7 +298,9 @@ fn run_askpass_server(
     }
 
     if let Some(stream) = stream {
-        if let Err(e) = handle_askpass_connection(stream, &expected_token, &rx, &app, &state) {
+        if let Err(e) =
+            handle_askpass_connection(stream, &expected_token, &rx, &app, &state, own_session_id)
+        {
             // Redact: never log passphrase. Log only structural errors.
             log::warn!(
                 "askpass session {} error (passphrase not logged): {e}",
@@ -238,6 +308,7 @@ fn run_askpass_server(
             );
         }
     }
+    log::info!("askpass: session {} helper thread finished", own_session_id);
 
     // Only clear if this thread still owns the current session.
     // A newer session may have started after a previous operation timed out.
@@ -258,6 +329,7 @@ fn handle_askpass_connection(
     rx: &std::sync::mpsc::Receiver<Option<String>>,
     app: &AppHandle,
     state: &Arc<Mutex<Option<AskpassInner>>>,
+    session_id: u64,
 ) -> Result<(), String> {
     stream.set_read_timeout(Some(Duration::from_secs(10))).ok();
     stream.set_write_timeout(Some(Duration::from_secs(10))).ok();
@@ -285,7 +357,7 @@ fn handle_askpass_connection(
         // Do NOT log the received or expected token values.
         return Err("Invalid token in askpass connection — rejecting".to_string());
     }
-    log::info!("askpass: helper token accepted");
+    log::info!("askpass: session {} — helper token accepted", session_id);
 
     // Check attempt limit to prevent infinite passphrase loops.
     let at_limit = {
@@ -305,14 +377,26 @@ fn handle_askpass_connection(
     }
 
     let safe_prompt = sanitize_prompt(&prompt);
-    log::info!("askpass: prompt received: {:?}", safe_prompt);
+    log::info!(
+        "askpass: session {} — prompt received, emitting request to frontend",
+        session_id
+    );
 
     // Emit event to frontend — frontend shows the passphrase modal.
-    if let Err(e) = app.emit("ssh-passphrase-requested", &safe_prompt) {
+    // The payload includes session_id so the frontend can correlate the
+    // response and handle session expiry correctly.
+    let payload = SshPassphraseRequestedPayload {
+        session_id,
+        prompt: safe_prompt,
+    };
+    if let Err(e) = app.emit("ssh-passphrase-requested", &payload) {
         write_stream.write_all(b"CANCEL\n").ok();
         return Err(format!("Failed to emit passphrase event to frontend: {e}"));
     }
-    log::info!("askpass: ssh-passphrase-requested event emitted to frontend");
+    log::info!(
+        "askpass: session {} — ssh-passphrase-requested emitted to frontend",
+        session_id
+    );
 
     // Wait for user response (passphrase or cancel). None = timeout or cancel.
     let passphrase = rx
@@ -322,16 +406,31 @@ fn handle_askpass_connection(
 
     if let Some(ref _p) = passphrase {
         // Do NOT log the passphrase value.
-        log::info!("askpass: passphrase received from frontend, forwarding to SSH helper");
+        log::info!(
+            "askpass: session {} — passphrase received, forwarding to SSH helper",
+            session_id
+        );
         let response_bytes = format!("OK\n{_p}\n");
         write_stream
             .write_all(response_bytes.as_bytes())
             .map_err(|e| format!("write passphrase to askpass helper: {e}"))?;
     } else {
-        log::info!("askpass: passphrase cancelled or timed out, sending CANCEL to helper");
+        log::info!(
+            "askpass: session {} — timed out or cancelled, sending CANCEL to helper",
+            session_id
+        );
         write_stream.write_all(b"CANCEL\n").ok();
-        // Notify frontend the operation was cancelled (timeout or user cancel).
-        app.emit("ssh-passphrase-result", "cancelled").ok();
+        // Notify the frontend so it can close the modal gracefully instead of
+        // leaving it open with a stale session.
+        app.emit(
+            "ssh-passphrase-session-ended",
+            &SshPassphraseSessionEndedPayload { session_id },
+        )
+        .ok();
+        log::info!(
+            "askpass: session {} — ssh-passphrase-session-ended emitted to frontend",
+            session_id
+        );
     }
 
     Ok(())
@@ -844,26 +943,87 @@ mod tests {
     }
 
     #[test]
-    fn askpass_session_respond_fails_when_no_session() {
+    fn respond_fails_when_no_session() {
         let state = AskpassState::new();
-        let result = state.respond(Some("secret".to_string()));
+        let result = state.respond(1, Some("secret".to_string()));
         assert!(result.is_err());
+        assert!(
+            result.unwrap_err().contains("expired"),
+            "error message should mention expiry"
+        );
     }
 
     #[test]
-    fn askpass_session_lifecycle_create_and_clear() {
+    fn respond_fails_with_wrong_session_id() {
+        let (tx, _rx) = std::sync::mpsc::sync_channel::<Option<String>>(1);
         let state = AskpassState::new();
-        // No session initially
+        {
+            let mut guard = state.inner.lock().unwrap();
+            *guard = Some(AskpassInner {
+                session_id: 42,
+                tx,
+                attempts: 0,
+                cancelled: Arc::new(AtomicBool::new(false)),
+            });
+        }
+        let result = state.respond(99, Some("secret".to_string()));
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().contains("expired"),
+            "wrong session_id should return expiry message"
+        );
+    }
+
+    #[test]
+    fn respond_succeeds_with_correct_session_id() {
+        let (tx, rx) = std::sync::mpsc::sync_channel::<Option<String>>(1);
+        let state = AskpassState::new();
+        {
+            let mut guard = state.inner.lock().unwrap();
+            *guard = Some(AskpassInner {
+                session_id: 42,
+                tx,
+                attempts: 0,
+                cancelled: Arc::new(AtomicBool::new(false)),
+            });
+        }
+        let result = state.respond(42, Some("correct-passphrase".to_string()));
+        assert!(result.is_ok());
+        let received = rx.recv_timeout(std::time::Duration::from_millis(100));
+        assert_eq!(received.unwrap(), Some("correct-passphrase".to_string()));
+    }
+
+    #[test]
+    fn respond_cancel_with_correct_session_id() {
+        let (tx, rx) = std::sync::mpsc::sync_channel::<Option<String>>(1);
+        let state = AskpassState::new();
+        {
+            let mut guard = state.inner.lock().unwrap();
+            *guard = Some(AskpassInner {
+                session_id: 7,
+                tx,
+                attempts: 0,
+                cancelled: Arc::new(AtomicBool::new(false)),
+            });
+        }
+        let result = state.respond(7, None);
+        assert!(result.is_ok());
+        let received = rx.recv_timeout(std::time::Duration::from_millis(100));
+        assert_eq!(received.unwrap(), None);
+    }
+
+    #[test]
+    fn askpass_session_lifecycle_no_session() {
+        let state = AskpassState::new();
         assert!(state.inner.lock().unwrap().is_none());
-        // respond fails with no session
-        assert!(state.respond(None).is_err());
-        // clear_session is a no-op when no session exists (any id)
-        state.clear_session(0);
+        assert!(state.respond(0, None).is_err());
+        // clear_session_inner is a no-op when no session exists
+        assert!(!state.clear_session_inner(0));
         assert!(state.inner.lock().unwrap().is_none());
     }
 
     #[test]
-    fn clear_session_with_wrong_id_does_not_clear() {
+    fn clear_session_inner_wrong_id_does_not_clear() {
         let (tx, _rx) = std::sync::mpsc::sync_channel(1);
         let state = AskpassState::new();
         {
@@ -876,13 +1036,13 @@ mod tests {
             });
         }
         // Wrong session_id — should be a no-op.
-        state.clear_session(99);
+        assert!(!state.clear_session_inner(99));
         assert!(
             state.inner.lock().unwrap().is_some(),
             "session should still exist after wrong id"
         );
         // Correct session_id — should clear.
-        state.clear_session(42);
+        assert!(state.clear_session_inner(42));
         assert!(
             state.inner.lock().unwrap().is_none(),
             "session should be cleared after correct id"

@@ -676,7 +676,7 @@ textarea.input { height: auto; padding: 6px 8px; resize: vertical; }
   position: fixed; inset: 0;
   background: var(--bg-overlay);
   display: grid; place-items: center;
-  z-index: 200;
+  z-index: 600;
   padding: var(--sp-6);
   animation: m-fade 120ms ease-out;
 }

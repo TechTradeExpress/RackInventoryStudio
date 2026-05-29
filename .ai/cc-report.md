@@ -2,10 +2,28 @@
 
 ## Summary
 
-Fixed Git push to use the configured remote name and preserve SSH alias remotes.
-Two bugs corrected plus SSH alias test coverage added.
+Two separate fixes on this branch:
 
-## Observed bug class
+1. **Git push remote fix** — Push now uses the configured remote name and never
+   adds a redundant `-u` when an upstream is already set.  Missing remote returns
+   a clear user-facing error instead of a confusing git message.
+
+2. **SSH askpass modal regression fix** — The passphrase modal was hidden behind
+   the busy overlay on Windows and the session expired before the user could
+   interact.  Fixed by:
+   - Raising modal z-index above the busy overlay
+   - Adding `session_id` correlation so stale responses are rejected with a
+     friendly message instead of a raw error
+   - Emitting a `ssh-passphrase-session-ended` event so the frontend can mark
+     an open modal as expired without the user entering a passphrase into a dead
+     session
+   - Increasing the user timeout from 60 s to 120 s
+
+---
+
+## Part 1 — Git push remote fix
+
+### Observed bug class
 
 A user whose `origin` is configured as an SSH scp-like alias
 (`ssh-alias:owner/repo.git`) may see push fail or behave unexpectedly if the
@@ -19,150 +37,100 @@ substitution, but revealed two real gaps:
    `false`, and git ran `push` against an unknown remote — producing a confusing
    Git error instead of a user-facing "remote not configured" message.
 
-## Root cause
-
-**Bug 1 — always -u**:
-`push_current_branch_with_env` hardcoded `["push", "-u", remote, branch]`.
-There was no call to `branch_has_upstream()` before building the args.
-
-**Bug 2 — swallowed list_remotes error**:
-Both Tauri handlers (`push_git_current_branch`, `pull_git_ff_only`) used
-`list_remotes(...).unwrap_or_default()`.  If the remote name was absent from the
-list, the handlers proceeded as if `is_ssh = false` and let git fail generically.
-
-## Push command behavior before/after
-
-| Scenario | Before | After |
-|---|---|---|
-| First push (no upstream) | `git push -u origin <branch>` ✓ | `git push -u origin <branch>` ✓ |
-| Subsequent push (upstream set) | `git push -u origin <branch>` (redundant -u) | `git push origin <branch>` ✓ |
-| Remote does not exist | git fails: "repository 'origin' does not appear to be a git repository" | Clear error: "No remote named "origin" is configured…" |
-| SSH alias remote `ssh-alias:repo.git` | URL used only for askpass detect (correct); push uses name (correct) | Same + explicit test coverage added |
-
-## Files changed
+### Files changed (Part 1)
 
 | File | Change |
 |---|---|
 | `crates/ris-git/src/lib.rs` | Added `has_remote()`, `branch_has_upstream()`, `get_current_branch()`, `push_args()`; `push_current_branch_with_env` now calls `branch_has_upstream` and uses `push_args`; new SSH alias + push_args unit tests |
 | `apps/desktop/src-tauri/src/commands/git.rs` | Both `push_git_current_branch` and `pull_git_ff_only` now propagate `list_remotes` errors and return a clear user-facing error when the named remote is not found |
 | `crates/ris-git/tests/git_remote_tests.rs` | 18 new integration/unit tests |
-| `docs/BETA1_FOLLOWUP_PLAN_EN.md` | Added item 6 (plan commit), then marked IMPLEMENTED (implementation commit) |
+| `docs/BETA1_FOLLOWUP_PLAN_EN.md` | Added item 6, marked IMPLEMENTED |
 | `CHANGELOG.md` | Entry under Fixed |
 
-## How origin remote is detected
+---
 
-`list_remotes()` is called while holding the session lock.  The result is
-searched for the remote name passed by the frontend.  If not found, an explicit
-error is returned before the lock is released and before any git subprocess is
-spawned.
+## Part 2 — SSH askpass modal regression fix
 
-## How no-upstream push sets tracking
+### Root cause
 
-`branch_has_upstream()` runs `git rev-parse --abbrev-ref --symbolic-full-name @{u}`.
-Exit zero means upstream is configured.  Non-zero (including "no upstream configured")
-means `push_args` will include `-u`.  Any IO/parse error in `branch_has_upstream`
-defaults to `false` (treat as no upstream) so that tracking is always set on first push.
+`.modal-backdrop` had `z-index: 200` while `.busy-overlay` had `z-index: 500`.
+During a push, the busy overlay was rendered on top of the passphrase modal.
+The user could not see or interact with the modal.  The 60-second backend
+timeout fired, the session was cleared, the overlay disappeared, and the stale
+modal became visible.  When the user entered the passphrase, the backend
+responded "No active SSH passphrase session".
 
-## How SSH alias remotes are preserved
+Secondary issue: no `session_id` correlation existed between the event payload
+and the command, so even if the modal appeared it could not distinguish between
+a fresh session and a stale one.
 
-`is_ssh_url("ssh-alias:owner/repo.git")` returns `true` via the scp-like path in
-`lib.rs:762-768` (colon present, nothing after it starts with `//`).  The URL is
-used **only** to decide whether to start an askpass session.  The push command
-always uses the remote **name** (`origin`), never the URL.
+### Root cause fixes
 
-## How askpass is attached to this push path
+| Issue | Fix |
+|---|---|
+| Modal hidden behind overlay | `app.css`: `.modal-backdrop` z-index 200 → 600 |
+| No session_id correlation | `SshPassphraseRequestedPayload { session_id, prompt }` emitted; `respond_ssh_passphrase` command validates `session_id` match |
+| Session expiry not signalled to frontend | `ssh-passphrase-session-ended` event emitted by `clear_session` and on timeout |
+| Short timeout on slow machines | `USER_TIMEOUT_SECS`: 60 → 120 |
 
-`push_git_current_branch` calls `ris_git::push_current_branch_with_env` with
-`extra_env` (askpass env vars) and `GitSecurityMode::Askpass`.  The function builds
-args via `push_args()` (remote name + conditional -u) and prepends security `-c`
-overrides.  Askpass is active on the same execution path regardless of whether `-u`
-is included.
+### Files changed (Part 2)
 
-## Tests added/updated
+| File | Change |
+|---|---|
+| `apps/desktop/src/app.css` | `.modal-backdrop` z-index 200 → 600 |
+| `apps/desktop/src-tauri/src/ssh_askpass.rs` | Timeout 60→120 s; `SshPassphraseRequestedPayload` / `SshPassphraseSessionEndedPayload` structs; `respond` validates `session_id`; `clear_session_inner` extracted for testability; `clear_session` emits session-ended event; `handle_askpass_connection` emits session-ended on timeout/cancel; `run_askpass_server` passes `own_session_id` to handler |
+| `apps/desktop/src-tauri/src/commands/git.rs` | `respond_ssh_passphrase` command accepts `session_id`; both `start_session` calls use `app.clone()` so `clear_session(&app)` compiles; `clear_session` now takes `&AppHandle` |
+| `apps/desktop/src/api/tauriClient.ts` | `SshPassphraseRequestedPayload` / `SshPassphraseSessionEndedPayload` types; `respondSshPassphrase` passes `session_id` |
+| `apps/desktop/src/features/repository/SshPassphraseModal.tsx` | New `sessionId` + `expired` props; friendly expiry message in footer; "Close" replaces "Cancel" when expired; no submit button when expired; no passphrase input when expired |
+| `apps/desktop/src/App.tsx` | `askpassSession` state shape `{ prompt, sessionId, expired }`; `ssh-passphrase-requested` listener uses structured payload; new `ssh-passphrase-session-ended` listener sets `expired: true` on matching session; `SshPassphraseModal` receives `sessionId` and `expired` |
+| `apps/desktop/src/features/repository/SshPassphraseModal.test.tsx` | All tests updated with `sessionId`/`expired` props; 5 new tests for expired session behavior |
+| `apps/desktop/src-tauri/src/ssh_askpass.rs` (tests) | Fixed old `respond`/`clear_session` test calls; 4 new session_id correlation tests: `respond_fails_when_no_session`, `respond_fails_with_wrong_session_id`, `respond_succeeds_with_correct_session_id`, `respond_cancel_with_correct_session_id`, `clear_session_inner_wrong_id_does_not_clear` |
 
-**Unit tests in `crates/ris-git/src/lib.rs` `ssh_tests` module** (4 new):
-- `is_ssh_url_recognises_ssh_config_alias_no_user` — `ssh-alias:owner/repo.git` → true
-- `is_ssh_url_recognises_ssh_config_alias_with_hyphen`
-- `is_ssh_url_recognises_user_at_custom_host`
-- `is_ssh_url_rejects_windows_absolute_path`
-- `push_args_no_upstream_includes_set_upstream_flag`
-- `push_args_with_upstream_omits_set_upstream_flag`
-- `push_args_ssh_alias_remote_uses_remote_name_not_url` — regression assertion
-- `push_args_existing_upstream_uses_remote_name_only`
+### Security properties preserved
 
-**Integration tests in `crates/ris-git/tests/git_remote_tests.rs`** (10 new):
-- `has_remote_returns_true_for_configured_remote`
-- `has_remote_returns_false_for_missing_remote`
-- `branch_has_upstream_false_before_first_push`
-- `branch_has_upstream_true_after_push_with_set_upstream`
-- `push_args_ssh_alias_remote_uses_name_not_url`
-- `push_args_no_upstream_sets_tracking_flag`
-- `push_args_existing_upstream_omits_tracking_flag`
-- `push_second_time_omits_set_upstream_flag` — integration: first push sets upstream, second push works without -u
-- `push_returns_error_on_detached_head`
-- `push_invalid_remote_name_returns_error` — URL passed as remote name rejected by `validate_remote_name`
-- `askpass_mode_push_uses_same_remote_name_command` — askpass path verified
-- `ssh_alias_remote_url_is_classified_as_ssh`
-- `non_ssh_remote_urls_are_not_classified_as_ssh`
+- Passphrase is not stored in config, env, logs, files, or CLI args.
+- Passphrase is never logged (passphrase value excluded from all log lines).
+- IPC bound to 127.0.0.1 only.
+- Per-operation random token; expires after one use.
+- Attempt limit (3) prevents passphrase-loop attacks.
+- Hook suppression and askpass hardening (SSH_ASKPASS_REQUIRE=force) unchanged.
+- Push still uses the configured remote name, never a constructed URL.
 
-## Checks run and results
+---
+
+## Tests
 
 ```
-git diff --check                        — OK
-node check-version-consistency.mjs      — OK (all 0.1.0-beta.1)
-node --test scripts/*.test.mjs          — 17 passed
-node check-repo-hygiene.mjs             — 8/8 checks passed
-cargo fmt --all --check                 — OK
-cargo check --workspace                 — OK
-cargo test --workspace                  — all suites pass (0 failures)
-cargo clippy --workspace -- -D warnings — OK (0 errors)
-tsc --noEmit                            — OK
-vitest run                              — 461 passed (35 test files)
-playwright test                         — 21 passed
+cargo test (apps/desktop/src-tauri)  — 57 passed, 0 failed
+cargo test (crates/ris-git)          — 38 passed, 0 failed
+cargo clippy -- -D warnings          — 0 errors, 0 warnings
+cargo check                          — OK
+tsc --noEmit                         — OK
+vitest run                           — 466 passed (35 test files)
 ```
-
-actionlint not available locally — CI workflow-lint relied on for workflow validation.
-
-## Manual QA status
-
-Not performed (requires a real SSH alias remote). Checklist is documented below.
-
-## Manual QA checklist
-
-1. Configure a local Git repository with an SSH alias-style origin:
-   `git remote add origin ssh-alias:owner/repo.git`
-2. Confirm `git remote -v` shows the alias URL unchanged.
-3. From terminal, confirm `git push -u origin main` works with that alias (verifies SSH config alias is functional).
-4. From RIS, click Push in the Git panel.
-5. Confirm RIS uses `origin`, not a constructed `git@github.com:...` URL.
-6. If the key requires a passphrase, confirm the RIS askpass modal appears.
-7. Correct passphrase → push succeeds.
-8. Cancel / wrong passphrase → clear failure message, no crash.
-9. Error output must not mention `git@github.com` unless that exact URL is configured or returned by Git stderr.
-10. Remove the origin remote (`git remote remove origin`) and retry Push from RIS.
-    Expect "No remote named 'origin' is configured" error.
-11. Check out a commit directly (`git checkout <hash>`) to detach HEAD.
-    Retry Push from RIS. Expect "detached" / "branch" error.
 
 ## Risks
 
-- `branch_has_upstream` defaults to `false` on any error (including I/O failure or
-  unexpected git output format). This means `-u` will be added on every push when
-  the check cannot run. This is safe — Git will update the tracking branch to the
-  same value — but adds a round-trip.
-- The "no remote" guard runs inside the session lock; if `list_remotes` itself spawns
-  a git subprocess that hangs, the lock is held during the hang. This is the same
-  risk that existed before (the old `unwrap_or_default()` call also ran inside the
-  lock). Not addressed in this PR.
+- `branch_has_upstream` defaults to `false` on any error. This means `-u` is
+  added on every push when the check cannot run. Safe (Git updates tracking to
+  same value) but adds a round-trip.
+- The `session_id` guard in `respond` requires the frontend to pass the
+  `session_id` from the event payload.  If the frontend re-renders and loses the
+  session state before the user submits, the modal will show the expiry message
+  on the next attempt.  This is expected behavior; the user can retry Push.
+- `clear_session` now emits a Tauri event.  If the app is shutting down during a
+  push, the emit may fail silently (`.ok()` discards the error), which is safe.
 
 ## Not done
 
 - Frontend: dedicated error styling for "no remote" vs SSH authentication errors.
 - Dirty repository guard (tracked as follow-up item 7).
-- `pull_git_ff_only` upstream detection (currently always pulls without `-u`, which
-  is correct for pull; no change needed there).
+- Playwright test coverage for SSH passphrase flow (requires a real SSH server;
+  not feasible in the E2E harness).
 
-## Scope confirmation
+## Suggested next step
 
-No version change. No installer workflow change. No rack DnD change. No CSV change.
-No height override change. No credential vault. No stored passphrase setting.
+Trigger the Windows Installer builder on this branch and perform manual QA of
+the SSH passphrase flow with a real SSH key that requires a passphrase.  Verify
+the modal appears above the busy overlay immediately and that a correct
+passphrase succeeds.

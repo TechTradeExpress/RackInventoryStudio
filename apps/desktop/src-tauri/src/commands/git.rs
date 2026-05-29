@@ -176,7 +176,7 @@ pub fn push_git_current_branch(
         .map(ris_git::is_ssh_url)
         .unwrap_or(false);
     let askpass_env: Option<AskpassEnv> = if is_ssh {
-        match askpass.start_session(app) {
+        match askpass.start_session(app.clone()) {
             Ok(e) => Some(e),
             Err(warn) => {
                 log::warn!("askpass session not started, continuing without: {warn}");
@@ -216,7 +216,7 @@ pub fn push_git_current_branch(
         });
 
     if let Some(ref env) = askpass_env {
-        askpass.clear_session(env.session_id);
+        askpass.clear_session(env.session_id, &app);
     }
 
     result?;
@@ -261,7 +261,7 @@ pub fn pull_git_ff_only(
         .map(ris_git::is_ssh_url)
         .unwrap_or(false);
     let askpass_env: Option<AskpassEnv> = if is_ssh {
-        match askpass.start_session(app) {
+        match askpass.start_session(app.clone()) {
             Ok(e) => Some(e),
             Err(warn) => {
                 log::warn!("askpass session not started, continuing without: {warn}");
@@ -301,7 +301,7 @@ pub fn pull_git_ff_only(
         });
 
     if let Some(ref env) = askpass_env {
-        askpass.clear_session(env.session_id);
+        askpass.clear_session(env.session_id, &app);
     }
 
     pull_result?;
@@ -345,12 +345,16 @@ pub fn pull_git_ff_only(
 /// Called by the frontend's SshPassphraseModal after the user submits or cancels.
 /// `passphrase: None` cancels the operation. The passphrase is held in memory only for the
 /// duration of the TCP handshake and is never logged or stored.
+///
+/// `session_id` must match the currently active session; a mismatch returns a typed error
+/// so the frontend can show a friendly "request expired, retry Push" message.
 #[tauri::command]
 pub fn respond_ssh_passphrase(
+    session_id: u64,
     passphrase: Option<String>,
     askpass: State<AskpassState>,
 ) -> Result<(), String> {
-    askpass.respond(passphrase)
+    askpass.respond(session_id, passphrase)
 }
 
 /// Return SSH diagnostics for the currently open repository and specified remote.

@@ -11,6 +11,8 @@ import {
   type RackSummaryDto,
   type RepositorySummaryDto,
   type ValidationSummaryDto,
+  type SshPassphraseRequestedPayload,
+  type SshPassphraseSessionEndedPayload,
 } from "./api/tauriClient";
 import {
   addRecentRepository,
@@ -83,17 +85,38 @@ export function App() {
     placementId?: string;
   } | null>(null);
 
-  const [askpassPrompt, setAskpassPrompt] = useState<string | null>(null);
+  const [askpassSession, setAskpassSession] = useState<{
+    prompt: string;
+    sessionId: number;
+    expired: boolean;
+  } | null>(null);
 
   const isOpen = summary !== null;
 
   // Listen for SSH passphrase requests emitted by the backend askpass session.
   useEffect(() => {
-    const unlisten = listen<string>("ssh-passphrase-requested", (event) => {
-      setAskpassPrompt(event.payload);
-    });
+    const unlistenRequested = listen<SshPassphraseRequestedPayload>(
+      "ssh-passphrase-requested",
+      (event) => {
+        setAskpassSession({
+          prompt: event.payload.prompt,
+          sessionId: event.payload.session_id,
+          expired: false,
+        });
+      },
+    );
+    const unlistenEnded = listen<SshPassphraseSessionEndedPayload>(
+      "ssh-passphrase-session-ended",
+      (event) => {
+        setAskpassSession((prev) => {
+          if (prev === null || prev.sessionId !== event.payload.session_id) return prev;
+          return { ...prev, expired: true };
+        });
+      },
+    );
     return () => {
-      unlisten.then((fn) => fn());
+      unlistenRequested.then((fn) => fn());
+      unlistenEnded.then((fn) => fn());
     };
   }, []);
 
@@ -515,9 +538,11 @@ export function App() {
       </div>
 
       <SshPassphraseModal
-        open={askpassPrompt !== null}
-        prompt={askpassPrompt ?? ""}
-        onDismiss={() => setAskpassPrompt(null)}
+        open={askpassSession !== null}
+        prompt={askpassSession?.prompt ?? ""}
+        sessionId={askpassSession?.sessionId ?? 0}
+        expired={askpassSession?.expired ?? false}
+        onDismiss={() => setAskpassSession(null)}
       />
     </div>
   );
