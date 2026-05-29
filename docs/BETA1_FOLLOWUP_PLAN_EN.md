@@ -305,7 +305,7 @@ and CSV exports. It was never intended as a primary display label.
 
 ---
 
-## 11. Rack diagram unplaced devices UX (PR D)
+## 11. Rack diagram unplaced devices UX (PR D) ✅ IMPLEMENTED
 
 **Goal**: Improve the drag-and-drop ergonomics for unplacing devices from a rack
 and managing the unplaced devices area.
@@ -334,6 +334,35 @@ and managing the unplaced devices area.
   unplaced devices list must remain accessible elsewhere (e.g. a "Show all
   unplaced" action or a separate panel).
 
+**Implemented** (`feat/rack-unplaced-devices-ux`):
+
+- **Persistent drop target** (`PlacementPalettePanel`): A dedicated
+  `unplace-drop-zone` element is always rendered inside the palette panel with a
+  visible dashed border and "↩ Drop here to remove from rack" copy. Minimum
+  height 56 px. Normal state: muted gray dashed border. Drag-over state:
+  orange dashed border with warm highlight. Drop zone is visible even when the
+  unplaced device list is empty and during loading.
+
+- **Explicit unplace action** (`PlacementInspectorPanel`): The existing
+  "Remove placement" button was renamed to "Remove from rack" with neutral
+  (non-danger) button styling. The confirm dialog copy was updated to clarify
+  the device returns to the unplaced list and is not deleted. This action is
+  accessible in the inspector panel whenever a placement is selected (click a
+  placed card to select it).
+
+- **Unplaced devices list cap**: The palette shows at most 6 unplaced devices.
+  When there are more, an overflow indicator shows "Showing 6 of N unplaced
+  devices" with a "Show all" button that reveals all devices. Rack object models
+  are not capped (they are always few and never consumed by placement).
+
+- **Recency ordering**: `RackDetailPanel` maintains a session-only
+  `recentlyUnplacedDeviceIds` list (chronological, appended on each unplace
+  action). This list is reset when navigating to a different rack. The list is
+  passed to `PlacementPalettePanel`, which sorts the unplaced devices so the
+  most recently unplaced device appears first in the visible 6. Devices with no
+  recency signal retain their stable backend order. No schema changes required.
+  Session state only — not persisted.
+
 ---
 
 ## PR Grouping
@@ -343,7 +372,7 @@ The remaining follow-up items are grouped into five PRs for focused review:
 | PR | Label | Plan item(s) | Status |
 |---|---|---|---|
 | C | Windows installer polish and ProgramData logs | Item 9 | Implemented |
-| D | Rack diagram unplaced devices UX | Item 11 | Planned |
+| D | Rack diagram unplaced devices UX | Item 11 | Implemented |
 | E | Hide technical `code` from UI; device/model display names | Item 10 | Planned |
 | F | Dirty repository guard | Item 7 | Planned |
 | G | Release/signing/versioning hardening (custom NSIS path, code signing) | — | Planned |

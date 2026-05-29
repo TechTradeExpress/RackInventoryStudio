@@ -1,198 +1,139 @@
-# CC Report — feat/windows-installer-polish-programdata-logs
+# CC Report — feat/rack-unplaced-devices-ux
 
 ## Branch
 
-`feat/windows-installer-polish-programdata-logs` — two original commits + one review-blocker fix.
+`feat/rack-unplaced-devices-ux` — PR D from the BETA1 follow-up plan.
+
+### Review blocker fix (commit 2)
+
+**Blocker**: The inspector "Remove from rack" path called `onRemoveSuccess()` with no
+arguments. `RackDetailPanel.handleRemoveSuccess()` received no placement ID and could
+not update `recentlyUnplacedDeviceIds`, so the removed device was not prioritized in
+the palette.
+
+**Fix**: `onRemoveSuccess` signature changed to `(placementId: string) => void`.
+`PlacementInspectorPanel.executeRemove` passes `placement.id`. `handleRemoveSuccess` in
+`RackDetailPanel` looks up the placement in `detail`, appends the device ID to
+`recentlyUnplacedDeviceIds` if `target_kind === "device"`, then calls
+`refreshAfterMutation` — identical logic to the DnD path.
 
 ---
 
 ## Summary
 
-### Commit 1 — `docs(plan): add installer and UI follow-up details`
+Implemented rack diagram unplaced devices UX improvements (Plan item 11):
 
-Updated `docs/BETA1_FOLLOWUP_PLAN_EN.md`:
+1. **Persistent unplace drop target** — a dedicated `unplace-drop-zone` element is always
+   rendered in the palette panel with a visible dashed border and "↩ Drop here to remove
+   from rack" copy. Available even when the unplaced list is empty.
 
-- **Item 9 refined**: Added implementation approach detail — `perMachine` NSIS
-  install mode, ProgramData log path, note that exact vendor-prefixed install
-  path (`C:\Program Files\TechTradeExpress\RackInventoryStudio`) requires a
-  custom NSIS template deferred to PR G.
-- **Item 10 expanded**: Added device/model display names requirement — show model
-  `name` not `code` in device tables; `Unnamed model` fallback.
-- **Item 11 added**: Rack diagram unplaced devices UX (PR D) — persistent drop
-  target, explicit unplace action, 6-item visible cap, recency ordering, Show all.
-- **PR grouping table added**: PRs C through G mapped to plan items.
+2. **Non-DnD unplace action** — "Remove placement…" in `PlacementInspectorPanel` renamed to
+   "Remove from rack" with neutral (non-danger) button styling. Confirm dialog copy updated
+   to clarify the device is not deleted — it returns to the unplaced list.
 
-### Commit 2 — `feat(installer): use ProgramData logs and Windows install defaults`
+3. **Palette cap (max 6)** — `PlacementPalettePanel` shows at most 6 unplaced devices.
+   When there are more, an overflow indicator shows "Showing 6 of N unplaced devices"
+   with a "Show all" button. Rack object models are not capped.
 
-Three files changed; no behavior change on Linux/macOS.
-
-### Commit 3 — `fix(installer): set explicit NSIS installer icon` *(review-blocker fix)*
-
-`bundle.icon` controls the application executable icon but does NOT wire the icon
-into the NSIS installer UI itself. The review identified that `bundle.windows.nsis`
-needs separate `installerIcon` and `uninstallerIcon` fields.
-
-Added to `bundle.windows.nsis` in `tauri.conf.json`:
-- `installerIcon`: `"icons/icon.ico"` — icon shown in the NSIS installer window
-  and in Add/Remove Programs for the installer entry.
-- `uninstallerIcon`: `"icons/icon.ico"` — icon shown in the NSIS uninstaller
-  window. Supported in tauri-utils 2.9.0 (confirmed from source). No existing
-  icon asset was created; `icons/icon.ico` already existed.
+4. **Session recency ordering** — `RackDetailPanel` maintains a `recentlyUnplacedDeviceIds`
+   list (appended on each unplace, reset on rack navigation). Passed to the palette to sort
+   the most recently unplaced device first in the visible 6.
 
 ---
 
-## Installer config changes
+## Files changed
 
-### `apps/desktop/src-tauri/tauri.conf.json`
-
-| Setting | Before | After |
-|---|---|---|
-| `bundle.icon` | absent (auto-discovered) | Explicit array: 32x32.png, 128x128.png, 128x128@2x.png, icon.icns, icon.ico |
-| `bundle.windows.nsis.installMode` | absent (default: `currentUser`) | `"perMachine"` |
-| `bundle.windows.nsis.installerIcon` | absent | `"icons/icon.ico"` |
-| `bundle.windows.nsis.uninstallerIcon` | absent | `"icons/icon.ico"` |
-
-**Effect of `perMachine`**: default install base changes from
-`%LOCALAPPDATA%\Rack Inventory Studio` to `C:\Program Files\Rack Inventory Studio`.
-
-**Limitation**: Exact vendor-prefixed path
-`C:\Program Files\TechTradeExpress\RackInventoryStudio` requires a custom NSIS
-template via `bundle.windows.nsis.template`. This is out of scope for this PR and
-is tracked as PR G (Release/signing/versioning hardening).
-
-### Windows default logs path
-
-| | Before | After |
-|---|---|---|
-| `resolve_default_log_dir_early()` Windows | `%LOCALAPPDATA%\com.techtradeexpress.rackinventorystudio\logs` | `%PROGRAMDATA%\TechTradeExpress\RackInventoryStudio\logs` |
-| `get_default_logs_dir()` | called `app.path().app_log_dir()` | calls `resolve_default_log_dir_early()` for consistency |
-
-Both functions now agree on the default path. The new path uses `%PROGRAMDATA%`
-(`C:\ProgramData`) which is writable by all Windows users including non-admins,
-unlike `Program Files`.
-
-### `app_config.rs` additions
-
-- `windows_log_dir_from_programdata(programdata: &str) -> PathBuf` — constructs
-  the ProgramData log path from a root string. Marked
-  `#[cfg(any(target_os = "windows", test))]` so it compiles on Linux CI for tests.
-- `WINDOWS_VENDOR` / `WINDOWS_APP_DIR` constants (same cfg gate).
-- 3 new unit tests (platform-independent — use synthetic base paths):
-  - `windows_log_dir_appends_vendor_app_logs_components` — verifies component structure
-  - `windows_log_dir_is_deterministic` — same input → same output
-  - `windows_log_dir_reflects_programdata_root` — path starts from given root
-
-### Settings UI
-
-`SettingsPanel.tsx` fallback text updated:
-
-| | Before | After |
-|---|---|---|
-| Windows fallback label | `%APPDATA%\com.techtradeexpress.rackinventorystudio\logs\` | `%ProgramData%\TechTradeExpress\RackInventoryStudio\logs` |
-
-New `SettingsPanel.test.tsx` test:
-- `loading fallback shows ProgramData Windows path` — keeps `getLogSettings` pending
-  so the loading fallback renders; asserts the new path text is visible.
+| File | Change |
+|---|---|
+| `apps/desktop/src/features/racks/PlacementPalettePanel.tsx` | Persistent drop zone, 6-item cap, Show all, recency sort |
+| `apps/desktop/src/features/racks/PlacementInspectorPanel.tsx` | Rename "Remove placement" → "Remove from rack", neutral styling, updated confirm copy; `onRemoveSuccess` now passes `placementId` |
+| `apps/desktop/src/features/racks/RackDetailPanel.tsx` | Track `recentlyUnplacedDeviceIds`; both DnD and inspector unplace paths now update it via `handleRemoveSuccess(placementId)` |
+| `apps/desktop/src/features/racks/PlacementPalettePanel.test.tsx` | Fully rewritten: 19 tests (persistent zone, drop, cap, Show all, recency, DnD) |
+| `apps/desktop/src/features/racks/PlacementInspectorPanel.test.tsx` | New: 6 tests including assertion that `onRemoveSuccess` is called with the placement ID |
+| `apps/desktop/src/features/racks/RackDetailPanel.test.tsx` | New: 2 integration tests — inspector unplace updates recency; rack_object removal does not pollute device recency |
+| `docs/BETA1_FOLLOWUP_PLAN_EN.md` | Item 11 marked implemented; PR table updated |
 
 ---
 
-## App icon status
+## Recency ordering decision
 
-Icon assets already existed in `apps/desktop/src-tauri/icons/` (generated in a
-prior PR).
-
-`bundle.icon` controls which icon is embedded in the compiled application
-**executable** (`.exe`) and is used by Tauri for the app window icon. It does
-**not** set the NSIS installer window icon.
-
-The NSIS installer and uninstaller each have their own separate icon fields in
-`bundle.windows.nsis`:
-- `installerIcon` — icon displayed in the NSIS installer window header and used
-  for the Add/Remove Programs entry of the installed application.
-- `uninstallerIcon` — icon displayed in the NSIS uninstaller window.
-
-Both are now set to `icons/icon.ico`. Confirmed supported in tauri-utils 2.9.0
-(the version used by this project).
+**Implemented via frontend session state.** `DeviceDto` has no timestamp fields, so
+backend ordering cannot determine recency. `RackDetailPanel` tracks a
+`recentlyUnplacedDeviceIds: string[]` state (most recently unplaced = last element).
+When a device placement is removed, the device's `target_id` is looked up in the current
+`detail` state and appended. The list is reset on rack navigation. The palette sorts
+recently unplaced devices to the front of the visible 6. Devices with no recency signal
+retain stable backend order. No schema changes were made.
 
 ---
 
-## Tests run and results
+## Tests
 
 ```
 cargo fmt --all --check              — OK
 cargo check --workspace              — OK (0 warnings)
-cargo test --workspace               — 63 backend + all crate tests passed, 0 failed
+cargo test --workspace               — all Rust tests passed
 cargo clippy --workspace -D warnings — 0 errors, 0 warnings
 tsc --noEmit                         — OK (0 errors)
-vitest run                           — 472 passed (36 test files, +1 new)
+vitest run                           — 493 passed (38 test files, +3 new/updated)
 git diff --check                     — OK
 node check-version-consistency.mjs   — OK (all 0.1.0-beta.1)
 node --test scripts/*.test.mjs       — 17 passed, 0 failed
 node check-repo-hygiene.mjs          — 8 checks passed
-actionlint                           — not available locally; CI workflow-lint
-                                       job validates YAML
 ```
+
+New test files:
+- `PlacementInspectorPanel.test.tsx` (6 tests; asserts `onRemoveSuccess` called with ID)
+- `RackDetailPanel.test.tsx` (2 integration tests: inspector unplace → recency; rack_object does not affect device recency)
+
+Updated: `PlacementPalettePanel.test.tsx` (19 tests; drop tests migrated to `unplace-drop-zone`).
 
 ---
 
 ## Manual QA checklist
 
-Build a new Windows installer from this branch after merge:
-
-1. Build installer: trigger Windows Installer workflow on this branch.
-2. **Install on Windows**: launch the installer from a standard (non-admin) user
-   account.
-   - A UAC elevation prompt is expected and required — `perMachine` installs to
-     `C:\Program Files\` which requires administrator rights. A user without
-     admin credentials or the ability to elevate cannot install this build.
-   - After elevation, confirm default install directory is
-     `C:\Program Files\Rack Inventory Studio`
-     (exact vendor-prefixed path deferred to PR G).
-3. **App icon**: verify the NSIS installer window and uninstaller window both
-   display the app icon. Check that Add/Remove Programs shows the app icon after
-   installation.
-4. **Launch app** as a normal non-admin user.
-5. **Logs directory**: open Settings → Diagnostics and logs.
-   - Confirm "Default logs location" shows
-     `C:\ProgramData\TechTradeExpress\RackInventoryStudio\logs`.
-   - Confirm "Active logs location" shows the same path (first launch).
-6. **Logs written**: check that log files exist in
-   `C:\ProgramData\TechTradeExpress\RackInventoryStudio\logs`.
-7. **Open logs folder**: click "Open logs folder" — Explorer must open that directory.
-8. **Custom path**: click "Choose logs folder…", pick a different directory.
-   Confirm Settings shows the custom directory and restart-required notice.
-9. **Reset to defaults**: restart the app (for custom path to activate), then
-   click "Reset to default". Confirm ProgramData path is restored after another
-   restart.
-10. **SSH/Git logging**: perform a Push/Pull with SSH key; confirm log entries are
-    written to the ProgramData directory.
+1. Open a repository with a rack and at least one placed device.
+2. Open the rack detail view.
+3. **Confirm unplace drop zone is always visible** — even with zero unplaced devices,
+   the dashed "↩ Drop here to remove from rack" box should appear in the palette panel.
+4. Drag a placed device card to the drop zone.
+5. Confirm the device is removed from the rack diagram and appears in the unplaced list.
+6. Repeat with only one or two unplaced devices — confirm the drop zone stays large and
+   easy to target.
+7. Click a placed device to select it (blue → inspector opens on the right).
+8. Click "Remove from rack" in the inspector panel.
+9. Confirm a dialog appears saying the device returns to the unplaced list.
+10. Confirm the action and verify the device is removed from the rack but not deleted
+    (it should appear in the unplaced list, not be gone entirely).
+11. Add more than 6 unplaced devices (place, then unplace several).
+12. Confirm the palette shows exactly 6 and the overflow indicator "Showing 6 of N" appears.
+13. Click "Show all" and confirm all devices are visible.
+14. Drag a device from the palette into a rack slot — confirm normal placement still works.
+15. Unplace a device and confirm it appears first in the visible 6 (recency ordering).
 
 ---
 
 ## Risks
 
-- `perMachine` install requires administrator privileges at install time (UAC
-  prompt). This is a behaviour change from the previous `currentUser` default.
-  Users who cannot elevate cannot install. If this is a concern, `installMode`
-  can be changed to `"both"` so the user can choose during setup.
-- Existing Windows installations will keep logging to the old `%LOCALAPPDATA%`
-  path until the user deletes `app_config.json` or resets the log directory via
-  Settings. If the user has a custom log directory configured, that is preserved.
-- `get_default_logs_dir()` now calls `resolve_default_log_dir_early()` which
-  uses env vars. If `%PROGRAMDATA%` is unset (very unusual), it falls back to
-  `app.path().app_log_dir()` (Tauri's resolver), which maps to `%LOCALAPPDATA%`.
-  This is safe.
+- Recency is session-only. If the user navigates away and returns, recently unplaced
+  devices will revert to stable backend order. This is intentional and documented.
+- "Show all" has no collapse mechanism. If the user clicks "Show all" and the list grows
+  very long, the panel may become tall. A future improvement could add "Show less".
+- The "Remove from rack" inspector button has a confirm dialog. The DnD path does not.
+  This is an intentional design difference: DnD is an explicit drag gesture;
+  clicking a button is more easily accidental.
+
+---
 
 ## Not done
 
-- Custom NSIS template for exact vendor-prefixed install path
-  `C:\Program Files\TechTradeExpress\RackInventoryStudio` (deferred to PR G).
-- Rack diagram unplaced devices UX (PR D — separate PR).
-- Hide `code` from UI / device model display names (PR E — separate PR).
-- Dirty repository guard (PR F — separate PR).
+- Custom NSIS template for exact vendor-prefixed install path (PR G).
+- Hide technical `code` from UI (PR E).
+- Dirty repository guard (PR F).
+- "Show less" collapse for the expanded palette list.
+
+---
 
 ## Suggested next step
 
-Trigger the Windows Installer workflow on this branch and run through the manual
-QA checklist above. Pay particular attention to item 2 (UAC prompt for perMachine
-install) and item 6 (logs written to ProgramData, not LOCALAPPDATA).
+Merge PR D and implement PR E (Hide technical `code` from UI; device/model display names).

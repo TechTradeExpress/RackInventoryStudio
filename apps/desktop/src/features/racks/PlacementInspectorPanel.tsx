@@ -15,7 +15,7 @@ interface Props {
     placementId: string,
     options?: { movedToAnotherRack?: boolean; destRackId?: string },
   ) => void;
-  onRemoveSuccess: () => void;
+  onRemoveSuccess: (placementId: string) => void;
   /** Called when the user clicks "Edit in modal" — opens EditPlacementModal. */
   onOpenEditModal?: () => void;
   /** Called when the user requests to edit the target device. */
@@ -78,7 +78,7 @@ export function PlacementInspectorPanel({
       await runBusy("Removing placement…", () =>
         removePlacement({ placement_id: placement.id }),
       );
-      onRemoveSuccess();
+      onRemoveSuccess(placement.id);
     } catch (e) {
       setRemoveError(String(e));
     }
@@ -88,14 +88,15 @@ export function PlacementInspectorPanel({
     <>
       <ConfirmDialog
         open={removeConfirmOpen}
-        title="Remove placement?"
+        title="Remove from rack?"
         body={
           <p style={{ margin: 0, fontSize: 13 }}>
             Remove <strong>{placement.code}</strong> from this rack?
+            The device is not deleted — it returns to the unplaced list.
             This is an in-memory change until Save is used.
           </p>
         }
-        confirmLabel="Remove placement"
+        confirmLabel="Remove from rack"
         tone="danger"
         onConfirm={executeRemove}
         onCancel={() => setRemoveConfirmOpen(false)}
@@ -155,13 +156,14 @@ export function PlacementInspectorPanel({
           <div className="hr" style={{ margin: 0 }} />
 
           <div>
-            <div className="eyebrow" style={{ marginBottom: 6 }}>Remove placement</div>
+            <div className="eyebrow" style={{ marginBottom: 6 }}>Remove from rack</div>
             <button
               type="button"
-              className="btn btn-danger btn-sm"
+              className="btn btn-sm"
+              data-testid="remove-from-rack-btn"
               onClick={() => setRemoveConfirmOpen(true)}
             >
-              Remove placement…
+              Remove from rack
             </button>
             {removeError && (
               <div style={{ marginTop: 6 }}>
