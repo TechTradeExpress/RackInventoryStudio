@@ -94,7 +94,11 @@ impl RepositorySession {
                     kind: SearchResultKind::Location,
                     id: loc.id.clone(),
                     code: loc.code.clone(),
-                    label: loc.name.clone(),
+                    label: if loc.name.trim().is_empty() {
+                        "Unnamed location".to_string()
+                    } else {
+                        loc.name.clone()
+                    },
                     detail: loc.address.clone(),
                     score,
                     navigation: SearchNavigation {
@@ -122,17 +126,21 @@ impl RepositorySession {
                 sc = best(sc, score_field(t, needle, 6));
             }
             if let Some(score) = sc {
-                let loc_code = self
+                let loc_name = self
                     .index
                     .get_location_by_id(&rack.location_id)
-                    .map(|l| l.code.as_str())
+                    .map(|l| l.name.as_str())
                     .unwrap_or("");
                 results.push(SearchResult {
                     kind: SearchResultKind::Rack,
                     id: rack.id.clone(),
                     code: rack.code.clone(),
-                    label: rack.name.clone(),
-                    detail: Some(format!("{}U @ {}", rack.height_u, loc_code)),
+                    label: if rack.name.trim().is_empty() {
+                        "Unnamed rack".to_string()
+                    } else {
+                        rack.name.clone()
+                    },
+                    detail: Some(format!("{}U @ {}", rack.height_u, loc_name)),
                     score,
                     navigation: SearchNavigation {
                         location_id: Some(rack.location_id.clone()),
@@ -174,7 +182,17 @@ impl RepositorySession {
                     kind: SearchResultKind::Device,
                     id: device.id.clone(),
                     code: device.code.clone(),
-                    label: device.name.clone().unwrap_or_else(|| device.code.clone()),
+                    label: device
+                        .name
+                        .as_deref()
+                        .map(|n| {
+                            if n.trim().is_empty() {
+                                "Unnamed device".to_string()
+                            } else {
+                                n.to_string()
+                            }
+                        })
+                        .unwrap_or_else(|| "Unnamed device".to_string()),
                     detail: device.serial_number.clone(),
                     score,
                     navigation: SearchNavigation {
@@ -211,7 +229,11 @@ impl RepositorySession {
                     kind: SearchResultKind::DeviceModel,
                     id: dm.id.clone(),
                     code: dm.code.clone(),
-                    label: dm.name.clone(),
+                    label: if dm.name.trim().is_empty() {
+                        "Unnamed model".to_string()
+                    } else {
+                        dm.name.clone()
+                    },
                     detail: dm.vendor.clone(),
                     score,
                     navigation: SearchNavigation {
@@ -286,17 +308,52 @@ impl RepositorySession {
                     PlacementSide::Front => "front",
                     PlacementSide::Rear => "rear",
                 };
-                let rack_code = self
+                let rack_name = self
                     .index
                     .get_rack_by_id(&indexed.rack_id)
-                    .map(|r| r.code.as_str())
-                    .unwrap_or("?");
+                    .map(|r| {
+                        if r.name.trim().is_empty() {
+                            "Unnamed rack".to_string()
+                        } else {
+                            r.name.clone()
+                        }
+                    })
+                    .unwrap_or_else(|| "Unnamed rack".to_string());
+                let target_label = match p.target_kind {
+                    PlacementTargetKind::Device => self
+                        .index
+                        .get_device_by_id(&p.target_id)
+                        .map(|d| {
+                            d.name
+                                .as_deref()
+                                .map(|n| {
+                                    if n.trim().is_empty() {
+                                        "Unnamed device".to_string()
+                                    } else {
+                                        n.to_string()
+                                    }
+                                })
+                                .unwrap_or_else(|| "Unnamed device".to_string())
+                        })
+                        .unwrap_or_else(|| "Unnamed device".to_string()),
+                    PlacementTargetKind::DeviceModel => self
+                        .index
+                        .get_device_model_by_id(&p.target_id)
+                        .map(|m| {
+                            if m.name.trim().is_empty() {
+                                "Unnamed model".to_string()
+                            } else {
+                                m.name.clone()
+                            }
+                        })
+                        .unwrap_or_else(|| "Unnamed model".to_string()),
+                };
                 results.push(SearchResult {
                     kind: SearchResultKind::Placement,
                     id: p.id.clone(),
                     code: p.code.clone(),
-                    label: p.code.clone(),
-                    detail: Some(format!("{}, {}, U{}", rack_code, side_str, p.start_u)),
+                    label: target_label,
+                    detail: Some(format!("{}, {}, U{}", rack_name, side_str, p.start_u)),
                     score,
                     navigation: SearchNavigation {
                         location_id: None,

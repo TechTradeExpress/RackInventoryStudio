@@ -381,14 +381,37 @@ fn rack_object_placement_found_by_model_vendor() {
 }
 
 #[test]
-fn placement_detail_contains_rack_code_and_side_and_start_u() {
+fn placement_detail_contains_rack_name_and_side_and_start_u() {
     let session = make_session();
     let results = session.search("search-pl-dev");
     let hit = results.iter().find(|r| r.id == "search-pl-dev-1").unwrap();
     let detail = hit.detail.as_deref().unwrap_or("");
+    // detail uses rack *name* (not rack code) for display, plus side and U position
     assert!(
-        detail.contains("search-rack") && detail.contains("front") && detail.contains("U1"),
-        "detail should contain rack code, side, and start_u; got: {detail:?}"
+        detail.contains("Search Rack Beta") && detail.contains("front") && detail.contains("U1"),
+        "detail should contain rack name, side, and start_u; got: {detail:?}"
+    );
+}
+
+#[test]
+fn placement_label_is_target_device_name_not_code() {
+    let session = make_session();
+    let results = session.search("search-pl-dev");
+    let hit = results.iter().find(|r| r.id == "search-pl-dev-1").unwrap();
+    // label must be the target device's display name, not the placement code
+    assert_eq!(hit.label, "Search Device Delta");
+    assert_ne!(hit.label, hit.code); // placement code must not leak into label
+}
+
+#[test]
+fn placement_label_does_not_contain_placement_code() {
+    let session = make_session();
+    let results = session.search("search-pl-dev");
+    let hit = results.iter().find(|r| r.id == "search-pl-dev-1").unwrap();
+    assert!(
+        !hit.label.contains("search-pl-dev"),
+        "label should not contain placement code; got: {:?}",
+        hit.label
     );
 }
 

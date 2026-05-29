@@ -234,8 +234,7 @@ export function GlobalSearch({ onNavigate, refreshKey, fullWidth }: Props) {
               <span style={{ fontSize: 10, color: "var(--ac-text)", background: "var(--ac-soft-bg)", border: "1px solid var(--ac-soft-bd)", borderRadius: "var(--r-1)", padding: "0 4px", flexShrink: 0, fontWeight: 600, letterSpacing: "0.02em" }}>
                 {KIND_LABEL[r.kind]}
               </span>
-              <span style={{ fontFamily: "var(--font-mono)", fontWeight: 600, color: "var(--tx-1)", fontSize: 11.5 }}>{r.code}</span>
-              {r.label !== r.code && <span style={{ color: "var(--tx-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{r.label}</span>}
+              <span style={{ fontWeight: 600, color: "var(--tx-1)", fontSize: 11.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{r.label}</span>
               {r.detail && <span style={{ color: "var(--tx-3)", fontSize: 11, flexShrink: 0 }}>{r.detail}</span>}
             </li>
           ))}
