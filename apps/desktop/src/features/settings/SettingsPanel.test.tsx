@@ -188,6 +188,15 @@ describe("SettingsPanel", () => {
     });
   });
 
+  it("loading fallback shows ProgramData Windows path", () => {
+    // Keep getLogSettings pending so the loading fallback renders.
+    mockGetLogSettings.mockReturnValue(new Promise(() => {}));
+    render(<SettingsPanel />);
+    expect(
+      screen.getByText(/%ProgramData%\\TechTradeExpress\\RackInventoryStudio\\logs/),
+    ).toBeTruthy();
+  });
+
   it("Open logs folder: backend error shows error banner", async () => {
     mockOpenLogsDirectory.mockRejectedValue(new Error("Cannot open folder"));
     render(<SettingsPanel />);
