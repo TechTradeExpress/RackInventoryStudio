@@ -159,11 +159,15 @@ pub fn push_git_current_branch(
     let (repo_path, remote_url) = {
         let guard = lock(&state)?;
         let session = guard.as_ref().ok_or_else(no_session)?;
-        let remotes = ris_git::list_remotes(&session.repo_path).unwrap_or_default();
-        let url = remotes
-            .into_iter()
-            .find(|r| r.name == remote)
-            .map(|r| r.url);
+        let remotes = ris_git::list_remotes(&session.repo_path).map_err(|e| e.to_string())?;
+        let found = remotes.into_iter().find(|r| r.name == remote);
+        if found.is_none() {
+            return Err(format!(
+                "No remote named \"{remote}\" is configured for this repository. \
+                 Add a remote in the Git panel before pushing."
+            ));
+        }
+        let url = found.map(|r| r.url);
         (session.repo_path.clone(), url)
     };
 
@@ -240,11 +244,15 @@ pub fn pull_git_ff_only(
     let (repo_path, remote_url) = {
         let guard = lock(&state)?;
         let session = guard.as_ref().ok_or_else(no_session)?;
-        let remotes = ris_git::list_remotes(&session.repo_path).unwrap_or_default();
-        let url = remotes
-            .into_iter()
-            .find(|r| r.name == remote)
-            .map(|r| r.url);
+        let remotes = ris_git::list_remotes(&session.repo_path).map_err(|e| e.to_string())?;
+        let found = remotes.into_iter().find(|r| r.name == remote);
+        if found.is_none() {
+            return Err(format!(
+                "No remote named \"{remote}\" is configured for this repository. \
+                 Add a remote in the Git panel before pulling."
+            ));
+        }
+        let url = found.map(|r| r.url);
         (session.repo_path.clone(), url)
     };
 

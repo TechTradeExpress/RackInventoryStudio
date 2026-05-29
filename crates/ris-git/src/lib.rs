@@ -616,14 +616,75 @@ fn prepare_askpass_hardening(
     Ok((dir, args))
 }
 
+// ── Remote / branch helpers ───────────────────────────────────────────────────
+
+/// Returns `true` when `remote` is configured in this repository.
+///
+/// Uses `git remote get-url` so the check is authoritative without parsing
+/// config files.  An unknown remote name returns `Ok(false)`; an IO or parse
+/// error propagates.
+pub fn has_remote(repo_path: &Path, remote: &str) -> Result<bool, GitError> {
+    validate_remote_name(remote)?;
+    let output = run_git(repo_path, &["remote", "get-url", remote])?;
+    Ok(output.status.success())
+}
+
+/// Returns `true` when the current branch already has a configured tracking
+/// (upstream) branch.
+///
+/// `git rev-parse @{u}` exits non-zero when no upstream is set; that is treated
+/// as `Ok(false)` rather than an error.  Other failures (not a repo, IO error)
+/// propagate.
+pub fn branch_has_upstream(repo_path: &Path) -> Result<bool, GitError> {
+    let output = run_git(
+        repo_path,
+        &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+    )?;
+    Ok(output.status.success())
+}
+
+/// Returns the short name of the currently checked-out branch.
+///
+/// Returns `Err` when HEAD is detached or the branch name cannot be determined.
+pub fn get_current_branch(repo_path: &Path) -> Result<String, GitError> {
+    current_branch(repo_path)
+}
+
+/// Build the `git` argument list for a push operation (excludes the `git`
+/// binary itself and any `-c` security overrides).
+///
+/// When `has_upstream` is `false` the `-u` flag is included so Git sets the
+/// tracking branch on the first push.  When it is `true` the branch already
+/// tracks `remote/<branch>` and `-u` is omitted.
+///
+/// Exposed as a public function so callers can verify the exact arguments
+/// without spawning a network process.
+pub fn push_args(remote: &str, branch: &str, has_upstream: bool) -> Vec<String> {
+    if has_upstream {
+        vec!["push".to_string(), remote.to_string(), branch.to_string()]
+    } else {
+        vec![
+            "push".to_string(),
+            "-u".to_string(),
+            remote.to_string(),
+            branch.to_string(),
+        ]
+    }
+}
+
 // ── Push / Pull ───────────────────────────────────────────────────────────────
 
-/// Push the current branch to `remote`, setting the upstream tracking ref (`-u`).
+/// Push the current branch to `remote`.
 ///
-/// `extra_env` injects environment variables into the git subprocess (e.g. SSH askpass vars).
-/// `security` controls whether askpass hardening is applied. Use `GitSecurityMode::Askpass`
-/// whenever `extra_env` contains `RIS_ASKPASS_PORT`/`RIS_ASKPASS_TOKEN`; hook suppression
-/// and SSH-wrapper neutralisation are fail-closed in that mode.
+/// When the current branch already has a configured upstream the push uses
+/// `git push <remote> <branch>`.  On the first push (no upstream) `-u` is
+/// added so Git sets the tracking branch: `git push -u <remote> <branch>`.
+///
+/// `extra_env` injects environment variables into the git subprocess (e.g.
+/// SSH askpass vars).  `security` controls whether askpass hardening is
+/// applied.  Use `GitSecurityMode::Askpass` whenever `extra_env` contains
+/// `RIS_ASKPASS_PORT`/`RIS_ASKPASS_TOKEN`; hook suppression and
+/// SSH-wrapper neutralisation are fail-closed in that mode.
 pub fn push_current_branch_with_env(
     repo_path: &Path,
     remote: &str,
@@ -632,6 +693,9 @@ pub fn push_current_branch_with_env(
 ) -> Result<(), GitError> {
     validate_remote_name(remote)?;
     let branch = current_branch(repo_path)?;
+    // Determine whether to add -u.  Treat any detection failure as
+    // "no upstream" so we always attempt to set tracking on the first push.
+    let has_up = branch_has_upstream(repo_path).unwrap_or(false);
 
     // _hooks_guard must remain alive until run_git_impl returns (RAII cleanup).
     let (_hooks_guard, security_args) = match &security {
@@ -654,11 +718,14 @@ pub fn push_current_branch_with_env(
         GitSecurityMode::Askpass { .. } => ASKPASS_ENV_REMOVALS,
     };
 
-    let mut args: Vec<&str> = Vec::with_capacity(security_args.len() + 4);
+    let push_core = push_args(remote, branch.as_str(), has_up);
+    let mut args: Vec<&str> = Vec::with_capacity(security_args.len() + push_core.len());
     for s in &security_args {
         args.push(s.as_str());
     }
-    args.extend_from_slice(&["push", "-u", remote, branch.as_str()]);
+    for s in &push_core {
+        args.push(s.as_str());
+    }
 
     let output = run_git_impl(repo_path, &args, extra_env, remove_env)?;
     if output.status.success() {
@@ -953,6 +1020,86 @@ mod ssh_tests {
     #[test]
     fn is_ssh_url_rejects_unknown_scheme_with_double_slash() {
         assert!(!is_ssh_url("unknown://host/path"));
+    }
+
+    // ── SSH alias remote classification ───────────────────────────────────────
+
+    #[test]
+    fn is_ssh_url_recognises_ssh_config_alias_no_user() {
+        // Alias defined in ~/.ssh/config: Host ssh-alias → no @ required.
+        assert!(is_ssh_url("ssh-alias:owner/repo.git"));
+    }
+
+    #[test]
+    fn is_ssh_url_recognises_ssh_config_alias_with_hyphen() {
+        assert!(is_ssh_url("my-work-server:projects/repo.git"));
+    }
+
+    #[test]
+    fn is_ssh_url_recognises_user_at_custom_host() {
+        assert!(is_ssh_url("user@host.internal:path/repo.git"));
+    }
+
+    #[test]
+    fn is_ssh_url_rejects_windows_absolute_path() {
+        assert!(!is_ssh_url("C:\\repos\\myrepo"));
+        assert!(!is_ssh_url("C:/repos/myrepo"));
+    }
+
+    // ── push_args unit tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn push_args_no_upstream_includes_set_upstream_flag() {
+        let args = push_args("origin", "main", false);
+        assert_eq!(args, vec!["push", "-u", "origin", "main"]);
+    }
+
+    #[test]
+    fn push_args_with_upstream_omits_set_upstream_flag() {
+        let args = push_args("origin", "main", true);
+        assert_eq!(args, vec!["push", "origin", "main"]);
+    }
+
+    #[test]
+    fn push_args_ssh_alias_remote_uses_remote_name_not_url() {
+        // When the configured origin URL is an SSH alias, the push command must
+        // contain the remote NAME ("origin"), not the alias or any constructed URL.
+        let args = push_args("origin", "feature-x", false);
+        // Must contain remote name as the target
+        assert!(
+            args.contains(&"origin".to_string()),
+            "args must contain the remote name 'origin': {args:?}"
+        );
+        // Must not contain any constructed GitHub URL
+        for arg in &args {
+            assert!(
+                !arg.contains("github.com"),
+                "args must not reference github.com: {arg}"
+            );
+            assert!(
+                !arg.contains("git@"),
+                "args must not contain git@ URL syntax: {arg}"
+            );
+            assert!(
+                !arg.contains("ssh-alias:"),
+                "args must not expand the remote alias URL: {arg}"
+            );
+        }
+        // Exact structure: push -u <remote-name> <branch>
+        assert_eq!(args[0], "push");
+        assert_eq!(args[1], "-u");
+        assert_eq!(args[2], "origin");
+        assert_eq!(args[3], "feature-x");
+    }
+
+    #[test]
+    fn push_args_existing_upstream_uses_remote_name_only() {
+        let args = push_args("origin", "main", true);
+        // Exact structure: push <remote-name> <branch>  (no -u)
+        assert_eq!(args[0], "push");
+        assert_eq!(args[1], "origin");
+        assert_eq!(args[2], "main");
+        assert_eq!(args.len(), 3, "no extra args expected: {args:?}");
     }
 
     // ── Askpass hardening tests ────────────────────────────────────────────────

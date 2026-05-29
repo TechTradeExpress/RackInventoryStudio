@@ -366,3 +366,301 @@ fn normal_mode_push_unaffected_by_security_refactor() {
     let result = ris_git::push_current_branch(&workdir, "origin");
     assert!(result.is_ok(), "normal-mode push must succeed: {result:?}");
 }
+
+// ── has_remote ────────────────────────────────────────────────────────────────
+
+#[test]
+fn has_remote_returns_true_for_configured_remote() {
+    if !git_available() {
+        return;
+    }
+    let tmp = tempfile::TempDir::new().unwrap();
+    let bare_path = init_bare(tmp.path(), "remote.git");
+    let workdir = tmp.path().join("work");
+    std::fs::create_dir_all(&workdir).unwrap();
+    setup_working_repo_with_commit(&workdir);
+    ris_git::add_remote(&workdir, "origin", &bare_path.to_string_lossy()).unwrap();
+
+    assert!(
+        ris_git::has_remote(&workdir, "origin").unwrap(),
+        "has_remote should be true for a configured remote"
+    );
+}
+
+#[test]
+fn has_remote_returns_false_for_missing_remote() {
+    if !git_available() {
+        return;
+    }
+    let tmp = tempfile::TempDir::new().unwrap();
+    ris_git::init_repository(tmp.path()).unwrap();
+
+    assert!(
+        !ris_git::has_remote(tmp.path(), "origin").unwrap(),
+        "has_remote should be false when no remote is configured"
+    );
+}
+
+// ── branch_has_upstream ───────────────────────────────────────────────────────
+
+#[test]
+fn branch_has_upstream_false_before_first_push() {
+    if !git_available() {
+        return;
+    }
+    let tmp = tempfile::TempDir::new().unwrap();
+    ris_git::init_repository(tmp.path()).unwrap();
+    configure_identity(tmp.path());
+    std::fs::write(tmp.path().join("a.yaml"), "a").unwrap();
+    ris_git::commit_all(tmp.path(), "Initial").unwrap();
+
+    let has_up = ris_git::branch_has_upstream(tmp.path()).unwrap();
+    assert!(!has_up, "no upstream expected before first push");
+}
+
+#[test]
+fn branch_has_upstream_true_after_push_with_set_upstream() {
+    if !git_available() {
+        return;
+    }
+    let tmp = tempfile::TempDir::new().unwrap();
+    let bare_path = init_bare(tmp.path(), "remote.git");
+    let workdir = tmp.path().join("work");
+    std::fs::create_dir_all(&workdir).unwrap();
+    setup_working_repo_with_commit(&workdir);
+    ris_git::add_remote(&workdir, "origin", &bare_path.to_string_lossy()).unwrap();
+
+    // Before push: no upstream
+    assert!(!ris_git::branch_has_upstream(&workdir).unwrap());
+
+    ris_git::push_current_branch(&workdir, "origin").unwrap();
+
+    // After push -u: upstream should be set
+    assert!(
+        ris_git::branch_has_upstream(&workdir).unwrap(),
+        "upstream should be set after push -u"
+    );
+}
+
+// ── SSH alias remote regression ───────────────────────────────────────────────
+
+#[test]
+fn push_args_ssh_alias_remote_uses_name_not_url() {
+    // Core regression: when origin is configured as an SSH alias like
+    // ssh-alias:owner/repo.git, the push command must target the remote NAME
+    // "origin", not a constructed URL.
+    let args = ris_git::push_args("origin", "main", false);
+
+    // Must be "push -u origin main" — no URL substitution
+    assert_eq!(args[0], "push");
+    assert_eq!(args[1], "-u");
+    assert_eq!(
+        args[2], "origin",
+        "push target must be the remote name, not a URL"
+    );
+    assert_eq!(args[3], "main");
+
+    for arg in &args {
+        assert!(
+            !arg.contains("github.com"),
+            "push args must not contain a constructed github.com URL: {arg}"
+        );
+        assert!(
+            !arg.contains("git@"),
+            "push args must not contain git@ syntax: {arg}"
+        );
+    }
+}
+
+#[test]
+fn push_args_no_upstream_sets_tracking_flag() {
+    // First push to a branch with no upstream must include -u.
+    let args = ris_git::push_args("origin", "feature-branch", false);
+    assert!(
+        args.contains(&"-u".to_string()),
+        "first push must include -u to set tracking branch: {args:?}"
+    );
+}
+
+#[test]
+fn push_args_existing_upstream_omits_tracking_flag() {
+    // Subsequent push when upstream is already configured must not include -u.
+    let args = ris_git::push_args("origin", "main", true);
+    assert!(
+        !args.contains(&"-u".to_string()),
+        "push with upstream must not include -u: {args:?}"
+    );
+    assert_eq!(args, vec!["push", "origin", "main"]);
+}
+
+#[test]
+fn push_second_time_omits_set_upstream_flag() {
+    // Integration: first push sets upstream (-u), second push must not use -u.
+    if !git_available() {
+        return;
+    }
+    let tmp = tempfile::TempDir::new().unwrap();
+    let bare_path = init_bare(tmp.path(), "remote.git");
+    let workdir = tmp.path().join("work");
+    std::fs::create_dir_all(&workdir).unwrap();
+    setup_working_repo_with_commit(&workdir);
+    ris_git::add_remote(&workdir, "origin", &bare_path.to_string_lossy()).unwrap();
+
+    // First push: branch_has_upstream is false → push_args uses -u
+    ris_git::push_current_branch(&workdir, "origin").unwrap();
+    assert!(
+        ris_git::branch_has_upstream(&workdir).unwrap(),
+        "upstream should be configured after first push"
+    );
+
+    // Second push: branch_has_upstream is true → push_args omits -u → still works
+    std::fs::write(workdir.join("extra.yaml"), "extra").unwrap();
+    ris_git::commit_all(&workdir, "Extra commit").unwrap();
+    let result = ris_git::push_current_branch(&workdir, "origin");
+    assert!(result.is_ok(), "second push must succeed: {result:?}");
+}
+
+#[test]
+fn push_returns_error_on_detached_head() {
+    // Detached HEAD must produce a clear error, not an empty push.
+    if !git_available() {
+        return;
+    }
+    let tmp = tempfile::TempDir::new().unwrap();
+    let bare_path = init_bare(tmp.path(), "remote.git");
+    let workdir = tmp.path().join("work");
+    std::fs::create_dir_all(&workdir).unwrap();
+    setup_working_repo_with_commit(&workdir);
+    ris_git::add_remote(&workdir, "origin", &bare_path.to_string_lossy()).unwrap();
+    ris_git::push_current_branch(&workdir, "origin").unwrap();
+
+    // Detach HEAD by checking out the commit hash directly
+    let log_out = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(&workdir)
+        .output()
+        .unwrap();
+    let hash = String::from_utf8_lossy(&log_out.stdout).trim().to_string();
+    let detach_out = Command::new("git")
+        .args(["checkout", &hash])
+        .current_dir(&workdir)
+        .output()
+        .unwrap();
+    assert!(
+        detach_out.status.success(),
+        "git checkout (detach) failed: {}",
+        String::from_utf8_lossy(&detach_out.stderr)
+    );
+
+    let result = ris_git::push_current_branch(&workdir, "origin");
+    assert!(
+        result.is_err(),
+        "push in detached HEAD state must return an error"
+    );
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("detached") || err_msg.contains("branch"),
+        "error should mention detached HEAD or branch: {err_msg}"
+    );
+}
+
+#[test]
+fn push_invalid_remote_name_returns_error() {
+    // validate_remote_name must reject names that look like URLs.
+    if !git_available() {
+        return;
+    }
+    let tmp = tempfile::TempDir::new().unwrap();
+    ris_git::init_repository(tmp.path()).unwrap();
+    configure_identity(tmp.path());
+    std::fs::write(tmp.path().join("a.yaml"), "a").unwrap();
+    ris_git::commit_all(tmp.path(), "Initial").unwrap();
+
+    // Passing a URL as remote name must be rejected by validate_remote_name.
+    let result = ris_git::push_current_branch(tmp.path(), "git@github.com:owner/repo.git");
+    assert!(
+        matches!(result, Err(ris_git::GitError::InvalidInput(_))),
+        "URL passed as remote name must return InvalidInput: {result:?}"
+    );
+}
+
+#[test]
+fn askpass_mode_push_uses_same_remote_name_command() {
+    // Askpass mode must use the same push_args path (remote name, conditional -u),
+    // not a different code path that constructs a URL.
+    if !git_available() {
+        return;
+    }
+    let tmp = tempfile::TempDir::new().unwrap();
+    let bare_path = init_bare(tmp.path(), "remote.git");
+    let workdir = tmp.path().join("work");
+    std::fs::create_dir_all(&workdir).unwrap();
+    setup_working_repo_with_commit(&workdir);
+    let remote_url = format!("file://{}", bare_path.display());
+    ris_git::add_remote(&workdir, "origin", &remote_url).unwrap();
+
+    // First push in Askpass mode: must include -u (no upstream yet).
+    assert!(!ris_git::branch_has_upstream(&workdir).unwrap());
+    let result = ris_git::push_current_branch_with_env(
+        &workdir,
+        "origin",
+        &[],
+        ris_git::GitSecurityMode::Askpass {
+            ssh_command: "ssh".to_string(),
+        },
+    );
+    assert!(
+        result.is_ok(),
+        "askpass-mode first push must succeed: {result:?}"
+    );
+    assert!(
+        ris_git::branch_has_upstream(&workdir).unwrap(),
+        "upstream should be set after askpass-mode first push"
+    );
+
+    // Second push in Askpass mode: upstream now exists, -u is omitted.
+    std::fs::write(workdir.join("extra.yaml"), "extra").unwrap();
+    ris_git::commit_all(&workdir, "Extra commit").unwrap();
+    let result2 = ris_git::push_current_branch_with_env(
+        &workdir,
+        "origin",
+        &[],
+        ris_git::GitSecurityMode::Askpass {
+            ssh_command: "ssh".to_string(),
+        },
+    );
+    assert!(
+        result2.is_ok(),
+        "askpass-mode second push must succeed: {result2:?}"
+    );
+}
+
+// ── SSH alias classification (integration-test perspective) ───────────────────
+
+#[test]
+fn ssh_alias_remote_url_is_classified_as_ssh() {
+    // An SSH alias like ssh-alias:owner/repo.git must be classified as SSH so
+    // that askpass is enabled.  The push target remains the remote NAME "origin".
+    assert!(
+        ris_git::is_ssh_url("ssh-alias:owner/repo.git"),
+        "scp-like SSH alias must be classified as SSH"
+    );
+    assert!(
+        ris_git::is_ssh_url("my-work-host:projects/repo.git"),
+        "custom hostname alias must be classified as SSH"
+    );
+    assert!(
+        ris_git::is_ssh_url("user@custom-host:path/repo.git"),
+        "user@alias scp syntax must be classified as SSH"
+    );
+}
+
+#[test]
+fn non_ssh_remote_urls_are_not_classified_as_ssh() {
+    assert!(!ris_git::is_ssh_url("https://github.com/owner/repo.git"));
+    assert!(!ris_git::is_ssh_url("http://example.com/repo.git"));
+    assert!(!ris_git::is_ssh_url("/home/user/repo.git"));
+    assert!(!ris_git::is_ssh_url("C:\\repos\\myrepo"));
+    assert!(!ris_git::is_ssh_url("C:/repos/myrepo"));
+    assert!(!ris_git::is_ssh_url("../sibling/repo.git"));
+}

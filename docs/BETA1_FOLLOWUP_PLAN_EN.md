@@ -126,7 +126,7 @@ consistently. UI labels updated to say "Rows with at least one warning".
 
 ---
 
-## 6. Git push must use configured origin remote and preserve SSH aliases
+## 6. Git push must use configured origin remote and preserve SSH aliases ✅ IMPLEMENTED
 
 **Symptom**: A configured `origin` remote may be an SSH scp-like alias defined in
 `~/.ssh/config`, for example `origin = ssh-alias:owner/repo.git`. RIS must push
@@ -157,6 +157,21 @@ push target):
 - Recognised as SSH: `git@github.com:owner/repo.git`, `ssh://...`,
   `ssh-alias:owner/repo.git`, `user@host:path/repo.git`
 - Not SSH: `https://...`, `http://...`, local paths, Windows absolute paths
+
+**Implemented** (`fix/git-push-use-origin-remote`):
+- `push_current_branch_with_env` now calls `branch_has_upstream()` before building
+  push args: first push → `git push -u origin <branch>`, subsequent pushes →
+  `git push origin <branch>`.
+- New public helpers: `has_remote()`, `branch_has_upstream()`, `get_current_branch()`,
+  `push_args()` (the last also used for testable command-construction assertions).
+- Tauri `push_git_current_branch` and `pull_git_ff_only` both return a clear
+  "No remote named X is configured" error when the named remote does not exist
+  instead of swallowing the `list_remotes` error and attempting a doomed push.
+- `is_ssh_url("ssh-alias:owner/repo.git")` correctly returns `true` (scp-like
+  path, no `//`); new unit tests assert this explicitly.
+- SSH classification used exclusively to enable askpass — the remote URL is
+  **never** used as the push target.
+- 18 new Rust tests (unit + integration) using synthetic local repositories.
 
 ## 7. Dirty repository guard
 
