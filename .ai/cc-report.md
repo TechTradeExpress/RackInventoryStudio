@@ -1,139 +1,66 @@
-# CC Report — feat/rack-unplaced-devices-ux
+# CC Report — feat/hide-technical-code-display-names
 
 ## Branch
 
-`feat/rack-unplaced-devices-ux` — PR D from the BETA1 follow-up plan.
-
-### Review blocker fix (commit 2)
-
-**Blocker**: The inspector "Remove from rack" path called `onRemoveSuccess()` with no
-arguments. `RackDetailPanel.handleRemoveSuccess()` received no placement ID and could
-not update `recentlyUnplacedDeviceIds`, so the removed device was not prioritized in
-the palette.
-
-**Fix**: `onRemoveSuccess` signature changed to `(placementId: string) => void`.
-`PlacementInspectorPanel.executeRemove` passes `placement.id`. `handleRemoveSuccess` in
-`RackDetailPanel` looks up the placement in `detail`, appends the device ID to
-`recentlyUnplacedDeviceIds` if `target_kind === "device"`, then calls
-`refreshAfterMutation` — identical logic to the DnD path.
-
----
+`feat/hide-technical-code-display-names` — PR E from the BETA1 follow-up plan.
 
 ## Summary
 
-Implemented rack diagram unplaced devices UX improvements (Plan item 11):
-
-1. **Persistent unplace drop target** — a dedicated `unplace-drop-zone` element is always
-   rendered in the palette panel with a visible dashed border and "↩ Drop here to remove
-   from rack" copy. Available even when the unplaced list is empty.
-
-2. **Non-DnD unplace action** — "Remove placement…" in `PlacementInspectorPanel` renamed to
-   "Remove from rack" with neutral (non-danger) button styling. Confirm dialog copy updated
-   to clarify the device is not deleted — it returns to the unplaced list.
-
-3. **Palette cap (max 6)** — `PlacementPalettePanel` shows at most 6 unplaced devices.
-   When there are more, an overflow indicator shows "Showing 6 of N unplaced devices"
-   with a "Show all" button. Rack object models are not capped.
-
-4. **Session recency ordering** — `RackDetailPanel` maintains a `recentlyUnplacedDeviceIds`
-   list (appended on each unplace, reset on rack navigation). Passed to the palette to sort
-   the most recently unplaced device first in the visible 6.
-
----
+Hid technical `code` fields from all user-facing UI and changed device code generation to produce opaque random identifiers (`dev-XXXXXXXX`) instead of sequential predictable ones (`device-01`). CSV device import no longer accepts or uses a `code` column — codes are always auto-generated.
 
 ## Files changed
 
-| File | Change |
-|---|---|
-| `apps/desktop/src/features/racks/PlacementPalettePanel.tsx` | Persistent drop zone, 6-item cap, Show all, recency sort |
-| `apps/desktop/src/features/racks/PlacementInspectorPanel.tsx` | Rename "Remove placement" → "Remove from rack", neutral styling, updated confirm copy; `onRemoveSuccess` now passes `placementId` |
-| `apps/desktop/src/features/racks/RackDetailPanel.tsx` | Track `recentlyUnplacedDeviceIds`; both DnD and inspector unplace paths now update it via `handleRemoveSuccess(placementId)` |
-| `apps/desktop/src/features/racks/PlacementPalettePanel.test.tsx` | Fully rewritten: 19 tests (persistent zone, drop, cap, Show all, recency, DnD) |
-| `apps/desktop/src/features/racks/PlacementInspectorPanel.test.tsx` | New: 6 tests including assertion that `onRemoveSuccess` is called with the placement ID |
-| `apps/desktop/src/features/racks/RackDetailPanel.test.tsx` | New: 2 integration tests — inspector unplace updates recency; rack_object removal does not pollute device recency |
-| `docs/BETA1_FOLLOWUP_PLAN_EN.md` | Item 11 marked implemented; PR table updated |
+**Rust backend:**
+- `crates/ris-application/src/session.rs` — `generate_device_code()` now produces `dev-XXXXXXXX` (UUID v4-derived 8-char hex); CSV import passes `code: None` to always trigger auto-generation
+- `crates/ris-import/src/csv_reader.rs` — removed `"code"` from `KNOWN_COLUMNS`; removed `code` field from `CsvDeviceRowRaw`; CSV with a `code` column now triggers VAL-CSV-002 warning
+- `crates/ris-import/src/validator.rs` — removed VAL-CSV-004/005/006 validators (code format/duplicate/exists); removed `dup_codes` computation; removed `CODE_RE` regex
+- `crates/ris-import/src/preview.rs` — removed `code: Option<String>` from `CsvDeviceImportPreviewRow`
+- `crates/ris-import/Cargo.toml` — removed now-unused `regex = "1"` dependency
+- `apps/desktop/src-tauri/src/dto.rs` — removed `code` from `CsvImportPreviewRowDto`
+- `apps/desktop/src-tauri/src/commands/repository.rs` — removed `code` from DTO mapping; removed `code` column from `DEVICE_IMPORT_SAMPLE_CSV`
 
----
+**Frontend TypeScript:**
+- `apps/desktop/src/api/tauriClient.ts` — removed `code` from `CsvImportPreviewRowDto` interface
+- `apps/desktop/src/features/csvImport/csvSample.ts` — removed `code` column from sample CSV
+- `apps/desktop/src/features/csvImport/CsvImportPanel.tsx` — removed Code column from preview table; updated schema panel; updated placeholder and help copy
+- `apps/desktop/src/features/devices/DevicesPanel.tsx` — removed Code column; Name is now primary bold column with "Unnamed device" fallback; model shown by name
+- `apps/desktop/src/features/deviceModels/DeviceModelsPanel.tsx` — removed Code column; Name is now primary
+- `apps/desktop/src/features/locations/LocationsPanel.tsx` — removed Code column; Name is now primary
+- `apps/desktop/src/features/racks/RacksPanel.tsx` — removed Code column; Name is now primary; location subtitle uses name only
+- `apps/desktop/src/features/racks/PlacementPalettePanel.tsx` — palette card shows `name ?? "Unnamed device"` instead of `code`
+- `apps/desktop/src/features/racks/RackUnitDiagram.tsx` — renamed "Code / SN" column to "Serial"; column now shows only serial number
+- `apps/desktop/src/features/racks/PlacementInspectorPanel.tsx` — removed "Code" and "Target code" KV rows; confirm dialog uses target name
 
-## Recency ordering decision
+**Docs:**
+- `docs/BETA1_FOLLOWUP_PLAN_EN.md` — marked item 10 / PR E as Implemented
 
-**Implemented via frontend session state.** `DeviceDto` has no timestamp fields, so
-backend ordering cannot determine recency. `RackDetailPanel` tracks a
-`recentlyUnplacedDeviceIds: string[]` state (most recently unplaced = last element).
-When a device placement is removed, the device's `target_id` is looked up in the current
-`detail` state and appended. The list is reset on rack navigation. The palette sorts
-recently unplaced devices to the front of the visible 6. Devices with no recency signal
-retain stable backend order. No schema changes were made.
-
----
+**Tests updated:**
+- `crates/ris-import/tests/csv_import_tests.rs` — removed VAL-CSV-004/005/006 tests; added `code_column_triggers_val_csv_002_warning_and_does_not_block_import`; fixed tests using bad code format to use invalid device_type instead
+- `crates/ris-application/tests/application_tests.rs` — updated code-prefix assertion; replaced existing-code rejection test; updated VALID_CSV; import tests verify by serial instead of code
+- `crates/ris-application/tests/mvp_smoke_tests.rs` — updated CSV sections; verify imported devices by name/id
+- `apps/desktop/src/features/csvImport/csvSample.test.tsx` — updated EXPECTED_HEADERS; updated column count and index checks
+- `apps/desktop/src/features/csvImport/csvImportSummary.test.ts` — removed `code` from test fixture
+- `apps/desktop/src/features/racks/RackUnitDiagram.test.tsx` — updated column header test to expect "Serial"
 
 ## Tests
 
-```
-cargo fmt --all --check              — OK
-cargo check --workspace              — OK (0 warnings)
-cargo test --workspace               — all Rust tests passed
-cargo clippy --workspace -D warnings — 0 errors, 0 warnings
-tsc --noEmit                         — OK (0 errors)
-vitest run                           — 493 passed (38 test files, +3 new/updated)
-git diff --check                     — OK
-node check-version-consistency.mjs   — OK (all 0.1.0-beta.1)
-node --test scripts/*.test.mjs       — 17 passed, 0 failed
-node check-repo-hygiene.mjs          — 8 checks passed
-```
-
-New test files:
-- `PlacementInspectorPanel.test.tsx` (6 tests; asserts `onRemoveSuccess` called with ID)
-- `RackDetailPanel.test.tsx` (2 integration tests: inspector unplace → recency; rack_object does not affect device recency)
-
-Updated: `PlacementPalettePanel.test.tsx` (19 tests; drop tests migrated to `unplace-drop-zone`).
-
----
-
-## Manual QA checklist
-
-1. Open a repository with a rack and at least one placed device.
-2. Open the rack detail view.
-3. **Confirm unplace drop zone is always visible** — even with zero unplaced devices,
-   the dashed "↩ Drop here to remove from rack" box should appear in the palette panel.
-4. Drag a placed device card to the drop zone.
-5. Confirm the device is removed from the rack diagram and appears in the unplaced list.
-6. Repeat with only one or two unplaced devices — confirm the drop zone stays large and
-   easy to target.
-7. Click a placed device to select it (blue → inspector opens on the right).
-8. Click "Remove from rack" in the inspector panel.
-9. Confirm a dialog appears saying the device returns to the unplaced list.
-10. Confirm the action and verify the device is removed from the rack but not deleted
-    (it should appear in the unplaced list, not be gone entirely).
-11. Add more than 6 unplaced devices (place, then unplace several).
-12. Confirm the palette shows exactly 6 and the overflow indicator "Showing 6 of N" appears.
-13. Click "Show all" and confirm all devices are visible.
-14. Drag a device from the palette into a rack slot — confirm normal placement still works.
-15. Unplace a device and confirm it appears first in the visible 6 (recency ordering).
-
----
+- `cargo test -p ris-import` → **43 passed, 0 failed**
+- `cargo test -p ris-application` → **175+ passed across all test suites, 0 failed**
+- `cargo build` (Tauri) → **clean**
+- `npx vitest run` → **493 passed, 0 failed** (38 files)
+- `npx tsc --noEmit` → **0 errors**
 
 ## Risks
 
-- Recency is session-only. If the user navigates away and returns, recently unplaced
-  devices will revert to stable backend order. This is intentional and documented.
-- "Show all" has no collapse mechanism. If the user clicks "Show all" and the list grows
-  very long, the panel may become tall. A future improvement could add "Show less".
-- The "Remove from rack" inspector button has a confirm dialog. The DnD path does not.
-  This is an intentional design difference: DnD is an explicit drag gesture;
-  clicking a button is more easily accidental.
-
----
+- Devices created before this PR have sequential `device-XX` codes. Those codes are preserved unchanged (no migration). The new `dev-XXXXXXXX` format applies only to newly created devices.
+- Existing CSVs with a `code` column will trigger a VAL-CSV-002 warning; import still proceeds and codes are ignored. This is intentionally non-breaking.
+- "Unnamed device" fallback appears where name is blank. Users previously identified by code will need to assign a name.
 
 ## Not done
 
-- Custom NSIS template for exact vendor-prefixed install path (PR G).
-- Hide technical `code` from UI (PR E).
-- Dirty repository guard (PR F).
-- "Show less" collapse for the expanded palette list.
-
----
+- No migration of existing device codes to opaque format (intentional — codes are stable internal identifiers)
+- `code` is still present in API DTOs for devices/racks/locations/models — only hidden from display, not removed from the data layer
 
 ## Suggested next step
 
-Merge PR D and implement PR E (Hide technical `code` from UI; device/model display names).
+Implement PR F (Dirty repository guard) — warn users when closing or switching repos with unsaved changes.

@@ -145,9 +145,9 @@ fn mvp_smoke_full_workflow() {
 
     // ── 7. Preview valid CSV (2 new devices) ──────────────────────────────────
     let csv = concat!(
-        "code,device_type,status,name\n",
-        "smoke-csv-01,server,in_stock,Smoke CSV Server 01\n",
-        "smoke-csv-02,network,planned,Smoke CSV Switch 01\n",
+        "device_type,status,name\n",
+        "server,in_stock,Smoke CSV Server 01\n",
+        "network,planned,Smoke CSV Switch 01\n",
     );
     let preview = session.preview_devices_csv(csv);
     assert_eq!(preview.rows.len(), 2);
@@ -163,15 +163,20 @@ fn mvp_smoke_full_workflow() {
     let import_result = session.import_devices_csv(csv).unwrap();
     assert_eq!(import_result.created_count, 2);
     assert_eq!(session.list_devices().len(), initial_devices + 3);
-    assert!(session.index.get_device_by_code("smoke-csv-01").is_some());
-    assert!(session.index.get_device_by_code("smoke-csv-02").is_some());
-    // imported devices are unplaced
+    // Codes are auto-generated; verify by name instead
     let csv01_id = session
-        .index
-        .get_device_by_code("smoke-csv-01")
-        .unwrap()
-        .id
-        .clone();
+        .data
+        .devices
+        .iter()
+        .find(|d| d.name.as_deref() == Some("Smoke CSV Server 01"))
+        .map(|d| d.id.clone())
+        .expect("CSV server 01 must exist");
+    assert!(session
+        .data
+        .devices
+        .iter()
+        .any(|d| d.name.as_deref() == Some("Smoke CSV Switch 01")));
+    // imported devices are unplaced
     assert!(session
         .get_unplaced_devices()
         .iter()
@@ -321,8 +326,9 @@ fn mvp_smoke_full_workflow() {
         .is_some());
     assert!(s2.index.get_device_model_by_code("smoke-patch").is_some());
     assert!(s2.index.get_device_by_code("smoke-srv-01").is_some());
-    assert!(s2.index.get_device_by_code("smoke-csv-01").is_some());
-    assert!(s2.index.get_device_by_code("smoke-csv-02").is_some());
+    // CSV-imported devices have auto-generated codes; verify by name
+    assert!(s2.data.devices.iter().any(|d| d.name.as_deref() == Some("Smoke CSV Server 01")));
+    assert!(s2.data.devices.iter().any(|d| d.name.as_deref() == Some("Smoke CSV Switch 01")));
 
     // placement state persists:
     // front: 1 (patch), rear: 1 (srv-01 at U1)
@@ -346,13 +352,12 @@ fn mvp_smoke_full_workflow() {
         "removed placement must not reappear after reload"
     );
 
-    // csv-01 device is still present but unplaced
-    assert!(s2.index.get_device_by_code("smoke-csv-01").is_some());
-    let csv01_dev = s2.index.get_device_by_code("smoke-csv-01").unwrap();
+    // csv-01 device is still present but unplaced (identified by the saved id)
+    assert!(s2.data.devices.iter().any(|d| d.id == csv01_id));
     let unplaced2: Vec<_> = s2.get_unplaced_devices();
     assert!(
-        unplaced2.iter().any(|d| d.id == csv01_dev.id),
-        "smoke-csv-01 should be unplaced after reload"
+        unplaced2.iter().any(|d| d.id == csv01_id),
+        "csv server 01 should be unplaced after reload"
     );
 }
 

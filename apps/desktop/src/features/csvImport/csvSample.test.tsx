@@ -28,7 +28,6 @@ describe("SAMPLE_CSV_FILENAME", () => {
 // ── content ───────────────────────────────────────────────────────────────────
 
 const EXPECTED_HEADERS = [
-  "code",
   "device_type",
   "name",
   "device_model_code",
@@ -62,7 +61,7 @@ describe("SAMPLE_CSV_CONTENT", () => {
   });
 
   it("all data rows have the correct number of columns", () => {
-    // Quick check: each non-empty row should have 8 commas (9 fields)
+    // Quick check: each non-empty row should have 7 commas (8 fields, no code column)
     for (const line of lines.slice(1)) {
       // Count top-level commas (not inside quotes)
       let commas = 0;
@@ -71,14 +70,14 @@ describe("SAMPLE_CSV_CONTENT", () => {
         if (ch === '"') inQuotes = !inQuotes;
         else if (ch === "," && !inQuotes) commas++;
       }
-      expect(commas).toBe(8);
+      expect(commas).toBe(7);
     }
   });
 
   it("data rows use valid device types (not rack_object)", () => {
     const validTypes = new Set(["server", "network", "storage", "ups", "appliance", "other"]);
     for (const line of lines.slice(1)) {
-      const deviceType = line.split(",")[1];
+      const deviceType = line.split(",")[0];
       expect(validTypes.has(deviceType)).toBe(true);
     }
   });
@@ -88,7 +87,7 @@ describe("SAMPLE_CSV_CONTENT", () => {
       "planned", "in_stock", "installed", "to_remove", "removed", "disposed", "unknown",
     ]);
     for (const line of lines.slice(1)) {
-      const status = line.split(",")[7];
+      const status = line.split(",")[6];
       expect(validStatuses.has(status)).toBe(true);
     }
   });

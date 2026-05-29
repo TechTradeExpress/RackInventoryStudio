@@ -640,7 +640,7 @@ fn add_device_save_reload_preserves_device() {
 #[test]
 fn csv_preview_valid_row_returns_create_action() {
     let session = open_repository(&fixture("valid-repository")).unwrap();
-    let csv = "code,device_type,status,name\nnew-srv-01,server,in_stock,New Server\n";
+    let csv = "device_type,status,name\nserver,in_stock,New Server\n";
     let preview = session.preview_devices_csv(csv);
     assert_eq!(preview.rows.len(), 1);
     assert_eq!(preview.rows[0].action, CsvRowAction::Create);
@@ -648,13 +648,13 @@ fn csv_preview_valid_row_returns_create_action() {
 }
 
 #[test]
-fn csv_preview_existing_code_returns_error() {
+fn csv_preview_duplicate_serial_returns_error() {
+    // duplicate serial number in CSV triggers VAL-CSV-015 ERROR
     let session = open_repository(&fixture("valid-repository")).unwrap();
-    // srv-01 already exists in the repository
-    let csv = "code,device_type,status,name\nsrv-01,server,in_stock,Duplicate\n";
+    let csv = "device_type,status,serial_number\nserver,in_stock,SN-DUPE\nserver,in_stock,SN-DUPE\n";
     let preview = session.preview_devices_csv(csv);
-    assert_eq!(preview.rows.len(), 1);
-    assert_eq!(preview.rows[0].action, CsvRowAction::SkipDueToError);
+    assert_eq!(preview.rows.len(), 2);
+    assert!(preview.rows.iter().any(|r| r.action == CsvRowAction::SkipDueToError));
 }
 
 #[test]
@@ -1027,8 +1027,8 @@ fn add_device_without_code_generates_unique_code() {
     let device = session.index.devices_by_id.get(&id).unwrap();
     assert!(!device.code.is_empty(), "generated code must be non-empty");
     assert!(
-        device.code.starts_with("device-"),
-        "generated device code should start with 'device-'"
+        device.code.starts_with("dev-"),
+        "generated device code should start with 'dev-'"
     );
 }
 
@@ -2470,9 +2470,9 @@ fn placement_counts_after_cross_rack_move() {
 
 // ── import_devices_csv ────────────────────────────────────────────────────────
 
-const VALID_CSV: &str = "code,device_type,status,name,serial_number\n\
-srv-import-01,server,in_stock,Import Server One,SN-IMP-001\n\
-srv-import-02,server,planned,Import Server Two,SN-IMP-002\n";
+const VALID_CSV: &str = "device_type,status,name,serial_number\n\
+server,in_stock,Import Server One,SN-IMP-001\n\
+server,planned,Import Server Two,SN-IMP-002\n";
 
 const INVALID_CSV_MISSING_HEADER: &str = "code,status,name\nsrv-x,in_stock,No Type\n";
 
@@ -2486,8 +2486,12 @@ fn import_devices_csv_valid_creates_devices() {
     let result = session.import_devices_csv(VALID_CSV).unwrap();
     assert_eq!(result.created_count, 2);
     assert_eq!(session.data.devices.len(), before + 2);
-    assert!(session.index.get_device_by_code("srv-import-01").is_some());
-    assert!(session.index.get_device_by_code("srv-import-02").is_some());
+    // Codes are auto-generated (dev-XXXXXXXX format); verify by serial number instead.
+    assert!(session.data.devices.iter().any(|d| d.serial_number.as_deref() == Some("SN-IMP-001")));
+    assert!(session.data.devices.iter().any(|d| d.serial_number.as_deref() == Some("SN-IMP-002")));
+    // Auto-generated codes must start with "dev-"
+    let new_devices: Vec<_> = session.data.devices.iter().skip(before).collect();
+    assert!(new_devices.iter().all(|d| d.code.starts_with("dev-")));
 }
 
 #[test]
@@ -2499,8 +2503,8 @@ fn import_devices_csv_save_reload_persists_devices() {
     session.import_devices_csv(VALID_CSV).unwrap();
     session.save().unwrap();
     let reloaded = open_repository(&dst).unwrap();
-    assert!(reloaded.index.get_device_by_code("srv-import-01").is_some());
-    assert!(reloaded.index.get_device_by_code("srv-import-02").is_some());
+    assert!(reloaded.data.devices.iter().any(|d| d.serial_number.as_deref() == Some("SN-IMP-001")));
+    assert!(reloaded.data.devices.iter().any(|d| d.serial_number.as_deref() == Some("SN-IMP-002")));
 }
 
 #[test]
@@ -2540,14 +2544,19 @@ fn import_devices_csv_rejects_error_row() {
 }
 
 #[test]
-fn import_devices_csv_rejects_existing_code() {
+fn import_devices_csv_ignores_code_column_and_creates_device() {
+    // The "code" column is now unknown; its value is ignored and a new code is auto-generated.
+    // A CSV that previously would have been rejected due to duplicate code now succeeds.
     let mut session = open_repository(&fixture("valid-repository")).unwrap();
-    // srv-01 already exists in the fixture
-    let csv = "code,device_type,status,name\nsrv-01,server,in_stock,Dup\n";
+    let csv = "code,device_type,status,name\nsrv-01,server,in_stock,Imported With Old Code\n";
     let before = session.data.devices.len();
-    let err = session.import_devices_csv(csv).unwrap_err();
-    assert!(err.to_string().contains("errors"), "{err}");
-    assert_eq!(session.data.devices.len(), before);
+    let result = session.import_devices_csv(csv).unwrap();
+    assert_eq!(result.created_count, 1);
+    assert_eq!(session.data.devices.len(), before + 1);
+    // The newly created device has an auto-generated code, not "srv-01"
+    let new_dev = session.data.devices.last().unwrap();
+    assert_ne!(new_dev.code, "srv-01");
+    assert!(new_dev.code.starts_with("dev-"));
 }
 
 #[test]

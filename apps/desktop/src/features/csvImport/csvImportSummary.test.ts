@@ -8,7 +8,6 @@ function makeRow(
 ): CsvImportPreviewRowDto {
   return {
     row_number: 1,
-    code: "dev-001",
     device_type: "server",
     name: null,
     device_model_code: null,

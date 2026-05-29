@@ -373,6 +373,6 @@ The remaining follow-up items are grouped into five PRs for focused review:
 |---|---|---|---|
 | C | Windows installer polish and ProgramData logs | Item 9 | Implemented |
 | D | Rack diagram unplaced devices UX | Item 11 | Implemented |
-| E | Hide technical `code` from UI; device/model display names | Item 10 | Planned |
+| E | Hide technical `code` from UI; device/model display names | Item 10 | Implemented |
 | F | Dirty repository guard | Item 7 | Planned |
 | G | Release/signing/versioning hardening (custom NSIS path, code signing) | — | Planned |

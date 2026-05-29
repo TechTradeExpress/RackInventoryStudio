@@ -48,10 +48,10 @@ describe("RackUnitDiagram — column layout", () => {
     expect(screen.getByTestId("diagram-col-name").textContent?.trim()).toBe("Name");
   });
 
-  it('has "Model" and "Code / SN" column headers', () => {
+  it('has "Model" and "Serial" column headers', () => {
     render(<RackUnitDiagram {...BASE_PROPS} />);
     expect(screen.getByTestId("diagram-col-model").textContent?.trim()).toBe("Model");
-    expect(screen.getByTestId("diagram-col-code").textContent?.includes("Code")).toBe(true);
+    expect(screen.getByTestId("diagram-col-code").textContent?.trim()).toBe("Serial");
   });
 
   it('has an "Asset tag" column header', () => {
