@@ -216,7 +216,7 @@ pub fn push_git_current_branch(
         });
 
     if let Some(ref env) = askpass_env {
-        askpass.clear_session(env.session_id, &app);
+        askpass.clear_session(&env.session_id, &app);
     }
 
     result?;
@@ -301,7 +301,7 @@ pub fn pull_git_ff_only(
         });
 
     if let Some(ref env) = askpass_env {
-        askpass.clear_session(env.session_id, &app);
+        askpass.clear_session(&env.session_id, &app);
     }
 
     pull_result?;
@@ -350,11 +350,11 @@ pub fn pull_git_ff_only(
 /// so the frontend can show a friendly "request expired, retry Push" message.
 #[tauri::command]
 pub fn respond_ssh_passphrase(
-    session_id: u64,
+    session_id: String,
     passphrase: Option<String>,
     askpass: State<AskpassState>,
 ) -> Result<(), String> {
-    askpass.respond(session_id, passphrase)
+    askpass.respond(&session_id, passphrase)
 }
 
 /// Return SSH diagnostics for the currently open repository and specified remote.

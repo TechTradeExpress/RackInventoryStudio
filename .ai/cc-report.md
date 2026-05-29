@@ -19,6 +19,20 @@ Two separate fixes on this branch:
      session
    - Increasing the user timeout from 60 s to 120 s
 
+3. **session_id string-safety fix (review blocker)** — `session_id` was a Rust
+   `u64` serialised as a JSON number, which is unsafe: JavaScript `number` has
+   only 53 bits of integer precision so a random 64-bit session id can be silently
+   rounded, causing valid passphrase submissions to be rejected as stale.
+   Fixed by transporting `session_id` as a hex string (`String` in Rust,
+   `string` in TypeScript) end-to-end.
+
+4. **Modal state reset on sessionId change (review blocker)** — The modal reset
+   passphrase/error/pending only when `open` changed.  If a second askpass
+   request arrived while the modal was still open (new `sessionId`), the
+   previously-typed passphrase could remain and be submitted to the new session.
+   Fixed by adding `sessionId` to the `useEffect` dependency array and adding a
+   separate effect to clear `passphrase` when `expired` becomes `true`.
+
 ---
 
 ## Part 1 — Git push remote fix
@@ -72,19 +86,36 @@ a fresh session and a stale one.
 | No session_id correlation | `SshPassphraseRequestedPayload { session_id, prompt }` emitted; `respond_ssh_passphrase` command validates `session_id` match |
 | Session expiry not signalled to frontend | `ssh-passphrase-session-ended` event emitted by `clear_session` and on timeout |
 | Short timeout on slow machines | `USER_TIMEOUT_SECS`: 60 → 120 |
+| session_id unsafe as JS number | `session_id` changed to hex string end-to-end |
+| Old passphrase survives session change | `useEffect` deps include `sessionId`; separate effect clears passphrase on `expired` |
 
-### Files changed (Part 2)
+### Files changed (Parts 2–4)
 
 | File | Change |
 |---|---|
 | `apps/desktop/src/app.css` | `.modal-backdrop` z-index 200 → 600 |
-| `apps/desktop/src-tauri/src/ssh_askpass.rs` | Timeout 60→120 s; `SshPassphraseRequestedPayload` / `SshPassphraseSessionEndedPayload` structs; `respond` validates `session_id`; `clear_session_inner` extracted for testability; `clear_session` emits session-ended event; `handle_askpass_connection` emits session-ended on timeout/cancel; `run_askpass_server` passes `own_session_id` to handler |
-| `apps/desktop/src-tauri/src/commands/git.rs` | `respond_ssh_passphrase` command accepts `session_id`; both `start_session` calls use `app.clone()` so `clear_session(&app)` compiles; `clear_session` now takes `&AppHandle` |
-| `apps/desktop/src/api/tauriClient.ts` | `SshPassphraseRequestedPayload` / `SshPassphraseSessionEndedPayload` types; `respondSshPassphrase` passes `session_id` |
-| `apps/desktop/src/features/repository/SshPassphraseModal.tsx` | New `sessionId` + `expired` props; friendly expiry message in footer; "Close" replaces "Cancel" when expired; no submit button when expired; no passphrase input when expired |
-| `apps/desktop/src/App.tsx` | `askpassSession` state shape `{ prompt, sessionId, expired }`; `ssh-passphrase-requested` listener uses structured payload; new `ssh-passphrase-session-ended` listener sets `expired: true` on matching session; `SshPassphraseModal` receives `sessionId` and `expired` |
-| `apps/desktop/src/features/repository/SshPassphraseModal.test.tsx` | All tests updated with `sessionId`/`expired` props; 5 new tests for expired session behavior |
-| `apps/desktop/src-tauri/src/ssh_askpass.rs` (tests) | Fixed old `respond`/`clear_session` test calls; 4 new session_id correlation tests: `respond_fails_when_no_session`, `respond_fails_with_wrong_session_id`, `respond_succeeds_with_correct_session_id`, `respond_cancel_with_correct_session_id`, `clear_session_inner_wrong_id_does_not_clear` |
+| `apps/desktop/src-tauri/src/ssh_askpass.rs` | Timeout 60→120 s; all `session_id` fields changed to `String`; `generate_session_id()` returns 16-char hex string; `respond` takes `&str`; `clear_session`/`clear_session_inner` take `&str`; TCP server thread receives owned `String`; payload structs serialise `session_id` as string |
+| `apps/desktop/src-tauri/src/commands/git.rs` | `respond_ssh_passphrase` accepts `session_id: String`; `clear_session` calls pass `&env.session_id` |
+| `apps/desktop/src/api/tauriClient.ts` | `session_id: string` in both payload types; `respondSshPassphrase` parameter `sessionId: string` |
+| `apps/desktop/src/features/repository/SshPassphraseModal.tsx` | `sessionId: string` prop; `useEffect` on `[open, sessionId]` resets state on session change; new effect clears passphrase when `expired` becomes true |
+| `apps/desktop/src/App.tsx` | `sessionId: string` in state shape; fallback `""` instead of `0` |
+| `apps/desktop/src/features/repository/SshPassphraseModal.test.tsx` | All `sessionId` values are hex strings; `respondSshPassphrase` assertions verify string arg; 2 new tests: `clears passphrase when sessionId changes while open`, `clears passphrase when expired changes to true` |
+| `apps/desktop/src-tauri/src/ssh_askpass.rs` (tests) | All `session_id` literals are hex strings; `respond`/`clear_session_inner` calls use `&str`; 2 new tests: `generate_session_id_is_16_hex_chars`, `generate_session_id_is_unique`; 1 regression test: `respond_high_entropy_session_id_is_not_truncated` (uses `ffffffffffffffff`, which exceeds `Number.MAX_SAFE_INTEGER`) |
+
+### Why session_id is now string-safe
+
+`u64::MAX` is `18446744073709551615`, which exceeds JavaScript's
+`Number.MAX_SAFE_INTEGER` (`9007199254740991` = 2^53−1).  A random 64-bit value
+has a ~99.9989% chance of exceeding the safe integer range.  When Tauri
+serialised the `u64` as a JSON number and the JS engine parsed it, the value
+could be rounded to the nearest representable float, producing a different
+integer.  The rounded value sent back to Rust via `respond_ssh_passphrase` would
+never match the stored session id, causing every passphrase submission to be
+rejected as stale.
+
+The fix generates the session id as 16 lowercase hex chars (e.g. `a3f9...`),
+serialises it as a JSON string, and compares with string equality throughout.
+No precision is lost at any boundary.
 
 ### Security properties preserved
 
@@ -93,7 +124,7 @@ a fresh session and a stale one.
 - IPC bound to 127.0.0.1 only.
 - Per-operation random token; expires after one use.
 - Attempt limit (3) prevents passphrase-loop attacks.
-- Hook suppression and askpass hardening (SSH_ASKPASS_REQUIRE=force) unchanged.
+- Hook suppression and askpass hardening (`SSH_ASKPASS_REQUIRE=force`) unchanged.
 - Push still uses the configured remote name, never a constructed URL.
 
 ---
@@ -101,12 +132,12 @@ a fresh session and a stale one.
 ## Tests
 
 ```
-cargo test (apps/desktop/src-tauri)  — 57 passed, 0 failed
-cargo test (crates/ris-git)          — 38 passed, 0 failed
+cargo test (apps/desktop/src-tauri)  — 60 passed, 0 failed
+cargo test (crates/ris-git)          — 85 passed, 0 failed
 cargo clippy -- -D warnings          — 0 errors, 0 warnings
 cargo check                          — OK
-tsc --noEmit                         — OK
-vitest run                           — 466 passed (35 test files)
+tsc --noEmit                         — OK (0 errors)
+vitest run                           — 468 passed (35 test files)
 ```
 
 ## Risks
@@ -118,7 +149,7 @@ vitest run                           — 466 passed (35 test files)
   `session_id` from the event payload.  If the frontend re-renders and loses the
   session state before the user submits, the modal will show the expiry message
   on the next attempt.  This is expected behavior; the user can retry Push.
-- `clear_session` now emits a Tauri event.  If the app is shutting down during a
+- `clear_session` emits a Tauri event.  If the app is shutting down during a
   push, the emit may fail silently (`.ok()` discards the error), which is safe.
 
 ## Not done

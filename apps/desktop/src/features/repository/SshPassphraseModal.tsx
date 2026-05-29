@@ -7,8 +7,12 @@ export interface SshPassphraseModalProps {
   open: boolean;
   /** The prompt string from OpenSSH (sanitized by the backend). */
   prompt: string;
-  /** Session ID from the `ssh-passphrase-requested` event. Must be sent back with the response. */
-  sessionId: number;
+  /**
+   * Session ID from the `ssh-passphrase-requested` event, as a hex string.
+   * Must be sent back with the response.  Kept as string to avoid JS number
+   * precision loss (random u64 values exceed Number.MAX_SAFE_INTEGER).
+   */
+  sessionId: string;
   /**
    * When true the backend session has already ended (timeout while modal was
    * open, or push completed).  The modal disables submit and shows a friendly
@@ -31,16 +35,25 @@ export function SshPassphraseModal({
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Reset state whenever the modal opens.
+  // Reset state whenever the modal opens or a new session starts (new sessionId).
+  // Resetting on sessionId change prevents a passphrase typed for a previous
+  // session from being submitted to a replacement session.
   useEffect(() => {
     if (open) {
       setPassphrase("");
       setError(null);
       setPending(false);
-      // Defer focus so the portal is mounted.
       setTimeout(() => inputRef.current?.focus(), 50);
     }
-  }, [open]);
+  }, [open, sessionId]);
+
+  // Clear the passphrase when the session expires so it cannot be accidentally
+  // submitted after the backend has already moved on.
+  useEffect(() => {
+    if (expired) {
+      setPassphrase("");
+    }
+  }, [expired]);
 
   async function submit() {
     if (pending || expired) return;

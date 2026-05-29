@@ -87,7 +87,7 @@ export function App() {
 
   const [askpassSession, setAskpassSession] = useState<{
     prompt: string;
-    sessionId: number;
+    sessionId: string;
     expired: boolean;
   } | null>(null);
 
@@ -540,7 +540,7 @@ export function App() {
       <SshPassphraseModal
         open={askpassSession !== null}
         prompt={askpassSession?.prompt ?? ""}
-        sessionId={askpassSession?.sessionId ?? 0}
+        sessionId={askpassSession?.sessionId ?? ""}
         expired={askpassSession?.expired ?? false}
         onDismiss={() => setAskpassSession(null)}
       />

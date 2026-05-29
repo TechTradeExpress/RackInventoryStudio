@@ -512,20 +512,22 @@ export interface SshDiagnosticsDto {
 
 /** Payload received when OpenSSH requests a passphrase. */
 export interface SshPassphraseRequestedPayload {
-  session_id: number;
+  /** Hex string (16 chars). Kept as string to avoid JS number precision loss on large u64 values. */
+  session_id: string;
   prompt: string;
 }
 
 /** Payload received when the active askpass session ends (timeout or push completion). */
 export interface SshPassphraseSessionEndedPayload {
-  session_id: number;
+  /** Hex string (16 chars). Matches the session_id from the corresponding requested payload. */
+  session_id: string;
 }
 
 /**
  * Deliver the user's passphrase (or null to cancel) to the waiting askpass session.
  * `sessionId` must match the session_id from the `ssh-passphrase-requested` event.
  */
-export function respondSshPassphrase(passphrase: string | null, sessionId: number): Promise<void> {
+export function respondSshPassphrase(passphrase: string | null, sessionId: string): Promise<void> {
   return invoke("respond_ssh_passphrase", { passphrase, session_id: sessionId });
 }
 

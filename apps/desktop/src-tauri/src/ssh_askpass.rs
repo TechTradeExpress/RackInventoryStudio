@@ -54,16 +54,20 @@ pub struct AskpassState {
 }
 
 struct AskpassInner {
-    session_id: u64,
+    session_id: String,
     tx: std::sync::mpsc::SyncSender<Option<String>>,
     attempts: u32,
     cancelled: Arc<AtomicBool>,
 }
 
 /// Payload emitted to the frontend when OpenSSH requests a passphrase.
+///
+/// `session_id` is a hex string so it round-trips through JSON without the
+/// precision loss that would occur if a random `u64` were transported as a
+/// JavaScript `number` (which has only 53 bits of integer precision).
 #[derive(serde::Serialize, Clone)]
 pub struct SshPassphraseRequestedPayload {
-    pub session_id: u64,
+    pub session_id: String,
     pub prompt: String,
 }
 
@@ -71,7 +75,7 @@ pub struct SshPassphraseRequestedPayload {
 /// response (timeout, cancel, or push completion while modal is open).
 #[derive(serde::Serialize, Clone)]
 pub struct SshPassphraseSessionEndedPayload {
-    pub session_id: u64,
+    pub session_id: String,
 }
 
 /// Environment variables to set on the git subprocess to enable askpass.
@@ -79,7 +83,7 @@ pub struct AskpassEnv {
     pub binary_path: String,
     pub port: u16,
     pub token: String,
-    pub session_id: u64,
+    pub session_id: String,
 }
 
 impl AskpassState {
@@ -123,7 +127,7 @@ impl AskpassState {
                 old.tx.try_send(None).ok();
             }
             *guard = Some(AskpassInner {
-                session_id,
+                session_id: session_id.clone(),
                 tx,
                 attempts: 0,
                 cancelled: Arc::clone(&cancelled),
@@ -132,6 +136,7 @@ impl AskpassState {
 
         let inner_arc = Arc::clone(&self.inner);
         let token_for_thread = token.clone();
+        let session_id_for_thread = session_id.clone();
         let cancelled_for_thread = Arc::clone(&cancelled);
         log::info!(
             "askpass: session {} started on port {} (token generated, not logged)",
@@ -146,7 +151,7 @@ impl AskpassState {
                 rx,
                 app,
                 inner_arc,
-                session_id,
+                session_id_for_thread,
                 cancelled_for_thread,
             );
         });
@@ -165,7 +170,7 @@ impl AskpassState {
     /// from a previously expired session) returns a typed error so the frontend
     /// can show a friendly "request expired, retry Push" message rather than a
     /// confusing raw error string.
-    pub fn respond(&self, session_id: u64, passphrase: Option<String>) -> Result<(), String> {
+    pub fn respond(&self, session_id: &str, passphrase: Option<String>) -> Result<(), String> {
         let guard = self.inner.lock().unwrap();
         match guard.as_ref() {
             Some(inner) => {
@@ -207,11 +212,13 @@ impl AskpassState {
     /// clearing a newer session that started after the previous one expired.
     /// Emits `ssh-passphrase-session-ended` so the frontend can close any
     /// still-open passphrase modal gracefully.
-    pub fn clear_session(&self, session_id: u64, app: &AppHandle) {
+    pub fn clear_session(&self, session_id: &str, app: &AppHandle) {
         if self.clear_session_inner(session_id) {
             app.emit(
                 "ssh-passphrase-session-ended",
-                &SshPassphraseSessionEndedPayload { session_id },
+                &SshPassphraseSessionEndedPayload {
+                    session_id: session_id.to_string(),
+                },
             )
             .ok();
         }
@@ -220,7 +227,7 @@ impl AskpassState {
     /// State-only session teardown (no Tauri event).  Used internally and in tests
     /// where an `AppHandle` is not available.  Returns `true` if the session was
     /// actually present and cleared.
-    fn clear_session_inner(&self, session_id: u64) -> bool {
+    fn clear_session_inner(&self, session_id: &str) -> bool {
         let mut guard = self.inner.lock().unwrap();
         if guard.as_ref().is_some_and(|i| i.session_id == session_id) {
             if let Some(ref inner) = *guard {
@@ -244,10 +251,15 @@ fn generate_token() -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn generate_session_id() -> u64 {
+/// Generate a session id as a hex string (16 hex chars from 8 random bytes).
+///
+/// Represented as a string so the full 64 bits of entropy survive the JSON
+/// boundary into JavaScript without the precision loss of `number` (which
+/// has only 53 bits of integer precision).
+fn generate_session_id() -> String {
     let mut bytes = [0u8; 8];
     getrandom::getrandom(&mut bytes).expect("OS CSPRNG unavailable");
-    u64::from_ne_bytes(bytes)
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 // ── TCP server (background thread) ───────────────────────────────────────────
@@ -258,7 +270,7 @@ fn run_askpass_server(
     rx: std::sync::mpsc::Receiver<Option<String>>,
     app: AppHandle,
     state: Arc<Mutex<Option<AskpassInner>>>,
-    own_session_id: u64,
+    own_session_id: String,
     cancelled: Arc<AtomicBool>,
 ) {
     listener.set_nonblocking(true).ok();
@@ -299,7 +311,7 @@ fn run_askpass_server(
 
     if let Some(stream) = stream {
         if let Err(e) =
-            handle_askpass_connection(stream, &expected_token, &rx, &app, &state, own_session_id)
+            handle_askpass_connection(stream, &expected_token, &rx, &app, &state, &own_session_id)
         {
             // Redact: never log passphrase. Log only structural errors.
             log::warn!(
@@ -329,7 +341,7 @@ fn handle_askpass_connection(
     rx: &std::sync::mpsc::Receiver<Option<String>>,
     app: &AppHandle,
     state: &Arc<Mutex<Option<AskpassInner>>>,
-    session_id: u64,
+    session_id: &str,
 ) -> Result<(), String> {
     stream.set_read_timeout(Some(Duration::from_secs(10))).ok();
     stream.set_write_timeout(Some(Duration::from_secs(10))).ok();
@@ -386,7 +398,7 @@ fn handle_askpass_connection(
     // The payload includes session_id so the frontend can correlate the
     // response and handle session expiry correctly.
     let payload = SshPassphraseRequestedPayload {
-        session_id,
+        session_id: session_id.to_string(),
         prompt: safe_prompt,
     };
     if let Err(e) = app.emit("ssh-passphrase-requested", &payload) {
@@ -424,7 +436,9 @@ fn handle_askpass_connection(
         // leaving it open with a stale session.
         app.emit(
             "ssh-passphrase-session-ended",
-            &SshPassphraseSessionEndedPayload { session_id },
+            &SshPassphraseSessionEndedPayload {
+                session_id: session_id.to_string(),
+            },
         )
         .ok();
         log::info!(
@@ -897,12 +911,29 @@ mod tests {
     }
 
     #[test]
+    fn generate_session_id_is_16_hex_chars() {
+        let id = generate_session_id();
+        assert_eq!(id.len(), 16, "session id should be 16 hex chars (64 bits)");
+        assert!(
+            id.chars().all(|c| c.is_ascii_hexdigit()),
+            "session id should be hex: {id}"
+        );
+    }
+
+    #[test]
+    fn generate_session_id_is_unique() {
+        let a = generate_session_id();
+        let b = generate_session_id();
+        assert_ne!(a, b, "session ids should be unique");
+    }
+
+    #[test]
     fn build_askpass_env_pairs_contains_required_keys() {
         let env = AskpassEnv {
             binary_path: "/usr/bin/myapp".to_string(),
             port: 12345,
             token: "abc123".to_string(),
-            session_id: 1,
+            session_id: "0000000000000001".to_string(),
         };
         let pairs = build_askpass_env_pairs(&env);
         let keys: Vec<&str> = pairs.iter().map(|(k, _)| k.as_str()).collect();
@@ -919,7 +950,7 @@ mod tests {
             binary_path: "/usr/bin/myapp".to_string(),
             port: 12345,
             token: "abc123".to_string(),
-            session_id: 1,
+            session_id: "0000000000000001".to_string(),
         };
         let pairs = build_askpass_env_pairs(&env);
         // No pair key or value should be named "passphrase" or "password".
@@ -945,7 +976,7 @@ mod tests {
     #[test]
     fn respond_fails_when_no_session() {
         let state = AskpassState::new();
-        let result = state.respond(1, Some("secret".to_string()));
+        let result = state.respond("aabbccddeeff0011", Some("secret".to_string()));
         assert!(result.is_err());
         assert!(
             result.unwrap_err().contains("expired"),
@@ -960,18 +991,42 @@ mod tests {
         {
             let mut guard = state.inner.lock().unwrap();
             *guard = Some(AskpassInner {
-                session_id: 42,
+                session_id: "aabbccdd11223344".to_string(),
                 tx,
                 attempts: 0,
                 cancelled: Arc::new(AtomicBool::new(false)),
             });
         }
-        let result = state.respond(99, Some("secret".to_string()));
+        let result = state.respond("deadbeefcafebabe", Some("secret".to_string()));
         assert!(result.is_err());
         assert!(
             result.unwrap_err().contains("expired"),
             "wrong session_id should return expiry message"
         );
+    }
+
+    /// Regression: a high-entropy hex session id (that would be unrepresentable
+    /// as a JS number) round-trips through string comparison without precision loss.
+    #[test]
+    fn respond_high_entropy_session_id_is_not_truncated() {
+        let (tx, rx) = std::sync::mpsc::sync_channel::<Option<String>>(1);
+        let state = AskpassState::new();
+        // This value exceeds Number.MAX_SAFE_INTEGER (2^53-1) — it would be rounded
+        // if transported as a JS number.
+        let high_entropy_id = "ffffffffffffffff".to_string();
+        {
+            let mut guard = state.inner.lock().unwrap();
+            *guard = Some(AskpassInner {
+                session_id: high_entropy_id.clone(),
+                tx,
+                attempts: 0,
+                cancelled: Arc::new(AtomicBool::new(false)),
+            });
+        }
+        let result = state.respond(&high_entropy_id, Some("passphrase".to_string()));
+        assert!(result.is_ok(), "high-entropy session id must match exactly");
+        let received = rx.recv_timeout(std::time::Duration::from_millis(100));
+        assert_eq!(received.unwrap(), Some("passphrase".to_string()));
     }
 
     #[test]
@@ -981,13 +1036,13 @@ mod tests {
         {
             let mut guard = state.inner.lock().unwrap();
             *guard = Some(AskpassInner {
-                session_id: 42,
+                session_id: "0102030405060708".to_string(),
                 tx,
                 attempts: 0,
                 cancelled: Arc::new(AtomicBool::new(false)),
             });
         }
-        let result = state.respond(42, Some("correct-passphrase".to_string()));
+        let result = state.respond("0102030405060708", Some("correct-passphrase".to_string()));
         assert!(result.is_ok());
         let received = rx.recv_timeout(std::time::Duration::from_millis(100));
         assert_eq!(received.unwrap(), Some("correct-passphrase".to_string()));
@@ -1000,13 +1055,13 @@ mod tests {
         {
             let mut guard = state.inner.lock().unwrap();
             *guard = Some(AskpassInner {
-                session_id: 7,
+                session_id: "0706050403020100".to_string(),
                 tx,
                 attempts: 0,
                 cancelled: Arc::new(AtomicBool::new(false)),
             });
         }
-        let result = state.respond(7, None);
+        let result = state.respond("0706050403020100", None);
         assert!(result.is_ok());
         let received = rx.recv_timeout(std::time::Duration::from_millis(100));
         assert_eq!(received.unwrap(), None);
@@ -1016,9 +1071,9 @@ mod tests {
     fn askpass_session_lifecycle_no_session() {
         let state = AskpassState::new();
         assert!(state.inner.lock().unwrap().is_none());
-        assert!(state.respond(0, None).is_err());
+        assert!(state.respond("0000000000000000", None).is_err());
         // clear_session_inner is a no-op when no session exists
-        assert!(!state.clear_session_inner(0));
+        assert!(!state.clear_session_inner("0000000000000000"));
         assert!(state.inner.lock().unwrap().is_none());
     }
 
@@ -1029,20 +1084,20 @@ mod tests {
         {
             let mut guard = state.inner.lock().unwrap();
             *guard = Some(AskpassInner {
-                session_id: 42,
+                session_id: "aabbccddeeff0011".to_string(),
                 tx,
                 attempts: 0,
                 cancelled: Arc::new(AtomicBool::new(false)),
             });
         }
         // Wrong session_id — should be a no-op.
-        assert!(!state.clear_session_inner(99));
+        assert!(!state.clear_session_inner("1122334455667788"));
         assert!(
             state.inner.lock().unwrap().is_some(),
             "session should still exist after wrong id"
         );
         // Correct session_id — should clear.
-        assert!(state.clear_session_inner(42));
+        assert!(state.clear_session_inner("aabbccddeeff0011"));
         assert!(
             state.inner.lock().unwrap().is_none(),
             "session should be cleared after correct id"
