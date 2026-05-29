@@ -179,7 +179,111 @@ push target):
 uncommitted local changes, those changes are silently retained in the working tree
 but the user receives no warning and may forget about them.
 
-**Plan**: Check `git status --porcelain` before any operation that changes the
-active repository (open, close, create new). If the working tree is dirty, present
-a modal: commit now / discard changes / cancel. Implement as a reusable hook so the
-guard can be applied consistently from all entry points.
+**Plan**:
+- Check `git status --porcelain` before any operation that changes the active
+  repository (open, close, create new).
+- If the working tree is dirty, present a modal: commit now / discard changes /
+  cancel. Let the user explicitly choose; never silently discard.
+- Implement as a reusable hook so the guard can be applied consistently from all
+  entry points.
+- Prefer also showing a visual dirty-state indicator in the Git panel (e.g. an
+  icon or badge) so users can see outstanding changes before triggering an
+  operation.
+
+---
+
+## 8. GitHub Actions maintenance
+
+**Symptom**: The Windows Installer workflow (`windows-installer.yml`) generates
+Node.js 20 deprecation warnings on every run. GitHub has deprecated Node.js 20
+as an action runtime in favour of Node.js 24.
+
+**Root cause**: `actions/upload-artifact@v4` uses the `node20` runtime. All other
+actions in the workflow already use `node24` (checkout@v5+, setup-node@v6,
+pnpm/action-setup@v6, Swatinem/rust-cache@v2.9+).
+
+**Plan**:
+- Review all files under `.github/workflows/` whenever a new major version of an
+  action is released.
+- Upgrade actions to the current supported non-deprecated major version.
+- Prefer official action upgrades (newer major from the same publisher).
+- Keep equivalent behaviour; do not remove steps or weaken checks.
+- Verify the Windows Installer build completes and produces a valid installer
+  artifact after any upgrade.
+
+**Implemented** (`maint/followup-plan-and-actions-runtime`):
+- `actions/upload-artifact@v4` → `@v7` (Node.js 20 → Node.js 24; fixes the
+  deprecation warning in the Windows Installer workflow).
+- `actions/checkout@v5` → `@v6` across both workflow files (latest stable major;
+  v5 already used Node.js 24, so no runtime change — purely a version currency
+  upgrade).
+- `Swatinem/rust-cache@v2` remains at v2; no v3 exists as of this writing.
+  `v2.9.1` already uses `node24` internally — no deprecation risk.
+- `raven-actions/actionlint@v2` is a composite action with no Node.js runtime;
+  no upgrade required.
+
+---
+
+## 9. Windows installer polish
+
+**Goal**: Make the Windows installer behave like a professionally packaged
+application with correct default paths and a visible app icon.
+
+**Plan**:
+
+- **Application / installer icon**: Add the app icon to the NSIS installer
+  package and to the installed `.exe` file, if supported by the current Tauri
+  packaging setup. Verify icon appears in Add/Remove Programs and on the Desktop
+  shortcut (if created).
+
+- **Default installation directory**: Change the default NSIS installation
+  prefix to:
+  `C:\Program Files\TechTradeExpress\RackInventoryStudio`
+  (instead of the generic Tauri default). Consistent vendor-prefixed path avoids
+  collisions and matches Windows conventions for per-machine software.
+
+- **Default logs directory**: Set the application's default logs directory to:
+  `C:\ProgramData\TechTradeExpress\RackInventoryStudio\logs`
+  **Do not** place writable log files under `Program Files`; standard Windows
+  non-admin users do not have write permission there. `ProgramData` is writable
+  by all users and is the conventional location for per-machine app data.
+
+- **Settings UI**: The Settings panel must show the effective logs path (default
+  or user-overridden).
+
+- **Open logs folder**: The "Open logs folder" button must open the effective
+  logs directory in Windows Explorer, including the ProgramData path when using
+  defaults.
+
+- **Reset to defaults**: "Reset to defaults" for the logs path must restore the
+  ProgramData path, not the old default.
+
+---
+
+## 10. Hide technical `code` from user-facing UI
+
+**Goal**: Remove the internal `code` field from all normal user-facing surfaces.
+Users should interact with records by name, not by machine-generated codes.
+
+**Background**: `code` is a stable, immutable, auto-generated identifier (e.g.
+`device-01`, `rack-03`) used internally to reference records in git-tracked JSON
+and CSV exports. It was never intended as a primary display label.
+
+**Plan**:
+
+- Keep `code` as the stable internal identifier in project data, CSV export/import,
+  API contracts, and all internal logic (lookups, links, placement references).
+- Use `name` as the primary user-facing label everywhere.
+- `name` does not have to be unique; only `code` must be unique per type.
+- All internal actions (drag-and-drop, placement, import matching) must continue
+  to use `code`, never `name`, as the stable key.
+- Hide `code` from: rack diagrams, device tables, location lists, detail/inspector
+  panels, tooltips, validation error messages, CSV import summaries, and any other
+  normal user-facing text.
+- If a record has no `name` set, show a neutral fallback label rather than
+  exposing the technical code:
+  - `Unnamed device` (not `device-07`)
+  - `Unnamed rack` (not `rack-02`)
+  - `Unnamed location` (not `location-01`)
+- Add regression tests in the implementation PR to assert that `code` values do
+  not appear in main user-facing view snapshots or rendered output.
