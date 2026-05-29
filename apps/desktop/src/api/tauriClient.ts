@@ -528,7 +528,7 @@ export interface SshPassphraseSessionEndedPayload {
  * `sessionId` must match the session_id from the `ssh-passphrase-requested` event.
  */
 export function respondSshPassphrase(passphrase: string | null, sessionId: string): Promise<void> {
-  return invoke("respond_ssh_passphrase", { passphrase, session_id: sessionId });
+  return invoke("respond_ssh_passphrase", { passphrase, sessionId });
 }
 
 /** Fetch SSH diagnostics for the currently open repository and optionally a specific remote. */

@@ -2,7 +2,7 @@
 
 ## Summary
 
-Five separate fixes on this branch:
+Six separate fixes on this branch:
 
 1. **Git push remote fix** — Push now uses the configured remote name and never
    adds a redundant `-u` when an upstream is already set.  Missing remote returns
@@ -34,6 +34,20 @@ Five separate fixes on this branch:
    separate effect to clear `passphrase` when `expired` becomes `true`.
 
 5. **Async push/pull for WebView event delivery (manual QA blocker)** —
+   (see Part 3 below)
+
+6. **Tauri invoke argument naming fix (manual QA result)** —
+   After the async fix the modal appeared correctly, but clicking Continue showed:
+   `invalid args \`sessionId\` for command \`respond_ssh_passphrase\`: missing required key sessionId`.
+   The `respondSshPassphrase` wrapper in `tauriClient.ts` called
+   `invoke("respond_ssh_passphrase", { passphrase, session_id: sessionId })`.
+   Tauri v2 maps Rust `session_id` → camelCase `sessionId` for command argument
+   binding, so the snake_case key was rejected.  Fixed by changing the payload
+   key to `sessionId`.  A new direct test for the API wrapper ensures this
+   cannot silently regress (higher-level modal tests mock `respondSshPassphrase`
+   entirely and would not catch the wrong key).
+
+(earlier items 5 details):
    On Windows WebView2, synchronous Tauri commands hold the IPC dispatch loop.
    Events emitted by the askpass TCP-server thread during a blocking
    `push_git_current_branch` call were never delivered to JavaScript until the
@@ -186,6 +200,57 @@ Care taken:
 | `apps/desktop/src/App.tsx` | Added `logInfo` diagnostics for `ssh-passphrase-requested` and `ssh-passphrase-session-ended` event receipt |
 | `apps/desktop/src/features/repository/SshPassphraseModal.tsx` | Added `console.log` for modal-active and modal-expired to aid manual QA tracing |
 
+---
+
+## Part 4 — Tauri invoke argument naming fix
+
+### Root cause
+
+Manual QA confirmed the modal appeared quickly after the async fix, but
+clicking **Continue** showed:
+
+```
+invalid args `sessionId` for command `respond_ssh_passphrase`:
+command respond_ssh_passphrase missing required key sessionId
+```
+
+`tauriClient.ts` called:
+```ts
+invoke("respond_ssh_passphrase", { passphrase, session_id: sessionId })
+```
+
+Tauri v2 maps Rust parameter names to camelCase for IPC argument binding.
+`session_id` (Rust) becomes `sessionId` (expected JS key).  Sending
+`session_id` instead caused the command to see a missing required argument.
+
+### Fix
+
+One-line change in `tauriClient.ts`:
+```ts
+// Before
+invoke("respond_ssh_passphrase", { passphrase, session_id: sessionId })
+// After
+invoke("respond_ssh_passphrase", { passphrase, sessionId })
+```
+
+Event payload fields (`SshPassphraseRequestedPayload.session_id`,
+`SshPassphraseSessionEndedPayload.session_id`) are untouched — event
+payloads are serialised directly from Rust structs and use `session_id`
+by design; only command invocation arguments use camelCase.
+
+### Why existing tests did not catch this
+
+Modal-level tests mock `respondSshPassphrase` entirely, so they never
+exercise the underlying `invoke` call.  A new direct test for the API
+wrapper layer was added to catch any future regression at the correct level.
+
+### Files changed (Part 4)
+
+| File | Change |
+|---|---|
+| `apps/desktop/src/api/tauriClient.ts` | `invoke` payload key `session_id` → `sessionId` |
+| `apps/desktop/src/api/tauriClient.respondSshPassphrase.test.ts` | New: 3 direct tests verifying camelCase key, null cancel path, high-entropy session id |
+
 ### Manual QA checklist
 
 To verify the fix on Windows:
@@ -211,13 +276,12 @@ To verify the fix on Windows:
 ## Tests
 
 ```
-cargo test (apps/desktop/src-tauri)  — 60 passed, 0 failed
-cargo test (crates/ris-git)          — 85 passed, 0 failed
-cargo clippy -- -D warnings          — 0 errors, 0 warnings
-cargo check                          — OK
+cargo fmt --all --check              — OK (no changes)
+cargo check --workspace              — OK
+cargo test --workspace               — 60+85+... passed, 0 failed
+cargo clippy --workspace -D warnings — 0 errors, 0 warnings
 tsc --noEmit                         — OK (0 errors)
-vitest run                           — 468 passed (35 test files)
-rustfmt --edition 2021               — no changes required
+vitest run                           — 471 passed (36 test files, +3 new)
 ```
 
 ## Risks
@@ -243,12 +307,16 @@ rustfmt --edition 2021               — no changes required
 - Dirty repository guard (tracked as follow-up item 7).
 - Playwright test coverage for SSH passphrase flow (requires a real SSH server;
   not feasible in the E2E harness).
-- Manual QA on a real Windows machine (async fix is structurally correct but
-  needs physical verification on WebView2).
+- Full end-to-end manual QA on Windows still required (see checklist in Part 3).
+  The async fix and argument naming fix are both in place; the correct
+  passphrase should now complete a push successfully.
 
 ## Suggested next step
 
-Trigger the Windows Installer builder on this branch and perform manual QA of
-the SSH passphrase flow using the checklist in Part 3 above.  Verify the modal
-appears above the busy overlay immediately (within ~1 s of clicking Push) and
-that a correct passphrase completes the push successfully.
+Build a new Windows installer from this branch and repeat manual QA using the
+checklist in Part 3 above.  The invoke argument bug is now fixed, so a correct
+passphrase should complete the push without error.  Verify:
+1. Modal appears quickly (within ~1 s of clicking Push).
+2. Correct passphrase → push succeeds, modal closes.
+3. Cancel → push aborts promptly.
+4. Wrong passphrase × 3 → SSH auth error, modal closes.
