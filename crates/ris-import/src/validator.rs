@@ -8,14 +8,6 @@ use crate::preview::{
     CsvDeviceImportPreview, CsvDeviceImportPreviewRow, CsvImportSummary, CsvRowAction,
 };
 
-// ── regex ────────────────────────────────────────────────────────────────────
-
-static CODE_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-
-fn code_re() -> &'static regex::Regex {
-    CODE_RE.get_or_init(|| regex::Regex::new(r"^[a-z0-9][a-z0-9._-]*$").unwrap())
-}
-
 // ── issue helpers ─────────────────────────────────────────────────────────────
 
 fn csv_file_issue(code: &str, level: ValidationLevel, message: &str) -> ValidationIssue {
@@ -100,52 +92,12 @@ fn find_duplicates<'a>(values: impl Iterator<Item = &'a str>) -> HashSet<String>
 fn validate_row(
     raw: &CsvDeviceRowRaw,
     context: &CsvImportContext,
-    dup_codes: &HashSet<String>,
     dup_serials: &HashSet<String>,
     dup_asset_tags: &HashSet<String>,
     dup_external_refs: &HashSet<String>,
 ) -> CsvDeviceImportPreviewRow {
     let row = raw.row_number;
     let mut issues: Vec<ValidationIssue> = Vec::new();
-
-    // Code is now optional; when present, validate format and uniqueness.
-    if let Some(code_val) = raw.code.as_deref() {
-        // VAL-CSV-004: code format
-        if !code_re().is_match(code_val) {
-            issues.push(csv_row_issue(
-                "VAL-CSV-004",
-                ValidationLevel::Error,
-                &format!(
-                    "code '{}' does not match required format ^[a-z0-9][a-z0-9._-]*$",
-                    code_val
-                ),
-                row,
-                "code",
-            ));
-        }
-
-        // VAL-CSV-005: duplicate code in CSV
-        if dup_codes.contains(code_val) {
-            issues.push(csv_row_issue(
-                "VAL-CSV-005",
-                ValidationLevel::Error,
-                &format!("code '{}' appears more than once in the CSV", code_val),
-                row,
-                "code",
-            ));
-        }
-
-        // VAL-CSV-006: code already exists in repository
-        if context.has_device_code(code_val) {
-            issues.push(csv_row_issue(
-                "VAL-CSV-006",
-                ValidationLevel::Error,
-                &format!("code '{}' already exists in the repository", code_val),
-                row,
-                "code",
-            ));
-        }
-    }
 
     // VAL-CSV-007: at least one of name, serial_number, asset_tag, external_ref
     let has_name = raw.name.is_some();
@@ -378,7 +330,6 @@ fn validate_row(
 
     CsvDeviceImportPreviewRow {
         row_number: raw.row_number,
-        code: raw.code.clone(),
         device_type: raw.device_type.clone(),
         name: raw.name.clone(),
         device_model_code: raw.device_model_code.clone(),
@@ -466,7 +417,6 @@ pub fn preview_csv_import(csv_content: &str, context: &CsvImportContext) -> CsvD
 
     // ── pre-scan for in-CSV duplicates ────────────────────────────────────────
 
-    let dup_codes = find_duplicates(parsed.rows.iter().filter_map(|r| r.code.as_deref()));
     let dup_serials = find_duplicates(
         parsed
             .rows
@@ -486,7 +436,6 @@ pub fn preview_csv_import(csv_content: &str, context: &CsvImportContext) -> CsvD
             validate_row(
                 raw,
                 context,
-                &dup_codes,
                 &dup_serials,
                 &dup_asset_tags,
                 &dup_external_refs,

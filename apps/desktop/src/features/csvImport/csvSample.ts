@@ -16,15 +16,16 @@ function csvRow(fields: string[]): string {
 }
 
 // Columns mirror KNOWN_COLUMNS / REQUIRED_COLUMNS in crates/ris-import/src/csv_reader.rs.
-// Required: code, device_type, status
+// Required: device_type, status
 // Optional: name, device_model_code, serial_number, asset_tag, external_ref, tags
+// Codes are auto-generated; a "code" column is not supported and will trigger a warning.
 // Tags use ";" as separator. rack_object is not a valid device_type for CSV import.
 const SAMPLE_ROWS: string[][] = [
-  ["code", "device_type", "name", "device_model_code", "serial_number", "asset_tag", "external_ref", "status", "tags"],
-  ["srv-demo-01", "server",  "Demo Server 1",       "", "SN-DEMO-001", "ASSET-DEMO-001", "REF-DEMO-001", "in_stock", "production"],
-  ["srv-demo-02", "server",  "Demo Server 2",       "", "SN-DEMO-002", "",              "",             "planned",  "staging"],
-  ["sw-demo-01",  "network", "Demo Switch 1",       "", "",            "",              "",             "in_stock", "access;switch"],
-  ["device-demo-01", "other", "Demo Other Device",  "", "",            "",              "",             "unknown",  ""],
+  ["device_type", "name", "device_model_code", "serial_number", "asset_tag", "external_ref", "status", "tags"],
+  ["server",  "Demo Server 1",       "", "SN-DEMO-001", "ASSET-DEMO-001", "REF-DEMO-001", "in_stock", "production"],
+  ["server",  "Demo Server 2",       "", "SN-DEMO-002", "",              "",             "planned",  "staging"],
+  ["network", "Demo Switch 1",       "", "",            "",              "",             "in_stock", "access;switch"],
+  ["other",   "Demo Other Device",   "", "",            "",              "",             "unknown",  ""],
 ];
 
 export const SAMPLE_CSV_CONTENT: string =
