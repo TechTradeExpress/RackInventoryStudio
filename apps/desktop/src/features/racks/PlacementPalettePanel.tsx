@@ -203,10 +203,10 @@ export function PlacementPalettePanel({
                     writeDragData(e.dataTransfer, encodeDndPayload(payload));
                   }}
                   onDragEnd={() => setActiveDragPayload(null)}
-                  title={`Drag to place ${d.code}${modelHeight ? ` (${modelHeight}U)` : ""}`}
+                  title={`Drag to place ${d.name ?? d.code}${modelHeight ? ` (${modelHeight}U)` : ""}`}
                 >
                   <span className="pc-drag">⠿</span>
-                  <span className="pc-name">{d.code}</span>
+                  <span className="pc-name">{d.name ?? "Unnamed device"}</span>
                   {modelHeight ? (
                     <span className="pc-meta">{modelHeight}U</span>
                   ) : (
@@ -216,8 +216,8 @@ export function PlacementPalettePanel({
                     className="btn btn-sm"
                     type="button"
                     style={{ marginLeft: "auto" }}
-                    title={`Place ${d.code}…`}
-                    aria-label={`Place ${d.code}`}
+                    title={`Place ${d.name ?? d.code}…`}
+                    aria-label={`Place ${d.name ?? d.code}`}
                     data-testid={`place-btn-device-${d.id}`}
                     onClick={() => onPlaceDevice(d.id)}
                   >

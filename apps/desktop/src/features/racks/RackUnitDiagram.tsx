@@ -239,7 +239,7 @@ export function RackUnitDiagram({
             >
               <div style={headerCell(2, 100)} data-testid="diagram-col-name">Name</div>
               <div style={headerCell(1, 80)} data-testid="diagram-col-model">Model</div>
-              <div style={headerCell(1, 80)} data-testid="diagram-col-code">Code / SN</div>
+              <div style={headerCell(1, 80)} data-testid="diagram-col-code">Serial</div>
               <div style={{ ...headerCell(1, 80), borderRight: "none" }} data-testid="diagram-col-asset">Asset tag</div>
             </div>
 
@@ -261,10 +261,7 @@ export function RackUnitDiagram({
                 const hoveredInvalid = isInRange(startU) && hovered !== null && !hovered.valid;
 
                 const modelLabel = label.model ?? "—";
-                const codeLabel =
-                  p.target_code ??
-                  (p.target_serial ? `SN: ${p.target_serial}` : null) ??
-                  "—";
+                const codeLabel = p.target_serial ?? "—";
                 const assetLabel = p.target_asset_tag ?? "—";
 
                 return (

@@ -171,7 +171,7 @@ export function RacksPanel({
     if (!destRack) return false;
     setPendingNavigation({
       placementId,
-      message: `Moved to rack ${destRack.code} in memory. Use Save to persist changes.`,
+      message: `Moved to rack ${destRack.name ?? destRack.code} in memory. Use Save to persist changes.`,
     });
     setRecentlyNavigatedRackId(destRack.id);
     onSelectRack(destRack);
@@ -192,7 +192,7 @@ export function RacksPanel({
 
   function handleSaved() {
     handleRepositoryMutated();
-    const label = editingRack ? editingRack.code : "Rack";
+    const label = editingRack ? (editingRack.name ?? editingRack.code) : "Rack";
     setSuccessMsg(editingRack ? `"${label}" updated.` : "Rack added.");
   }
 
@@ -251,13 +251,13 @@ export function RacksPanel({
   // Location-scoped list view
   const visibleRacks = racks.filter((r) => r.location_id === selectedLocation.id);
 
-  const locationLabel = `${selectedLocation.code} — ${selectedLocation.name}`;
+  const locationLabel = selectedLocation.name;
 
   return (
     <>
       <PageHeader
         title="Racks"
-        subtitle={`Racks in ${selectedLocation.name} (${selectedLocation.code})`}
+        subtitle={`Racks in ${selectedLocation.name}`}
         actions={
           <button className="btn btn-primary" onClick={openAdd}>
             <IcPlus size={12} /> Add rack
@@ -294,7 +294,6 @@ export function RacksPanel({
             <table className="tbl">
               <thead>
                 <tr>
-                  <th className="tbl-mono">Code</th>
                   <th>Name</th>
                   <th className="tbl-mono">Row</th>
                   <th className="tbl-num">Height</th>
@@ -320,10 +319,9 @@ export function RacksPanel({
                       className={`tbl-clickable${isNavHighlight ? " tbl-selected" : ""}`}
                       onClick={() => handleRowClick(rack)}
                     >
-                      <td className="tbl-mono">
-                        <strong>{rack.code}</strong>
+                      <td>
+                        <strong>{rack.name ?? rack.code}</strong>
                       </td>
-                      <td>{rack.name}</td>
                       <td className="tbl-mono">{rack.row ?? "—"}</td>
                       <td className="tbl-num tbl-mono">{rack.height_u}U</td>
                       <td>

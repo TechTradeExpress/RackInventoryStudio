@@ -72,7 +72,7 @@ export function LocationsPanel({
       const updated = await listLocations();
       setLocations(updated);
       onRepositoryMutated();
-      const label = editingLocation ? editingLocation.code : "Location";
+      const label = editingLocation ? editingLocation.name : "Location";
       setSuccessMsg(editingLocation ? `"${label}" updated.` : "Location added.");
     } catch (e) {
       setError(String(e));
@@ -134,7 +134,6 @@ export function LocationsPanel({
             <table className="tbl">
               <thead>
                 <tr>
-                  <th className="tbl-mono">Code</th>
                   <th>Name</th>
                   <th>Address</th>
                   <th>Description</th>
@@ -164,8 +163,7 @@ export function LocationsPanel({
                       onManageRacks?.(loc);
                     }}
                   >
-                    <td className="tbl-mono"><strong>{loc.code}</strong></td>
-                    <td>{loc.name}</td>
+                    <td><strong>{loc.name}</strong></td>
                     <td>{loc.address ?? <span style={{ color: "var(--tx-4)" }}>—</span>}</td>
                     <td style={{ color: "var(--tx-3)" }}>{loc.description ?? "—"}</td>
                     <td className="tbl-num tbl-mono">{loc.rack_count}</td>
