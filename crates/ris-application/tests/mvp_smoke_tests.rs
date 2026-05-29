@@ -327,8 +327,16 @@ fn mvp_smoke_full_workflow() {
     assert!(s2.index.get_device_model_by_code("smoke-patch").is_some());
     assert!(s2.index.get_device_by_code("smoke-srv-01").is_some());
     // CSV-imported devices have auto-generated codes; verify by name
-    assert!(s2.data.devices.iter().any(|d| d.name.as_deref() == Some("Smoke CSV Server 01")));
-    assert!(s2.data.devices.iter().any(|d| d.name.as_deref() == Some("Smoke CSV Switch 01")));
+    assert!(s2
+        .data
+        .devices
+        .iter()
+        .any(|d| d.name.as_deref() == Some("Smoke CSV Server 01")));
+    assert!(s2
+        .data
+        .devices
+        .iter()
+        .any(|d| d.name.as_deref() == Some("Smoke CSV Switch 01")));
 
     // placement state persists:
     // front: 1 (patch), rear: 1 (srv-01 at U1)

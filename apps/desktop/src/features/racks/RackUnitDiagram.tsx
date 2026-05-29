@@ -339,11 +339,11 @@ export function RackUnitDiagram({
               if (state.kind === "incomplete") {
                 const p = state.placement;
                 const isSelected = p.id === selectedPlacementId;
-                const codeLabel = p.target_code ?? p.code;
+                const nameLabel = p.target_name?.trim() || (p.target_kind === "device" ? "Unnamed device" : "Unnamed object");
                 return (
                   <div
                     key={idx}
-                    title={p.code}
+                    title={nameLabel}
                     style={{
                       display: "flex",
                       height: ROW_H,
@@ -357,10 +357,10 @@ export function RackUnitDiagram({
                     onClick={() => onSelectPlacement(p)}
                   >
                     <div style={{ ...contentCell(2, 100), justifyContent: "flex-start" }}>
-                      ⚠ {p.target_name ?? codeLabel}
+                      ⚠ {nameLabel}
                     </div>
                     <div style={contentCell(1, 80)}>—</div>
-                    <div style={contentCell(1, 80)}>{codeLabel}</div>
+                    <div style={contentCell(1, 80)}>{p.target_serial ?? "—"}</div>
                     <div style={contentCell(1, 80, { borderRight: "none" })}>—</div>
                   </div>
                 );

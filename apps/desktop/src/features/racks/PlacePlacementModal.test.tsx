@@ -151,8 +151,11 @@ describe("PlacePlacementModal — open", () => {
   it("renders with rack/side/startU context in subtitle", () => {
     render(<PlacePlacementModal {...BASE_PROPS} />);
     expect(screen.getByText("Place equipment")).toBeTruthy();
-    expect(screen.getByText(/rack-a01/)).toBeTruthy();
+    // subtitle shows rack name, not rack code
+    expect(screen.getByText(/Rack A01/)).toBeTruthy();
     expect(screen.getByText(/Front/)).toBeTruthy();
+    // rack code must not appear in subtitle
+    expect(screen.queryByText(/rack-a01/)).toBeNull();
   });
 
   it("pre-fills start U from prop", () => {

@@ -271,7 +271,7 @@ export function PlacePlacementModal({
         title="Place equipment"
         subtitle={
           <>
-            {rack.code} · {side === "front" ? "Front" : "Rear"} side
+            {rack.name?.trim() || "Unnamed rack"} · {side === "front" ? "Front" : "Rear"} side
           </>
         }
         onClose={createDeviceOpen || createRackObjectOpen || editDeviceOpen || editRackObjectOpen ? undefined : onClose}
@@ -352,8 +352,7 @@ export function PlacePlacementModal({
                   <option value="">— select —</option>
                   {localDevices.map((d) => (
                     <option key={d.id} value={d.id}>
-                      {d.code}
-                      {d.name ? ` — ${d.name}` : ""}
+                      {d.name?.trim() || "Unnamed device"}
                     </option>
                   ))}
                 </select>
@@ -398,7 +397,7 @@ export function PlacePlacementModal({
                   <option value="">— select —</option>
                   {localRackObjects.map((m) => (
                     <option key={m.id} value={m.id}>
-                      {m.code} — {m.name} ({m.default_height_u}U)
+                      {m.name?.trim() || "Unnamed model"} ({m.default_height_u}U)
                     </option>
                   ))}
                 </select>

@@ -158,3 +158,66 @@ describe("RacksPanel — with location context", () => {
     });
   });
 });
+
+// ── Code-leakage regression ────────────────────────────────────────────────────
+
+describe("RacksPanel — code leakage regression", () => {
+  it("does not render rack code or location code in the rack list", async () => {
+    const { listRacks } = await import("../../api/tauriClient");
+    vi.mocked(listRacks).mockResolvedValueOnce([
+      {
+        id: "rack-secret",
+        code: "rack-secret-code-789",
+        name: "Visible Rack",
+        location_id: "loc-1",
+        location_code: "location-secret-code-999",
+        height_u: 42,
+        row: null,
+        description: null,
+        tags: [],
+        front_placement_count: 0,
+        rear_placement_count: 0,
+        placement_count: 0,
+        front_used_u: 0,
+        rear_used_u: 0,
+      },
+    ]);
+
+    render(<RacksPanel {...BASE_PROPS} selectedLocation={LOCATION_A} />);
+
+    await waitFor(() => expect(screen.getByText("Visible Rack")).toBeTruthy());
+
+    expect(screen.queryByText("rack-secret-code-789")).toBeNull();
+    expect(screen.queryByText("location-secret-code-999")).toBeNull();
+    expect(screen.getByText("Visible Rack")).toBeTruthy();
+  });
+
+  it("shows 'Unnamed rack' fallback when rack name is null or empty, never the code", async () => {
+    const { listRacks } = await import("../../api/tauriClient");
+    vi.mocked(listRacks).mockResolvedValueOnce([
+      {
+        id: "rack-noname",
+        code: "rack-secret-code-789",
+        name: "",
+        location_id: "loc-1",
+        location_code: "location-secret-code-999",
+        height_u: 42,
+        row: null,
+        description: null,
+        tags: [],
+        front_placement_count: 0,
+        rear_placement_count: 0,
+        placement_count: 0,
+        front_used_u: 0,
+        rear_used_u: 0,
+      },
+    ]);
+
+    render(<RacksPanel {...BASE_PROPS} selectedLocation={LOCATION_A} />);
+
+    await waitFor(() => expect(screen.getByText("Unnamed rack")).toBeTruthy());
+
+    expect(screen.queryByText("rack-secret-code-789")).toBeNull();
+    expect(screen.queryByText("location-secret-code-999")).toBeNull();
+  });
+});

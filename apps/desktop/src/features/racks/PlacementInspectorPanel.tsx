@@ -89,7 +89,7 @@ export function PlacementInspectorPanel({
         title="Remove from rack?"
         body={
           <p style={{ margin: 0, fontSize: 13 }}>
-            Remove <strong>{placement.target_name ?? placement.target_code ?? placement.code}</strong> from this rack?
+            Remove <strong>{placement.target_name?.trim() || (placement.target_kind === "device" ? "Unnamed device" : "Unnamed object")}</strong> from this rack?
             The device is not deleted — it returns to the unplaced list.
             This is an in-memory change until Save is used.
           </p>

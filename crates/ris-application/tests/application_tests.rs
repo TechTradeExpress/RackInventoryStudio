@@ -651,10 +651,14 @@ fn csv_preview_valid_row_returns_create_action() {
 fn csv_preview_duplicate_serial_returns_error() {
     // duplicate serial number in CSV triggers VAL-CSV-015 ERROR
     let session = open_repository(&fixture("valid-repository")).unwrap();
-    let csv = "device_type,status,serial_number\nserver,in_stock,SN-DUPE\nserver,in_stock,SN-DUPE\n";
+    let csv =
+        "device_type,status,serial_number\nserver,in_stock,SN-DUPE\nserver,in_stock,SN-DUPE\n";
     let preview = session.preview_devices_csv(csv);
     assert_eq!(preview.rows.len(), 2);
-    assert!(preview.rows.iter().any(|r| r.action == CsvRowAction::SkipDueToError));
+    assert!(preview
+        .rows
+        .iter()
+        .any(|r| r.action == CsvRowAction::SkipDueToError));
 }
 
 #[test]
@@ -2487,8 +2491,16 @@ fn import_devices_csv_valid_creates_devices() {
     assert_eq!(result.created_count, 2);
     assert_eq!(session.data.devices.len(), before + 2);
     // Codes are auto-generated (dev-XXXXXXXX format); verify by serial number instead.
-    assert!(session.data.devices.iter().any(|d| d.serial_number.as_deref() == Some("SN-IMP-001")));
-    assert!(session.data.devices.iter().any(|d| d.serial_number.as_deref() == Some("SN-IMP-002")));
+    assert!(session
+        .data
+        .devices
+        .iter()
+        .any(|d| d.serial_number.as_deref() == Some("SN-IMP-001")));
+    assert!(session
+        .data
+        .devices
+        .iter()
+        .any(|d| d.serial_number.as_deref() == Some("SN-IMP-002")));
     // Auto-generated codes must start with "dev-"
     let new_devices: Vec<_> = session.data.devices.iter().skip(before).collect();
     assert!(new_devices.iter().all(|d| d.code.starts_with("dev-")));
@@ -2503,8 +2515,16 @@ fn import_devices_csv_save_reload_persists_devices() {
     session.import_devices_csv(VALID_CSV).unwrap();
     session.save().unwrap();
     let reloaded = open_repository(&dst).unwrap();
-    assert!(reloaded.data.devices.iter().any(|d| d.serial_number.as_deref() == Some("SN-IMP-001")));
-    assert!(reloaded.data.devices.iter().any(|d| d.serial_number.as_deref() == Some("SN-IMP-002")));
+    assert!(reloaded
+        .data
+        .devices
+        .iter()
+        .any(|d| d.serial_number.as_deref() == Some("SN-IMP-001")));
+    assert!(reloaded
+        .data
+        .devices
+        .iter()
+        .any(|d| d.serial_number.as_deref() == Some("SN-IMP-002")));
 }
 
 #[test]

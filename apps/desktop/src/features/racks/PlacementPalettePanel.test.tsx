@@ -377,3 +377,44 @@ describe("PlacementPalettePanel — DnD place behavior", () => {
     expect(onPlace).toHaveBeenCalledWith("place-me");
   });
 });
+
+// ── Code-leakage regression ────────────────────────────────────────────────────
+
+describe("PlacementPalettePanel — code leakage regression", () => {
+  it("device with a name renders name, not code, in card text, title, and aria-label", async () => {
+    vi.mocked(listDevices).mockResolvedValue([
+      makeDevice("named-dev", { code: "device-secret-code-123", name: "Web Server 01" }),
+    ]);
+
+    render(<PlacementPalettePanel {...BASE_PROPS} />);
+    await waitFor(() => expect(screen.getByTestId("dnd-device-named-dev")).toBeTruthy());
+
+    const card = screen.getByTestId("dnd-device-named-dev");
+    expect(card.textContent).toContain("Web Server 01");
+    expect(card.textContent).not.toContain("device-secret-code-123");
+
+    const placeBtn = screen.getByTestId("place-btn-device-named-dev");
+    expect(placeBtn.getAttribute("title")).toContain("Web Server 01");
+    expect(placeBtn.getAttribute("title")).not.toContain("device-secret-code-123");
+    expect(placeBtn.getAttribute("aria-label")).toContain("Web Server 01");
+    expect(placeBtn.getAttribute("aria-label")).not.toContain("device-secret-code-123");
+  });
+
+  it("device with no name shows 'Unnamed device', never the code, in card text, title, and aria-label", async () => {
+    vi.mocked(listDevices).mockResolvedValue([
+      makeDevice("unnamed-dev", { code: "device-secret-code-123", name: null }),
+    ]);
+
+    render(<PlacementPalettePanel {...BASE_PROPS} />);
+    await waitFor(() => expect(screen.getByTestId("dnd-device-unnamed-dev")).toBeTruthy());
+
+    const card = screen.getByTestId("dnd-device-unnamed-dev");
+    expect(card.textContent).toContain("Unnamed device");
+    expect(card.textContent).not.toContain("device-secret-code-123");
+
+    const placeBtn = screen.getByTestId("place-btn-device-unnamed-dev");
+    expect(placeBtn.getAttribute("title")).not.toContain("device-secret-code-123");
+    expect(placeBtn.getAttribute("aria-label")).not.toContain("device-secret-code-123");
+    expect(placeBtn.getAttribute("aria-label")).toContain("Unnamed device");
+  });
+});

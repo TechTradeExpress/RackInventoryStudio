@@ -1063,7 +1063,7 @@ mod tests {
             .filter(|l| !l.trim().is_empty());
         let header = lines.next().expect("sample CSV must have a header row");
         let expected_fields = header.split(',').count();
-        assert_eq!(expected_fields, 9, "header should have 9 columns");
+        assert_eq!(expected_fields, 8, "header should have 8 columns");
         for (i, line) in lines.enumerate() {
             let actual = line.split(',').count();
             assert_eq!(

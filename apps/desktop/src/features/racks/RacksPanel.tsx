@@ -171,7 +171,7 @@ export function RacksPanel({
     if (!destRack) return false;
     setPendingNavigation({
       placementId,
-      message: `Moved to rack ${destRack.name ?? destRack.code} in memory. Use Save to persist changes.`,
+      message: `Moved to rack ${destRack.name?.trim() || "Unnamed rack"} in memory. Use Save to persist changes.`,
     });
     setRecentlyNavigatedRackId(destRack.id);
     onSelectRack(destRack);
@@ -192,7 +192,7 @@ export function RacksPanel({
 
   function handleSaved() {
     handleRepositoryMutated();
-    const label = editingRack ? (editingRack.name ?? editingRack.code) : "Rack";
+    const label = editingRack ? (editingRack.name?.trim() || "Unnamed rack") : "Rack";
     setSuccessMsg(editingRack ? `"${label}" updated.` : "Rack added.");
   }
 
@@ -320,7 +320,7 @@ export function RacksPanel({
                       onClick={() => handleRowClick(rack)}
                     >
                       <td>
-                        <strong>{rack.name ?? rack.code}</strong>
+                        <strong>{rack.name?.trim() || "Unnamed rack"}</strong>
                       </td>
                       <td className="tbl-mono">{rack.row ?? "—"}</td>
                       <td className="tbl-num tbl-mono">{rack.height_u}U</td>

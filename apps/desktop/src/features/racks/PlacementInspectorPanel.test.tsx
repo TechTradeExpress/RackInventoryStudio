@@ -174,3 +174,74 @@ describe("PlacementInspectorPanel — Remove from rack", () => {
     expect(mockRemovePlacement).not.toHaveBeenCalled();
   });
 });
+
+// ── Code-leakage regression ────────────────────────────────────────────────────
+
+describe("PlacementInspectorPanel — code leakage regression", () => {
+  it("does not render target_code or placement code in the confirm dialog", () => {
+    const p = makePlacement({
+      code: "plc-secret-code-xyz",
+      target_code: "device-secret-code-123",
+      target_name: "Known Server",
+    });
+    render(
+      <PlacementInspectorPanel
+        placement={p}
+        side="Front"
+        currentRack={FIXTURE_RACK}
+        onMoveSuccess={vi.fn()}
+        onRemoveSuccess={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("remove-from-rack-btn"));
+    const dialog = document.body;
+    expect(dialog.textContent).not.toContain("plc-secret-code-xyz");
+    expect(dialog.textContent).not.toContain("device-secret-code-123");
+    expect(dialog.textContent).toContain("Known Server");
+  });
+
+  it("shows 'Unnamed device' fallback in confirm dialog when device has no name", () => {
+    const p = makePlacement({
+      code: "plc-secret-code-xyz",
+      target_code: "device-secret-code-123",
+      target_name: null,
+      target_kind: "device",
+    });
+    render(
+      <PlacementInspectorPanel
+        placement={p}
+        side="Front"
+        currentRack={FIXTURE_RACK}
+        onMoveSuccess={vi.fn()}
+        onRemoveSuccess={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("remove-from-rack-btn"));
+    const dialog = document.body;
+    expect(dialog.textContent).toContain("Unnamed device");
+    expect(dialog.textContent).not.toContain("plc-secret-code-xyz");
+    expect(dialog.textContent).not.toContain("device-secret-code-123");
+  });
+
+  it("shows 'Unnamed object' fallback for non-device placement with no name", () => {
+    const p = makePlacement({
+      code: "plc-secret-code-xyz",
+      target_code: "model-secret-code-456",
+      target_name: null,
+      target_kind: "device_model",
+    });
+    render(
+      <PlacementInspectorPanel
+        placement={p}
+        side="Front"
+        currentRack={FIXTURE_RACK}
+        onMoveSuccess={vi.fn()}
+        onRemoveSuccess={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("remove-from-rack-btn"));
+    const dialog = document.body;
+    expect(dialog.textContent).toContain("Unnamed object");
+    expect(dialog.textContent).not.toContain("model-secret-code-456");
+  });
+});
