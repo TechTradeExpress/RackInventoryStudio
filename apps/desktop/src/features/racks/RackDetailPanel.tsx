@@ -195,8 +195,15 @@ export function RackDetailPanel({
     refreshAfterMutation({ selectId: newPlacementId, bumpTargets: true });
   }
 
-  function handleRemoveSuccess() {
+  function handleRemoveSuccess(placementId: string) {
     setMutationMessage(null);
+    // Mirror the same recency update as the DnD unplace path.
+    const p =
+      detail?.front.find((d) => d.id === placementId) ??
+      detail?.rear.find((d) => d.id === placementId);
+    if (p?.target_kind === "device") {
+      setRecentlyUnplacedDeviceIds((prev) => [...prev, p.target_id]);
+    }
     refreshAfterMutation({ selectId: null, bumpTargets: true });
   }
 

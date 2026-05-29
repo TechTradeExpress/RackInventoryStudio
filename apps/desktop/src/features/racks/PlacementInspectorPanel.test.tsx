@@ -128,7 +128,7 @@ describe("PlacementInspectorPanel — Remove from rack", () => {
     expect(screen.getByText(/returns to the unplaced list/)).toBeTruthy();
   });
 
-  it("confirming calls removePlacement and onRemoveSuccess", async () => {
+  it("confirming calls removePlacement and onRemoveSuccess with the placement id", async () => {
     mockRemovePlacement.mockResolvedValue(undefined);
     const onRemoveSuccess = vi.fn();
 
@@ -151,6 +151,8 @@ describe("PlacementInspectorPanel — Remove from rack", () => {
 
     await waitFor(() => {
       expect(mockRemovePlacement).toHaveBeenCalledWith({ placement_id: "plc-1" });
+      // Must pass placement id so parent can update recency state
+      expect(onRemoveSuccess).toHaveBeenCalledWith("plc-1");
       expect(onRemoveSuccess).toHaveBeenCalledTimes(1);
     });
   });

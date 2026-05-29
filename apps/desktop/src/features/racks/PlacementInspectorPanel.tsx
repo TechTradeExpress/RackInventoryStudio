@@ -15,7 +15,7 @@ interface Props {
     placementId: string,
     options?: { movedToAnotherRack?: boolean; destRackId?: string },
   ) => void;
-  onRemoveSuccess: () => void;
+  onRemoveSuccess: (placementId: string) => void;
   /** Called when the user clicks "Edit in modal" — opens EditPlacementModal. */
   onOpenEditModal?: () => void;
   /** Called when the user requests to edit the target device. */
@@ -78,7 +78,7 @@ export function PlacementInspectorPanel({
       await runBusy("Removing placement…", () =>
         removePlacement({ placement_id: placement.id }),
       );
-      onRemoveSuccess();
+      onRemoveSuccess(placement.id);
     } catch (e) {
       setRemoveError(String(e));
     }

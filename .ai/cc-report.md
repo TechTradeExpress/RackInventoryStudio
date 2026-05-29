@@ -4,6 +4,19 @@
 
 `feat/rack-unplaced-devices-ux` — PR D from the BETA1 follow-up plan.
 
+### Review blocker fix (commit 2)
+
+**Blocker**: The inspector "Remove from rack" path called `onRemoveSuccess()` with no
+arguments. `RackDetailPanel.handleRemoveSuccess()` received no placement ID and could
+not update `recentlyUnplacedDeviceIds`, so the removed device was not prioritized in
+the palette.
+
+**Fix**: `onRemoveSuccess` signature changed to `(placementId: string) => void`.
+`PlacementInspectorPanel.executeRemove` passes `placement.id`. `handleRemoveSuccess` in
+`RackDetailPanel` looks up the placement in `detail`, appends the device ID to
+`recentlyUnplacedDeviceIds` if `target_kind === "device"`, then calls
+`refreshAfterMutation` — identical logic to the DnD path.
+
 ---
 
 ## Summary
@@ -33,10 +46,11 @@ Implemented rack diagram unplaced devices UX improvements (Plan item 11):
 | File | Change |
 |---|---|
 | `apps/desktop/src/features/racks/PlacementPalettePanel.tsx` | Persistent drop zone, 6-item cap, Show all, recency sort |
-| `apps/desktop/src/features/racks/PlacementInspectorPanel.tsx` | Rename "Remove placement" → "Remove from rack", neutral styling, updated confirm copy |
-| `apps/desktop/src/features/racks/RackDetailPanel.tsx` | Track `recentlyUnplacedDeviceIds`, pass to palette |
+| `apps/desktop/src/features/racks/PlacementInspectorPanel.tsx` | Rename "Remove placement" → "Remove from rack", neutral styling, updated confirm copy; `onRemoveSuccess` now passes `placementId` |
+| `apps/desktop/src/features/racks/RackDetailPanel.tsx` | Track `recentlyUnplacedDeviceIds`; both DnD and inspector unplace paths now update it via `handleRemoveSuccess(placementId)` |
 | `apps/desktop/src/features/racks/PlacementPalettePanel.test.tsx` | Fully rewritten: 19 tests (persistent zone, drop, cap, Show all, recency, DnD) |
-| `apps/desktop/src/features/racks/PlacementInspectorPanel.test.tsx` | New: 6 tests (empty state, button presence/style, confirm, cancel) |
+| `apps/desktop/src/features/racks/PlacementInspectorPanel.test.tsx` | New: 6 tests including assertion that `onRemoveSuccess` is called with the placement ID |
+| `apps/desktop/src/features/racks/RackDetailPanel.test.tsx` | New: 2 integration tests — inspector unplace updates recency; rack_object removal does not pollute device recency |
 | `docs/BETA1_FOLLOWUP_PLAN_EN.md` | Item 11 marked implemented; PR table updated |
 
 ---
@@ -61,16 +75,18 @@ cargo check --workspace              — OK (0 warnings)
 cargo test --workspace               — all Rust tests passed
 cargo clippy --workspace -D warnings — 0 errors, 0 warnings
 tsc --noEmit                         — OK (0 errors)
-vitest run                           — 491 passed (37 test files, +2 new)
+vitest run                           — 493 passed (38 test files, +3 new/updated)
 git diff --check                     — OK
 node check-version-consistency.mjs   — OK (all 0.1.0-beta.1)
 node --test scripts/*.test.mjs       — 17 passed, 0 failed
 node check-repo-hygiene.mjs          — 8 checks passed
 ```
 
-New test files: `PlacementInspectorPanel.test.tsx` (6 tests).
-Updated: `PlacementPalettePanel.test.tsx` (19 tests; 6 existing drop tests migrated to
-`unplace-drop-zone`, 13 new tests added).
+New test files:
+- `PlacementInspectorPanel.test.tsx` (6 tests; asserts `onRemoveSuccess` called with ID)
+- `RackDetailPanel.test.tsx` (2 integration tests: inspector unplace → recency; rack_object does not affect device recency)
+
+Updated: `PlacementPalettePanel.test.tsx` (19 tests; drop tests migrated to `unplace-drop-zone`).
 
 ---
 
