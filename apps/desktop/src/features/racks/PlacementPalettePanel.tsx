@@ -104,7 +104,6 @@ export function PlacementPalettePanel({
     ? sortedDevices
     : sortedDevices.slice(0, PALETTE_VISIBLE_LIMIT);
   const hasOverflow = !showAll && sortedDevices.length > PALETTE_VISIBLE_LIMIT;
-  const hiddenCount = sortedDevices.length - PALETTE_VISIBLE_LIMIT;
 
   const rackObjectModels = deviceModels;
 
@@ -203,10 +202,10 @@ export function PlacementPalettePanel({
                     writeDragData(e.dataTransfer, encodeDndPayload(payload));
                   }}
                   onDragEnd={() => setActiveDragPayload(null)}
-                  title={`Drag to place ${d.code}${modelHeight ? ` (${modelHeight}U)` : ""}`}
+                  title={`Drag to place ${d.name?.trim() || "Unnamed device"}${modelHeight ? ` (${modelHeight}U)` : ""}`}
                 >
                   <span className="pc-drag">⠿</span>
-                  <span className="pc-name">{d.code}</span>
+                  <span className="pc-name">{d.name ?? "Unnamed device"}</span>
                   {modelHeight ? (
                     <span className="pc-meta">{modelHeight}U</span>
                   ) : (
@@ -216,8 +215,8 @@ export function PlacementPalettePanel({
                     className="btn btn-sm"
                     type="button"
                     style={{ marginLeft: "auto" }}
-                    title={`Place ${d.code}…`}
-                    aria-label={`Place ${d.code}`}
+                    title={`Place ${d.name?.trim() || "Unnamed device"}…`}
+                    aria-label={`Place ${d.name?.trim() || "Unnamed device"}`}
                     data-testid={`place-btn-device-${d.id}`}
                     onClick={() => onPlaceDevice(d.id)}
                   >
@@ -272,17 +271,17 @@ export function PlacementPalettePanel({
                     writeDragData(e.dataTransfer, encodeDndPayload(payload));
                   }}
                   onDragEnd={() => setActiveDragPayload(null)}
-                  title={`Drag to place ${m.code} (${m.default_height_u}U)`}
+                  title={`Drag to place ${m.name?.trim() || "Unnamed model"} (${m.default_height_u}U)`}
                 >
                   <span className="pc-drag">⠿</span>
-                  <span className="pc-name">{m.code}</span>
+                  <span className="pc-name">{m.name?.trim() || "Unnamed model"}</span>
                   <span className="pc-meta">{m.default_height_u}U</span>
                   <button
                     className="btn btn-sm"
                     type="button"
                     style={{ marginLeft: "auto" }}
-                    title={`Place ${m.code}…`}
-                    aria-label={`Place ${m.code}`}
+                    title={`Place ${m.name?.trim() || "Unnamed model"}…`}
+                    aria-label={`Place ${m.name?.trim() || "Unnamed model"}`}
                     data-testid={`place-btn-model-${m.id}`}
                     onClick={() => onPlaceRackObject(m.id)}
                   >

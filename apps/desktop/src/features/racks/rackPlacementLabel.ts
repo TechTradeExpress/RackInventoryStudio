@@ -1,7 +1,7 @@
 import type { PlacementDto } from "../../api/tauriClient";
 
 export interface PlacementLabelData {
-  /** Primary text: device/object name, or best code fallback */
+  /** Primary text: device/object name, or neutral fallback ("Unnamed device" / "Unnamed object") */
   primary: string;
   /** Device model name/code (device placements only; null for rack-object placements) */
   model: string | null;
@@ -18,16 +18,12 @@ export interface PlacementLabelData {
 }
 
 export function derivePlacementLabel(p: PlacementDto): PlacementLabelData {
-  const primary =
-    p.target_name ??
-    p.model_name ??
-    p.target_code ??
-    p.model_code ??
-    p.code;
+  const nameFallback = p.target_kind === "device" ? "Unnamed device" : "Unnamed object";
+  const primary = p.target_name?.trim() || p.model_name?.trim() || nameFallback;
 
   // Suppress model when it would duplicate primary (e.g. device with no name but has model_name:
   // primary falls back to model_name, so showing model separately would repeat it).
-  const modelRaw = p.model_name ?? p.model_code ?? null;
+  const modelRaw = p.model_name?.trim() || null;
   const model = modelRaw !== null && modelRaw !== primary ? modelRaw : null;
 
   const serial = p.target_serial ? `SN: ${p.target_serial}` : null;

@@ -201,13 +201,13 @@ fn generate_device_model_code(
 }
 
 fn generate_device_code(index: &ris_repository::RepositoryIndex) -> String {
-    for n in 1u32.. {
-        let code = format!("device-{n:02}");
+    loop {
+        let hex = format!("{}", uuid::Uuid::new_v4().simple());
+        let code = format!("dev-{}", &hex[..8]);
         if !index.devices_by_code.contains_key(&code) {
             return code;
         }
     }
-    unreachable!()
 }
 
 impl RepositorySession {
@@ -981,7 +981,7 @@ impl RepositorySession {
             self.add_device(AddDeviceInput {
                 id: None,
                 device_type,
-                code: row.code.clone(),
+                code: None,
                 name: row.name.clone(),
                 device_model_id: row.resolved_device_model_id.clone(),
                 device_model_code: None,

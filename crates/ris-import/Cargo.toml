@@ -8,4 +8,3 @@ description = "CSV import and import preview."
 ris-core = { path = "../ris-core" }
 ris-repository = { path = "../ris-repository" }
 csv = "1"
-regex = "1"

@@ -2809,7 +2809,6 @@ name = "ris-import"
 version = "0.1.0"
 dependencies = [
  "csv",
- "regex",
  "ris-core",
  "ris-repository",
 ]

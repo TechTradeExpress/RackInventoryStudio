@@ -90,9 +90,11 @@ describe("EditPlacementModal — open", () => {
   it("renders existing placement data", () => {
     render(<EditPlacementModal {...BASE_PROPS} />);
     expect(screen.getByText("Edit placement")).toBeTruthy();
-    expect(screen.getByText("plc-srv-01")).toBeTruthy();
-    expect(screen.getByText("Server 01")).toBeTruthy();
+    // target name appears in subtitle and Target KV row
+    expect(screen.getAllByText("Server 01").length).toBeGreaterThan(0);
     expect(screen.getByText("server")).toBeTruthy();
+    // placement code must not appear in visible UI
+    expect(screen.queryByText("plc-srv-01")).toBeNull();
   });
 
   it("pre-fills start U with current placement value", () => {

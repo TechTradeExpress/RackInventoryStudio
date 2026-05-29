@@ -115,8 +115,8 @@ export function EditPlacementModal({
         title="Remove placement?"
         body={
           <p style={{ margin: 0, fontSize: 13 }}>
-            Remove <strong>{placement.code}</strong> from rack{" "}
-            <strong>{rack.code}</strong>? This is an in-memory change until Save
+            Remove <strong>{placement.target_name?.trim() || (placement.target_kind === "device" ? "Unnamed device" : "Unnamed object")}</strong> from rack{" "}
+            <strong>{rack.name?.trim() || "Unnamed rack"}</strong>? This is an in-memory change until Save
             is used.
           </p>
         }
@@ -129,7 +129,7 @@ export function EditPlacementModal({
       <Modal
         open={open}
         title="Edit placement"
-        subtitle={placement.code}
+        subtitle={placement.target_name?.trim() || (placement.target_kind === "device" ? "Unnamed device" : "Unnamed object")}
         onClose={onClose}
         size="md"
         footerMessage={error ?? undefined}
@@ -163,7 +163,7 @@ export function EditPlacementModal({
             <dl className="kv" style={{ marginBottom: 16 }}>
               <div style={{ display: "contents" }}>
                 <dt>Rack</dt>
-                <dd className="mono">{rack.code}</dd>
+                <dd>{rack.name?.trim() || "Unnamed rack"}</dd>
               </div>
               <div style={{ display: "contents" }}>
                 <dt>Side</dt>
@@ -171,7 +171,7 @@ export function EditPlacementModal({
               </div>
               <div style={{ display: "contents" }}>
                 <dt>Target</dt>
-                <dd>{display(placement.target_name ?? placement.target_code)}</dd>
+                <dd>{display(placement.target_name?.trim() || (placement.target_kind === "device" ? "Unnamed device" : "Unnamed object"))}</dd>
               </div>
               <div style={{ display: "contents" }}>
                 <dt>Type</dt>

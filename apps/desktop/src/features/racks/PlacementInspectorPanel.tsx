@@ -56,10 +56,8 @@ export function PlacementInspectorPanel({
   }
 
   const rows: [string, string | number | null | undefined, boolean?][] = [
-    ["Code",            placement.code,                  true],
     ["Side",            side,                            false],
     ["Target type",     placement.target_kind,           false],
-    ["Target code",     placement.target_code,           true],
     ["Target name",     placement.target_name,           false],
     ["Device type",     placement.device_type,           false],
     ["Start U",         placement.start_u,               true],
@@ -91,7 +89,7 @@ export function PlacementInspectorPanel({
         title="Remove from rack?"
         body={
           <p style={{ margin: 0, fontSize: 13 }}>
-            Remove <strong>{placement.code}</strong> from this rack?
+            Remove <strong>{placement.target_name?.trim() || (placement.target_kind === "device" ? "Unnamed device" : "Unnamed object")}</strong> from this rack?
             The device is not deleted — it returns to the unplaced list.
             This is an in-memory change until Save is used.
           </p>

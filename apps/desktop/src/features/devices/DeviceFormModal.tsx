@@ -321,7 +321,7 @@ export function DeviceFormModal({
               <option value="">— none —</option>
               {filteredModels.map((m) => (
                 <option key={m.id} value={m.id}>
-                  {m.code} — {m.name}
+                  {m.name?.trim() || "Unnamed model"}
                 </option>
               ))}
             </select>

@@ -415,10 +415,7 @@ export function RackDetailPanel({
         }
         subtitle={
           <span>
-            <span className="mono">{rack.code}</span>
-            {rack.location_code && <> · <span className="mono">{rack.location_code}</span></>}
-            {rack.row && <> · Row {rack.row}</>}
-            {" · "}{rack.height_u}U
+            {rack.row && <>Row {rack.row} · </>}{rack.height_u}U
           </span>
         }
         actions={
@@ -494,7 +491,7 @@ export function RackDetailPanel({
                 title="Placement inspector"
                 desc={
                   selectedPlacement
-                    ? `${selectedSide} side · ${selectedPlacement.code}`
+                    ? `${selectedSide} side · ${selectedPlacement.target_name?.trim() || (selectedPlacement.target_kind === "device" ? "Unnamed device" : "Unnamed object")}`
                     : "Select a placement in the diagram"
                 }
               >

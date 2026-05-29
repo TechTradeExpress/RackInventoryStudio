@@ -48,10 +48,10 @@ describe("RackUnitDiagram — column layout", () => {
     expect(screen.getByTestId("diagram-col-name").textContent?.trim()).toBe("Name");
   });
 
-  it('has "Model" and "Code / SN" column headers', () => {
+  it('has "Model" and "Serial" column headers', () => {
     render(<RackUnitDiagram {...BASE_PROPS} />);
     expect(screen.getByTestId("diagram-col-model").textContent?.trim()).toBe("Model");
-    expect(screen.getByTestId("diagram-col-code").textContent?.includes("Code")).toBe(true);
+    expect(screen.getByTestId("diagram-col-code").textContent?.trim()).toBe("Serial");
   });
 
   it('has an "Asset tag" column header', () => {
@@ -271,5 +271,52 @@ describe("RackUnitDiagram — drag and drop", () => {
     render(<RackUnitDiagram {...BASE_PROPS} heightU={5} />);
     const cell = screen.getByTestId("drop-cell-front-3");
     expect(fireEvent.dragOver(cell)).toBe(true);
+  });
+});
+
+// ── Code-leakage regression ────────────────────────────────────────────────────
+
+describe("RackUnitDiagram — code leakage regression", () => {
+  it("does not render target_code, model_code, or placement code in a named placement", () => {
+    const p = makePlacement({
+      id: "plc-leak",
+      code: "plc-secret-code-xyz",
+      target_code: "device-secret-code-123",
+      model_code: "model-secret-code-456",
+      target_name: "Production Server",
+      model_name: "Dell R750",
+      start_u: 1,
+      end_u: 1,
+      effective_height_u: 1,
+      height_u: 1,
+    });
+    render(<RackUnitDiagram {...BASE_PROPS} front={[p]} />);
+    const card = screen.getByTestId("placed-front-plc-leak");
+    expect(card.textContent).not.toContain("plc-secret-code-xyz");
+    expect(card.textContent).not.toContain("device-secret-code-123");
+    expect(card.textContent).not.toContain("model-secret-code-456");
+    expect(card.textContent).toContain("Production Server");
+  });
+
+  it("shows 'Unnamed device' fallback and no codes when placement has no name", () => {
+    const p = makePlacement({
+      id: "plc-unnamed",
+      code: "plc-secret-code-xyz",
+      target_code: "device-secret-code-123",
+      target_name: null,
+      target_kind: "device",
+      model_name: null,
+      model_code: "model-secret-code-456",
+      start_u: 2,
+      end_u: 2,
+      effective_height_u: 1,
+      height_u: 1,
+    });
+    render(<RackUnitDiagram {...BASE_PROPS} front={[p]} />);
+    const card = screen.getByTestId("placed-front-plc-unnamed");
+    expect(card.textContent).toContain("Unnamed device");
+    expect(card.textContent).not.toContain("plc-secret-code-xyz");
+    expect(card.textContent).not.toContain("device-secret-code-123");
+    expect(card.textContent).not.toContain("model-secret-code-456");
   });
 });

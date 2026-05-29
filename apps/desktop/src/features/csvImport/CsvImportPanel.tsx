@@ -203,7 +203,7 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
                     style={{ width: "100%", fontFamily: "var(--font-mono)", fontSize: 11.5, resize: "vertical" }}
                     rows={6}
                     value={csvContent}
-                    placeholder={"code,device_type,status,name\nsrv-new,server,planned,New Server"}
+                    placeholder={"device_type,status,name\nserver,planned,New Server"}
                     onChange={(e) => {
                       setCsvContent(e.target.value);
                       setPreview(null); setImportSuccess(null); setImportError(null);
@@ -284,7 +284,6 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
                     <tr>
                       <th style={{ width: 36 }}>#</th>
                       <th style={{ width: 80 }}>Status</th>
-                      <th className="tbl-mono">Code</th>
                       <th>Type</th>
                       <th>Name</th>
                       <th className="tbl-mono">Model</th>
@@ -297,9 +296,6 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
                       <tr key={row.row_number}>
                         <td className="tbl-mono" style={{ color: "var(--tx-3)" }}>{row.row_number}</td>
                         <td>{rowBadge(row)}</td>
-                        <td className="tbl-mono">
-                          {row.code ?? <span style={{ color: "var(--st-err-tx)" }}>—</span>}
-                        </td>
                         <td className="tbl-mono">{row.device_type ?? "—"}</td>
                         <td>{row.name ?? <span style={{ color: "var(--tx-4)" }}>—</span>}</td>
                         <td className="tbl-mono">{row.device_model_code ?? "—"}</td>
@@ -322,7 +318,7 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
                 <div>
                   <div className="eyebrow" style={{ marginBottom: 6 }}>Required columns</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                    {["code", "device_type", "status"].map((c) => <span key={c} className="tag">{c}</span>)}
+                    {["device_type", "status"].map((c) => <span key={c} className="tag">{c}</span>)}
                   </div>
                 </div>
                 <div>
@@ -335,7 +331,7 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
                 </div>
                 <p style={{ fontSize: 11, color: "var(--tx-3)", margin: 0, lineHeight: 1.5 }}>
                   Tags use <span className="code">;</span> as separator.
-                  Duplicate codes are skipped (update-existing is not supported).
+                  Device codes are generated automatically — do not include a <span className="code">code</span> column.
                 </p>
               </div>
             </Panel>

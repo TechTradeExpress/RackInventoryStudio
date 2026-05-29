@@ -144,11 +144,15 @@ fn all_issues(preview: &ris_import::CsvDeviceImportPreview) -> Vec<ris_core::Val
 
 #[test]
 fn valid_csv_headers_pass() {
-    let csv = "code,device_type,status,name\nsrv-01,server,in_stock,Server One\n";
+    let csv = "device_type,status,name\nserver,in_stock,Server One\n";
     let preview = ris_import::preview_csv_import(csv, &empty_context());
     assert!(
         !has_code(&preview.issues, "VAL-CSV-001"),
         "unexpected VAL-CSV-001 with valid headers"
+    );
+    assert!(
+        preview.issues.is_empty(),
+        "no warnings expected with known-only headers"
     );
 }
 
@@ -184,58 +188,20 @@ fn unknown_column_reports_val_csv_002_warning() {
     assert_eq!(preview.rows.len(), 1);
 }
 
-// ── code validation ───────────────────────────────────────────────────────────
+// ── code column is now ignored ────────────────────────────────────────────────
 
 #[test]
-fn blank_code_cell_produces_no_error() {
-    // blank code is treated as absent → will be auto-generated at import time
-    let csv = "code,device_type,status,name\n,server,in_stock,Server One\n";
-    let preview = ris_import::preview_csv_import(csv, &empty_context());
-    let issues = all_issues(&preview);
-    assert!(
-        !issues.iter().any(|i| i.level == ValidationLevel::Error),
-        "blank code should produce no error"
-    );
-    assert_eq!(preview.rows[0].action, CsvRowAction::Create);
-}
-
-#[test]
-fn invalid_code_format_reports_val_csv_004() {
-    let csv = "code,device_type,status,name\nBad Code!,server,in_stock,Server One\n";
-    let preview = ris_import::preview_csv_import(csv, &empty_context());
-    let issues = all_issues(&preview);
-    assert!(has_code(&issues, "VAL-CSV-004"), "expected VAL-CSV-004");
-}
-
-#[test]
-fn duplicate_code_in_csv_reports_val_csv_005() {
-    let csv =
-        "code,device_type,status,name\nsrv-01,server,in_stock,Srv A\nsrv-01,server,in_stock,Srv B\n";
-    let preview = ris_import::preview_csv_import(csv, &empty_context());
-    let issues = all_issues(&preview);
-    assert!(has_code(&issues, "VAL-CSV-005"), "expected VAL-CSV-005");
-    // Both rows with the duplicate should be flagged
-    let dup_rows = preview
-        .rows
-        .iter()
-        .filter(|r| has_code(&r.issues, "VAL-CSV-005"))
-        .count();
-    assert_eq!(dup_rows, 2, "both duplicate rows should have VAL-CSV-005");
-}
-
-#[test]
-fn code_exists_in_repo_reports_val_csv_006() {
-    let ctx = context_with_devices(vec![make_device(
-        "aaaa0001-0000-0000-0000-000000000001",
-        "srv-01",
-        DeviceType::Server,
-        None,
-        None,
-    )]);
+fn code_column_triggers_val_csv_002_warning_and_does_not_block_import() {
+    // "code" is no longer a known column; CSVs that include it get a VAL-CSV-002
+    // warning but the rows are still processed normally.
     let csv = "code,device_type,status,name\nsrv-01,server,in_stock,Server One\n";
-    let preview = ris_import::preview_csv_import(csv, &ctx);
-    let issues = all_issues(&preview);
-    assert!(has_code(&issues, "VAL-CSV-006"), "expected VAL-CSV-006");
+    let preview = ris_import::preview_csv_import(csv, &empty_context());
+    assert!(
+        has_code_level(&preview.issues, "VAL-CSV-002", ValidationLevel::Warning),
+        "expected VAL-CSV-002 Warning for 'code' column"
+    );
+    assert_eq!(preview.rows.len(), 1);
+    assert_eq!(preview.rows[0].action, CsvRowAction::Create);
 }
 
 // ── name/sn/asset_tag validation ──────────────────────────────────────────────
@@ -612,8 +578,8 @@ fn valid_row_has_action_create() {
 
 #[test]
 fn row_with_error_has_action_skip_due_to_error() {
-    // invalid code format triggers VAL-CSV-004 ERROR
-    let csv = "code,device_type,status,name\nBad!,server,in_stock,Server One\n";
+    // invalid device_type triggers VAL-CSV-011 ERROR
+    let csv = "device_type,status,name\nturbojet,in_stock,Server One\n";
     let preview = ris_import::preview_csv_import(csv, &empty_context());
     assert_eq!(preview.rows.len(), 1);
     assert_eq!(preview.rows[0].action, CsvRowAction::SkipDueToError);
@@ -652,9 +618,8 @@ fn preview_does_not_mutate_repository_context() {
 
 #[test]
 fn summary_counts_are_correct() {
-    // Row 1: valid; Row 2: invalid (bad code format)
-    let csv =
-        "code,device_type,status,name\nsrv-01,server,in_stock,Good\nBad!,server,in_stock,Bad\n";
+    // Row 1: valid; Row 2: invalid (bad device_type → VAL-CSV-011)
+    let csv = "device_type,status,name\nserver,in_stock,Good\nturbojet,in_stock,Bad\n";
     let preview = ris_import::preview_csv_import(csv, &empty_context());
     assert_eq!(preview.summary.total_rows, 2);
     assert_eq!(preview.summary.valid_rows, 1);

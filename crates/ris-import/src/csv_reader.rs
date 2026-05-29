@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 pub(crate) const KNOWN_COLUMNS: &[&str] = &[
-    "code",
     "device_type",
     "name",
     "device_model_code",
@@ -16,7 +15,6 @@ pub(crate) const REQUIRED_COLUMNS: &[&str] = &["device_type", "status"];
 
 pub(crate) struct CsvDeviceRowRaw {
     pub row_number: usize,
-    pub code: Option<String>,
     pub device_type: Option<String>,
     pub name: Option<String>,
     pub device_model_code: Option<String>,
@@ -84,7 +82,6 @@ pub(crate) fn parse_csv(content: &str) -> Result<ParsedCsv, String> {
 
         rows.push(CsvDeviceRowRaw {
             row_number,
-            code: get_field(&record, &col_index, "code"),
             device_type: get_field(&record, &col_index, "device_type"),
             name: get_field(&record, &col_index, "name"),
             device_model_code: get_field(&record, &col_index, "device_model_code"),

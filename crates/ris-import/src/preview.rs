@@ -21,7 +21,6 @@ pub struct CsvImportSummary {
 #[derive(Debug, Clone)]
 pub struct CsvDeviceImportPreviewRow {
     pub row_number: usize,
-    pub code: Option<String>,
     pub device_type: Option<String>,
     pub name: Option<String>,
     pub device_model_code: Option<String>,

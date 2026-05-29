@@ -380,7 +380,6 @@ export interface CsvImportSummaryDto {
 
 export interface CsvImportPreviewRowDto {
   row_number: number;
-  code: string | null;
   device_type: string | null;
   name: string | null;
   device_model_code: string | null;

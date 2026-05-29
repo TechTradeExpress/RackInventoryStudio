@@ -236,7 +236,6 @@ pub struct CsvImportSummaryDto {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CsvImportPreviewRowDto {
     pub row_number: usize,
-    pub code: Option<String>,
     pub device_type: Option<String>,
     pub name: Option<String>,
     pub device_model_code: Option<String>,

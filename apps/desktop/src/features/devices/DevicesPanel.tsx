@@ -119,7 +119,7 @@ export function DevicesPanel({
   function handleSaved() {
     setReloadToken((t) => t + 1);
     onRepositoryMutated();
-    const label = editingDevice ? editingDevice.code : "Device";
+    const label = editingDevice ? (editingDevice.name ?? "Unnamed device") : "Device";
     setSuccessMsg(editingDevice ? `"${label}" updated.` : "Device added.");
   }
 
@@ -215,9 +215,8 @@ export function DevicesPanel({
               <thead>
                 <tr>
                   <th style={{ width: 20 }} />
-                  <th className="tbl-mono">Code</th>
-                  <th>Type</th>
                   <th>Name</th>
+                  <th>Type</th>
                   <th>Status</th>
                   <th>Placed</th>
                   <th>Model</th>
@@ -227,7 +226,10 @@ export function DevicesPanel({
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((dev) => (
+                {filtered.map((dev) => {
+                  const devName = dev.name ?? "Unnamed device";
+                  const modelName = models.find((m) => m.id === dev.device_model_id)?.name ?? null;
+                  return (
                   <tr
                     key={dev.id}
                     data-dev-id={dev.id}
@@ -238,16 +240,11 @@ export function DevicesPanel({
                     <td style={{ color: "var(--tx-3)" }}>
                       {typeIcon(dev.device_type)}
                     </td>
-                    <td className="tbl-mono">
-                      <strong>{dev.code}</strong>
+                    <td>
+                      <strong>{devName}</strong>
                     </td>
                     <td className="tbl-mono" style={{ color: "var(--tx-3)" }}>
                       {dev.device_type}
-                    </td>
-                    <td>
-                      {dev.name ?? (
-                        <span style={{ color: "var(--tx-4)" }}>—</span>
-                      )}
                     </td>
                     <td>{deviceStatusBadge(dev.status)}</td>
                     <td>
@@ -258,14 +255,13 @@ export function DevicesPanel({
                       )}
                     </td>
                     <td
-                      className="tbl-mono"
                       style={{
-                        color: dev.device_model_code
+                        color: modelName
                           ? undefined
                           : "var(--st-warn-tx)",
                       }}
                     >
-                      {dev.device_model_code ?? "no model"}
+                      {modelName ?? "no model"}
                     </td>
                     <td className="tbl-mono">{dev.serial_number ?? "—"}</td>
                     <td className="tbl-mono">{dev.asset_tag ?? "—"}</td>
@@ -273,7 +269,7 @@ export function DevicesPanel({
                       <button
                         className="btn btn-ghost btn-sm btn-icon"
                         title="Edit"
-                        aria-label={`Edit ${dev.code}`}
+                        aria-label={`Edit ${devName}`}
                         onClick={() => openEdit(dev)}
                       >
                         <IcEdit size={12} />
@@ -281,7 +277,7 @@ export function DevicesPanel({
                       <button
                         className="btn btn-ghost btn-sm btn-icon"
                         title="Delete"
-                        aria-label={`Delete ${dev.code}`}
+                        aria-label={`Delete ${devName}`}
                         onClick={() => setPendingDelete(dev)}
                         style={{ color: "var(--st-err-tx)" }}
                       >
@@ -289,7 +285,8 @@ export function DevicesPanel({
                       </button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           )}
@@ -306,7 +303,7 @@ export function DevicesPanel({
 
       <ConfirmDialog
         open={pendingDelete !== null}
-        title={`Delete "${pendingDelete?.code}"?`}
+        title={`Delete "${pendingDelete?.name ?? "Unnamed device"}"?`}
         body="This will remove the device from the repository on the next save. Placed devices must be unplaced before they can be deleted."
         confirmLabel="Delete device"
         cancelLabel="Cancel"

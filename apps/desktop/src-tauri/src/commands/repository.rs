@@ -742,7 +742,6 @@ pub fn preview_device_csv_import_cmd(
         .iter()
         .map(|r| CsvImportPreviewRowDto {
             row_number: r.row_number,
-            code: r.code.clone(),
             device_type: r.device_type.clone(),
             name: r.name.clone(),
             device_model_code: r.device_model_code.clone(),
@@ -919,13 +918,13 @@ pub const MAX_CSV_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
 
 /// Fixed sample CSV used for the "Download sample CSV" feature.
 /// Columns mirror KNOWN_COLUMNS / REQUIRED_COLUMNS in crates/ris-import/src/csv_reader.rs.
-/// rack_object is not a valid device_type for CSV import.
+/// Device codes are auto-generated; rack_object is not a valid device_type for CSV import.
 pub const DEVICE_IMPORT_SAMPLE_CSV: &str = "\
-device_type,name,device_model_code,serial_number,asset_tag,external_ref,status,tags,code\n\
-server,Demo Server 1,,SN-DEMO-001,ASSET-DEMO-001,REF-DEMO-001,in_stock,production,\n\
-server,Demo Server 2,,,,,planned,staging,\n\
-network,Demo Switch 1,,,,,in_stock,access;switch,\n\
-other,Demo Other Device,,,,,unknown,,\n\
+device_type,name,device_model_code,serial_number,asset_tag,external_ref,status,tags\n\
+server,Demo Server 1,,SN-DEMO-001,ASSET-DEMO-001,REF-DEMO-001,in_stock,production\n\
+server,Demo Server 2,,,,,planned,staging\n\
+network,Demo Switch 1,,,,,in_stock,access;switch\n\
+other,Demo Other Device,,,,,unknown,\n\
 ";
 
 /// Reads a file as UTF-8 text, enforcing a size limit.
@@ -1064,7 +1063,7 @@ mod tests {
             .filter(|l| !l.trim().is_empty());
         let header = lines.next().expect("sample CSV must have a header row");
         let expected_fields = header.split(',').count();
-        assert_eq!(expected_fields, 9, "header should have 9 columns");
+        assert_eq!(expected_fields, 8, "header should have 8 columns");
         for (i, line) in lines.enumerate() {
             let actual = line.split(',').count();
             assert_eq!(

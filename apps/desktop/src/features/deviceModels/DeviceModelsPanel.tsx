@@ -80,7 +80,7 @@ export function DeviceModelsPanel({
   function handleSaved() {
     setReloadToken((t) => t + 1);
     onRepositoryMutated();
-    const label = editingModel ? editingModel.code : "Device model";
+    const label = editingModel ? editingModel.name : "Device model";
     setSuccessMsg(editingModel ? `"${label}" updated.` : "Device model added.");
   }
 
@@ -147,9 +147,8 @@ export function DeviceModelsPanel({
             <table className="tbl">
               <thead>
                 <tr>
-                  <th className="tbl-mono">Code</th>
-                  <th>Type</th>
                   <th>Name</th>
+                  <th>Type</th>
                   <th>Vendor</th>
                   <th className="tbl-mono">Model / SKU</th>
                   <th className="tbl-num">Height</th>
@@ -167,8 +166,8 @@ export function DeviceModelsPanel({
                         : undefined
                     }
                   >
-                    <td className="tbl-mono">
-                      <strong>{m.code}</strong>
+                    <td>
+                      <strong>{m.name}</strong>
                     </td>
                     <td>
                       <Badge
@@ -177,7 +176,6 @@ export function DeviceModelsPanel({
                         {m.device_type}
                       </Badge>
                     </td>
-                    <td>{m.name}</td>
                     <td>
                       {m.vendor ?? (
                         <span style={{ color: "var(--tx-4)" }}>—</span>

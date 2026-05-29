@@ -111,28 +111,31 @@ describe("derivePlacementLabel", () => {
     expect(occurrences).toBe(1);
   });
 
-  it("fallback to target_code when name and model missing", () => {
+  it("fallback to 'Unnamed device' when name, model, and target_code are all missing (device kind)", () => {
     const label = derivePlacementLabel(make({
       code: "plc-05",
-      target_code: "srv-007",
+      target_kind: "device",
+      target_code: "srv-secret-code",
       target_name: null,
       model_name: null,
       effective_height_u: 1,
       start_u: 1,
       end_u: 1,
     }));
-    expect(label.primary).toBe("srv-007");
+    expect(label.primary).toBe("Unnamed device");
+    expect(label.primary).not.toContain("srv-secret-code");
   });
 
-  it("fallback to placement code when all target fields are null", () => {
+  it("fallback to 'Unnamed object' when all target fields are null and target_kind is not device", () => {
     const label = derivePlacementLabel(make({
       code: "plc-bare",
+      target_kind: "device_model",
       target_code: null,
       target_name: null,
       model_name: null,
       model_code: null,
     }));
-    expect(label.primary).toBe("plc-bare");
+    expect(label.primary).toBe("Unnamed object");
   });
 
   it("title contains primary, model, serial, asset, and uRange", () => {
