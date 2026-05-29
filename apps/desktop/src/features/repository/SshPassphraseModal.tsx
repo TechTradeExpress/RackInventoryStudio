@@ -40,6 +40,7 @@ export function SshPassphraseModal({
   // session from being submitted to a replacement session.
   useEffect(() => {
     if (open) {
+      console.log(`[askpass] modal active session=${sessionId}`);
       setPassphrase("");
       setError(null);
       setPending(false);
@@ -51,6 +52,7 @@ export function SshPassphraseModal({
   // submitted after the backend has already moved on.
   useEffect(() => {
     if (expired) {
+      console.log(`[askpass] modal expired session=${sessionId}`);
       setPassphrase("");
     }
   }, [expired]);

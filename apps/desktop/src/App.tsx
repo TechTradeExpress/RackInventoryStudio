@@ -98,6 +98,7 @@ export function App() {
     const unlistenRequested = listen<SshPassphraseRequestedPayload>(
       "ssh-passphrase-requested",
       (event) => {
+        logInfo(`askpass: ssh-passphrase-requested received session=${event.payload.session_id}`);
         setAskpassSession({
           prompt: event.payload.prompt,
           sessionId: event.payload.session_id,
@@ -108,6 +109,7 @@ export function App() {
     const unlistenEnded = listen<SshPassphraseSessionEndedPayload>(
       "ssh-passphrase-session-ended",
       (event) => {
+        logInfo(`askpass: ssh-passphrase-session-ended received session=${event.payload.session_id}`);
         setAskpassSession((prev) => {
           if (prev === null || prev.sessionId !== event.payload.session_id) return prev;
           return { ...prev, expired: true };

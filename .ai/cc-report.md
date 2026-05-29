@@ -2,7 +2,7 @@
 
 ## Summary
 
-Two separate fixes on this branch:
+Five separate fixes on this branch:
 
 1. **Git push remote fix** — Push now uses the configured remote name and never
    adds a redundant `-u` when an upstream is already set.  Missing remote returns
@@ -32,6 +32,16 @@ Two separate fixes on this branch:
    previously-typed passphrase could remain and be submitted to the new session.
    Fixed by adding `sessionId` to the `useEffect` dependency array and adding a
    separate effect to clear `passphrase` when `expired` becomes `true`.
+
+5. **Async push/pull for WebView event delivery (manual QA blocker)** —
+   On Windows WebView2, synchronous Tauri commands hold the IPC dispatch loop.
+   Events emitted by the askpass TCP-server thread during a blocking
+   `push_git_current_branch` call were never delivered to JavaScript until the
+   command returned (after the 120 s timeout).  The modal therefore never
+   appeared while push was in progress.  Fixed by converting both
+   `push_git_current_branch` and `pull_git_ff_only` to `async` Tauri commands
+   and offloading the blocking git work to `tauri::async_runtime::spawn_blocking`.
+   The async runtime can now service WebView IPC messages while git runs.
 
 ---
 
@@ -129,6 +139,75 @@ No precision is lost at any boundary.
 
 ---
 
+---
+
+## Part 3 — Async push/pull for WebView event delivery
+
+### Root cause
+
+On Windows, Tauri uses WebView2.  Synchronous Tauri commands are executed
+directly on the WebView2 IPC thread.  While a synchronous command is executing,
+no other IPC messages can be dispatched — including `window.__TAURI_INTERNALS__`
+event callbacks that deliver `app.emit(…)` payloads to the JavaScript engine.
+
+The askpass TCP server runs on a separate Tokio task and emits
+`ssh-passphrase-requested` during a `push_git_current_branch` call.  Because
+the command is synchronous, that event sits in the WebView message queue until
+the command returns — 120 seconds later when the askpass timeout fires.  By that
+point the session is already expired and the modal shows the expiry message
+immediately on finally appearing.
+
+The same issue affects `pull_git_ff_only`.
+
+### Fix
+
+Both commands converted from synchronous to `async` Tauri commands.  The
+blocking git work is offloaded to `tauri::async_runtime::spawn_blocking`, which
+runs it on a dedicated blocking thread pool.  The async executor can service
+WebView IPC events while the blocking thread runs, so the
+`ssh-passphrase-requested` event is delivered to JavaScript within milliseconds
+of being emitted.
+
+Care taken:
+- `MutexGuard` objects are dropped (via scoped blocks) before any `.await` point
+  to satisfy the `Send` bound required by `spawn_blocking` closures.
+- Owned values (`repo_path: PathBuf`, `remote: String`, env vectors) are moved
+  into the closure rather than borrowed across an await.
+- `State<'_, AppState>` and `State<'_, AskpassState>` work as-is in async Tauri
+  v2 commands because both types are `Send + Sync`.
+- `AppHandle` is cloned before being moved into `start_session` so it remains
+  available for the subsequent `clear_session` call.
+
+### Files changed (Part 3)
+
+| File | Change |
+|---|---|
+| `apps/desktop/src-tauri/src/commands/git.rs` | `push_git_current_branch` and `pull_git_ff_only` converted to `async`; blocking git calls wrapped in `spawn_blocking`; `MutexGuard` dropped before `.await`; `app.clone()` passed to `start_session` |
+| `apps/desktop/src/App.tsx` | Added `logInfo` diagnostics for `ssh-passphrase-requested` and `ssh-passphrase-session-ended` event receipt |
+| `apps/desktop/src/features/repository/SshPassphraseModal.tsx` | Added `console.log` for modal-active and modal-expired to aid manual QA tracing |
+
+### Manual QA checklist
+
+To verify the fix on Windows:
+1. Open a repository whose `origin` is an SSH remote (`git@github.com:…` or
+   `ssh-alias:owner/repo.git`) with a passphrase-protected key **not** loaded
+   in ssh-agent.
+2. Click **Push**.
+3. **Expected**: the SSH passphrase modal appears immediately over the busy
+   overlay — within ~1 s of clicking Push.
+4. Enter the correct passphrase and click **Continue**.
+5. **Expected**: push completes successfully; modal closes.
+6. Repeat with an incorrect passphrase.
+7. **Expected**: modal shows the error from the backend (attempt 1/3) and stays
+   open for retry.
+8. After 3 wrong attempts: push fails with an SSH authentication error; modal
+   closes.
+9. Click **Push** again with no key in ssh-agent but dismiss the modal with
+   **Cancel**.
+10. **Expected**: push is cancelled promptly; no 120-second hang.
+
+---
+
 ## Tests
 
 ```
@@ -138,6 +217,7 @@ cargo clippy -- -D warnings          — 0 errors, 0 warnings
 cargo check                          — OK
 tsc --noEmit                         — OK (0 errors)
 vitest run                           — 468 passed (35 test files)
+rustfmt --edition 2021               — no changes required
 ```
 
 ## Risks
@@ -151,6 +231,11 @@ vitest run                           — 468 passed (35 test files)
   on the next attempt.  This is expected behavior; the user can retry Push.
 - `clear_session` emits a Tauri event.  If the app is shutting down during a
   push, the emit may fail silently (`.ok()` discards the error), which is safe.
+- `spawn_blocking` uses a fixed-size thread pool (Tokio default: 512 threads).
+  Only one push/pull runs at a time in normal UI use so this is not a concern.
+- The async conversion means panics inside the `spawn_blocking` closure surface
+  as a `JoinError` rather than unwinding the command.  Both paths produce a
+  user-visible error string, so the UX difference is negligible.
 
 ## Not done
 
@@ -158,10 +243,12 @@ vitest run                           — 468 passed (35 test files)
 - Dirty repository guard (tracked as follow-up item 7).
 - Playwright test coverage for SSH passphrase flow (requires a real SSH server;
   not feasible in the E2E harness).
+- Manual QA on a real Windows machine (async fix is structurally correct but
+  needs physical verification on WebView2).
 
 ## Suggested next step
 
 Trigger the Windows Installer builder on this branch and perform manual QA of
-the SSH passphrase flow with a real SSH key that requires a passphrase.  Verify
-the modal appears above the busy overlay immediately and that a correct
-passphrase succeeds.
+the SSH passphrase flow using the checklist in Part 3 above.  Verify the modal
+appears above the busy overlay immediately (within ~1 s of clicking Push) and
+that a correct passphrase completes the push successfully.
