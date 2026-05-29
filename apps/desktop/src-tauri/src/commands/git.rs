@@ -148,31 +148,50 @@ pub fn add_git_remote(name: String, url: String, state: State<AppState>) -> Resu
     ris_git::add_remote(&session.repo_path, &name, &url).map_err(|e| e.to_string())
 }
 
+/// Push the current branch to `remote`.
+///
+/// This is an **async** command so that the Tauri WebView remains responsive
+/// while git runs the potentially long network operation. The blocking git
+/// subprocess is offloaded to `spawn_blocking`; the async runtime yields in
+/// the meantime, allowing Tauri events such as `ssh-passphrase-requested` to
+/// be dispatched to the WebView and processed by the frontend before the push
+/// completes. On Windows with WebView2, a synchronous command would hold the
+/// IPC channel busy, preventing event delivery until the command returned.
 #[tauri::command]
-pub fn push_git_current_branch(
+pub async fn push_git_current_branch(
     remote: String,
-    state: State<AppState>,
-    askpass: State<AskpassState>,
+    state: State<'_, AppState>,
+    askpass: State<'_, AskpassState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     log::info!("git_push: start remote={remote}");
+
+    // Extract owned values while holding the session lock, then release it
+    // before any .await so we never hold a MutexGuard across an await point.
     let (repo_path, remote_url) = {
-        let guard = lock(&state)?;
+        let guard = state
+            .session
+            .lock()
+            .map_err(|_| "Internal error: session lock is poisoned".to_string())?;
         let session = guard.as_ref().ok_or_else(no_session)?;
-        let remotes = ris_git::list_remotes(&session.repo_path).unwrap_or_default();
-        let url = remotes
-            .into_iter()
-            .find(|r| r.name == remote)
-            .map(|r| r.url);
+        let remotes = ris_git::list_remotes(&session.repo_path).map_err(|e| e.to_string())?;
+        let found = remotes.into_iter().find(|r| r.name == remote);
+        if found.is_none() {
+            return Err(format!(
+                "No remote named \"{remote}\" is configured for this repository. \
+                 Add a remote in the Git panel before pushing."
+            ));
+        }
+        let url = found.map(|r| r.url);
         (session.repo_path.clone(), url)
-    };
+    }; // guard dropped — lock released before any .await
 
     let is_ssh = remote_url
         .as_deref()
         .map(ris_git::is_ssh_url)
         .unwrap_or(false);
     let askpass_env: Option<AskpassEnv> = if is_ssh {
-        match askpass.start_session(app) {
+        match askpass.start_session(app.clone()) {
             Ok(e) => Some(e),
             Err(warn) => {
                 log::warn!("askpass session not started, continuing without: {warn}");
@@ -182,14 +201,11 @@ pub fn push_git_current_branch(
     } else {
         None
     };
+
     let env_owned: Vec<(String, String)> = askpass_env
         .as_ref()
         .map(build_askpass_env_pairs)
         .unwrap_or_default();
-    let env_refs: Vec<(&str, &str)> = env_owned
-        .iter()
-        .map(|(k, v)| (k.as_str(), v.as_str()))
-        .collect();
 
     let security = if is_ssh {
         let ssh_cmd = find_ssh_executable().unwrap_or_else(|| "ssh".to_string());
@@ -201,21 +217,34 @@ pub fn push_git_current_branch(
     };
 
     log::info!(
-        "git_push: spawning git is_ssh={is_ssh} askpass_active={}",
+        "git_push: spawning blocking task is_ssh={is_ssh} askpass_active={}",
         askpass_env.is_some()
     );
-    let result = ris_git::push_current_branch_with_env(&repo_path, &remote, &env_refs, security)
-        .map_err(|e| {
-            let msg = ssh_error_message(&e, is_ssh);
-            log::error!("git_push failed: {}", sanitize_error(&e.to_string()));
-            msg
-        });
+
+    // Run the blocking git subprocess on a thread pool thread via spawn_blocking.
+    // This yields back to the async runtime so the WebView can process Tauri
+    // events (e.g. ssh-passphrase-requested) while git waits for user input.
+    let raw_result = tauri::async_runtime::spawn_blocking(move || {
+        // env_refs borrows from env_owned, so rebuild it inside the closure.
+        let env_refs: Vec<(&str, &str)> = env_owned
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+        ris_git::push_current_branch_with_env(&repo_path, &remote, &env_refs, security)
+    })
+    .await
+    .map_err(|e| format!("push task join error: {e}"))?;
 
     if let Some(ref env) = askpass_env {
-        askpass.clear_session(env.session_id);
+        askpass.clear_session(&env.session_id, &app);
     }
 
-    result?;
+    raw_result.map_err(|e| {
+        let msg = ssh_error_message(&e, is_ssh);
+        log::error!("git_push failed: {}", sanitize_error(&e.to_string()));
+        msg
+    })?;
+
     log::info!("git_push ok");
     Ok(())
 }
@@ -224,36 +253,44 @@ pub fn push_git_current_branch(
 ///
 /// Returns the updated repository summary so the frontend can refresh counts.
 ///
-/// The session lock is released before the slow network operation so other commands remain
-/// responsive. After pull completes we re-acquire the lock and verify that the active
-/// session still points to the same `repo_path` we pulled. If the user closed or opened a
-/// different repository while pull was in flight we return an error and leave the current
-/// session untouched.
+/// This is an **async** command for the same reason as `push_git_current_branch`:
+/// the blocking git network operation is run in `spawn_blocking` so the WebView
+/// remains responsive and can process `ssh-passphrase-requested` events during
+/// the pull. The session lock is released before any `.await` and re-acquired
+/// only for the final session replacement.
 #[tauri::command]
-pub fn pull_git_ff_only(
+pub async fn pull_git_ff_only(
     remote: String,
-    state: State<AppState>,
-    askpass: State<AskpassState>,
+    state: State<'_, AppState>,
+    askpass: State<'_, AskpassState>,
     app: tauri::AppHandle,
 ) -> Result<RepositorySummaryDto, String> {
     // Release lock before the potentially slow git network operation.
+    // Must not hold a MutexGuard across any .await.
     let (repo_path, remote_url) = {
-        let guard = lock(&state)?;
+        let guard = state
+            .session
+            .lock()
+            .map_err(|_| "Internal error: session lock is poisoned".to_string())?;
         let session = guard.as_ref().ok_or_else(no_session)?;
-        let remotes = ris_git::list_remotes(&session.repo_path).unwrap_or_default();
-        let url = remotes
-            .into_iter()
-            .find(|r| r.name == remote)
-            .map(|r| r.url);
+        let remotes = ris_git::list_remotes(&session.repo_path).map_err(|e| e.to_string())?;
+        let found = remotes.into_iter().find(|r| r.name == remote);
+        if found.is_none() {
+            return Err(format!(
+                "No remote named \"{remote}\" is configured for this repository. \
+                 Add a remote in the Git panel before pulling."
+            ));
+        }
+        let url = found.map(|r| r.url);
         (session.repo_path.clone(), url)
-    };
+    }; // guard dropped — lock released before any .await
 
     let is_ssh = remote_url
         .as_deref()
         .map(ris_git::is_ssh_url)
         .unwrap_or(false);
     let askpass_env: Option<AskpassEnv> = if is_ssh {
-        match askpass.start_session(app) {
+        match askpass.start_session(app.clone()) {
             Ok(e) => Some(e),
             Err(warn) => {
                 log::warn!("askpass session not started, continuing without: {warn}");
@@ -263,14 +300,11 @@ pub fn pull_git_ff_only(
     } else {
         None
     };
+
     let env_owned: Vec<(String, String)> = askpass_env
         .as_ref()
         .map(build_askpass_env_pairs)
         .unwrap_or_default();
-    let env_refs: Vec<(&str, &str)> = env_owned
-        .iter()
-        .map(|(k, v)| (k.as_str(), v.as_str()))
-        .collect();
 
     let security = if is_ssh {
         let ssh_cmd = find_ssh_executable().unwrap_or_else(|| "ssh".to_string());
@@ -282,35 +316,55 @@ pub fn pull_git_ff_only(
     };
 
     log::info!(
-        "git_pull: spawning git remote={remote} is_ssh={is_ssh} askpass_active={}",
+        "git_pull: spawning blocking task remote={remote} is_ssh={is_ssh} askpass_active={}",
         askpass_env.is_some()
     );
-    let pull_result = ris_git::pull_ff_only_with_env(&repo_path, &remote, &env_refs, security)
-        .map_err(|e| {
-            let msg = ssh_error_message(&e, is_ssh);
-            log::error!("git_pull failed: {}", sanitize_error(&e.to_string()));
-            msg
-        });
+
+    let repo_path_for_pull = repo_path.clone();
+    let remote_for_pull = remote.clone();
+    let raw_pull = tauri::async_runtime::spawn_blocking(move || {
+        let env_refs: Vec<(&str, &str)> = env_owned
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+        ris_git::pull_ff_only_with_env(&repo_path_for_pull, &remote_for_pull, &env_refs, security)
+    })
+    .await
+    .map_err(|e| format!("pull task join error: {e}"))?;
 
     if let Some(ref env) = askpass_env {
-        askpass.clear_session(env.session_id);
+        askpass.clear_session(&env.session_id, &app);
     }
 
-    pull_result?;
+    raw_pull.map_err(|e| {
+        let msg = ssh_error_message(&e, is_ssh);
+        log::error!("git_pull failed: {}", sanitize_error(&e.to_string()));
+        msg
+    })?;
 
     // Reload session so in-memory state reflects the newly pulled YAML files.
-    // If reload fails, the old session remains unchanged.
-    let new_session = ris_application::open_repository(&repo_path).map_err(|e| {
+    // Also done in spawn_blocking because open_repository reads YAML from disk.
+    let repo_path_for_reload = repo_path.clone();
+    let new_session = tauri::async_runtime::spawn_blocking(move || {
+        ris_application::open_repository(&repo_path_for_reload)
+    })
+    .await
+    .map_err(|e| format!("reload task join error: {e}"))?
+    .map_err(|e| {
         let msg = format!("Pull succeeded but failed to reload repository: {e}");
         log::error!("git_pull reload failed: {}", sanitize_error(&msg));
         msg
     })?;
+
     let summary = build_summary(&new_session);
 
     // Only replace the session if the active session is still the same repository.
     // The user may have closed or switched repositories while pull was running.
     {
-        let mut guard = lock(&state)?;
+        let mut guard = state
+            .session
+            .lock()
+            .map_err(|_| "Internal error: session lock is poisoned".to_string())?;
         let still_same = guard.as_ref().is_some_and(|s| s.repo_path == repo_path);
         if still_same {
             *guard = Some(new_session);
@@ -337,12 +391,16 @@ pub fn pull_git_ff_only(
 /// Called by the frontend's SshPassphraseModal after the user submits or cancels.
 /// `passphrase: None` cancels the operation. The passphrase is held in memory only for the
 /// duration of the TCP handshake and is never logged or stored.
+///
+/// `session_id` must match the currently active session; a mismatch returns a typed error
+/// so the frontend can show a friendly "request expired, retry Push" message.
 #[tauri::command]
 pub fn respond_ssh_passphrase(
+    session_id: String,
     passphrase: Option<String>,
     askpass: State<AskpassState>,
 ) -> Result<(), String> {
-    askpass.respond(passphrase)
+    askpass.respond(&session_id, passphrase)
 }
 
 /// Return SSH diagnostics for the currently open repository and specified remote.

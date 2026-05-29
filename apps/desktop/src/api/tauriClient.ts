@@ -510,9 +510,25 @@ export interface SshDiagnosticsDto {
   guidance: string[];
 }
 
-/** Deliver the user's passphrase (or null to cancel) to the waiting askpass session. */
-export function respondSshPassphrase(passphrase: string | null): Promise<void> {
-  return invoke("respond_ssh_passphrase", { passphrase });
+/** Payload received when OpenSSH requests a passphrase. */
+export interface SshPassphraseRequestedPayload {
+  /** Hex string (16 chars). Kept as string to avoid JS number precision loss on large u64 values. */
+  session_id: string;
+  prompt: string;
+}
+
+/** Payload received when the active askpass session ends (timeout or push completion). */
+export interface SshPassphraseSessionEndedPayload {
+  /** Hex string (16 chars). Matches the session_id from the corresponding requested payload. */
+  session_id: string;
+}
+
+/**
+ * Deliver the user's passphrase (or null to cancel) to the waiting askpass session.
+ * `sessionId` must match the session_id from the `ssh-passphrase-requested` event.
+ */
+export function respondSshPassphrase(passphrase: string | null, sessionId: string): Promise<void> {
+  return invoke("respond_ssh_passphrase", { passphrase, sessionId });
 }
 
 /** Fetch SSH diagnostics for the currently open repository and optionally a specific remote. */

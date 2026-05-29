@@ -39,6 +39,15 @@
   both errors and warnings are counted once in `warning_rows`. The frontend
   `deriveCsvImportUiSummary` helper was updated with consistent semantics and the
   import panel copy updated to "Rows with at least one warning".
+- **Git push uses configured remote name and preserves SSH aliases**: Push and pull
+  operations now use the remote **name** (`origin`) throughout — the configured URL
+  is read only to decide whether to enable askpass, not as a push target. This means
+  SSH alias remotes (`ssh-alias:owner/repo.git`) defined in `~/.ssh/config` are
+  preserved end-to-end: RIS never rewrites or substitutes them with a constructed
+  `git@github.com:...` URL. First push to a branch without a configured upstream
+  uses `git push -u origin <branch>` to set tracking; subsequent pushes omit `-u`.
+  If the named remote does not exist RIS now returns a clear error instead of a
+  confusing Git failure.
 
 ### Added
 

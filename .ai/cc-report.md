@@ -1,70 +1,322 @@
-# CC Report — fix/beta1-height-override-import-summary
+# CC Report — fix/git-push-use-origin-remote
 
 ## Summary
 
-Two beta QA bugs fixed:
+Six separate fixes on this branch:
 
-1. **Clear height override** (`height_u: null` had no effect): Both `move_placement_within_side` and `move_placement` in `session.rs` silently ignored a `None` for `new_height_u` by falling back to the existing stored value. The fallback is removed. `None` now directly clears the stored override; the model default is used only for the bounds-check, not for persistence.
+1. **Git push remote fix** — Push now uses the configured remote name and never
+   adds a redundant `-u` when an upstream is already set.  Missing remote returns
+   a clear user-facing error instead of a confusing git message.
 
-2. **CSV import summary warning-row count** (`warning_count` counted issues, not rows, and included file-level warnings): Renamed field to `warning_rows` throughout the stack (Rust struct, DTO, TypeScript). Computation changed to count *rows* with ≥1 warning issue (not individual issues); file-level warnings excluded. Frontend `deriveCsvImportUiSummary` updated with consistent semantics; UI copy updated to "Rows with at least one warning".
+2. **SSH askpass modal regression fix** — The passphrase modal was hidden behind
+   the busy overlay on Windows and the session expired before the user could
+   interact.  Fixed by:
+   - Raising modal z-index above the busy overlay
+   - Adding `session_id` correlation so stale responses are rejected with a
+     friendly message instead of a raw error
+   - Emitting a `ssh-passphrase-session-ended` event so the frontend can mark
+     an open modal as expired without the user entering a passphrase into a dead
+     session
+   - Increasing the user timeout from 60 s to 120 s
 
-## Files changed
+3. **session_id string-safety fix (review blocker)** — `session_id` was a Rust
+   `u64` serialised as a JSON number, which is unsafe: JavaScript `number` has
+   only 53 bits of integer precision so a random 64-bit session id can be silently
+   rounded, causing valid passphrase submissions to be rejected as stale.
+   Fixed by transporting `session_id` as a hex string (`String` in Rust,
+   `string` in TypeScript) end-to-end.
+
+4. **Modal state reset on sessionId change (review blocker)** — The modal reset
+   passphrase/error/pending only when `open` changed.  If a second askpass
+   request arrived while the modal was still open (new `sessionId`), the
+   previously-typed passphrase could remain and be submitted to the new session.
+   Fixed by adding `sessionId` to the `useEffect` dependency array and adding a
+   separate effect to clear `passphrase` when `expired` becomes `true`.
+
+5. **Async push/pull for WebView event delivery (manual QA blocker)** —
+   (see Part 3 below)
+
+6. **Tauri invoke argument naming fix (manual QA result)** —
+   After the async fix the modal appeared correctly, but clicking Continue showed:
+   `invalid args \`sessionId\` for command \`respond_ssh_passphrase\`: missing required key sessionId`.
+   The `respondSshPassphrase` wrapper in `tauriClient.ts` called
+   `invoke("respond_ssh_passphrase", { passphrase, session_id: sessionId })`.
+   Tauri v2 maps Rust `session_id` → camelCase `sessionId` for command argument
+   binding, so the snake_case key was rejected.  Fixed by changing the payload
+   key to `sessionId`.  A new direct test for the API wrapper ensures this
+   cannot silently regress (higher-level modal tests mock `respondSshPassphrase`
+   entirely and would not catch the wrong key).
+
+(earlier items 5 details):
+   On Windows WebView2, synchronous Tauri commands hold the IPC dispatch loop.
+   Events emitted by the askpass TCP-server thread during a blocking
+   `push_git_current_branch` call were never delivered to JavaScript until the
+   command returned (after the 120 s timeout).  The modal therefore never
+   appeared while push was in progress.  Fixed by converting both
+   `push_git_current_branch` and `pull_git_ff_only` to `async` Tauri commands
+   and offloading the blocking git work to `tauri::async_runtime::spawn_blocking`.
+   The async runtime can now service WebView IPC messages while git runs.
+
+---
+
+## Part 1 — Git push remote fix
+
+### Observed bug class
+
+A user whose `origin` is configured as an SSH scp-like alias
+(`ssh-alias:owner/repo.git`) may see push fail or behave unexpectedly if the
+push code constructs or substitutes a URL.  The investigation found no active URL
+substitution, but revealed two real gaps:
+
+1. Push always added `-u` (`--set-upstream`) regardless of whether the branch
+   already had a tracking branch configured, contrary to the spec.
+2. When the named remote does not exist, `list_remotes().unwrap_or_default()`
+   silently returned an empty list; `remote_url` became `None`, `is_ssh` became
+   `false`, and git ran `push` against an unknown remote — producing a confusing
+   Git error instead of a user-facing "remote not configured" message.
+
+### Files changed (Part 1)
 
 | File | Change |
 |---|---|
-| `crates/ris-application/src/session.rs` | Removed `or(existing_height_u)` fallback in both move functions; `p.height_u = input.new_height_u` |
-| `crates/ris-application/tests/application_tests.rs` | 4 new tests: clear via `move_placement_within_side`, persists to disk, fails without model, clear via `move_placement` |
-| `crates/ris-import/src/preview.rs` | `warning_count` → `warning_rows`; doc comment updated |
-| `crates/ris-import/src/validator.rs` | Summary computation uses `filter(any warning).count()` over rows; early-exit paths set `warning_rows: 0` |
-| `crates/ris-import/tests/csv_import_tests.rs` | 5 new summary tests covering counts, row-vs-issue distinction, file-level exclusion, early exit |
-| `apps/desktop/src-tauri/src/dto.rs` | `CsvImportSummaryDto.warning_count` → `warning_rows` |
-| `apps/desktop/src-tauri/src/commands/repository.rs` | Updated field mapping in `preview_csv_import` |
-| `apps/desktop/src/api/tauriClient.ts` | `CsvImportSummaryDto.warning_count` → `warning_rows` |
-| `apps/desktop/src/features/csvImport/csvImportSummary.ts` | `warningRows` = all rows with ≥1 warning; `cleanRows` = importable rows with no warning |
-| `apps/desktop/src/features/csvImport/csvImportSummary.test.ts` | Updated/added 5 tests for new semantics |
-| `apps/desktop/src/features/csvImport/CsvImportPanel.tsx` | UI copy: "Rows with at least one warning (may overlap with Skipped)" |
-| `docs/BETA1_FOLLOWUP_PLAN_EN.md` | Items 4 and 5 marked IMPLEMENTED |
-| `CHANGELOG.md` | Two entries under Unreleased - Fixed |
+| `crates/ris-git/src/lib.rs` | Added `has_remote()`, `branch_has_upstream()`, `get_current_branch()`, `push_args()`; `push_current_branch_with_env` now calls `branch_has_upstream` and uses `push_args`; new SSH alias + push_args unit tests |
+| `apps/desktop/src-tauri/src/commands/git.rs` | Both `push_git_current_branch` and `pull_git_ff_only` now propagate `list_remotes` errors and return a clear user-facing error when the named remote is not found |
+| `crates/ris-git/tests/git_remote_tests.rs` | 18 new integration/unit tests |
+| `docs/BETA1_FOLLOWUP_PLAN_EN.md` | Added item 6, marked IMPLEMENTED |
+| `CHANGELOG.md` | Entry under Fixed |
+
+---
+
+## Part 2 — SSH askpass modal regression fix
+
+### Root cause
+
+`.modal-backdrop` had `z-index: 200` while `.busy-overlay` had `z-index: 500`.
+During a push, the busy overlay was rendered on top of the passphrase modal.
+The user could not see or interact with the modal.  The 60-second backend
+timeout fired, the session was cleared, the overlay disappeared, and the stale
+modal became visible.  When the user entered the passphrase, the backend
+responded "No active SSH passphrase session".
+
+Secondary issue: no `session_id` correlation existed between the event payload
+and the command, so even if the modal appeared it could not distinguish between
+a fresh session and a stale one.
+
+### Root cause fixes
+
+| Issue | Fix |
+|---|---|
+| Modal hidden behind overlay | `app.css`: `.modal-backdrop` z-index 200 → 600 |
+| No session_id correlation | `SshPassphraseRequestedPayload { session_id, prompt }` emitted; `respond_ssh_passphrase` command validates `session_id` match |
+| Session expiry not signalled to frontend | `ssh-passphrase-session-ended` event emitted by `clear_session` and on timeout |
+| Short timeout on slow machines | `USER_TIMEOUT_SECS`: 60 → 120 |
+| session_id unsafe as JS number | `session_id` changed to hex string end-to-end |
+| Old passphrase survives session change | `useEffect` deps include `sessionId`; separate effect clears passphrase on `expired` |
+
+### Files changed (Parts 2–4)
+
+| File | Change |
+|---|---|
+| `apps/desktop/src/app.css` | `.modal-backdrop` z-index 200 → 600 |
+| `apps/desktop/src-tauri/src/ssh_askpass.rs` | Timeout 60→120 s; all `session_id` fields changed to `String`; `generate_session_id()` returns 16-char hex string; `respond` takes `&str`; `clear_session`/`clear_session_inner` take `&str`; TCP server thread receives owned `String`; payload structs serialise `session_id` as string |
+| `apps/desktop/src-tauri/src/commands/git.rs` | `respond_ssh_passphrase` accepts `session_id: String`; `clear_session` calls pass `&env.session_id` |
+| `apps/desktop/src/api/tauriClient.ts` | `session_id: string` in both payload types; `respondSshPassphrase` parameter `sessionId: string` |
+| `apps/desktop/src/features/repository/SshPassphraseModal.tsx` | `sessionId: string` prop; `useEffect` on `[open, sessionId]` resets state on session change; new effect clears passphrase when `expired` becomes true |
+| `apps/desktop/src/App.tsx` | `sessionId: string` in state shape; fallback `""` instead of `0` |
+| `apps/desktop/src/features/repository/SshPassphraseModal.test.tsx` | All `sessionId` values are hex strings; `respondSshPassphrase` assertions verify string arg; 2 new tests: `clears passphrase when sessionId changes while open`, `clears passphrase when expired changes to true` |
+| `apps/desktop/src-tauri/src/ssh_askpass.rs` (tests) | All `session_id` literals are hex strings; `respond`/`clear_session_inner` calls use `&str`; 2 new tests: `generate_session_id_is_16_hex_chars`, `generate_session_id_is_unique`; 1 regression test: `respond_high_entropy_session_id_is_not_truncated` (uses `ffffffffffffffff`, which exceeds `Number.MAX_SAFE_INTEGER`) |
+
+### Why session_id is now string-safe
+
+`u64::MAX` is `18446744073709551615`, which exceeds JavaScript's
+`Number.MAX_SAFE_INTEGER` (`9007199254740991` = 2^53−1).  A random 64-bit value
+has a ~99.9989% chance of exceeding the safe integer range.  When Tauri
+serialised the `u64` as a JSON number and the JS engine parsed it, the value
+could be rounded to the nearest representable float, producing a different
+integer.  The rounded value sent back to Rust via `respond_ssh_passphrase` would
+never match the stored session id, causing every passphrase submission to be
+rejected as stale.
+
+The fix generates the session id as 16 lowercase hex chars (e.g. `a3f9...`),
+serialises it as a JSON string, and compares with string equality throughout.
+No precision is lost at any boundary.
+
+### Security properties preserved
+
+- Passphrase is not stored in config, env, logs, files, or CLI args.
+- Passphrase is never logged (passphrase value excluded from all log lines).
+- IPC bound to 127.0.0.1 only.
+- Per-operation random token; expires after one use.
+- Attempt limit (3) prevents passphrase-loop attacks.
+- Hook suppression and askpass hardening (`SSH_ASKPASS_REQUIRE=force`) unchanged.
+- Push still uses the configured remote name, never a constructed URL.
+
+---
+
+---
+
+## Part 3 — Async push/pull for WebView event delivery
+
+### Root cause
+
+On Windows, Tauri uses WebView2.  Synchronous Tauri commands are executed
+directly on the WebView2 IPC thread.  While a synchronous command is executing,
+no other IPC messages can be dispatched — including `window.__TAURI_INTERNALS__`
+event callbacks that deliver `app.emit(…)` payloads to the JavaScript engine.
+
+The askpass TCP server runs on a separate Tokio task and emits
+`ssh-passphrase-requested` during a `push_git_current_branch` call.  Because
+the command is synchronous, that event sits in the WebView message queue until
+the command returns — 120 seconds later when the askpass timeout fires.  By that
+point the session is already expired and the modal shows the expiry message
+immediately on finally appearing.
+
+The same issue affects `pull_git_ff_only`.
+
+### Fix
+
+Both commands converted from synchronous to `async` Tauri commands.  The
+blocking git work is offloaded to `tauri::async_runtime::spawn_blocking`, which
+runs it on a dedicated blocking thread pool.  The async executor can service
+WebView IPC events while the blocking thread runs, so the
+`ssh-passphrase-requested` event is delivered to JavaScript within milliseconds
+of being emitted.
+
+Care taken:
+- `MutexGuard` objects are dropped (via scoped blocks) before any `.await` point
+  to satisfy the `Send` bound required by `spawn_blocking` closures.
+- Owned values (`repo_path: PathBuf`, `remote: String`, env vectors) are moved
+  into the closure rather than borrowed across an await.
+- `State<'_, AppState>` and `State<'_, AskpassState>` work as-is in async Tauri
+  v2 commands because both types are `Send + Sync`.
+- `AppHandle` is cloned before being moved into `start_session` so it remains
+  available for the subsequent `clear_session` call.
+
+### Files changed (Part 3)
+
+| File | Change |
+|---|---|
+| `apps/desktop/src-tauri/src/commands/git.rs` | `push_git_current_branch` and `pull_git_ff_only` converted to `async`; blocking git calls wrapped in `spawn_blocking`; `MutexGuard` dropped before `.await`; `app.clone()` passed to `start_session` |
+| `apps/desktop/src/App.tsx` | Added `logInfo` diagnostics for `ssh-passphrase-requested` and `ssh-passphrase-session-ended` event receipt |
+| `apps/desktop/src/features/repository/SshPassphraseModal.tsx` | Added `console.log` for modal-active and modal-expired to aid manual QA tracing |
+
+---
+
+## Part 4 — Tauri invoke argument naming fix
+
+### Root cause
+
+Manual QA confirmed the modal appeared quickly after the async fix, but
+clicking **Continue** showed:
+
+```
+invalid args `sessionId` for command `respond_ssh_passphrase`:
+command respond_ssh_passphrase missing required key sessionId
+```
+
+`tauriClient.ts` called:
+```ts
+invoke("respond_ssh_passphrase", { passphrase, session_id: sessionId })
+```
+
+Tauri v2 maps Rust parameter names to camelCase for IPC argument binding.
+`session_id` (Rust) becomes `sessionId` (expected JS key).  Sending
+`session_id` instead caused the command to see a missing required argument.
+
+### Fix
+
+One-line change in `tauriClient.ts`:
+```ts
+// Before
+invoke("respond_ssh_passphrase", { passphrase, session_id: sessionId })
+// After
+invoke("respond_ssh_passphrase", { passphrase, sessionId })
+```
+
+Event payload fields (`SshPassphraseRequestedPayload.session_id`,
+`SshPassphraseSessionEndedPayload.session_id`) are untouched — event
+payloads are serialised directly from Rust structs and use `session_id`
+by design; only command invocation arguments use camelCase.
+
+### Why existing tests did not catch this
+
+Modal-level tests mock `respondSshPassphrase` entirely, so they never
+exercise the underlying `invoke` call.  A new direct test for the API
+wrapper layer was added to catch any future regression at the correct level.
+
+### Files changed (Part 4)
+
+| File | Change |
+|---|---|
+| `apps/desktop/src/api/tauriClient.ts` | `invoke` payload key `session_id` → `sessionId` |
+| `apps/desktop/src/api/tauriClient.respondSshPassphrase.test.ts` | New: 3 direct tests verifying camelCase key, null cancel path, high-entropy session id |
+
+### Manual QA checklist
+
+To verify the fix on Windows:
+1. Open a repository whose `origin` is an SSH remote (`git@github.com:…` or
+   `ssh-alias:owner/repo.git`) with a passphrase-protected key **not** loaded
+   in ssh-agent.
+2. Click **Push**.
+3. **Expected**: the SSH passphrase modal appears immediately over the busy
+   overlay — within ~1 s of clicking Push.
+4. Enter the correct passphrase and click **Continue**.
+5. **Expected**: push completes successfully; modal closes.
+6. Repeat with an incorrect passphrase.
+7. **Expected**: modal shows the error from the backend (attempt 1/3) and stays
+   open for retry.
+8. After 3 wrong attempts: push fails with an SSH authentication error; modal
+   closes.
+9. Click **Push** again with no key in ssh-agent but dismiss the modal with
+   **Cancel**.
+10. **Expected**: push is cancelled promptly; no 120-second hang.
+
+---
 
 ## Tests
 
 ```
-cargo fmt --all --check     — OK
-cargo check --workspace     — OK
-cargo test --workspace      — all pass (0 failures)
-cargo clippy --workspace -- -D warnings  — OK (0 errors)
-tsc --noEmit                — OK
-vitest run                  — 461 passed (35 test files)
-playwright test             — 21 passed
+cargo fmt --all --check              — OK (no changes)
+cargo check --workspace              — OK
+cargo test --workspace               — 60+85+... passed, 0 failed
+cargo clippy --workspace -D warnings — 0 errors, 0 warnings
+tsc --noEmit                         — OK (0 errors)
+vitest run                           — 471 passed (36 test files, +3 new)
 ```
 
 ## Risks
 
-- **`EffectiveHeightMissing` now reachable via clear**: If a placement was placed using its own override and the model has no `default_height_u`, calling `move_placement` with `new_height_u: None` will return `EffectiveHeightMissing`. This is correct behaviour (you cannot clear an override if there is no model default to fall back to), but the frontend should handle this error gracefully. Current frontend does not surface a specific message for this case.
-- **`warning_rows` vs `warning_count` rename**: All callers have been updated. If any external tooling read the old `warning_count` key from the DTO, it would silently receive `undefined`. No such callers exist today.
+- `branch_has_upstream` defaults to `false` on any error. This means `-u` is
+  added on every push when the check cannot run. Safe (Git updates tracking to
+  same value) but adds a round-trip.
+- The `session_id` guard in `respond` requires the frontend to pass the
+  `session_id` from the event payload.  If the frontend re-renders and loses the
+  session state before the user submits, the modal will show the expiry message
+  on the next attempt.  This is expected behavior; the user can retry Push.
+- `clear_session` emits a Tauri event.  If the app is shutting down during a
+  push, the emit may fail silently (`.ok()` discards the error), which is safe.
+- `spawn_blocking` uses a fixed-size thread pool (Tokio default: 512 threads).
+  Only one push/pull runs at a time in normal UI use so this is not a concern.
+- The async conversion means panics inside the `spawn_blocking` closure surface
+  as a `JoinError` rather than unwinding the command.  Both paths produce a
+  user-visible error string, so the UX difference is negligible.
 
 ## Not done
 
-- Persistent credential vault or HTTPS token management (out of scope, tracked separately).
-- Frontend: dedicated error message for `EffectiveHeightMissing` when the user tries to clear an override on a model-less placement.
-- BETA1_FOLLOWUP_PLAN items 6 (dirty repository guard) and 2 (SSH passphrase) are unrelated and tracked on their own branches.
+- Frontend: dedicated error styling for "no remote" vs SSH authentication errors.
+- Dirty repository guard (tracked as follow-up item 7).
+- Playwright test coverage for SSH passphrase flow (requires a real SSH server;
+  not feasible in the E2E harness).
+- Full end-to-end manual QA on Windows still required (see checklist in Part 3).
+  The async fix and argument naming fix are both in place; the correct
+  passphrase should now complete a push successfully.
 
 ## Suggested next step
 
-Add a user-friendly frontend error handler for `EffectiveHeightMissing` in the placement inspector so that clearing an override on a model-less placement shows a guided message instead of a generic toast.
-
-## Manual QA checklist
-
-**Height override clear:**
-1. Open a project with at least one rack that has a device placement.
-2. In the placement inspector, set a height override (e.g. 3U).
-3. Verify the rack slot updates to 3U.
-4. Click "Reset to model default" (or equivalent).
-5. Verify the rack slot reverts to the model default height.
-6. Close and reopen the project. Confirm the cleared override persisted (model default still shown, no stored override).
-
-**CSV import summary:**
-1. Import a CSV file with: 2 valid rows, 1 row with a malformed tags value (VAL-CSV-019 warning), 1 row with a missing identity field (error).
-2. In the preview panel verify: Total = 4, Will create = 3, Warnings = 1, Skipped = 1.
-3. Confirm "Warnings" label reads "Rows with at least one warning (may overlap with Skipped)".
-4. Import a CSV with an unknown column header (VAL-CSV-002 file warning) and a single clean row. Confirm warningRows = 0.
+Build a new Windows installer from this branch and repeat manual QA using the
+checklist in Part 3 above.  The invoke argument bug is now fixed, so a correct
+passphrase should complete the push without error.  Verify:
+1. Modal appears quickly (within ~1 s of clicking Push).
+2. Correct passphrase → push succeeds, modal closes.
+3. Cancel → push aborts promptly.
+4. Wrong passphrase × 3 → SSH auth error, modal closes.
