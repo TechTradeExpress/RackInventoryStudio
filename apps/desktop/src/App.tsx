@@ -1,10 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { isTauri } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useBusy } from "./lib/appBusy";
 import {
   closeRepository,
   getRepositorySummary,
   openRepository,
+  saveCurrentRepository,
   selectRepositoryFolder,
   type LocationDto,
   type OpenRepositoryResultDto,
@@ -28,6 +31,7 @@ import { DeviceModelsPanel } from "./features/deviceModels/DeviceModelsPanel";
 import { CsvImportPanel } from "./features/csvImport/CsvImportPanel";
 import { SettingsPanel } from "./features/settings/SettingsPanel";
 import { SshPassphraseModal } from "./features/repository/SshPassphraseModal";
+import { UnsavedChangesDialog } from "./components/ui/UnsavedChangesDialog";
 import {
   GlobalSearch,
   type SearchNavigationEvent,
@@ -50,7 +54,6 @@ import {
 import type { ValidationNavigationTarget } from "./features/validation/navigation";
 import { logError, logInfo, logWarn } from "./lib/diagnosticsLog";
 import { sanitizeErrorForLog, sanitizePathForLog } from "./lib/redact";
-import { confirmUnsavedDiscard, UNSAVED_MSG } from "./lib/unsavedGuard";
 
 type Tab =
   | "repository"
@@ -91,7 +94,56 @@ export function App() {
     expired: boolean;
   } | null>(null);
 
+  // Async unsaved-changes guard: shows a 3-button dialog instead of window.confirm.
+  const [unsavedGuardOpen, setUnsavedGuardOpen] = useState(false);
+  const [unsavedGuardSaving, setUnsavedGuardSaving] = useState(false);
+  const unsavedGuardResolveRef = useRef<((action: "save" | "discard" | "cancel") => void) | null>(null);
+  // Always-current value of hasUnsavedChanges; used in effects with stable closures.
+  const hasUnsavedChangesRef = useRef(hasUnsavedChanges);
+  hasUnsavedChangesRef.current = hasUnsavedChanges;
+
   const isOpen = summary !== null;
+
+  function handleSaveSuccess() {
+    setHasUnsavedChanges(false);
+    setGitRefreshToken((t) => t + 1);
+  }
+
+  /** Opens the 3-button guard dialog and returns the user's choice. Returns 'discard' immediately when clean. */
+  const openGuardDialog = useCallback(
+    () =>
+      new Promise<"save" | "discard" | "cancel">((resolve) => {
+        unsavedGuardResolveRef.current = resolve;
+        setUnsavedGuardOpen(true);
+      }),
+    [],
+  );
+
+  async function guardUnsaved(): Promise<"save" | "discard" | "cancel"> {
+    if (!hasUnsavedChanges) return "discard";
+    return openGuardDialog();
+  }
+
+  function resolveGuard(action: "save" | "discard" | "cancel") {
+    unsavedGuardResolveRef.current?.(action);
+    unsavedGuardResolveRef.current = null;
+    setUnsavedGuardOpen(false);
+  }
+
+  async function handleGuardSave() {
+    setUnsavedGuardSaving(true);
+    try {
+      await saveCurrentRepository();
+      handleSaveSuccess();
+      resolveGuard("save");
+    } catch (e) {
+      setError(String(e));
+      logError(`Save failed during unsaved guard: ${sanitizeErrorForLog(e)}`);
+      // Leave dialog open so user can retry or cancel.
+    } finally {
+      setUnsavedGuardSaving(false);
+    }
+  }
 
   // Listen for SSH passphrase requests emitted by the backend askpass session.
   useEffect(() => {
@@ -122,10 +174,27 @@ export function App() {
     };
   }, []);
 
-  function handleSaveSuccess() {
-    setHasUnsavedChanges(false);
-    setGitRefreshToken((t) => t + 1);
-  }
+  // Guard window close when there are unsaved changes.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void) | undefined;
+    getCurrentWindow()
+      .onCloseRequested(async (event) => {
+        if (!hasUnsavedChangesRef.current) return;
+        event.preventDefault();
+        const action = await openGuardDialog();
+        if (action === "cancel") return;
+        // 'save' means save already completed successfully in handleGuardSave.
+        // 'discard' or 'save' both result in closing the window.
+        await getCurrentWindow().destroy();
+      })
+      .then((fn) => {
+        unlisten = fn;
+      });
+    return () => {
+      unlisten?.();
+    };
+  }, [openGuardDialog]);
 
   function handleManageRacks(location: LocationDto) {
     setSelectedLocationForRacks(location);
@@ -226,12 +295,14 @@ export function App() {
   async function handleOpen() {
     const path = repoPath.trim();
     if (!path) return;
-    if (!confirmUnsavedDiscard(hasUnsavedChanges, UNSAVED_MSG.open)) return;
+    const action = await guardUnsaved();
+    if (action === "cancel") return;
     await doOpen(path);
   }
 
   async function handleOpenPath(path: string) {
-    if (!confirmUnsavedDiscard(hasUnsavedChanges, UNSAVED_MSG.open)) return;
+    const action = await guardUnsaved();
+    if (action === "cancel") return;
     await doOpen(path);
   }
 
@@ -262,7 +333,8 @@ export function App() {
   }
 
   async function handleClose() {
-    if (!confirmUnsavedDiscard(hasUnsavedChanges, UNSAVED_MSG.close)) return;
+    const action = await guardUnsaved();
+    if (action === "cancel") return;
     setError(null);
     try {
       await runBusy("Closing repository…", () => closeRepository());
@@ -545,6 +617,14 @@ export function App() {
         sessionId={askpassSession?.sessionId ?? ""}
         expired={askpassSession?.expired ?? false}
         onDismiss={() => setAskpassSession(null)}
+      />
+
+      <UnsavedChangesDialog
+        open={unsavedGuardOpen}
+        saving={unsavedGuardSaving}
+        onSave={handleGuardSave}
+        onDiscard={() => resolveGuard("discard")}
+        onCancel={() => resolveGuard("cancel")}
       />
     </div>
   );
