@@ -1,2 +1,43 @@
 device_type: appliance
-devices: []
+devices:
+# ── Warsaw HQ ──────────────────────────────────────────────────────────────────
+- id: e0e00011-0000-4e0e-e0e0-e0e0e0e0e011
+  code: kvm-a01-01
+  name: KVM Switch A01
+  device_model_id: d5d5d5d5-0001-4d5d-d5d5-d5d5d5d5d501
+  serial_number: KVM-A01-001
+  asset_tag: INV-05001
+  status: installed
+  tags:
+  - kvm
+  - console
+- id: e0e00012-0000-4e0e-e0e0-e0e0e0e0e012
+  code: kvm-b01-01
+  name: KVM Switch B01
+  device_model_id: d5d5d5d5-0001-4d5d-d5d5-d5d5d5d5d501
+  serial_number: KVM-B01-001
+  asset_tag: INV-05002
+  status: installed
+  tags:
+  - kvm
+  - console
+- id: e0e00013-0000-4e0e-e0e0-e0e0e0e0e013
+  code: pdu-a02-01
+  name: PDU A02
+  device_model_id: d5d5d5d5-0002-4d5d-d5d5-d5d5d5d5d502
+  serial_number: PDU-A02-001
+  asset_tag: INV-05003
+  status: installed
+  tags:
+  - pdu
+  - power
+- id: e0e00014-0000-4e0e-e0e0-e0e0e0e0e014
+  code: pdu-b01-01
+  name: PDU B01
+  device_model_id: d5d5d5d5-0002-4d5d-d5d5-d5d5d5d5d502
+  serial_number: PDU-B01-001
+  asset_tag: INV-05004
+  status: installed
+  tags:
+  - pdu
+  - power

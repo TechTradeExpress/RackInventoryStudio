@@ -1,0 +1,10 @@
+rack_id: c2c2c2c2-c2c2-4c2c-c2c2-c2c2c2c202c2
+placements:
+  front:
+  # U1: Gdańsk NAS (Synology RS1221+, 1U)
+  - id: f0f0004c-0000-4f0f-f0f0-f0f0f0f0f04c
+    code: plc-storage-gdansk-01
+    target_kind: device
+    target_id: e1e3000f-0000-4e1e-e1e1-e1e1e1e1e301
+    start_u: 1
+  rear: []

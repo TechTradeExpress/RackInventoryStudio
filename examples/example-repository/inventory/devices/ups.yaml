@@ -1,8 +1,9 @@
 device_type: ups
 devices:
+# ── Warsaw HQ ──────────────────────────────────────────────────────────────────
 - id: 2c0994b0-2cf0-4d48-9f34-8df2b9a8bfa0
   code: ups-a01-01
-  name: UPS A01-01
+  name: UPS A01 (APC 3kVA)
   device_model_id: 98f89575-febc-4b66-a2c1-19aa22a0ff89
   serial_number: UPS123456
   asset_tag: INV-04001
@@ -10,3 +11,36 @@ devices:
   status: installed
   tags:
   - power
+  - production
+- id: e0e00010-0000-4e0e-e0e0-e0e0e0e0e010
+  code: ups-hq-b01
+  name: UPS B01 (Eaton 3kVA)
+  device_model_id: d4d4d4d4-0001-4d4d-d4d4-d4d4d4d4d401
+  serial_number: UPS-HQB-001
+  asset_tag: INV-04002
+  status: installed
+  tags:
+  - power
+  - production
+# ── Gdańsk Branch ──────────────────────────────────────────────────────────────
+- id: e1e40001-0000-4e1e-e1e1-e1e1e1e1e401
+  code: ups-gdansk-01
+  name: Gdańsk UPS
+  device_model_id: 98f89575-febc-4b66-a2c1-19aa22a0ff89
+  serial_number: UPS-GD-001
+  asset_tag: INV-14001
+  status: installed
+  tags:
+  - power
+  - branch
+# ── DR Site ────────────────────────────────────────────────────────────────────
+- id: e2e40001-0000-4e2e-e2e2-e2e2e2e2e401
+  code: ups-dr-01
+  name: DR UPS
+  device_model_id: 98f89575-febc-4b66-a2c1-19aa22a0ff89
+  serial_number: UPS-DR-001
+  asset_tag: INV-24001
+  status: installed
+  tags:
+  - power
+  - dr

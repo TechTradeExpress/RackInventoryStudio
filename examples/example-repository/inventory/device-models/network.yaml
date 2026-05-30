@@ -17,3 +17,19 @@ models:
   tags:
   - firewall
   - edge
+- id: d2d2d2d2-0001-4d2d-d2d2-d2d2d2d2d201
+  code: cisco-asr1001x
+  name: Cisco ASR 1001-X
+  vendor: Cisco
+  model: ASR 1001-X
+  default_height_u: 1
+  tags:
+  - router
+  - edge
+- id: d2d2d2d2-0002-4d2d-d2d2-d2d2d2d2d202
+  code: patch-panel-24p
+  name: Patch Panel 24-port
+  default_height_u: 1
+  tags:
+  - patch-panel
+  - cabling

@@ -1,8 +1,9 @@
 device_type: storage
 devices:
+# ── Warsaw HQ ──────────────────────────────────────────────────────────────────
 - id: 97eb865b-56fc-4fda-b7cb-66f6cb5f309e
   code: storage-01
-  name: storage-01
+  name: Storage Array 01
   device_model_id: ddd19fa1-8a1a-4300-80c1-b08f7b79ed38
   serial_number: STOR123456
   asset_tag: INV-03001
@@ -10,3 +11,36 @@ devices:
   status: installed
   tags:
   - storage
+  - production
+- id: e0e0000f-0000-4e0e-e0e0-e0e0e0e0e00f
+  code: storage-02
+  name: NAS 01
+  device_model_id: d3d3d3d3-0001-4d3d-d3d3-d3d3d3d3d301
+  serial_number: STR-NAS-002
+  asset_tag: INV-03002
+  status: installed
+  tags:
+  - nas
+  - storage
+# ── Gdańsk Branch ──────────────────────────────────────────────────────────────
+- id: e1e3000f-0000-4e1e-e1e1-e1e1e1e1e301
+  code: storage-gdansk-01
+  name: Gdańsk NAS
+  device_model_id: d3d3d3d3-0001-4d3d-d3d3-d3d3d3d3d301
+  serial_number: STR-GD-001
+  asset_tag: INV-13001
+  status: installed
+  tags:
+  - nas
+  - branch
+# ── DR Site ────────────────────────────────────────────────────────────────────
+- id: e2e3000f-0000-4e2e-e2e2-e2e2e2e2e301
+  code: storage-dr-01
+  name: DR Storage Array
+  device_model_id: ddd19fa1-8a1a-4300-80c1-b08f7b79ed38
+  serial_number: STR-DR-001
+  asset_tag: INV-23001
+  status: installed
+  tags:
+  - storage
+  - dr

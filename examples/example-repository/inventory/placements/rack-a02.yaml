@@ -1,4 +1,22 @@
 rack_id: 3cc51429-4d7d-4912-ae31-94b7c2f3fb72
 placements:
-  front: []
+  front:
+  # U1: Management Switch (sparse rack — only a few items)
+  - id: f0f00020-0000-4f0f-f0f0-f0f0f0f0f020
+    code: plc-sw-mgmt-01
+    target_kind: device
+    target_id: e0e0000e-0000-4e0e-e0e0-e0e0e0e0e00e
+    start_u: 1
+  # U2: PDU A02 (1U)
+  - id: f0f00021-0000-4f0f-f0f0-f0f0f0f0f021
+    code: plc-pdu-a02-01
+    target_kind: device
+    target_id: e0e00013-0000-4e0e-e0e0-e0e0e0e0e013
+    start_u: 2
+  # U3: Blank panel (1U filler)
+  - id: f0f00022-0000-4f0f-f0f0-f0f0f0f0f022
+    code: plc-blank-a02-front-01
+    target_kind: device_model
+    target_id: 2b65592a-18b8-41c7-9a27-1f03aa631e4f
+    start_u: 3
   rear: []

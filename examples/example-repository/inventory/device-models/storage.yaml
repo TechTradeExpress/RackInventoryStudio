@@ -9,3 +9,12 @@ models:
   tags:
   - storage
   - array
+- id: d3d3d3d3-0001-4d3d-d3d3-d3d3d3d3d301
+  code: synology-rs1221p
+  name: Synology RackStation RS1221+
+  vendor: Synology
+  model: RackStation RS1221+
+  default_height_u: 1
+  tags:
+  - storage
+  - nas

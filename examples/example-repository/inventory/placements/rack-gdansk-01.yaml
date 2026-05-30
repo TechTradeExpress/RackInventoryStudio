@@ -1,0 +1,76 @@
+rack_id: c2c2c2c2-c2c2-4c2c-c2c2-c2c2c2c201c1
+placements:
+  front:
+  # U1: Gdańsk Core Switch (Cisco C9300, 1U)
+  - id: f0f00040-0000-4f0f-f0f0-f0f0f0f0f040
+    code: plc-sw-gdansk-01
+    target_kind: device
+    target_id: e1e2000a-0000-4e1e-e1e1-e1e1e1e1e201
+    start_u: 1
+  # U2: Gdańsk Access Switch (Cisco C9300, 1U)
+  - id: f0f00041-0000-4f0f-f0f0-f0f0f0f0f041
+    code: plc-sw-gdansk-02
+    target_kind: device
+    target_id: e1e2000b-0000-4e1e-e1e1-e1e1e1e1e202
+    start_u: 2
+  # U3: Gdańsk Firewall (FortiGate 100F, 1U)
+  - id: f0f00042-0000-4f0f-f0f0-f0f0f0f0f042
+    code: plc-fw-gdansk-01
+    target_kind: device
+    target_id: e1e2000c-0000-4e1e-e1e1-e1e1e1e1e203
+    start_u: 3
+  # U5-6: Gdańsk App Server 01 (HPE DL380, 2U)
+  - id: f0f00043-0000-4f0f-f0f0-f0f0f0f0f043
+    code: plc-srv-gdansk-01
+    target_kind: device
+    target_id: e1e10001-0000-4e1e-e1e1-e1e1e1e1e101
+    start_u: 5
+  # U7-8: Gdańsk App Server 02 (HPE DL380, 2U)
+  - id: f0f00044-0000-4f0f-f0f0-f0f0f0f0f044
+    code: plc-srv-gdansk-02
+    target_kind: device
+    target_id: e1e10002-0000-4e1e-e1e1-e1e1e1e1e102
+    start_u: 7
+  # U9-10: Gdańsk DB Server (Dell R750, 2U)
+  - id: f0f00045-0000-4f0f-f0f0-f0f0f0f0f045
+    code: plc-srv-gdansk-03
+    target_kind: device
+    target_id: e1e10003-0000-4e1e-e1e1-e1e1e1e1e103
+    start_u: 9
+  # U11: Gdańsk Web Server (Dell R650, 1U)
+  - id: f0f00046-0000-4f0f-f0f0-f0f0f0f0f046
+    code: plc-srv-gdansk-04
+    target_kind: device
+    target_id: e1e10004-0000-4e1e-e1e1-e1e1e1e1e104
+    start_u: 11
+  # U12: Gdańsk File Server (Dell R650, 1U)
+  - id: f0f00047-0000-4f0f-f0f0-f0f0f0f0f047
+    code: plc-srv-gdansk-05
+    target_kind: device
+    target_id: e1e10005-0000-4e1e-e1e1-e1e1e1e1e105
+    start_u: 12
+  # U13: Gdańsk Dev Server (Dell R650, 1U)
+  - id: f0f00048-0000-4f0f-f0f0-f0f0f0f0f048
+    code: plc-srv-gdansk-06
+    target_kind: device
+    target_id: e1e10006-0000-4e1e-e1e1-e1e1e1e1e106
+    start_u: 13
+  # U14: Gdańsk Backup Server (Dell R650, 1U)
+  - id: f0f00049-0000-4f0f-f0f0-f0f0f0f0f049
+    code: plc-srv-gdansk-07
+    target_kind: device
+    target_id: e1e10007-0000-4e1e-e1e1-e1e1e1e1e107
+    start_u: 14
+  # U15-16: Gdańsk Monitoring Server (Dell R750, 2U)
+  - id: f0f0004a-0000-4f0f-f0f0-f0f0f0f0f04a
+    code: plc-srv-gdansk-08
+    target_kind: device
+    target_id: e1e10008-0000-4e1e-e1e1-e1e1e1e1e108
+    start_u: 15
+  rear:
+  # U1-2: Gdańsk UPS (APC Smart-UPS, 2U)
+  - id: f0f0004b-0000-4f0f-f0f0-f0f0f0f0f04b
+    code: plc-ups-gdansk-01
+    target_kind: device
+    target_id: e1e40001-0000-4e1e-e1e1-e1e1e1e1e401
+    start_u: 1

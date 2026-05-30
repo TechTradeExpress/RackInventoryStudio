@@ -18,3 +18,21 @@ models:
   tags:
   - server
   - 2u
+- id: d1d1d1d1-0001-4d1d-d1d1-d1d1d1d1d101
+  code: dell-r750
+  name: Dell PowerEdge R750
+  vendor: Dell
+  model: PowerEdge R750
+  default_height_u: 2
+  tags:
+  - server
+  - 2u
+- id: d1d1d1d1-0002-4d1d-d1d1-d1d1d1d1d102
+  code: lenovo-sr650
+  name: Lenovo ThinkSystem SR650
+  vendor: Lenovo
+  model: ThinkSystem SR650
+  default_height_u: 2
+  tags:
+  - server
+  - 2u

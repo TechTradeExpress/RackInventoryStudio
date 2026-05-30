@@ -1,8 +1,9 @@
 device_type: server
 devices:
+# ── Warsaw HQ ──────────────────────────────────────────────────────────────────
 - id: b0fd6e38-1e99-44c6-a8d7-e34d95f05e41
   code: srv-app-01
-  name: srv-app-01
+  name: App Server 01
   device_model_id: 0fd050a7-4a7a-4a4e-9c35-153f42c8a06e
   serial_number: XYZ987654
   asset_tag: INV-00452
@@ -10,9 +11,10 @@ devices:
   status: installed
   tags:
   - app
+  - production
 - id: 9a7c5e10-3d3a-4b31-947c-7d3cba39f314
   code: srv-db-01
-  name: srv-db-01
+  name: Database Server 01
   device_model_id: 4a7d5a62-36f4-4cd9-818e-66eac20351a1
   serial_number: ABC123456
   asset_tag: INV-00451
@@ -20,13 +22,269 @@ devices:
   status: installed
   tags:
   - database
+  - production
+- id: e0e00002-0000-4e0e-e0e0-e0e0e0e0e002
+  code: srv-app-02
+  name: App Server 02
+  device_model_id: 0fd050a7-4a7a-4a4e-9c35-153f42c8a06e
+  serial_number: SN-APP-002
+  asset_tag: INV-00103
+  status: installed
+  tags:
+  - app
+  - production
+- id: e0e00003-0000-4e0e-e0e0-e0e0e0e0e003
+  code: srv-app-03
+  name: App Server 03
+  device_model_id: 0fd050a7-4a7a-4a4e-9c35-153f42c8a06e
+  serial_number: SN-APP-003
+  asset_tag: INV-00104
+  status: installed
+  tags:
+  - app
+  - production
+- id: e0e00004-0000-4e0e-e0e0-e0e0e0e0e004
+  code: srv-web-01
+  name: Web Server 01
+  device_model_id: 4a7d5a62-36f4-4cd9-818e-66eac20351a1
+  serial_number: SN-WEB-001
+  asset_tag: INV-00105
+  status: installed
+  tags:
+  - web
+  - production
+- id: e0e00005-0000-4e0e-e0e0-e0e0e0e0e005
+  code: srv-web-02
+  name: Web Server 02
+  device_model_id: 4a7d5a62-36f4-4cd9-818e-66eac20351a1
+  serial_number: SN-WEB-002
+  asset_tag: INV-00106
+  status: installed
+  tags:
+  - web
+  - production
+- id: e0e00006-0000-4e0e-e0e0-e0e0e0e0e006
+  code: srv-db-02
+  name: Database Server 02
+  device_model_id: 4a7d5a62-36f4-4cd9-818e-66eac20351a1
+  serial_number: SN-DB-002
+  asset_tag: INV-00107
+  status: installed
+  tags:
+  - database
+  - production
+- id: e0e00007-0000-4e0e-e0e0-e0e0e0e0e007
+  code: srv-dev-01
+  name: Dev Server 01 (decommission candidate)
+  device_model_id: d1d1d1d1-0001-4d1d-d1d1-d1d1d1d1d101
+  serial_number: SN-DEV-001
+  asset_tag: INV-00108
+  status: to_remove
+  tags:
+  - dev
+  - decommission-candidate
+- id: e0e00008-0000-4e0e-e0e0-e0e0e0e0e008
+  code: srv-mon-01
+  name: Monitoring Server
+  device_model_id: d1d1d1d1-0001-4d1d-d1d1-d1d1d1d1d101
+  serial_number: SN-MON-001
+  asset_tag: INV-00109
+  external_ref: SRV-MON-01
+  status: installed
+  tags:
+  - monitoring
+  - ops
+- id: e0e00009-0000-4e0e-e0e0-e0e0e0e0e009
+  code: srv-backup-01
+  name: Backup Server
+  device_model_id: 0fd050a7-4a7a-4a4e-9c35-153f42c8a06e
+  serial_number: SN-BAK-001
+  asset_tag: INV-00110
+  external_ref: SRV-BAK-01
+  status: installed
+  tags:
+  - backup
+  - ops
+# ── Warsaw HQ — rack-hq-b01 ────────────────────────────────────────────────────
+- id: e0e00015-0000-4e0e-e0e0-e0e0e0e0e015
+  code: srv-test-01
+  name: Test Server 01
+  device_model_id: d1d1d1d1-0002-4d1d-d1d1-d1d1d1d1d102
+  serial_number: SN-TST-001
+  asset_tag: INV-00111
+  status: installed
+  tags:
+  - test
+  - dev
+# ── Gdańsk Branch ──────────────────────────────────────────────────────────────
+- id: e1e10001-0000-4e1e-e1e1-e1e1e1e1e101
+  code: srv-gdansk-01
+  name: Gdańsk App Server 01
+  device_model_id: 0fd050a7-4a7a-4a4e-9c35-153f42c8a06e
+  serial_number: SN-GD-SRV-001
+  asset_tag: INV-10001
+  status: installed
+  tags:
+  - app
+  - branch
+- id: e1e10002-0000-4e1e-e1e1-e1e1e1e1e102
+  code: srv-gdansk-02
+  name: Gdańsk App Server 02
+  device_model_id: 0fd050a7-4a7a-4a4e-9c35-153f42c8a06e
+  serial_number: SN-GD-SRV-002
+  asset_tag: INV-10002
+  status: installed
+  tags:
+  - app
+  - branch
+- id: e1e10003-0000-4e1e-e1e1-e1e1e1e1e103
+  code: srv-gdansk-03
+  name: Gdańsk DB Server
+  device_model_id: d1d1d1d1-0001-4d1d-d1d1-d1d1d1d1d101
+  serial_number: SN-GD-SRV-003
+  asset_tag: INV-10003
+  status: installed
+  tags:
+  - database
+  - branch
+- id: e1e10004-0000-4e1e-e1e1-e1e1e1e1e104
+  code: srv-gdansk-04
+  name: Gdańsk Web Server
+  device_model_id: 4a7d5a62-36f4-4cd9-818e-66eac20351a1
+  serial_number: SN-GD-SRV-004
+  asset_tag: INV-10004
+  status: installed
+  tags:
+  - web
+  - branch
+- id: e1e10005-0000-4e1e-e1e1-e1e1e1e1e105
+  code: srv-gdansk-05
+  name: Gdańsk File Server
+  device_model_id: 4a7d5a62-36f4-4cd9-818e-66eac20351a1
+  serial_number: SN-GD-SRV-005
+  asset_tag: INV-10005
+  status: installed
+  tags:
+  - file
+  - branch
+- id: e1e10006-0000-4e1e-e1e1-e1e1e1e1e106
+  code: srv-gdansk-06
+  name: Gdańsk Dev Server
+  device_model_id: 4a7d5a62-36f4-4cd9-818e-66eac20351a1
+  serial_number: SN-GD-SRV-006
+  asset_tag: INV-10006
+  status: installed
+  tags:
+  - dev
+  - branch
+- id: e1e10007-0000-4e1e-e1e1-e1e1e1e1e107
+  code: srv-gdansk-07
+  name: Gdańsk Backup Server
+  device_model_id: 4a7d5a62-36f4-4cd9-818e-66eac20351a1
+  serial_number: SN-GD-SRV-007
+  asset_tag: INV-10007
+  status: installed
+  tags:
+  - backup
+  - branch
+- id: e1e10008-0000-4e1e-e1e1-e1e1e1e1e108
+  code: srv-gdansk-08
+  name: Gdańsk Monitoring Server
+  device_model_id: d1d1d1d1-0001-4d1d-d1d1-d1d1d1d1d101
+  serial_number: SN-GD-SRV-008
+  asset_tag: INV-10008
+  status: installed
+  tags:
+  - monitoring
+  - branch
+# ── DR Site ────────────────────────────────────────────────────────────────────
+- id: e2e20001-0000-4e2e-e2e2-e2e2e2e2e201
+  code: srv-dr-01
+  name: DR Server 01
+  device_model_id: 4a7d5a62-36f4-4cd9-818e-66eac20351a1
+  serial_number: SN-DR-SRV-001
+  asset_tag: INV-20001
+  status: installed
+  tags:
+  - dr
+  - standby
+- id: e2e20002-0000-4e2e-e2e2-e2e2e2e2e202
+  code: srv-dr-02
+  name: DR Server 02
+  device_model_id: 4a7d5a62-36f4-4cd9-818e-66eac20351a1
+  serial_number: SN-DR-SRV-002
+  asset_tag: INV-20002
+  status: installed
+  tags:
+  - dr
+  - standby
+- id: e2e20003-0000-4e2e-e2e2-e2e2e2e2e203
+  code: srv-dr-03
+  name: DR Server 03
+  device_model_id: 0fd050a7-4a7a-4a4e-9c35-153f42c8a06e
+  serial_number: SN-DR-SRV-003
+  asset_tag: INV-20003
+  status: installed
+  tags:
+  - dr
+  - standby
+- id: e2e20004-0000-4e2e-e2e2-e2e2e2e2e204
+  code: srv-dr-04
+  name: DR Server 04
+  device_model_id: 4a7d5a62-36f4-4cd9-818e-66eac20351a1
+  serial_number: SN-DR-SRV-004
+  asset_tag: INV-20004
+  status: installed
+  tags:
+  - dr
+  - standby
+# ── Unplaced / staging pool ────────────────────────────────────────────────────
 - id: 55de54c1-3699-4484-b20e-26b703aef4cb
   code: srv-unplaced-01
-  name: srv-unplaced-01
+  name: Spare Server (Unplaced)
   device_model_id: 4a7d5a62-36f4-4cd9-818e-66eac20351a1
   serial_number: UNPLACED001
   asset_tag: INV-00499
-  external_ref: SRV-UNPLACED-01
   status: in_stock
   tags:
+  - spare
   - unplaced
+- id: e3e30001-0000-4e3e-e3e3-e3e3e3e3e301
+  code: srv-new-01
+  name: Production Server
+  device_model_id: 0fd050a7-4a7a-4a4e-9c35-153f42c8a06e
+  serial_number: PSV-NEW-001
+  status: in_stock
+  tags:
+  - new
+  - staging
+# srv-new-02: intentionally same display name as srv-new-01 — edge case for QA
+- id: e3e30002-0000-4e3e-e3e3-e3e3e3e3e302
+  code: srv-new-02
+  name: Production Server
+  device_model_id: d1d1d1d1-0001-4d1d-d1d1-d1d1d1d1d101
+  serial_number: PSV-NEW-002
+  asset_tag: INV-90001
+  status: in_stock
+  tags:
+  - new
+  - staging
+- id: e3e30003-0000-4e3e-e3e3-e3e3e3e3e303
+  code: srv-planned-01
+  name: Planned Server (Q3 deployment)
+  device_model_id: d1d1d1d1-0002-4d1d-d1d1-d1d1d1d1d102
+  serial_number: PSV-PLN-001
+  asset_tag: INV-90002
+  status: planned
+  tags:
+  - planned
+  - q3
+# srv-no-serial: intentionally has no serial number — edge case for QA
+- id: e3e30004-0000-4e3e-e3e3-e3e3e3e3e304
+  code: srv-no-serial
+  name: Server (No Serial on Hand)
+  device_model_id: 4a7d5a62-36f4-4cd9-818e-66eac20351a1
+  asset_tag: INV-90003
+  status: in_stock
+  tags:
+  - spare

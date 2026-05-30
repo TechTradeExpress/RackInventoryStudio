@@ -1,16 +1,74 @@
 rack_id: 7d73b40f-53c3-4b11-9a33-9fd5f15f72d2
 placements:
   front:
+  # U1-2: App Server 02 (HPE DL380, 2U)
+  - id: f0f00001-0000-4f0f-f0f0-f0f0f0f0f001
+    code: plc-srv-app-02
+    target_kind: device
+    target_id: e0e00002-0000-4e0e-e0e0-e0e0e0e0e002
+    start_u: 1
+  # U3-4: App Server 03 (HPE DL380, 2U)
+  - id: f0f00002-0000-4f0f-f0f0-f0f0f0f0f002
+    code: plc-srv-app-03
+    target_kind: device
+    target_id: e0e00003-0000-4e0e-e0e0-e0e0e0e0e003
+    start_u: 3
+  # U5: Web Server 01 (Dell R650, 1U)
+  - id: f0f00003-0000-4f0f-f0f0-f0f0f0f0f003
+    code: plc-srv-web-01
+    target_kind: device
+    target_id: e0e00004-0000-4e0e-e0e0-e0e0e0e0e004
+    start_u: 5
+  # U6: Web Server 02 (Dell R650, 1U)
+  - id: f0f00004-0000-4f0f-f0f0-f0f0f0f0f004
+    code: plc-srv-web-02
+    target_kind: device
+    target_id: e0e00005-0000-4e0e-e0e0-e0e0e0e0e005
+    start_u: 6
+  # U7: Database Server 02 (Dell R650, 1U)
+  - id: f0f00005-0000-4f0f-f0f0-f0f0f0f0f005
+    code: plc-srv-db-02
+    target_kind: device
+    target_id: e0e00006-0000-4e0e-e0e0-e0e0e0e0e006
+    start_u: 7
+  # U8: Edge Router 01 (Cisco ASR, 1U)
+  - id: f0f00006-0000-4f0f-f0f0-f0f0f0f0f006
+    code: plc-rtr-edge-01
+    target_kind: device
+    target_id: e0e0000d-0000-4e0e-e0e0-e0e0e0e0e00d
+    start_u: 8
+  # U9: Access Switch 01 (Cisco C9300, 1U)
+  - id: f0f00007-0000-4f0f-f0f0-f0f0f0f0f007
+    code: plc-sw-access-01
+    target_kind: device
+    target_id: e0e0000a-0000-4e0e-e0e0-e0e0e0e0e00a
+    start_u: 9
+  # U10: Access Switch 02 (Cisco C9300, 1U)
+  - id: f0f00008-0000-4f0f-f0f0-f0f0f0f0f008
+    code: plc-sw-access-02
+    target_kind: device
+    target_id: e0e0000b-0000-4e0e-e0e0-e0e0e0e0e00b
+    start_u: 10
+  # U12: Database Server 01 (Dell R650, 1U) — existing
   - id: 6d0dc8e6-9c87-4b9f-8d7d-2a4bb9953e22
     code: plc-srv-db-01
     target_kind: device
     target_id: 9a7c5e10-3d3a-4b31-947c-7d3cba39f314
     start_u: 12
+  # U14-15: App Server 01 (HPE DL380, 2U) — existing
   - id: 6a64de37-c7fd-4b4c-99d6-4d3b5d865ca8
     code: plc-srv-app-01
     target_kind: device
     target_id: b0fd6e38-1e99-44c6-a8d7-e34d95f05e41
     start_u: 14
+  # U16-17: Dev Server 01 (Dell R750, 2U) — to_remove
+  - id: f0f00009-0000-4f0f-f0f0-f0f0f0f0f009
+    code: plc-srv-dev-01
+    target_kind: device
+    target_id: e0e00007-0000-4e0e-e0e0-e0e0e0e0e007
+    start_u: 16
+    note: Decommission candidate — do not place new equipment above.
+  # U18-19: Blank panels — existing
   - id: 80d28c9e-c0ef-4c60-84d7-924b9b81dbf6
     code: plc-blank-panel-front-01
     target_kind: device_model
@@ -18,6 +76,49 @@ placements:
     start_u: 18
     height_u: 2
     note: Two units represented as blank panels.
+  # U20: Monitoring Server (Dell R750, 2U)
+  - id: f000000a-0000-4f0f-f0f0-f0f0f0f0f00a
+    code: plc-srv-mon-01
+    target_kind: device
+    target_id: e0e00008-0000-4e0e-e0e0-e0e0e0e0e008
+    start_u: 20
+  # U22-23: Backup Server (HPE DL380, 2U)
+  - id: f000000b-0000-4f0f-f0f0-f0f0f0f0f00b
+    code: plc-srv-backup-01
+    target_kind: device
+    target_id: e0e00009-0000-4e0e-e0e0-e0e0e0e0e009
+    start_u: 22
+  # U24: NAS 01 (Synology RS1221+, 1U)
+  - id: f000000c-0000-4f0f-f0f0-f0f0f0f0f00c
+    code: plc-storage-02
+    target_kind: device
+    target_id: e0e0000f-0000-4e0e-e0e0-e0e0e0e0e00f
+    start_u: 24
+  # U25-26: Storage Array 01 (Dell ME5024, 2U)
+  - id: f000000d-0000-4f0f-f0f0-f0f0f0f0f00d
+    code: plc-storage-01
+    target_kind: device
+    target_id: 97eb865b-56fc-4fda-b7cb-66f6cb5f309e
+    start_u: 25
+  # U27: KVM Switch A01 (1U)
+  - id: f000000e-0000-4f0f-f0f0-f0f0f0f0f00e
+    code: plc-kvm-a01-01
+    target_kind: device
+    target_id: e0e00011-0000-4e0e-e0e0-e0e0e0e0e011
+    start_u: 27
+  # U28: PDU B01 (1U)
+  - id: f000000f-0000-4f0f-f0f0-f0f0f0f0f00f
+    code: plc-pdu-b01-01
+    target_kind: device
+    target_id: e0e00014-0000-4e0e-e0e0-e0e0e0e0e014
+    start_u: 28
+  # U29: Edge Firewall 02 (FortiGate 100F, 1U)
+  - id: f0f00010-0000-4f0f-f0f0-f0f0f0f0f010
+    code: plc-fw-edge-02
+    target_kind: device
+    target_id: e0e0000c-0000-4e0e-e0e0-e0e0e0e0e00c
+    start_u: 29
+  # U30-33: Reserved for future storage expansion — existing
   - id: 94a1662d-2bd7-41fc-93ca-a66b38c03511
     code: plc-reserved-front-01
     target_kind: device_model
@@ -25,24 +126,34 @@ placements:
     start_u: 30
     height_u: 4
     note: Reserved for future storage expansion.
+  # U40: Core Switch 01 (Cisco C9300, 1U) — existing
   - id: f986f5ef-5307-4cae-b2fc-bc8e8ab23b12
     code: plc-sw-core-01
     target_kind: device
     target_id: a5d56564-a2e3-4c07-8d35-81f2a0864373
     start_u: 40
   rear:
+  # U1-2: UPS A01 (APC Smart-UPS, 2U) — existing
   - id: 7133f693-457b-4dfa-a294-94107be84054
     code: plc-ups-a01-01
     target_kind: device
     target_id: 2c0994b0-2cf0-4d48-9f34-8df2b9a8bfa0
     start_u: 1
+  # U20: Cable organizer — existing
   - id: 31580a71-1d2d-4fd8-a5c2-489b28c3f170
     code: plc-organizer-rear-01
     target_kind: device_model
     target_id: c3cb54dd-f0d8-4594-96a1-d27f59c7f3ee
     start_u: 20
+  # U38: Edge Firewall 01 (FortiGate 100F, 1U) — existing
   - id: dff2aab9-1493-4f8b-b2e6-529c094b0a8d
     code: plc-fw-edge-01
     target_kind: device
     target_id: 7158dccb-145b-42c0-b346-bb13f9c349d9
     start_u: 38
+  # U39: KVM Switch B01 (1U)
+  - id: f0f00011-0000-4f0f-f0f0-f0f0f0f0f011
+    code: plc-kvm-b01-01
+    target_kind: device
+    target_id: e0e00012-0000-4e0e-e0e0-e0e0e0e0e012
+    start_u: 39

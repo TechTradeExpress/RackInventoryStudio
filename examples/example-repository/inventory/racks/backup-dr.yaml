@@ -1,0 +1,11 @@
+location_id: b2b2b2b2-b2b2-4b2b-b2b2-b2b2b2b2b202
+racks:
+- id: c3c3c3c3-c3c3-4c3c-c3c3-c3c3c3c301c3
+  code: rack-dr-01
+  name: Rack DR-01
+  height_u: 42
+  row: A
+  description: DR rack — cold-standby servers, backup storage, and UPS.
+  tags:
+  - dr
+  - backup

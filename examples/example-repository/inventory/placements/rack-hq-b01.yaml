@@ -1,0 +1,22 @@
+rack_id: c1c1c1c1-c1c1-4c1c-c1c1-c1c1c1c101c1
+placements:
+  front:
+  # U1-2: Patch Panel 48-port (rack object, 2U)
+  - id: f0f00030-0000-4f0f-f0f0-f0f0f0f0f030
+    code: plc-patch-panel-b01-01
+    target_kind: device_model
+    target_id: d7d7d7d7-0001-4d7d-d7d7-d7d7d7d7d701
+    start_u: 1
+  # U3-4: Test Server 01 (Lenovo SR650, 2U)
+  - id: f0f00031-0000-4f0f-f0f0-f0f0f0f0f031
+    code: plc-srv-test-01
+    target_kind: device
+    target_id: e0e00015-0000-4e0e-e0e0-e0e0e0e0e015
+    start_u: 3
+  rear:
+  # U47-48: UPS B01 (Eaton 9PX, 2U)
+  - id: f0f00032-0000-4f0f-f0f0-f0f0f0f0f032
+    code: plc-ups-hq-b01
+    target_kind: device
+    target_id: e0e00010-0000-4e0e-e0e0-e0e0e0e0e010
+    start_u: 47

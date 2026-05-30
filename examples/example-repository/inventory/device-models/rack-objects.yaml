@@ -2,25 +2,34 @@ device_type: rack_object
 models:
 - id: 2b65592a-18b8-41c7-9a27-1f03aa631e4f
   code: blank-panel-1u
-  name: Zaślepka 1U
+  name: Blank Panel 1U
   default_height_u: 1
   tags:
   - blank-panel
 - id: c3cb54dd-f0d8-4594-96a1-d27f59c7f3ee
   code: cable-organizer-1u
-  name: Organizer kabli 1U
+  name: Cable Organizer 1U
   default_height_u: 1
   tags:
   - cable-management
 - id: 7ff43b2f-18e0-4522-b170-ea1c8a4e28c5
   code: reserved-space
-  name: Zarezerwowane miejsce
+  name: Reserved Space
   default_height_u: 1
   tags:
   - reservation
 - id: 9d2b25b4-28e8-4e56-a6a0-42f4a682b216
   code: unknown-object
-  name: Nieopisany element / zajęte miejsce
+  name: Unknown / Occupied
   default_height_u: 1
   tags:
   - unknown
+- id: d7d7d7d7-0001-4d7d-d7d7-d7d7d7d7d701
+  code: patch-panel-48p
+  name: Patch Panel 48-port
+  vendor: Panduit
+  model: CPP48HDUBLY
+  default_height_u: 2
+  tags:
+  - patch-panel
+  - cabling
