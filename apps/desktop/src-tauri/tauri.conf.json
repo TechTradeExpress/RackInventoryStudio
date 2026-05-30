@@ -14,6 +14,7 @@
     "targets": [
       "nsis"
     ],
+    "publisher": "TechTradeExpress",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -24,6 +25,7 @@
     "windows": {
       "nsis": {
         "installMode": "perMachine",
+        "template": "nsis/main.nsi",
         "installerIcon": "icons/icon.ico",
         "uninstallerIcon": "icons/icon.ico"
       }
