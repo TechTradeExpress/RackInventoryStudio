@@ -7,6 +7,7 @@ use std::path::Path;
 
 use ris_application::{open_repository, validate_repository};
 use ris_core::ValidationLevel;
+use ris_import::CsvRowAction;
 
 fn example_repo() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/example-repository")
@@ -85,6 +86,40 @@ fn example_repo_has_multiple_locations_with_racks() {
         locations_with_racks >= 2,
         "expected ≥2 locations with racks, got {}",
         locations_with_racks
+    );
+}
+
+#[test]
+fn example_repo_csv_preview_no_unknown_column_warning() {
+    let session = open_repository(&example_repo()).unwrap();
+    let csv_path = example_repo().join("inventory/examples/devices-import-example.csv");
+    let csv_content =
+        std::fs::read_to_string(&csv_path).expect("devices-import-example.csv should be readable");
+
+    let preview = session.preview_devices_csv(&csv_content);
+
+    assert_eq!(
+        preview.rows.len(),
+        4,
+        "expected 4 preview rows, got {}",
+        preview.rows.len()
+    );
+
+    let has_val_csv_002 = preview.issues.iter().any(|i| i.code == "VAL-CSV-002");
+    assert!(
+        !has_val_csv_002,
+        "unexpected VAL-CSV-002 warning — CSV still contains an unknown column"
+    );
+
+    let error_rows: Vec<_> = preview
+        .rows
+        .iter()
+        .filter(|r| r.action == CsvRowAction::SkipDueToError)
+        .collect();
+    assert!(
+        error_rows.is_empty(),
+        "expected all rows to be Create, but {} row(s) have SkipDueToError",
+        error_rows.len()
     );
 }
 

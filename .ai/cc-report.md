@@ -9,6 +9,15 @@ Added a Rust integration test that loads the example repository and verifies
 structural counts and validity. Added `docs/BETA_DEMO_REPOSITORY_EN.md` with
 manual QA scenarios.
 
+**Review fix (PR #96)**: Removed the `code` column from the CSV import example
+(`devices-import-example.csv`). The `code` column is no longer a known import
+column since PR E (codes are generated automatically); its presence would have
+produced a `VAL-CSV-002` unknown-column warning. Updated QA guide to explain
+that device codes are auto-generated and that deduplication uses serial number /
+asset tag / external ref. Fixed stale "≥ 0.3.0" compat note in README. Added a
+new Rust test that previews the CSV against the example repository and asserts
+no VAL-CSV-002 warning and all rows are `Create`.
+
 ---
 
 ## Findings — current demo/sample mechanism
@@ -57,8 +66,8 @@ changed.
 - `examples/example-repository/inventory/devices/appliances.yaml` — 0 → 4 devices
 - `examples/example-repository/inventory/placements/rack-a01.yaml` — expanded (8 → ~25 placements)
 - `examples/example-repository/inventory/placements/rack-a02.yaml` — was empty, now 3 placements
-- `examples/example-repository/inventory/examples/devices-import-example.csv` — updated to non-conflicting codes/serials
-- `examples/example-repository/README.md` — updated counts and structure table
+- `examples/example-repository/inventory/examples/devices-import-example.csv` — removed `code` column; device codes are now auto-generated
+- `examples/example-repository/README.md` — updated counts, structure table, fixed stale ≥ 0.3.0 compat note
 - `crates/ris-repository/tests/loader_tests.rs` — updated 4 assertions for new structure
 - `docs/BETA1_FOLLOWUP_PLAN_EN.md` — added PR H entry
 
@@ -71,7 +80,7 @@ cargo fmt --all --check           PASS
 cargo check --workspace           PASS
 cargo clippy --workspace          PASS (0 warnings)
 cargo test --workspace            PASS (all suites, 0 failures)
-  - example_repo_tests.rs         8/8 pass
+  - example_repo_tests.rs         9/9 pass (includes new CSV preview test)
   - loader_tests.rs               19/19 pass (4 updated)
 ./node_modules/.bin/tsc --noEmit  PASS
 ./node_modules/.bin/vitest run    534/534 pass

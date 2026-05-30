@@ -63,8 +63,7 @@ fn loads_racks_and_preserves_location_id() {
         .find(|r| r.code == "rack-a01")
         .expect("rack-a01 should be present");
     assert_eq!(
-        rack_a01.location_id,
-        "79f0b3c0-f4d3-47ad-89e1-9efae2ad5c87",
+        rack_a01.location_id, "79f0b3c0-f4d3-47ad-89e1-9efae2ad5c87",
         "rack-a01 should reference Warsaw HQ"
     );
     assert_eq!(rack_a01.height_u, 42);
@@ -75,8 +74,7 @@ fn loads_racks_and_preserves_location_id() {
         .find(|r| r.code == "rack-dr-01")
         .expect("rack-dr-01 should be present");
     assert_eq!(
-        rack_dr.location_id,
-        "b2b2b2b2-b2b2-4b2b-b2b2-b2b2b2b2b202",
+        rack_dr.location_id, "b2b2b2b2-b2b2-4b2b-b2b2-b2b2b2b2b202",
         "rack-dr-01 should reference the DR site"
     );
 }

@@ -68,4 +68,4 @@ inventory/
 
 ## Format version
 
-Data format: v0.1 (compatible with Rack Inventory Studio ≥ 0.3.0)
+Data format: v0.1 — Rack Inventory Studio 0.1.0-beta.1

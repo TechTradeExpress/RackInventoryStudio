@@ -131,7 +131,16 @@ Warnings (if any) must not prevent saving.
 Open **Import Devices** and upload
 `inventory/examples/devices-import-example.csv`. The preview should show four
 rows: two servers, one network device, and one `other` device (no model).
-Confirm that importing does not duplicate existing codes.
+
+Expected results:
+- No `VAL-CSV-002` ("unknown column") warning — the CSV does not contain a
+  `code` column; device codes are generated automatically by the application.
+- All four rows should be actionable (no rows skipped due to errors).
+- Conflicts (deduplication) are detected by serial number, asset tag, and
+  external ref — not by code. The example CSV uses unique serial numbers
+  (`SN-IMP-001`, `SN-IMP-002`, `FOC-IMP-001`, `MISC-IMP-001`) and unique
+  asset tags (`INV-99801`–`INV-99804`) that do not collide with any existing
+  devices in the repository.
 
 ### 8. Dirty-guard / save
 
