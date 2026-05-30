@@ -1,57 +1,70 @@
-# CC Report — PR F: Dirty repository guard
+# CC Report — PR G: Release/signing/versioning hardening
 
 ## Summary
 
-Replaced the synchronous `window.confirm()` unsaved-changes guard with an async
-3-button modal dialog ("Save and continue" / "Continue without saving" / "Cancel").
-Added a Tauri `onCloseRequested` window-close guard so closing the app with unsaved
-changes also triggers the dialog. The existing callout bar and titlebar "unsaved"
-indicator (already in App.tsx) are unchanged.
+Hardened the Windows installer path (now vendor-prefixed), documented the full
+release and code-signing process, and confirmed the versioning toolchain is
+already CI-enforced. The diagnostic installer workflow remains absent (hygiene
+check #7/#8 enforces it). No functional changes to app code.
 
 ## Files changed
 
 | File | Change |
 |------|--------|
-| `src/components/ui/UnsavedChangesDialog.tsx` | New — 3-button modal component |
-| `src/components/ui/UnsavedChangesDialog.test.tsx` | New — 9 component-level tests |
-| `src/App.guard.test.tsx` | New — 8 integration tests for the guard in App |
-| `src/App.tsx` | Replaced 3 `confirmUnsavedDiscard()` calls with async `guardUnsaved()`; added `openGuardDialog` / `resolveGuard` / `handleGuardSave`; added Tauri `onCloseRequested` effect; rendered `<UnsavedChangesDialog>`; imported `saveCurrentRepository`, `getCurrentWindow`, `isTauri` |
-| `docs/BETA1_FOLLOWUP_PLAN_EN.md` | Marked PR F as Implemented in status table |
+| `apps/desktop/src-tauri/nsis/main.nsi` | New — custom NSIS template; only change vs. upstream default is `$INSTDIR` defaults in `Function .onInit` (vendor-prefixed path) |
+| `apps/desktop/src-tauri/tauri.conf.json` | Added `bundle.publisher: "TechTradeExpress"` and `bundle.windows.nsis.template: "nsis/main.nsi"` |
+| `docs/RELEASE_PROCESS_EN.md` | New — canonical release process: versioning, branch/tag naming, pre-release checks, build steps, install path, unsigned-artifact notes, manual EV signing flow, hotfix/rollback |
+| `docs/release.md` | Added "Windows installer path" section documenting the new vendor-prefixed path |
+| `docs/BETA1_FOLLOWUP_PLAN_EN.md` | Marked PR G as Implemented; updated install-path description to reflect the now-complete custom NSIS template |
 
 ## Tests
 
 ```
-npx vitest run          # 534 tests — 42 files — all passed
-npx tsc --noEmit        # clean
-cargo fmt --all --check # clean
-cargo clippy --all      # no errors
-git diff --check        # no whitespace issues
+git diff --check                                     # clean
+node scripts/check-version-consistency.mjs           # ✓ all versions match: 0.1.0-beta.1
+node --test scripts/*.test.mjs                       # 17 tests — all passed
+node scripts/check-repo-hygiene.mjs                  # 8/8 checks passed
+cargo fmt --all --check                              # clean
+cargo check --workspace                              # clean
+cargo test --workspace                               # clean
+cargo clippy --workspace -- -D warnings              # clean
+npx tsc --noEmit                                     # clean
+npx vitest run                                       # 534 tests — 42 files — all passed
 ```
 
 ## Risks
 
-- The Tauri `onCloseRequested` guard is only registered when `isTauri()` is true
-  (no-op in the test harness / browser). In Tauri it subscribes once on mount with
-  a stable `openGuardDialog` callback and reads `hasUnsavedChanges` via ref — no
-  stale-closure risk.
-- If the user clicks "Save and continue" and the save fails, the dialog stays open
-  (error shown in the global error bar). The window/action is NOT proceeded. This
-  matches the safer UX: user must explicitly choose "Continue without saving" or
-  "Cancel" after a failed save.
-- The Tauri close guard calls `getCurrentWindow().destroy()` after the user
-  consents. If destroy fails, the window will not close; this is the safe failure
-  mode.
+- The custom NSIS template (`nsis/main.nsi`) is a fork of the Tauri v2 default.
+  When Tauri is upgraded, the upstream template must be checked for changes and
+  any relevant updates merged into this file. A maintenance comment at the top
+  of the file documents this. Reference URL is included.
+- The template was extracted from the Tauri CLI binary (strings output) since
+  no standalone file is shipped. The extracted template was verified to be a
+  faithful copy — no unknown diffs beyond the path change.
+- `bundle.publisher: "TechTradeExpress"` sets the MANUFACTURER in registry
+  entries (`HKLM\Software\TechTradeExpress\...`). This is separate from the
+  filesystem path (which is set by the template).
+- The installer is still unsigned. SmartScreen bypass is expected and documented.
 
 ## Not done
 
-- The `UNSAVED_MSG` constants and `confirmUnsavedDiscard` in `unsavedGuard.ts` are
-  kept (they have their own tests); they are no longer used by `App.tsx` but remain
-  as utility functions. They can be removed in a future cleanup pass.
-- No custom dialog body text per action — the default "Unsaved changes" title is
-  shown for open/close/window-close. Context-specific body text could be added to
-  `UnsavedChangesDialog` callers if desired.
+- CI-based code signing — not configured; requires a real EV certificate and
+  secret management. The manual signing flow is documented in `RELEASE_PROCESS_EN.md`.
+- `unsavedGuard.ts` cleanup (left from PR F) — intentionally deferred.
 
 ## Suggested next step
 
-PR G — release/signing/versioning hardening (custom NSIS path, code signing) as
-listed in the follow-up plan.
+Obtain an EV Authenticode certificate and add optional CI signing
+(using GitHub Actions secrets, skipped unless secrets are present) as
+a follow-up to the stable release milestone.
+
+## Final review-context handoff
+
+After all implementation, checks, and `.ai/cc-report.md` update, generate the review context as the last step using a timestamped filename.
+The base branch for this repository is `master` unless explicitly instructed otherwise.
+
+```bash
+bash scripts/ai/build-review-context.sh master .ai/review-context-$(date +%Y%m%d-%H%M).md
+```
+
+The file `.ai/review-context-YYYYMMDD-HHMM.md` should be attached or pasted to ChatGPT as the code review context before approving the milestone.

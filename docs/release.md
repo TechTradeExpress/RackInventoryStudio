@@ -84,6 +84,19 @@ All checks must pass before building the installer or tagging the release.
 
 ---
 
+## Windows installer path
+
+The NSIS installer uses a vendor-prefixed install directory:
+
+```
+C:\Program Files\TechTradeExpress\RackInventoryStudio\
+```
+
+This is enforced by a custom NSIS template (`src-tauri/nsis/main.nsi`).
+When upgrading Tauri, check if the upstream template changed and merge as needed.
+
+---
+
 ## Building the Windows installer
 
 ### Via GitHub Actions (standard path)

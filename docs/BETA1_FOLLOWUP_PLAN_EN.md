@@ -237,9 +237,10 @@ application with correct default paths and a visible app icon.
 
 - **Default installation directory**: Configure the NSIS installer for
   per-machine installation (`bundle.windows.nsis.installMode: "perMachine"`)
-  so the default install path is under `C:\Program Files\`. The exact
-  vendor-prefixed path `C:\Program Files\TechTradeExpress\RackInventoryStudio`
-  requires a custom NSIS template (future work; tracked under PR G).
+  so the default install path is under `C:\Program Files\`. The vendor-prefixed
+  path `C:\Program Files\TechTradeExpress\RackInventoryStudio` is achieved via
+  a custom NSIS template (`src-tauri/nsis/main.nsi`) wired in via
+  `bundle.windows.nsis.template` — implemented in PR G.
 
 - **Default logs directory**: Set the application's default logs directory to:
   `C:\ProgramData\TechTradeExpress\RackInventoryStudio\logs`
@@ -375,4 +376,4 @@ The remaining follow-up items are grouped into five PRs for focused review:
 | D | Rack diagram unplaced devices UX | Item 11 | Implemented |
 | E | Hide technical `code` from UI; device/model display names | Item 10 | Implemented |
 | F | Dirty repository guard | Item 7 | Implemented |
-| G | Release/signing/versioning hardening (custom NSIS path, code signing) | — | Planned |
+| G | Release/signing/versioning hardening (custom NSIS path, code signing) | — | Implemented |
