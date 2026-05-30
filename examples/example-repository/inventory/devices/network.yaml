@@ -1,8 +1,9 @@
 device_type: network
 devices:
+# ── Warsaw HQ ──────────────────────────────────────────────────────────────────
 - id: 7158dccb-145b-42c0-b346-bb13f9c349d9
   code: fw-edge-01
-  name: fw-edge-01
+  name: Edge Firewall 01
   device_model_id: 847c3e5c-5b76-4c8a-994e-66009ddf7f0c
   serial_number: FG100F123
   asset_tag: INV-02001
@@ -11,9 +12,10 @@ devices:
   tags:
   - firewall
   - edge
+  - production
 - id: a5d56564-a2e3-4c07-8d35-81f2a0864373
   code: sw-core-01
-  name: sw-core-01
+  name: Core Switch 01
   device_model_id: 21f8ff6a-3be8-4eee-9285-df11aac1686b
   serial_number: FOC123456
   asset_tag: INV-01001
@@ -22,3 +24,100 @@ devices:
   tags:
   - core
   - switch
+  - production
+- id: e0e0000a-0000-4e0e-e0e0-e0e0e0e0e00a
+  code: sw-access-01
+  name: Access Switch 01
+  device_model_id: 21f8ff6a-3be8-4eee-9285-df11aac1686b
+  serial_number: FOC-ACC-001
+  asset_tag: INV-01002
+  status: installed
+  tags:
+  - access
+  - switch
+- id: e0e0000b-0000-4e0e-e0e0-e0e0e0e0e00b
+  code: sw-access-02
+  name: Access Switch 02
+  device_model_id: 21f8ff6a-3be8-4eee-9285-df11aac1686b
+  serial_number: FOC-ACC-002
+  asset_tag: INV-01003
+  status: installed
+  tags:
+  - access
+  - switch
+- id: e0e0000c-0000-4e0e-e0e0-e0e0e0e0e00c
+  code: fw-edge-02
+  name: Edge Firewall 02 (HA pair)
+  device_model_id: 847c3e5c-5b76-4c8a-994e-66009ddf7f0c
+  serial_number: FG-EDG-002
+  asset_tag: INV-02002
+  status: installed
+  tags:
+  - firewall
+  - edge
+  - ha
+- id: e0e0000d-0000-4e0e-e0e0-e0e0e0e0e00d
+  code: rtr-edge-01
+  name: Edge Router 01
+  device_model_id: d2d2d2d2-0001-4d2d-d2d2-d2d2d2d2d201
+  serial_number: ASR-EDG-001
+  asset_tag: INV-02003
+  external_ref: RTR-EDGE-01
+  status: installed
+  tags:
+  - router
+  - edge
+- id: e0e0000e-0000-4e0e-e0e0-e0e0e0e0e00e
+  code: sw-mgmt-01
+  name: Management Switch
+  device_model_id: 21f8ff6a-3be8-4eee-9285-df11aac1686b
+  serial_number: FOC-MGT-001
+  asset_tag: INV-01004
+  status: installed
+  tags:
+  - management
+  - switch
+# ── Gdańsk Branch ──────────────────────────────────────────────────────────────
+- id: e1e2000a-0000-4e1e-e1e1-e1e1e1e1e201
+  code: sw-gdansk-01
+  name: Gdańsk Core Switch
+  device_model_id: 21f8ff6a-3be8-4eee-9285-df11aac1686b
+  serial_number: FOC-GD-001
+  asset_tag: INV-11001
+  status: installed
+  tags:
+  - core
+  - switch
+  - branch
+- id: e1e2000b-0000-4e1e-e1e1-e1e1e1e1e202
+  code: sw-gdansk-02
+  name: Gdańsk Access Switch
+  device_model_id: 21f8ff6a-3be8-4eee-9285-df11aac1686b
+  serial_number: FOC-GD-002
+  asset_tag: INV-11002
+  status: installed
+  tags:
+  - access
+  - switch
+  - branch
+- id: e1e2000c-0000-4e1e-e1e1-e1e1e1e1e203
+  code: fw-gdansk-01
+  name: Gdańsk Firewall
+  device_model_id: 847c3e5c-5b76-4c8a-994e-66009ddf7f0c
+  serial_number: FG-GD-001
+  asset_tag: INV-12001
+  status: installed
+  tags:
+  - firewall
+  - branch
+# ── Unplaced / staging ─────────────────────────────────────────────────────────
+- id: e3e3000a-0000-4e3e-e3e3-e3e3e3e3e30a
+  code: sw-new-01
+  name: New Switch (Staging)
+  device_model_id: 21f8ff6a-3be8-4eee-9285-df11aac1686b
+  serial_number: FOC-NEW-001
+  asset_tag: INV-91001
+  status: in_stock
+  tags:
+  - new
+  - staging

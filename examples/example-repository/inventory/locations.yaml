@@ -1,9 +1,26 @@
 locations:
 - id: 79f0b3c0-f4d3-47ad-89e1-9efae2ad5c87
-  code: warsaw-serverroom-a
-  name: Warszawa - Serwerownia A
-  description: Example primary server room.
-  address: Warszawa, ul. Przykładowa 1
+  code: hq-server-room-a
+  name: Warsaw — HQ Server Room A
+  description: Primary data centre, production systems.
+  address: Warsaw, ul. Przykładowa 1, Poland
   tags:
   - production
+  - hq
   - warsaw
+- id: b1b1b1b1-b1b1-4b1b-b1b1-b1b1b1b1b101
+  code: gdansk-branch
+  name: Gdańsk — Branch Office
+  description: Remote branch office with local on-premise infrastructure.
+  address: Gdańsk, ul. Morska 15, Poland
+  tags:
+  - branch
+  - gdansk
+- id: b2b2b2b2-b2b2-4b2b-b2b2-b2b2b2b2b202
+  code: backup-dr
+  name: Łódź — Backup / DR Site
+  description: Disaster-recovery site with cold-standby replication.
+  address: Łódź, ul. Przemysłowa 5, Poland
+  tags:
+  - backup
+  - dr

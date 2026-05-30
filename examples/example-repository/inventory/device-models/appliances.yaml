@@ -1,2 +1,18 @@
 device_type: appliance
-models: []
+models:
+- id: d5d5d5d5-0001-4d5d-d5d5-d5d5d5d5d501
+  code: kvm-16port
+  name: KVM Switch 16-port
+  vendor: ATEN
+  model: KVM2116P
+  default_height_u: 1
+  tags:
+  - kvm
+  - console
+- id: d5d5d5d5-0002-4d5d-d5d5-d5d5d5d5d502
+  code: pdu-basic-1u
+  name: PDU 1U Basic
+  default_height_u: 1
+  tags:
+  - pdu
+  - power

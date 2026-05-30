@@ -1,0 +1,40 @@
+rack_id: c3c3c3c3-c3c3-4c3c-c3c3-c3c3c3c301c3
+placements:
+  front:
+  # U1: DR Server 01 (Dell R650, 1U)
+  - id: f0f00050-0000-4f0f-f0f0-f0f0f0f0f050
+    code: plc-srv-dr-01
+    target_kind: device
+    target_id: e2e20001-0000-4e2e-e2e2-e2e2e2e2e201
+    start_u: 1
+  # U2: DR Server 02 (Dell R650, 1U)
+  - id: f0f00051-0000-4f0f-f0f0-f0f0f0f0f051
+    code: plc-srv-dr-02
+    target_kind: device
+    target_id: e2e20002-0000-4e2e-e2e2-e2e2e2e2e202
+    start_u: 2
+  # U3-4: DR Server 03 (HPE DL380, 2U)
+  - id: f0f00052-0000-4f0f-f0f0-f0f0f0f0f052
+    code: plc-srv-dr-03
+    target_kind: device
+    target_id: e2e20003-0000-4e2e-e2e2-e2e2e2e2e203
+    start_u: 3
+  # U5: DR Server 04 (Dell R650, 1U)
+  - id: f0f00053-0000-4f0f-f0f0-f0f0f0f0f053
+    code: plc-srv-dr-04
+    target_kind: device
+    target_id: e2e20004-0000-4e2e-e2e2-e2e2e2e2e204
+    start_u: 5
+  # U6-7: DR Storage Array (Dell ME5024, 2U)
+  - id: f0f00054-0000-4f0f-f0f0-f0f0f0f0f054
+    code: plc-storage-dr-01
+    target_kind: device
+    target_id: e2e3000f-0000-4e2e-e2e2-e2e2e2e2e301
+    start_u: 6
+  rear:
+  # U1-2: DR UPS (APC Smart-UPS, 2U)
+  - id: f0f00055-0000-4f0f-f0f0-f0f0f0f0f055
+    code: plc-ups-dr-01
+    target_kind: device
+    target_id: e2e40001-0000-4e2e-e2e2-e2e2e2e2e401
+    start_u: 1

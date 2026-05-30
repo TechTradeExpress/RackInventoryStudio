@@ -5,14 +5,25 @@ racks:
   name: Rack A01
   height_u: 42
   row: A
-  description: Example production rack.
+  description: Primary production rack — compute, network, storage, UPS.
   tags:
   - production
+  - populated
 - id: 3cc51429-4d7d-4912-ae31-94b7c2f3fb72
   code: rack-a02
   name: Rack A02
   height_u: 42
   row: A
-  description: Empty example rack prepared for future placements.
+  description: Overflow rack — management infrastructure and spare capacity.
   tags:
   - production
+  - sparse
+- id: c1c1c1c1-c1c1-4c1c-c1c1-c1c1c1c101c1
+  code: rack-hq-b01
+  name: Rack B01
+  height_u: 48
+  row: B
+  description: Row B expansion rack — 48U, partially populated.
+  tags:
+  - production
+  - expansion

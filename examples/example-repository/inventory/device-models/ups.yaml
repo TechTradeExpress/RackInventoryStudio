@@ -8,3 +8,11 @@ models:
   default_height_u: 2
   tags:
   - ups
+- id: d4d4d4d4-0001-4d4d-d4d4-d4d4d4d4d401
+  code: eaton-9px-3000
+  name: Eaton 9PX 3000
+  vendor: Eaton
+  model: 9PX 3000
+  default_height_u: 2
+  tags:
+  - ups

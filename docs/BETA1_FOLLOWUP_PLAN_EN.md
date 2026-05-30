@@ -366,9 +366,50 @@ and managing the unplaced devices area.
 
 ---
 
+---
+
+## 12. Beta-readiness demo repository (PR H) ✅ IMPLEMENTED
+
+**Goal**: Replace the minimal single-location example repository with a
+realistic multi-site dataset large enough to exercise every major feature
+during beta QA.
+
+**Shape delivered** (`feat/beta-readiness-demo-repository`):
+
+| Dimension       | Before | After  |
+|-----------------|--------|--------|
+| Locations       | 1      | 3      |
+| Racks           | 2      | 6      |
+| Device models   | 8      | 17+    |
+| Devices         | 6      | 50+    |
+| Placed devices  | 2      | ~40    |
+| Unplaced/staged | 4      | ~10    |
+
+**Sites**: Warsaw HQ Server Room A (3 racks), Gdańsk Branch Office (2 racks),
+Łódź Backup/DR Site (1 rack).
+
+**Edge cases included**:
+- Device with `to_remove` status still placed in rack (`srv-dev-01`)
+- Two devices with identical display names (`srv-new-01`, `srv-new-02`)
+- Device with no serial number (`srv-no-serial`)
+- Device with `planned` status and no placement (`srv-planned-01`)
+- Rack-object placements (blank panels, patch panel, cable organizer)
+- Sparse rack with one item (`rack-gdansk-02`)
+- Reserved multi-unit block (`rack-a01` front U30–33)
+
+**Other deliverables**:
+- New structural test `crates/ris-application/tests/example_repo_tests.rs`
+  (8 tests verifying counts, placement mix, validation)
+- Updated `crates/ris-repository/tests/loader_tests.rs` to match new structure
+- `docs/BETA_DEMO_REPOSITORY_EN.md` — manual QA guide with all scenarios
+- Updated `examples/example-repository/README.md`
+- Updated `examples/example-repository/inventory/examples/devices-import-example.csv`
+
+---
+
 ## PR Grouping
 
-The remaining follow-up items are grouped into five PRs for focused review:
+The follow-up items are grouped into PRs for focused review:
 
 | PR | Label | Plan item(s) | Status |
 |---|---|---|---|
@@ -377,3 +418,4 @@ The remaining follow-up items are grouped into five PRs for focused review:
 | E | Hide technical `code` from UI; device/model display names | Item 10 | Implemented |
 | F | Dirty repository guard | Item 7 | Implemented |
 | G | Release/signing/versioning hardening (custom NSIS path, code signing) | — | Implemented |
+| H | Beta-readiness demo repository | Item 12 | Implemented |

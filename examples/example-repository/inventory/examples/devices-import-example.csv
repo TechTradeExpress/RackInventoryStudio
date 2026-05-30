@@ -1,5 +1,5 @@
-code,device_type,name,device_model_code,serial_number,asset_tag,external_ref,status,tags
-srv-new-01,server,srv-new-01,dell-r650,NEWSRV001,INV-05001,SRV-NEW-01,in_stock,new
-srv-new-02,server,srv-new-02,hpe-dl380-gen10,NEWSRV002,INV-05002,SRV-NEW-02,in_stock,new
-sw-access-01,network,sw-access-01,cisco-c9300,NEWSW001,INV-06001,SW-ACCESS-01,in_stock,access;switch
-unknown-device-01,other,,,UNKNOWN001,INV-99999,,unknown,unidentified
+device_type,name,device_model_code,serial_number,asset_tag,external_ref,status,tags
+server,Import Demo Server 1,dell-r650,SN-IMP-001,INV-99801,SRV-IMPORT-01,in_stock,new
+server,Import Demo Server 2,hpe-dl380-gen10,SN-IMP-002,INV-99802,SRV-IMPORT-02,in_stock,new
+network,Import Demo Switch,cisco-c9300,FOC-IMP-001,INV-99803,SW-IMPORT-01,in_stock,access;switch
+other,Unidentified Device,,MISC-IMP-001,INV-99804,,unknown,unidentified

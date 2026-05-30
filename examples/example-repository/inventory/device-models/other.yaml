@@ -1,2 +1,8 @@
 device_type: other
-models: []
+models:
+- id: d6d6d6d6-0001-4d6d-d6d6-d6d6d6d6d601
+  code: generic-2u-appliance
+  name: Generic 2U Appliance
+  default_height_u: 2
+  tags:
+  - appliance

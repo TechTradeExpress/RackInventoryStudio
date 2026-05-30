@@ -42,26 +42,41 @@ fn loads_repo_metadata_correctly() {
 #[test]
 fn loads_locations() {
     let data = loader::load(&example_repo()).unwrap();
-    assert_eq!(data.locations.len(), 1);
-    let loc = &data.locations[0];
-    assert_eq!(loc.id, "79f0b3c0-f4d3-47ad-89e1-9efae2ad5c87");
-    assert_eq!(loc.code, "warsaw-serverroom-a");
-    assert_eq!(loc.name, "Warszawa - Serwerownia A");
+    assert_eq!(data.locations.len(), 3);
+    let loc = data
+        .locations
+        .iter()
+        .find(|l| l.id == "79f0b3c0-f4d3-47ad-89e1-9efae2ad5c87")
+        .expect("Warsaw HQ location should be present");
+    assert_eq!(loc.code, "hq-server-room-a");
+    assert_eq!(loc.name, "Warsaw \u{2014} HQ Server Room A");
 }
 
 #[test]
 fn loads_racks_and_preserves_location_id() {
     let data = loader::load(&example_repo()).unwrap();
     assert!(!data.racks.is_empty(), "should have at least one rack");
-    for rack in &data.racks {
-        assert_eq!(
-            rack.location_id, "79f0b3c0-f4d3-47ad-89e1-9efae2ad5c87",
-            "rack '{}' should reference the expected location",
-            rack.code
-        );
-    }
-    let rack_a01 = data.racks.iter().find(|r| r.code == "rack-a01").unwrap();
+    // rack-a01 belongs to Warsaw HQ
+    let rack_a01 = data
+        .racks
+        .iter()
+        .find(|r| r.code == "rack-a01")
+        .expect("rack-a01 should be present");
+    assert_eq!(
+        rack_a01.location_id, "79f0b3c0-f4d3-47ad-89e1-9efae2ad5c87",
+        "rack-a01 should reference Warsaw HQ"
+    );
     assert_eq!(rack_a01.height_u, 42);
+    // rack-dr-01 belongs to the DR site
+    let rack_dr = data
+        .racks
+        .iter()
+        .find(|r| r.code == "rack-dr-01")
+        .expect("rack-dr-01 should be present");
+    assert_eq!(
+        rack_dr.location_id, "b2b2b2b2-b2b2-4b2b-b2b2-b2b2b2b2b202",
+        "rack-dr-01 should reference the DR site"
+    );
 }
 
 #[test]
@@ -137,7 +152,7 @@ fn indexes_locations_by_id_and_code() {
     let index = RepositoryIndex::build(&data);
 
     let id = "79f0b3c0-f4d3-47ad-89e1-9efae2ad5c87";
-    let code = "warsaw-serverroom-a";
+    let code = "hq-server-room-a";
 
     let by_id = index
         .get_location_by_id(id)
@@ -256,9 +271,9 @@ fn placements_by_rack_id_preserves_side() {
     assert!(has_front, "rack-a01 should have front placements");
     assert!(has_rear, "rack-a01 should have rear placements");
 
-    // rack-a02 has empty front and rear
+    // rack-a02 is sparsely populated (3 placements)
     let rack_a02_id = "3cc51429-4d7d-4912-ae31-94b7c2f3fb72";
-    assert_eq!(index.get_placements_for_rack(rack_a02_id).len(), 0);
+    assert_eq!(index.get_placements_for_rack(rack_a02_id).len(), 3);
 
     assert_eq!(index.get_placements_for_rack("nonexistent").len(), 0);
 }

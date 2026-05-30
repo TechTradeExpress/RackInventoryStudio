@@ -1,0 +1,20 @@
+location_id: b1b1b1b1-b1b1-4b1b-b1b1-b1b1b1b1b101
+racks:
+- id: c2c2c2c2-c2c2-4c2c-c2c2-c2c2c2c201c1
+  code: rack-gdansk-01
+  name: Rack GD-01
+  height_u: 42
+  row: A
+  description: Primary rack — servers, network, and UPS for the Gdańsk branch.
+  tags:
+  - branch
+  - production
+- id: c2c2c2c2-c2c2-4c2c-c2c2-c2c2c2c202c2
+  code: rack-gdansk-02
+  name: Rack GD-02
+  height_u: 24
+  row: A
+  description: Secondary 24U rack — storage and overflow capacity.
+  tags:
+  - branch
+  - storage
