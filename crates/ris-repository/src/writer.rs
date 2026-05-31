@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::io::Write as _;
+use std::path::{Component, Path, PathBuf};
 
 use serde::Serialize;
 
@@ -19,6 +20,12 @@ pub enum WriteError {
     },
     #[error("YAML serialization error: {0}")]
     Yaml(#[from] serde_yaml::Error),
+    /// A layout-derived path would escape the inventory directory.
+    #[error(
+        "Path traversal rejected for '{path}': \
+         inventory paths must stay within the repository inventory directory"
+    )]
+    PathTraversal { path: String },
 }
 
 // ── WriteStatus / WriteReport ─────────────────────────────────────────────────
@@ -52,10 +59,40 @@ impl WriteReport {
     }
 }
 
+// ── atomic_replace ────────────────────────────────────────────────────────────
+
+/// Write `content` to `path` atomically using a temp-file-then-rename strategy.
+///
+/// The temp file is created in the same directory as `path` so the rename is
+/// always on the same filesystem (a requirement for atomic rename on Linux; also
+/// needed for `MoveFileExW` on Windows). On Unix, `rename(2)` atomically
+/// replaces the destination. On Windows, `tempfile::NamedTempFile::persist`
+/// uses `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING`, which provides
+/// equivalent semantics on the same volume.
+///
+/// The temp file is flushed and synced before rename; on error the temp file is
+/// automatically removed by `NamedTempFile`'s Drop implementation.
+fn atomic_replace(path: &Path, content: &str) -> Result<(), WriteError> {
+    let io_err = |e: std::io::Error| WriteError::Io {
+        path: path.display().to_string(),
+        source: e,
+    };
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let mut tmp = tempfile::NamedTempFile::new_in(parent).map_err(io_err)?;
+    tmp.write_all(content.as_bytes()).map_err(io_err)?;
+    tmp.flush().map_err(io_err)?;
+    tmp.as_file().sync_all().map_err(io_err)?;
+    tmp.persist(path).map_err(|e| WriteError::Io {
+        path: path.display().to_string(),
+        source: e.error,
+    })?;
+    Ok(())
+}
+
 // ── write_if_changed ──────────────────────────────────────────────────────────
 
 pub fn write_if_changed(path: &Path, content: &str) -> Result<WriteStatus, WriteError> {
-    let io_err = |e, p: &Path| WriteError::Io {
+    let io_err = |e: std::io::Error, p: &Path| WriteError::Io {
         path: p.display().to_string(),
         source: e,
     };
@@ -65,7 +102,7 @@ pub fn write_if_changed(path: &Path, content: &str) -> Result<WriteStatus, Write
         if existing == content {
             return Ok(WriteStatus::Unchanged);
         }
-        std::fs::write(path, content).map_err(|e| io_err(e, path))?;
+        atomic_replace(path, content)?;
         return Ok(WriteStatus::Updated);
     }
 
@@ -75,8 +112,91 @@ pub fn write_if_changed(path: &Path, content: &str) -> Result<WriteStatus, Write
             source: e,
         })?;
     }
-    std::fs::write(path, content).map_err(|e| io_err(e, path))?;
+    atomic_replace(path, content)?;
     Ok(WriteStatus::Created)
+}
+
+// ── safe_inventory_join ───────────────────────────────────────────────────────
+
+/// Join `inv_canonical` (the canonicalised inventory root) with `rel`.
+///
+/// Rejects:
+/// - absolute paths (`rel.is_absolute()`)
+/// - Windows drive-letter and UNC paths on all platforms (string-level check,
+///   because on Unix the path parser treats `C:` and backslash as regular
+///   filename characters rather than as path separators / prefixes)
+/// - `..` (`Component::ParentDir`)
+/// - Windows drive/UNC prefixes on Windows (`Component::Prefix`)
+/// - root-dir components (`Component::RootDir`)
+/// - any path whose nearest existing ancestor canonicalizes to outside
+///   `inv_canonical` (catches symlinks even when the final parent does not
+///   yet exist — e.g. `inventory/link` → `/tmp/outside`, path
+///   `link/newdir/file.yaml` is rejected because `link` resolves outside)
+///
+/// Normal `./`-relative paths and bare filenames are accepted.
+pub(crate) fn safe_inventory_join(inv_canonical: &Path, rel: &Path) -> Result<PathBuf, WriteError> {
+    // Absolute paths are always rejected.
+    if rel.is_absolute() {
+        return Err(WriteError::PathTraversal {
+            path: rel.display().to_string(),
+        });
+    }
+
+    // Cross-platform rejection of Windows-style drive and UNC paths.
+    // On Windows, Component::Prefix already catches these; on Unix the Rust
+    // path parser treats backslash as a regular character and `C:` as a
+    // Normal component, so we must also inspect the raw string.
+    {
+        let s = rel.to_string_lossy();
+        let b = s.as_bytes();
+        // Drive letter: X: (with or without following separator)
+        let is_drive = b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':';
+        // UNC with backslashes: \\server\... (double-slash is caught by is_absolute() on Unix)
+        let is_unc_backslash = s.starts_with("\\\\");
+        if is_drive || is_unc_backslash {
+            return Err(WriteError::PathTraversal {
+                path: rel.display().to_string(),
+            });
+        }
+    }
+
+    // Walk every component and reject dangerous ones.
+    for component in rel.components() {
+        match component {
+            Component::ParentDir | Component::Prefix(_) | Component::RootDir => {
+                return Err(WriteError::PathTraversal {
+                    path: rel.display().to_string(),
+                });
+            }
+            _ => {}
+        }
+    }
+
+    let full = inv_canonical.join(rel);
+
+    // Walk up from the immediate parent to the nearest existing ancestor.
+    // Canonicalize it and verify it falls within inv_canonical.
+    // This catches symlinks even when the final parent does not yet exist:
+    // e.g. inventory/link -> /tmp/outside, path = link/newdir/file.yaml —
+    // link/ exists and canonicalizes to /tmp/outside, which fails the check.
+    let mut ancestor: Option<&Path> = full.parent();
+    while let Some(p) = ancestor {
+        if p.exists() {
+            let canonical = p.canonicalize().map_err(|e| WriteError::Io {
+                path: p.display().to_string(),
+                source: e,
+            })?;
+            if !canonical.starts_with(inv_canonical) {
+                return Err(WriteError::PathTraversal {
+                    path: rel.display().to_string(),
+                });
+            }
+            break;
+        }
+        ancestor = p.parent();
+    }
+
+    Ok(full)
 }
 
 // ── Output DTOs ───────────────────────────────────────────────────────────────
@@ -267,6 +387,37 @@ pub fn write_repository(
 
     std::fs::create_dir_all(&inv).map_err(|e| io_err(e, &inv))?;
 
+    // Canonicalise the inventory root once. All layout-derived paths are
+    // validated against this canonical root before any file I/O.
+    let inv_c = inv.canonicalize().map_err(|e| io_err(e, &inv))?;
+
+    // Helper: validate, create parent directory, re-verify after creation,
+    // then write. The post-create canonicalization is defence-in-depth against
+    // TOCTOU: if something external replaces an ancestor with a symlink between
+    // safe_inventory_join's check and the actual directory creation, the second
+    // canonicalize will catch it.
+    let checked_write =
+        |rel: &Path, content: &str, rep: &mut WriteReport| -> Result<(), WriteError> {
+            let path = safe_inventory_join(&inv_c, rel)?;
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| WriteError::Io {
+                    path: parent.display().to_string(),
+                    source: e,
+                })?;
+                let canonical_parent = parent.canonicalize().map_err(|e| WriteError::Io {
+                    path: parent.display().to_string(),
+                    source: e,
+                })?;
+                if !canonical_parent.starts_with(&inv_c) {
+                    return Err(WriteError::PathTraversal {
+                        path: rel.display().to_string(),
+                    });
+                }
+            }
+            rep.record(write_if_changed(&path, content)?, &path);
+            Ok(())
+        };
+
     // ── 1. repo.yaml ──────────────────────────────────────────────────────────
 
     {
@@ -281,8 +432,7 @@ pub fn write_repository(
             },
         };
         let content = serialize_yaml(&out)?;
-        let path = inv.join("repo.yaml");
-        report.record(write_if_changed(&path, &content)?, &path);
+        checked_write(Path::new("repo.yaml"), &content, &mut report)?;
     }
 
     // ── 2. locations.yaml ─────────────────────────────────────────────────────
@@ -303,8 +453,7 @@ pub fn write_repository(
         locs.sort_unstable_by(|a, b| a.code.cmp(&b.code));
         let out = OutLocationsFile { locations: locs };
         let content = serialize_yaml(&out)?;
-        let path = inv.join("locations.yaml");
-        report.record(write_if_changed(&path, &content)?, &path);
+        checked_write(Path::new("locations.yaml"), &content, &mut report)?;
     }
 
     // ── 3. racks/*.yaml ───────────────────────────────────────────────────────
@@ -369,8 +518,7 @@ pub fn write_repository(
                 racks: out_racks,
             };
             let content = serialize_yaml(&out)?;
-            let path = inv.join(rel);
-            report.record(write_if_changed(&path, &content)?, &path);
+            checked_write(&rel, &content, &mut report)?;
         }
     }
 
@@ -428,8 +576,7 @@ pub fn write_repository(
                 models: out_models,
             };
             let content = serialize_yaml(&out)?;
-            let path = inv.join(rel);
-            report.record(write_if_changed(&path, &content)?, &path);
+            checked_write(&rel, &content, &mut report)?;
         }
     }
 
@@ -494,8 +641,7 @@ pub fn write_repository(
                 devices: out_devices,
             };
             let content = serialize_yaml(&out)?;
-            let path = inv.join(rel);
-            report.record(write_if_changed(&path, &content)?, &path);
+            checked_write(&rel, &content, &mut report)?;
         }
     }
 
@@ -541,10 +687,127 @@ pub fn write_repository(
                 placements: OutPlacementSides { front, rear },
             };
             let content = serialize_yaml(&out)?;
-            let path = inv.join(rel);
-            report.record(write_if_changed(&path, &content)?, &path);
+            checked_write(&rel, &content, &mut report)?;
         }
     }
 
     Ok(report)
+}
+
+// ── containment unit tests ────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod containment_tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn setup() -> (TempDir, PathBuf) {
+        let tmp = TempDir::new().unwrap();
+        let inv = tmp.path().join("inventory");
+        std::fs::create_dir_all(&inv).unwrap();
+        let inv_c = inv.canonicalize().unwrap();
+        (tmp, inv_c)
+    }
+
+    #[test]
+    fn accepts_simple_filename() {
+        let (_tmp, inv) = setup();
+        assert!(safe_inventory_join(&inv, Path::new("repo.yaml")).is_ok());
+    }
+
+    #[test]
+    fn accepts_nested_relative_path() {
+        let (_tmp, inv) = setup();
+        assert!(safe_inventory_join(&inv, Path::new("racks/room-a.yaml")).is_ok());
+    }
+
+    #[test]
+    fn accepts_cur_dir_relative_path() {
+        let (_tmp, inv) = setup();
+        assert!(safe_inventory_join(&inv, Path::new("./racks/room-a.yaml")).is_ok());
+    }
+
+    #[test]
+    fn rejects_parent_traversal() {
+        let (_tmp, inv) = setup();
+        let result = safe_inventory_join(&inv, Path::new("../evil.yaml"));
+        assert!(
+            matches!(result, Err(WriteError::PathTraversal { .. })),
+            "expected PathTraversal, got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn rejects_nested_traversal() {
+        let (_tmp, inv) = setup();
+        let result = safe_inventory_join(&inv, Path::new("racks/../../etc/passwd"));
+        assert!(matches!(result, Err(WriteError::PathTraversal { .. })));
+    }
+
+    #[test]
+    fn rejects_absolute_path() {
+        let (_tmp, inv) = setup();
+        let result = safe_inventory_join(&inv, Path::new("/etc/passwd"));
+        assert!(matches!(result, Err(WriteError::PathTraversal { .. })));
+    }
+
+    #[test]
+    fn rejects_windows_drive_backslash_path() {
+        let (_tmp, inv) = setup();
+        // C:\temp\evil.yaml — rejected on all platforms via the string-level check.
+        // On Windows, Component::Prefix would also catch it; on Unix the string
+        // check is the only guard since backslash is a valid filename character.
+        let result = safe_inventory_join(&inv, Path::new("C:\\temp\\evil.yaml"));
+        assert!(
+            matches!(result, Err(WriteError::PathTraversal { .. })),
+            "Windows drive backslash path must be rejected on all platforms: {result:?}"
+        );
+    }
+
+    #[test]
+    fn rejects_windows_drive_slash_path() {
+        let (_tmp, inv) = setup();
+        // C:/temp/evil.yaml — rejected on all platforms via the string-level check.
+        let result = safe_inventory_join(&inv, Path::new("C:/temp/evil.yaml"));
+        assert!(
+            matches!(result, Err(WriteError::PathTraversal { .. })),
+            "Windows drive slash path must be rejected on all platforms: {result:?}"
+        );
+    }
+
+    #[test]
+    fn rejects_unc_backslash_path() {
+        let (_tmp, inv) = setup();
+        // \\server\share\evil.yaml — rejected cross-platform via the string-level check.
+        // On Unix, double-slash paths (//server/share) are caught by is_absolute();
+        // backslash UNC is not absolute on Unix, so the string check is required.
+        let result = safe_inventory_join(&inv, Path::new("\\\\server\\share\\evil.yaml"));
+        assert!(
+            matches!(result, Err(WriteError::PathTraversal { .. })),
+            "UNC backslash path must be rejected on all platforms: {result:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlink_ancestor_outside_inventory() {
+        let (tmp, inv) = setup();
+        let outside = TempDir::new().unwrap();
+        // Create inventory/link -> outside (a directory outside inventory/)
+        std::os::unix::fs::symlink(outside.path(), inv.join("link")).unwrap();
+        // link/newdir does not exist, but link itself points outside inventory/
+        let result = safe_inventory_join(&inv, Path::new("link/newdir/file.yaml"));
+        assert!(
+            matches!(result, Err(WriteError::PathTraversal { .. })),
+            "path through non-existent subdir of symlink-outside ancestor must be rejected: \
+             {result:?}"
+        );
+        // Also reject a path directly under the symlink (parent = link, which exists)
+        let result2 = safe_inventory_join(&inv, Path::new("link/file.yaml"));
+        assert!(
+            matches!(result2, Err(WriteError::PathTraversal { .. })),
+            "path directly under symlink pointing outside must be rejected: {result2:?}"
+        );
+        drop(tmp);
+    }
 }

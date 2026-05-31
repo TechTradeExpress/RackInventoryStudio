@@ -1,6 +1,6 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use ris_repository::{load, write_if_changed, write_repository, WriteStatus};
+use ris_repository::{load, write_if_changed, write_repository, WriteError, WriteStatus};
 use tempfile::TempDir;
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -576,4 +576,274 @@ fn writing_to_empty_directory_still_uses_canonical_fallback() {
     assert_eq!(loaded.racks.len(), data.racks.len());
     assert_eq!(loaded.devices.len(), data.devices.len());
     assert_eq!(loaded.placement_files.len(), data.placement_files.len());
+}
+
+// ── atomic writes ─────────────────────────────────────────────────────────────
+
+/// Walk the inventory tree and collect all files that look like temp files.
+fn find_tmp_files(root: &Path) -> Vec<PathBuf> {
+    let mut results = Vec::new();
+    fn walk(dir: &Path, acc: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, acc);
+            } else {
+                // NamedTempFile names end with a random suffix but have no
+                // extension or have a non-.yaml extension.
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                if ext != "yaml" && ext != "gitkeep" {
+                    acc.push(path);
+                }
+            }
+        }
+    }
+    walk(root, &mut results);
+    results
+}
+
+#[test]
+fn no_tmp_files_after_successful_save() {
+    let tmp = TempDir::new().unwrap();
+    write_example(&tmp);
+    let tmp_files = find_tmp_files(tmp.path());
+    assert!(
+        tmp_files.is_empty(),
+        "no temp files must remain after a successful save; found: {tmp_files:?}"
+    );
+}
+
+#[test]
+fn no_tmp_files_after_second_save() {
+    let data = load_example();
+    let tmp = TempDir::new().unwrap();
+    write_repository(tmp.path(), &data).unwrap();
+    write_repository(tmp.path(), &data).unwrap();
+    let tmp_files = find_tmp_files(tmp.path());
+    assert!(
+        tmp_files.is_empty(),
+        "no temp files after second save; found: {tmp_files:?}"
+    );
+}
+
+#[test]
+fn failed_write_preserves_existing_file() {
+    // Attempt to write to a path whose "parent directory" is actually a
+    // regular file — this causes the NamedTempFile::new_in to fail.
+    // The original file at the unrelated path must be unaffected.
+    let tmp = TempDir::new().unwrap();
+    let existing = tmp.path().join("existing.yaml");
+    std::fs::write(&existing, "original content\n").unwrap();
+
+    // This path is *inside* an existing file, which cannot be a directory.
+    let bad_path = existing.join("nested").join("file.yaml");
+    let result = write_if_changed(&bad_path, "new content\n");
+    assert!(result.is_err(), "write to inside a regular file must fail");
+
+    // Original file must be intact and unmodified.
+    let content = std::fs::read_to_string(&existing).unwrap();
+    assert_eq!(
+        content, "original content\n",
+        "original file must be intact after failed atomic write"
+    );
+}
+
+/// Round-trip using the enriched example repository (3 locations, 6 racks, 50+ devices).
+fn example_repo() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/example-repository")
+}
+
+#[test]
+fn example_repo_round_trip_preserves_location_count() {
+    let original = load(&example_repo()).expect("load example-repository");
+    let tmp = TempDir::new().unwrap();
+    write_repository(tmp.path(), &original).unwrap();
+    let loaded = load(tmp.path()).unwrap();
+    assert_eq!(
+        loaded.locations.len(),
+        original.locations.len(),
+        "location count must be preserved"
+    );
+}
+
+#[test]
+fn example_repo_round_trip_preserves_rack_count() {
+    let original = load(&example_repo()).expect("load example-repository");
+    let tmp = TempDir::new().unwrap();
+    write_repository(tmp.path(), &original).unwrap();
+    let loaded = load(tmp.path()).unwrap();
+    assert_eq!(loaded.racks.len(), original.racks.len());
+}
+
+#[test]
+fn example_repo_round_trip_preserves_device_count() {
+    let original = load(&example_repo()).expect("load example-repository");
+    let tmp = TempDir::new().unwrap();
+    write_repository(tmp.path(), &original).unwrap();
+    let loaded = load(tmp.path()).unwrap();
+    assert_eq!(loaded.devices.len(), original.devices.len());
+}
+
+#[test]
+fn example_repo_round_trip_no_tmp_files() {
+    let original = load(&example_repo()).expect("load example-repository");
+    let tmp = TempDir::new().unwrap();
+    write_repository(tmp.path(), &original).unwrap();
+    let tmp_files = find_tmp_files(tmp.path());
+    assert!(
+        tmp_files.is_empty(),
+        "no temp files after example-repo save; found: {tmp_files:?}"
+    );
+}
+
+// ── path containment ──────────────────────────────────────────────────────────
+
+fn is_traversal(e: &WriteError) -> bool {
+    matches!(e, WriteError::PathTraversal { .. })
+}
+
+#[test]
+fn write_repository_rejects_traversal_in_rack_layout() {
+    let mut data = load_example();
+    // Point first rack file at a path that escapes inventory/
+    data.layout.rack_files[0].path = PathBuf::from("../evil-rack.yaml");
+    let tmp = TempDir::new().unwrap();
+    let result = write_repository(tmp.path(), &data);
+    assert!(
+        result.is_err() && is_traversal(result.as_ref().unwrap_err()),
+        "traversal in rack layout must be rejected: {result:?}"
+    );
+    // The malicious file must not have been created outside the tmp dir.
+    assert!(
+        !tmp.path().join("evil-rack.yaml").exists(),
+        "escaped file must not exist"
+    );
+}
+
+#[test]
+fn write_repository_rejects_traversal_in_device_model_layout() {
+    let mut data = load_example();
+    data.layout.device_model_files[0].path = PathBuf::from("../evil-models.yaml");
+    let tmp = TempDir::new().unwrap();
+    let result = write_repository(tmp.path(), &data);
+    assert!(
+        result.is_err() && is_traversal(result.as_ref().unwrap_err()),
+        "traversal in device-model layout must be rejected: {result:?}"
+    );
+}
+
+#[test]
+fn write_repository_rejects_traversal_in_device_layout() {
+    let mut data = load_example();
+    data.layout.device_files[0].path = PathBuf::from("../../outside/devices.yaml");
+    let tmp = TempDir::new().unwrap();
+    let result = write_repository(tmp.path(), &data);
+    assert!(
+        result.is_err() && is_traversal(result.as_ref().unwrap_err()),
+        "deep traversal in device layout must be rejected: {result:?}"
+    );
+}
+
+#[test]
+fn write_repository_rejects_traversal_in_placement_layout() {
+    let mut data = load_example();
+    data.layout.placement_files[0].path = PathBuf::from("../evil-placement.yaml");
+    let tmp = TempDir::new().unwrap();
+    let result = write_repository(tmp.path(), &data);
+    assert!(
+        result.is_err() && is_traversal(result.as_ref().unwrap_err()),
+        "traversal in placement layout must be rejected: {result:?}"
+    );
+}
+
+#[test]
+fn write_repository_rejects_absolute_layout_path() {
+    let mut data = load_example();
+    data.layout.rack_files[0].path = PathBuf::from("/tmp/evil-absolute.yaml");
+    let tmp = TempDir::new().unwrap();
+    let result = write_repository(tmp.path(), &data);
+    assert!(
+        result.is_err() && is_traversal(result.as_ref().unwrap_err()),
+        "absolute path in rack layout must be rejected: {result:?}"
+    );
+}
+
+#[test]
+fn write_repository_rejects_windows_drive_layout_path() {
+    // Validate that a Windows-style absolute path in layout data is rejected
+    // on all platforms. On Windows, Path will parse this as Prefix + RootDir;
+    // on Unix, is_absolute() catches paths starting with '/'.
+    let mut data = load_example();
+    // Use a Unix absolute path which is invalid on all platforms.
+    data.layout.placement_files[0].path = PathBuf::from("/C:/temp/evil.yaml");
+    let tmp = TempDir::new().unwrap();
+    let result = write_repository(tmp.path(), &data);
+    assert!(
+        result.is_err() && is_traversal(result.as_ref().unwrap_err()),
+        "Windows-style path in layout must be rejected: {result:?}"
+    );
+}
+
+#[test]
+fn traversal_does_not_create_file_outside_repo() {
+    let mut data = load_example();
+    data.layout.rack_files[0].path = PathBuf::from("../escaped.yaml");
+    let tmp = TempDir::new().unwrap();
+    let _ = write_repository(tmp.path(), &data);
+    // Confirm no file was created at the sibling path.
+    assert!(
+        !tmp.path().join("../escaped.yaml").exists(),
+        "escaped file must not be created"
+    );
+    assert!(
+        !tmp.path()
+            .parent()
+            .unwrap_or(tmp.path())
+            .join("escaped.yaml")
+            .exists(),
+        "escaped file must not exist in parent dir"
+    );
+}
+
+#[test]
+fn write_repository_accepts_valid_nested_layout_path() {
+    // non-canonical-paths fixture has custom relative paths inside inventory/;
+    // these must continue to be accepted.
+    let tmp = TempDir::new().unwrap();
+    copy_dir_all(&fixture("non-canonical-paths"), tmp.path());
+    let data = load(tmp.path()).expect("load");
+    let result = write_repository(tmp.path(), &data);
+    assert!(
+        result.is_ok(),
+        "valid non-canonical layout paths must be accepted: {result:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn write_repository_rejects_symlink_ancestor_escape() {
+    use std::os::unix::fs::symlink;
+    let mut data = load_example();
+    let tmp = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    // Pre-create inventory/ so write_repository's create_dir_all is a no-op,
+    // then plant a symlink inside it pointing to a directory outside.
+    let inv_dir = tmp.path().join("inventory");
+    std::fs::create_dir_all(&inv_dir).unwrap();
+    symlink(outside.path(), inv_dir.join("link")).unwrap();
+    // Route a rack layout file through the symlink into a non-existent subdir.
+    data.layout.rack_files[0].path = PathBuf::from("link/newdir/evil.yaml");
+    let result = write_repository(tmp.path(), &data);
+    assert!(
+        result.is_err() && is_traversal(result.as_ref().unwrap_err()),
+        "symlink ancestor escape must be rejected: {result:?}"
+    );
+    // No directory or file must have been created outside inventory/.
+    assert!(
+        !outside.path().join("newdir").exists(),
+        "no directory must be created outside inventory via symlink"
+    );
 }

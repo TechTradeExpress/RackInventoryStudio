@@ -1,87 +1,110 @@
-# CC Report — PR I: Git transport hardening (SEC-01)
+# CC Report — PR J: Atomic YAML writes and contain writer paths (DATA-01, SEC-02)
 
 ## Summary
 
-PR I — Git transport hardening (SEC-01).
+PR J implements two hardening items for `ris-repository`, then addresses two
+review-requested fixes to the initial implementation:
 
-Two commits on `harden/git-transport-protocols`:
+**DATA-01 — Atomic YAML writes**: Replaced `std::fs::write` with a
+`NamedTempFile`-based strategy. Each write creates a temp file in the same
+directory, flushes, calls `sync_all`, then renames over the target. A hard crash
+mid-write may leave a temp file (auto-cleaned by `NamedTempFile`'s Drop), but
+the final YAML file is never left truncated or partially written.
 
-1. **Commit 1** (`docs`): Updated `docs/BETA1_FOLLOWUP_PLAN_EN.md` with a
-   pre-beta.2 hardening plan. Added SEC-01 entry documenting the threat and fix,
-   added PR I to the PR grouping table, and added a prioritised backlog covering
-   SEC-01 (implemented), DATA-01 (open), and lower-priority items.
+**SEC-02 — Writer path containment** (initial + review fixes):
 
-2. **Commit 2** (`harden`): Implemented SEC-01 in `crates/ris-git`:
-   - `TRANSPORT_SAFETY` constant with `-c protocol.ext.allow=never` and
-     `-c protocol.fd.allow=never`, prepended to every `git push` and `git pull`
-     invocation.
-   - `validate_remote_url` (public) rejects `ext::`, `fd::`, `ssh+git://`,
-     and all other dangerous or unsupported schemes. Accepted allowlist:
-     `https://`, `ssh://`, SCP-like SSH (including SSH config host aliases).
-   - `add_remote` now calls `validate_remote_url`.
-   - `is_ssh_url` fixed: double-colon transport helpers (`ext::`, `fd::`) no
-     longer misclassify as SCP-like SSH remotes.
-   - 13 integration-test call sites updated to use `add_remote_for_test` helper
-     (bypasses URL validation for test-only local repos, which are intentionally
-     rejected by the public API).
-   - 22 new unit tests + 11 new integration tests.
+*Initial*: `safe_inventory_join` rejects `..` components, absolute paths, and
+Windows drive/UNC prefixes (via `Component::Prefix` on Windows). The parent
+directory is verified via canonicalization if it exists. `write_repository`
+uses a `checked_write` closure that routes every path through this guard.
 
-**Review fix commit** (`fix(git): keep remote URL scheme allowlist minimal`):
-   - Removed `ssh+git://` from `validate_remote_url` accepted schemes —
-     not required for beta.2 and not covered by askpass handling.
-   - Updated `validate_url_accepts_ssh_git_scheme` → `validate_url_rejects_ssh_git_scheme`.
-   - Updated doc comments in `lib.rs` and `docs/BETA1_FOLLOWUP_PLAN_EN.md`.
+*Review fix 1 — Symlink ancestor escape*: The initial check only canonicalized
+the parent if it already existed. If `inventory/link` is a symlink to
+`/tmp/outside` and the target subdir does not yet exist, the check was skipped.
+Fix: walk up from the immediate parent to the nearest existing ancestor,
+canonicalize it, and verify it falls within the canonical inventory root.
+Additionally, `checked_write` now creates the parent directory eagerly and
+re-canonicalizes it after creation (TOCTOU defence-in-depth).
+
+*Review fix 2 — Cross-platform Windows-drive and UNC rejection*: On Unix, Rust's
+path parser treats backslash as a filename character and `C:` as a Normal
+component, so `Component::Prefix` never fires. A new string-level check rejects
+any path whose raw string starts with an ASCII letter + `:` (Windows drive) or
+`\\` (UNC backslash). These forms are now rejected on all platforms.
 
 ## Files changed
 
 | File | Change |
 |---|---|
-| `docs/BETA1_FOLLOWUP_PLAN_EN.md` | SEC-01 entry, PR I in table, pre-beta.2 backlog section |
-| `crates/ris-git/src/lib.rs` | `TRANSPORT_SAFETY`, `validate_remote_url`, `add_remote` update, `is_ssh_url` fix, push/pull transport flag injection, new unit tests |
-| `crates/ris-git/tests/git_remote_tests.rs` | `add_remote_for_test` helper, 13 call-site updates, new integration tests for URL validation and transport safety |
+| `crates/ris-repository/Cargo.toml` | Promote `tempfile` from dev-dep to dep |
+| `crates/ris-repository/src/writer.rs` | `atomic_replace`, `safe_inventory_join` (with symlink-ancestor walk + cross-platform path checks), post-`create_dir_all` re-canonicalize in `checked_write`, 10 unit tests |
+| `crates/ris-repository/tests/writer_tests.rs` | 19 integration tests (atomic writes, containment, symlink escape) |
+| `docs/BETA1_FOLLOWUP_PLAN_EN.md` | PR J entry, Section 14, DATA-01/SEC-02 marked ✅ in backlog |
 
 ## Tests
 
 ```
-cargo test -p ris-git
+cargo test -p ris-repository
 ```
-
-- 68 unit tests in `lib.rs` — all pass (includes 22 new)
-- 37 integration tests in `git_remote_tests.rs` — all pass (includes 11 new)
-- 12 integration tests in `git_tests.rs` — all pass (no change)
+- 10 unit tests (`containment_tests`) — all pass
+- 50 integration tests (`writer_tests.rs`) — all pass
+- 19 integration tests (other integration file) — all pass
 
 ```
 cargo test --workspace
 ```
-
 All workspace tests pass; 0 failures.
 
 ```
 cargo clippy --workspace -- -D warnings
 ```
-
 No warnings or errors.
+
+```
+npx tsc --noEmit
+```
+No type errors.
+
+```
+npx vitest run
+```
+42 test files, 534 tests — all pass.
+
+```
+node scripts/check-repo-hygiene.mjs
+```
+All 8 hygiene checks passed.
 
 ## Risks
 
-- **`validate_remote_url` rejects `file://` and local paths**: This is intentional.
-  Any test that previously called `ris_git::add_remote` with a local bare-repo
-  path now uses `add_remote_for_test`, which calls `git remote add` directly.
-  The production code path (Tauri commands) only ever receives URLs the user
-  types into the Git panel, so no real-world regression.
-- **`TRANSPORT_SAFETY` on local pulls**: `protocol.ext.allow=never` does not
-  affect the `file://` or local-path transports; verified by the new
-  `pull_with_transport_safety_succeeds_on_local_repo` test.
+- **`tempfile` promoted to production dependency**: Required for `NamedTempFile`
+  in `atomic_replace`. Mature, widely-used crate with no known security concerns.
+- **Hard crash may leave temp files**: A hard crash (SIGKILL, power loss) can
+  prevent `NamedTempFile::drop` from running. The temp file is left in the same
+  directory as the target. It is not a YAML file (no `.yaml` extension) and does
+  not replace the original. On next startup the user can delete it manually.
+  The original YAML file is never truncated.
+- **Non-existent parent directories**: When a path's parent doesn't yet exist,
+  only the component-level check applies (no ancestor to canonicalize). All new
+  directories are created by our code via `create_dir_all` within the verified
+  `inv_c` root; the post-`create_dir_all` re-canonicalization then confirms they
+  stayed inside.
+- **Windows-style paths on non-Windows**: `C:relative` without a following
+  separator is also caught by the `letter + colon` string check, which is
+  intentionally conservative.
+- **TOCTOU**: The post-`create_dir_all` re-canonicalization in `checked_write`
+  defends against a symlink being swapped in between the pre-creation check and
+  the actual write. A sophisticated adversary with filesystem write access could
+  still win the race; the primary line of defence is `safe_inventory_join`'s
+  pre-check.
 
 ## Not done
 
-- DATA-01 (atomic YAML writes) — separate item, not in scope.
-- SEC-02 (writer containment), SEC-03 (diagnostics redaction) — separate items.
-- No changes to the Tauri commands layer — transport flags flow through
-  `push_current_branch_with_env` and `pull_ff_only_with_env` which the Tauri
-  layer already calls; no Tauri-level changes needed.
+- SEC-03 (diagnostics redaction) — separate item, not in scope
+- Dependency audit — separate item, not in scope
+- `serde_yaml` migration — separate item, not in scope
+- No changes to the Git layer or Tauri commands
 
 ## Suggested next step
 
-Open a PR for this branch against `master` and attach the review context to
-ChatGPT for sign-off before merging.
+Attach the generated review context to ChatGPT for sign-off before merging PR #98.
