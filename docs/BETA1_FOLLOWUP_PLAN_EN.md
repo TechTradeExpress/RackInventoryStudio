@@ -529,26 +529,41 @@ to create or overwrite files outside the `inventory/` directory.
 
 - **`safe_inventory_join`** (pub crate): validates a relative path before
   joining with the canonical inventory root. Rejects: `..` components,
-  absolute paths, Windows drive/UNC prefixes, and symlinks whose resolved
-  parent escapes the canonical inventory root.
+  absolute paths, Windows drive/UNC prefixes, and symlinks. Two-stage
+  check: (a) cross-platform string-level check rejects Windows drive
+  paths (`C:\`, `C:/`) and UNC backslash paths (`\\server\`) on all
+  platforms (not just Windows where `Component::Prefix` would catch them);
+  (b) walks up from the immediate parent to the nearest existing ancestor,
+  canonicalizes it, and verifies it falls within the canonical inventory
+  root — catches symlinks even when the final parent directory does not
+  yet exist.
 
 - **`write_repository`** updated: canonicalises `inventory/` after
-  `create_dir_all`; all path joins (fixed and layout-derived) go through
-  `safe_inventory_join`. A malicious path returns
-  `WriteError::PathTraversal` and no file is written.
+  `create_dir_all`; all path joins go through `safe_inventory_join`. The
+  `checked_write` closure additionally creates the parent directory
+  eagerly and re-canonicalizes it after `create_dir_all` as TOCTOU
+  defence-in-depth. A malicious path returns `WriteError::PathTraversal`
+  and no file is written.
 
 - **`tempfile` crate** promoted from `[dev-dependencies]` to
   `[dependencies]` in `ris-repository/Cargo.toml`.
 
-- **8 new inline unit tests** for `safe_inventory_join` (accepts valid
-  paths; rejects `../`, absolute, Windows drive).
+- **10 inline unit tests** for `safe_inventory_join`: accepts valid paths;
+  rejects `../`, absolute, `C:\`, `C:/`, UNC `\\`, and symlink ancestors
+  pointing outside inventory (Unix).
 
-- **18 new integration tests** covering: no temp files after save, double
-  save stability, failed-write preserves original, example-repository
+- **19 integration tests** covering: no temp files after save, double save
+  stability, failed-write preserves original, example-repository
   round-trip (3 locations / 6 racks / 50+ devices), traversal rejection
-  for all four layout categories, absolute-path rejection, valid
-  non-canonical paths still accepted.
+  for all four layout categories, absolute-path rejection, symlink ancestor
+  escape via `write_repository` (Unix), valid non-canonical paths still
+  accepted.
 
 **Normal save behavior unchanged**: write-only-if-changed, path
 preservation from layout, canonical fallback for new entities — all
 unaffected.
+
+**Crash behavior**: a hard crash (SIGKILL, power loss) may leave a temp
+file alongside the YAML file, but the YAML file itself is never left
+truncated or partially written. The temp file has no `.yaml` extension and
+is not loaded by the reader; it can be deleted manually.
