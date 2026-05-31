@@ -8,8 +8,8 @@ description = "YAML repository loader/writer and RepositoryIndex."
 ris-core = { path = "../ris-core" }
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
+tempfile = "3"
 thiserror = "1"
 
 [dev-dependencies]
-tempfile = "3"
 
