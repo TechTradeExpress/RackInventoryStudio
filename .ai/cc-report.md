@@ -14,13 +14,22 @@ banner.
   2. `ghp_XXXX` GitHub token bodies → `[redacted]`
   3. `github_pat_XXXX` PAT bodies → `[redacted]`
   4. `key=VALUE` credential pairs for `access_token`, `token`, `password`,
-     `passphrase` (case-insensitive) → `key=[redacted]`
+     `passphrase` (ASCII-case-insensitive) → `key=[redacted]`
 
 - `GitError::Display::CommandFailed` now routes `stderr` through
   `redact_git_error` before formatting.
 
-- 10 unit tests in `mod redaction_tests` covering all four patterns plus the
-  `GitError::Display` path.
+- **Review fix — Unicode fail-open**: The original `redact_key_value_credential`
+  lowercased the entire string and bailed out returning the unredacted input when
+  the lowercased form had a different byte length (e.g. Turkish dotted İ).
+  A message containing Unicode plus `password=secret` could therefore reach the
+  user unredacted. Fixed by replacing the whole-string `to_lowercase()` approach
+  with a byte-by-byte scan using `eq_ignore_ascii_case`, which operates only on
+  ASCII bytes and is never affected by Unicode elsewhere in the message.
+
+- 14 unit tests in `mod redaction_tests`: 10 original + 4 new Unicode regression
+  tests (`password=` with Polish prefix, `access_token=` with Polish prefix,
+  non-secret Unicode preserved around redaction, mixed-case key with Unicode).
 
 **Rust layer — `apps/desktop/src-tauri/src/commands/git.rs`**:
 
@@ -54,7 +63,7 @@ banner.
 
 | File | Change |
 |---|---|
-| `crates/ris-git/src/lib.rs` | `redact_git_error` + 4 helpers; `CommandFailed::Display` updated; 10 unit tests |
+| `crates/ris-git/src/lib.rs` | `redact_git_error` + 4 helpers; `CommandFailed::Display` updated; Unicode fail-open fix; 14 unit tests |
 | `apps/desktop/src-tauri/src/commands/git.rs` | `ssh_error_message` raw_detail passes through `redact_git_error` |
 | `apps/desktop/src/lib/redact.ts` | New `redactUrlCredentials` export |
 | `apps/desktop/src/lib/redact.test.ts` | 5 new tests for `redactUrlCredentials` |
@@ -81,7 +90,8 @@ All pass (0 failures).
 ```
 cargo clippy --workspace -- -D warnings
 ```
-Pass (one clippy fix: trailing `let` binding → direct return).
+Pass (review-fix clippy finding: `manual_ignore_case_cmp` — replaced
+`to_ascii_lowercase()` comparison with `.eq_ignore_ascii_case()`).
 
 ```
 npx tsc --noEmit
@@ -89,9 +99,14 @@ npx tsc --noEmit
 No type errors.
 
 ```
-/workspace/project/apps/desktop/node_modules/.bin/vitest run apps/desktop/src/lib/redact.test.ts
+vitest run apps/desktop/src/lib/redact.test.ts
 ```
-28/28 pass (all 5 new `redactUrlCredentials` tests pass).
+28/28 pass (all 5 new `redactUrlCredentials` tests pass; no TS changes in this
+review fix so TS test count is unchanged).
+
+Note: `npx vitest run` (full suite) has 23 pre-existing failures due to Node 18
+/ jsdom incompatibility (`document is not defined`). Count is identical before
+and after this branch; unrelated to PR K.
 
 ```
 node scripts/check-repo-hygiene.mjs
@@ -112,6 +127,10 @@ All 8 checks pass.
 - **Non-HTTPS credential patterns**: `redact_git_error` covers HTTPS embedded
   credentials and token patterns. SSH URLs (`git@host`) do not embed credentials
   in the URL text and are not a concern here.
+- **Unicode fail-open (fixed)**: The original implementation returned the
+  unredacted string when `to_lowercase()` changed the byte length. This is now
+  fixed; the new implementation uses `eq_ignore_ascii_case` byte-by-byte and
+  never skips redaction due to Unicode in unrelated parts of the message.
 - **Vitest environment failures**: 23 test files fail with `document is not
   defined` due to Node 18 / jsdom incompatibility in the CI environment. These
   failures are pre-existing (identical count before and after this PR) and are
