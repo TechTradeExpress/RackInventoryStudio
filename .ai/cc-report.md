@@ -1,120 +1,87 @@
-# CC Report — PR H: Beta readiness — richer demo repository and QA fixtures
+# CC Report — PR I: Git transport hardening (SEC-01)
 
 ## Summary
 
-Expanded `examples/example-repository/` from a minimal skeleton (1 location,
-2 racks, 9 models, 8 devices) to a realistic multi-site demo repository
-(3 locations, 6 racks, 17+ models, 50+ devices) suitable for manual beta QA.
-Added a Rust integration test that loads the example repository and verifies
-structural counts and validity. Added `docs/BETA_DEMO_REPOSITORY_EN.md` with
-manual QA scenarios.
+PR I — Git transport hardening (SEC-01).
 
-**Review fix (PR #96)**: Removed the `code` column from the CSV import example
-(`devices-import-example.csv`). The `code` column is no longer a known import
-column since PR E (codes are generated automatically); its presence would have
-produced a `VAL-CSV-002` unknown-column warning. Updated QA guide to explain
-that device codes are auto-generated and that deduplication uses serial number /
-asset tag / external ref. Fixed stale "≥ 0.3.0" compat note in README. Added a
-new Rust test that previews the CSV against the example repository and asserts
-no VAL-CSV-002 warning and all rows are `Create`.
+Two commits on `harden/git-transport-protocols`:
 
----
+1. **Commit 1** (`docs`): Updated `docs/BETA1_FOLLOWUP_PLAN_EN.md` with a
+   pre-beta.2 hardening plan. Added SEC-01 entry documenting the threat and fix,
+   added PR I to the PR grouping table, and added a prioritised backlog covering
+   SEC-01 (implemented), DATA-01 (open), and lower-priority items.
 
-## Findings — current demo/sample mechanism
+2. **Commit 2** (`harden`): Implemented SEC-01 in `crates/ris-git`:
+   - `TRANSPORT_SAFETY` constant with `-c protocol.ext.allow=never` and
+     `-c protocol.fd.allow=never`, prepended to every `git push` and `git pull`
+     invocation.
+   - `validate_remote_url` (public) rejects `ext::`, `fd::`, `ssh+git://`,
+     and all other dangerous or unsupported schemes. Accepted allowlist:
+     `https://`, `ssh://`, SCP-like SSH (including SSH config host aliases).
+   - `add_remote` now calls `validate_remote_url`.
+   - `is_ssh_url` fixed: double-colon transport helpers (`ext::`, `fd::`) no
+     longer misclassify as SCP-like SSH remotes.
+   - 13 integration-test call sites updated to use `add_remote_for_test` helper
+     (bypasses URL validation for test-only local repos, which are intentionally
+     rejected by the public API).
+   - 22 new unit tests + 11 new integration tests.
 
-| Question | Finding |
-|---|---|
-| Where is demo data? | `examples/example-repository/` — plain YAML files |
-| How is it generated? | Hand-authored YAML; no code generator |
-| How does user open it? | File → Open Repository → navigate to `examples/example-repository/` |
-| Tests that rely on demo data? | `ris-repository/tests/loader_tests.rs` — existed, updated |
-| Existing fixture builders | `create_repository()` creates empty scaffold; no demo builder |
-| Validation fixtures | Separate in `tests/fixtures/val-*/` — not touched |
-
-The `tests/fixtures/valid-repository/` fixture is intentionally minimal (1 loc,
-1 rack, 1 device) to support unit tests that assert exact counts. It was NOT
-changed.
-
----
+**Review fix commit** (`fix(git): keep remote URL scheme allowlist minimal`):
+   - Removed `ssh+git://` from `validate_remote_url` accepted schemes —
+     not required for beta.2 and not covered by askpass handling.
+   - Updated `validate_url_accepts_ssh_git_scheme` → `validate_url_rejects_ssh_git_scheme`.
+   - Updated doc comments in `lib.rs` and `docs/BETA1_FOLLOWUP_PLAN_EN.md`.
 
 ## Files changed
 
-### New files
-- `examples/example-repository/inventory/racks/gdansk-branch.yaml` — 2 Gdańsk racks
-- `examples/example-repository/inventory/racks/backup-dr.yaml` — 1 DR rack
-- `examples/example-repository/inventory/placements/rack-gdansk-01.yaml` — 10 front + 1 rear placement
-- `examples/example-repository/inventory/placements/rack-gdansk-02.yaml` — sparse 24U rack
-- `examples/example-repository/inventory/placements/rack-hq-b01.yaml` — HQ B01 rack placements
-- `examples/example-repository/inventory/placements/rack-dr-01.yaml` — DR rack placements
-- `crates/ris-application/tests/example_repo_tests.rs` — 8 structural tests
-- `docs/BETA_DEMO_REPOSITORY_EN.md` — manual QA guide
-
-### Modified files
-- `examples/example-repository/inventory/locations.yaml` — 1 → 3 locations
-- `examples/example-repository/inventory/racks/warsaw-serverroom-a.yaml` — added rack-hq-b01
-- `examples/example-repository/inventory/device-models/servers.yaml` — +dell-r750, +lenovo-sr650
-- `examples/example-repository/inventory/device-models/network.yaml` — +cisco-asr1001x, +patch-panel-24p
-- `examples/example-repository/inventory/device-models/storage.yaml` — +synology-rs1221p
-- `examples/example-repository/inventory/device-models/ups.yaml` — +eaton-9px-3000
-- `examples/example-repository/inventory/device-models/appliances.yaml` — +kvm-16port, +pdu-basic-1u
-- `examples/example-repository/inventory/device-models/other.yaml` — +generic-2u-appliance
-- `examples/example-repository/inventory/device-models/rack-objects.yaml` — +patch-panel-48p; English names
-- `examples/example-repository/inventory/devices/servers.yaml` — 3 → 25+ devices (HQ + Gdańsk + DR + staging/edge cases)
-- `examples/example-repository/inventory/devices/network.yaml` — 2 → 11 devices
-- `examples/example-repository/inventory/devices/storage.yaml` — 1 → 4 devices
-- `examples/example-repository/inventory/devices/ups.yaml` — 1 → 4 devices
-- `examples/example-repository/inventory/devices/appliances.yaml` — 0 → 4 devices
-- `examples/example-repository/inventory/placements/rack-a01.yaml` — expanded (8 → ~25 placements)
-- `examples/example-repository/inventory/placements/rack-a02.yaml` — was empty, now 3 placements
-- `examples/example-repository/inventory/examples/devices-import-example.csv` — removed `code` column; device codes are now auto-generated
-- `examples/example-repository/README.md` — updated counts, structure table, fixed stale ≥ 0.3.0 compat note
-- `crates/ris-repository/tests/loader_tests.rs` — updated 4 assertions for new structure
-- `docs/BETA1_FOLLOWUP_PLAN_EN.md` — added PR H entry
-
----
+| File | Change |
+|---|---|
+| `docs/BETA1_FOLLOWUP_PLAN_EN.md` | SEC-01 entry, PR I in table, pre-beta.2 backlog section |
+| `crates/ris-git/src/lib.rs` | `TRANSPORT_SAFETY`, `validate_remote_url`, `add_remote` update, `is_ssh_url` fix, push/pull transport flag injection, new unit tests |
+| `crates/ris-git/tests/git_remote_tests.rs` | `add_remote_for_test` helper, 13 call-site updates, new integration tests for URL validation and transport safety |
 
 ## Tests
 
 ```
-cargo fmt --all --check           PASS
-cargo check --workspace           PASS
-cargo clippy --workspace          PASS (0 warnings)
-cargo test --workspace            PASS (all suites, 0 failures)
-  - example_repo_tests.rs         9/9 pass (includes new CSV preview test)
-  - loader_tests.rs               19/19 pass (4 updated)
-./node_modules/.bin/tsc --noEmit  PASS
-./node_modules/.bin/vitest run    534/534 pass
-node scripts/check-version-consistency.mjs  PASS
-node --test scripts/*.test.mjs    17/17 pass
-node scripts/check-repo-hygiene.mjs         PASS (8/8 checks)
+cargo test -p ris-git
 ```
 
----
+- 68 unit tests in `lib.rs` — all pass (includes 22 new)
+- 37 integration tests in `git_remote_tests.rs` — all pass (includes 11 new)
+- 12 integration tests in `git_tests.rs` — all pass (no change)
+
+```
+cargo test --workspace
+```
+
+All workspace tests pass; 0 failures.
+
+```
+cargo clippy --workspace -- -D warnings
+```
+
+No warnings or errors.
 
 ## Risks
 
-- All UUIDs, serial numbers, and asset tags are unique within the example
-  repository. Verified by visual inspection; no automated uniqueness check.
-- The example repository is hand-authored YAML. Any future schema change will
-  require manual updates to all six racks and all device files.
-- `devices/other.yaml` intentionally contains a device with no `device_model_id`
-  — this exercises an edge case but could cause confusion if users inspect the
-  raw YAML.
-
----
+- **`validate_remote_url` rejects `file://` and local paths**: This is intentional.
+  Any test that previously called `ris_git::add_remote` with a local bare-repo
+  path now uses `add_remote_for_test`, which calls `git remote add` directly.
+  The production code path (Tauri commands) only ever receives URLs the user
+  types into the Git panel, so no real-world regression.
+- **`TRANSPORT_SAFETY` on local pulls**: `protocol.ext.allow=never` does not
+  affect the `file://` or local-path transports; verified by the new
+  `pull_with_transport_safety_succeeds_on_local_repo` test.
 
 ## Not done
 
-- No CSV import test that actually loads the example CSV against the running
-  app (manual QA only, covered in `BETA_DEMO_REPOSITORY_EN.md`).
-- No automated uniqueness check for serial numbers / asset tags across all
-  device files (would require a new hygiene script).
-
----
+- DATA-01 (atomic YAML writes) — separate item, not in scope.
+- SEC-02 (writer containment), SEC-03 (diagnostics redaction) — separate items.
+- No changes to the Tauri commands layer — transport flags flow through
+  `push_current_branch_with_env` and `pull_ff_only_with_env` which the Tauri
+  layer already calls; no Tauri-level changes needed.
 
 ## Suggested next step
 
-Run the full manual QA checklist in `docs/BETA_DEMO_REPOSITORY_EN.md` against
-a local build to confirm the demo repository renders correctly in the UI,
-including the rack diagram for the dense rack-a01, the sparse rack-gdansk-02,
-and the edge-case devices (to_remove, planned, no-serial, duplicate names).
+Open a PR for this branch against `master` and attach the review context to
+ChatGPT for sign-off before merging.
