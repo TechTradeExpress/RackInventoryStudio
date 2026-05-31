@@ -443,7 +443,7 @@ execution on the user's machine.
 
 - **`validate_remote_url`** (new public function in `ris-git`): Rejects any URL
   containing `::` (transport helpers), any `://` scheme other than `https://`,
-  `ssh://`, or `ssh+git://`, local paths (`/`, `~`, `.`, Windows `C:\`), and
+  `ssh://`, local paths (`/`, `~`, `.`, Windows `C:\`), and
   bare names with no colon. Accepts HTTPS, explicit SSH, and SCP-like SSH
   (`user@host:path`). Called from `add_remote` so no dangerous URL can be
   stored in the first place.

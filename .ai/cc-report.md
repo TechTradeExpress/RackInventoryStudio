@@ -15,8 +15,9 @@ Two commits on `harden/git-transport-protocols`:
    - `TRANSPORT_SAFETY` constant with `-c protocol.ext.allow=never` and
      `-c protocol.fd.allow=never`, prepended to every `git push` and `git pull`
      invocation.
-   - `validate_remote_url` (public) rejects `ext::`, `fd::`, and all other
-     dangerous schemes before they can be stored as a remote URL.
+   - `validate_remote_url` (public) rejects `ext::`, `fd::`, `ssh+git://`,
+     and all other dangerous or unsupported schemes. Accepted allowlist:
+     `https://`, `ssh://`, SCP-like SSH (including SSH config host aliases).
    - `add_remote` now calls `validate_remote_url`.
    - `is_ssh_url` fixed: double-colon transport helpers (`ext::`, `fd::`) no
      longer misclassify as SCP-like SSH remotes.
@@ -24,6 +25,12 @@ Two commits on `harden/git-transport-protocols`:
      (bypasses URL validation for test-only local repos, which are intentionally
      rejected by the public API).
    - 22 new unit tests + 11 new integration tests.
+
+**Review fix commit** (`fix(git): keep remote URL scheme allowlist minimal`):
+   - Removed `ssh+git://` from `validate_remote_url` accepted schemes —
+     not required for beta.2 and not covered by askpass handling.
+   - Updated `validate_url_accepts_ssh_git_scheme` → `validate_url_rejects_ssh_git_scheme`.
+   - Updated doc comments in `lib.rs` and `docs/BETA1_FOLLOWUP_PLAN_EN.md`.
 
 ## Files changed
 

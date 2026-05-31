@@ -706,7 +706,10 @@ fn add_remote_accepts_ssh_url() {
     let tmp = tempfile::TempDir::new().unwrap();
     ris_git::init_repository(tmp.path()).unwrap();
     let result = ris_git::add_remote(tmp.path(), "origin", "ssh://git@github.com/owner/repo.git");
-    assert!(result.is_ok(), "add_remote must accept ssh:// URLs: {result:?}");
+    assert!(
+        result.is_ok(),
+        "add_remote must accept ssh:// URLs: {result:?}"
+    );
 }
 
 #[test]
@@ -786,7 +789,9 @@ fn transport_safety_constant_blocks_ext_scheme() {
     // Verify that TRANSPORT_SAFETY contains the flags to block the ext:: scheme.
     let flags: Vec<&str> = ris_git::TRANSPORT_SAFETY.to_vec();
     assert!(
-        flags.windows(2).any(|w| w == ["-c", "protocol.ext.allow=never"]),
+        flags
+            .windows(2)
+            .any(|w| w == ["-c", "protocol.ext.allow=never"]),
         "TRANSPORT_SAFETY must include -c protocol.ext.allow=never; got: {flags:?}"
     );
 }
@@ -795,7 +800,9 @@ fn transport_safety_constant_blocks_ext_scheme() {
 fn transport_safety_constant_blocks_fd_scheme() {
     let flags: Vec<&str> = ris_git::TRANSPORT_SAFETY.to_vec();
     assert!(
-        flags.windows(2).any(|w| w == ["-c", "protocol.fd.allow=never"]),
+        flags
+            .windows(2)
+            .any(|w| w == ["-c", "protocol.fd.allow=never"]),
         "TRANSPORT_SAFETY must include -c protocol.fd.allow=never; got: {flags:?}"
     );
 }

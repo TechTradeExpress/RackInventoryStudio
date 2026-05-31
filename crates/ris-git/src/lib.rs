@@ -473,12 +473,15 @@ pub const TRANSPORT_SAFETY: &[&str] = &[
 
 /// Validate that `url` is an acceptable Git remote URL.
 ///
-/// Accepted: HTTPS (`https://`), explicit SSH (`ssh://`, `ssh+git://`), and
-/// SCP-like SSH remotes (`[user@]host:path`).
+/// Accepted:
+/// - HTTPS: `https://…`
+/// - Explicit SSH: `ssh://…`
+/// - SCP-like SSH (including SSH config host aliases):
+///   `[user@]host:path`, e.g. `github-ris-test:su-17/repo.git`
 ///
 /// Rejected: double-colon transport helpers (`ext::`, `fd::`, …), any other
-/// `://` scheme (`file://`, `git://`, `http://`, …), local paths (`/`, `~`,
-/// `.`, Windows `C:\`), and bare names with no colon.
+/// `://` scheme (`file://`, `git://`, `http://`, `ssh+git://`, …), local
+/// paths (`/`, `~`, `.`, Windows `C:\`), and bare names with no colon.
 pub fn validate_remote_url(url: &str) -> Result<(), GitError> {
     let url = url.trim();
     if url.is_empty() {
@@ -492,8 +495,8 @@ pub fn validate_remote_url(url: &str) -> Result<(), GitError> {
             "Unsupported Git remote URL scheme. Use HTTPS or SSH.".to_string(),
         ));
     }
-    // Accept explicit SSH schemes early.
-    if url.starts_with("ssh://") || url.starts_with("ssh+git://") {
+    // Accept explicit SSH scheme.
+    if url.starts_with("ssh://") {
         return Ok(());
     }
     // Accept HTTPS.
@@ -514,10 +517,7 @@ pub fn validate_remote_url(url: &str) -> Result<(), GitError> {
     }
     // Reject Windows absolute paths (C:\… or C:/…).
     let b = url.as_bytes();
-    if b.len() >= 3
-        && b[0].is_ascii_alphabetic()
-        && b[1] == b':'
-        && (b[2] == b'\\' || b[2] == b'/')
+    if b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/')
     {
         return Err(GitError::InvalidInput(
             "Unsupported Git remote URL scheme. Use HTTPS or SSH.".to_string(),
@@ -849,8 +849,7 @@ pub fn pull_ff_only_with_env(
         GitSecurityMode::Askpass { .. } => ASKPASS_ENV_REMOVALS,
     };
 
-    let mut args: Vec<&str> =
-        Vec::with_capacity(TRANSPORT_SAFETY.len() + security_args.len() + 5);
+    let mut args: Vec<&str> = Vec::with_capacity(TRANSPORT_SAFETY.len() + security_args.len() + 5);
     args.extend_from_slice(TRANSPORT_SAFETY);
     for s in &security_args {
         args.push(s.as_str());
@@ -1377,8 +1376,8 @@ mod ssh_tests {
     }
 
     #[test]
-    fn validate_url_accepts_ssh_git_scheme() {
-        assert!(validate_remote_url("ssh+git://git@github.com/owner/repo.git").is_ok());
+    fn validate_url_rejects_ssh_git_scheme() {
+        assert!(validate_remote_url("ssh+git://git@github.com/owner/repo.git").is_err());
     }
 
     #[test]
@@ -1389,7 +1388,9 @@ mod ssh_tests {
     #[test]
     fn validate_url_accepts_scp_like_ssh_alias() {
         // A real-world case: SSH alias defined in ~/.ssh/config
-        assert!(validate_remote_url("github-ris-test:su-17/ris-ssh-passphrase-empty-test.git").is_ok());
+        assert!(
+            validate_remote_url("github-ris-test:su-17/ris-ssh-passphrase-empty-test.git").is_ok()
+        );
     }
 
     #[test]
@@ -1461,11 +1462,15 @@ mod ssh_tests {
     fn transport_safety_contains_ext_and_fd_flags() {
         let flags: Vec<&str> = TRANSPORT_SAFETY.to_vec();
         assert!(
-            flags.windows(2).any(|w| w == ["-c", "protocol.ext.allow=never"]),
+            flags
+                .windows(2)
+                .any(|w| w == ["-c", "protocol.ext.allow=never"]),
             "TRANSPORT_SAFETY must contain -c protocol.ext.allow=never"
         );
         assert!(
-            flags.windows(2).any(|w| w == ["-c", "protocol.fd.allow=never"]),
+            flags
+                .windows(2)
+                .any(|w| w == ["-c", "protocol.fd.allow=never"]),
             "TRANSPORT_SAFETY must contain -c protocol.fd.allow=never"
         );
     }
