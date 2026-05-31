@@ -46,7 +46,7 @@ fn ssh_error_message(e: &ris_git::GitError, is_ssh: bool) -> String {
                 let add_status = probe_ssh_add();
                 let guidance = ssh_agent_guidance(&add_status, true, None);
                 let raw_detail = if !stderr.is_empty() {
-                    format!("\n\nGit output:\n{stderr}")
+                    format!("\n\nGit output:\n{}", ris_git::redact_git_error(stderr))
                 } else {
                     String::new()
                 };
