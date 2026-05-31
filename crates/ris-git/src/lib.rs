@@ -147,35 +147,54 @@ fn redact_prefixed_token(s: &str, prefix: &str) -> String {
     out
 }
 
-/// Replace `{key}=VALUE` (case-insensitive) with `{key}=[redacted]`.
+/// Replace `{key}=VALUE` (ASCII-case-insensitive) with `{key}=[redacted]`.
 ///
 /// VALUE is consumed up to the next whitespace, `&`, `'`, `"`, `)`, or end of string.
-/// Falls back to returning the input unchanged if the lowercased form has a
-/// different byte length (non-ASCII case-folding edge case; rare in git output).
+/// Matching is done byte-by-byte using ASCII case-folding only, so the function
+/// never fails open due to unrelated Unicode in the message.
 fn redact_key_value_credential(s: &str, key: &str) -> String {
-    let key_eq = format!("{}=", key);
-    let lower = s.to_lowercase();
-    // Safety: only proceed when byte lengths match (holds for all-ASCII content).
-    if lower.len() != s.len() {
-        return s.to_string();
-    }
+    // key is always an ASCII literal so we can use ASCII case folding throughout.
+    let key_bytes = key.as_bytes();
+    let key_len = key_bytes.len();
+    let s_bytes = s.as_bytes();
+    let total = s_bytes.len();
+
     let mut out = String::with_capacity(s.len());
-    let mut pos = 0;
-    while pos < lower.len() {
-        match lower[pos..].find(&key_eq) {
+    let mut pos = 0; // byte position in s
+
+    while pos < total {
+        // Look for `key=` starting at pos, matching key ASCII-case-insensitively.
+        let search_end = total.saturating_sub(key_len); // need at least key_len + 1 ('=') bytes
+        let mut found_at: Option<usize> = None;
+        'outer: for start in pos..=search_end {
+            // Check that s_bytes[start..start+key_len] matches key case-insensitively.
+            for (i, &kb) in key_bytes.iter().enumerate() {
+                if !s_bytes[start + i].eq_ignore_ascii_case(&kb) {
+                    continue 'outer;
+                }
+            }
+            // Next byte must be '='.
+            if start + key_len < total && s_bytes[start + key_len] == b'=' {
+                found_at = Some(start);
+                break;
+            }
+        }
+
+        match found_at {
             None => {
                 out.push_str(&s[pos..]);
                 break;
             }
-            Some(rel) => {
-                let match_start = pos + rel;
-                out.push_str(&s[pos..match_start + key_eq.len()]);
-                let val_start = match_start + key_eq.len();
-                let val_len = s[val_start..]
+            Some(match_start) => {
+                // Emit everything up to and including `key=` (preserving original case).
+                let after_eq = match_start + key_len + 1; // skip key + '='
+                out.push_str(&s[pos..after_eq]);
+                // Consume the value up to the next delimiter or end of string.
+                let val_len = s[after_eq..]
                     .find(|c: char| c.is_whitespace() || matches!(c, '&' | '\'' | '"' | ')'))
-                    .unwrap_or(s.len() - val_start);
+                    .unwrap_or(total - after_eq);
                 out.push_str("[redacted]");
-                pos = val_start + val_len;
+                pos = after_eq + val_len;
             }
         }
     }
@@ -1776,6 +1795,60 @@ mod redaction_tests {
         assert!(
             display.contains("host.com"),
             "host must be preserved in Display"
+        );
+    }
+
+    // ── Unicode fail-open regression tests ──────────────────────────────────────
+
+    #[test]
+    fn redacts_password_in_unicode_message() {
+        // Polish Unicode before the credential — must not fail open.
+        let msg = "fatal: Błąd İ password=hunter2";
+        let out = redact_git_error(msg);
+        assert!(
+            !out.contains("hunter2"),
+            "secret must be redacted even with Unicode prefix"
+        );
+        assert!(out.contains("password="), "key must be preserved");
+        assert!(out.contains("[redacted]"), "redacted marker must appear");
+    }
+
+    #[test]
+    fn redacts_access_token_in_unicode_message() {
+        let msg = "błąd access_token=abc123 details follow";
+        let out = redact_git_error(msg);
+        assert!(
+            !out.contains("abc123"),
+            "secret must be redacted even with Unicode prefix"
+        );
+        assert!(out.contains("access_token="), "key must be preserved");
+    }
+
+    #[test]
+    fn unicode_context_preserved_around_redaction() {
+        let msg = "fatal: Błąd İ password=hunter2 więcej tekstu";
+        let out = redact_git_error(msg);
+        assert!(!out.contains("hunter2"), "secret must be redacted");
+        // Non-secret Unicode context before and after should survive.
+        assert!(
+            out.contains("Błąd"),
+            "non-secret Unicode before must be preserved"
+        );
+        assert!(
+            out.contains("więcej tekstu"),
+            "non-secret Unicode after must be preserved"
+        );
+    }
+
+    #[test]
+    fn redacts_mixed_case_key_with_unicode_in_message() {
+        // Mixed-case key variants must match when Unicode is elsewhere in the string.
+        let msg = "error: André Password=topsecret";
+        let out = redact_git_error(msg);
+        assert!(!out.contains("topsecret"), "secret must be redacted");
+        assert!(
+            out.contains("André"),
+            "non-secret Unicode must be preserved"
         );
     }
 }
