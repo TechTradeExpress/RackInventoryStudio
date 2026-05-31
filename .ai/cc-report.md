@@ -1,64 +1,87 @@
-# CC Report — PR J: Atomic YAML writes and contain writer paths (DATA-01, SEC-02)
+# CC Report — PR K: Redact credentials in user-facing Git errors (SEC-03)
 
 ## Summary
 
-PR J implements two hardening items for `ris-repository`, then addresses two
-review-requested fixes to the initial implementation:
+PR K implements SEC-03: credentials that appear in Git error messages are now
+redacted before the error text reaches the frontend or appears in the SSH detail
+banner.
 
-**DATA-01 — Atomic YAML writes**: Replaced `std::fs::write` with a
-`NamedTempFile`-based strategy. Each write creates a temp file in the same
-directory, flushes, calls `sync_all`, then renames over the target. A hard crash
-mid-write may leave a temp file (auto-cleaned by `NamedTempFile`'s Drop), but
-the final YAML file is never left truncated or partially written.
+**Rust layer — `crates/ris-git/src/lib.rs`**:
 
-**SEC-02 — Writer path containment** (initial + review fixes):
+- `pub fn redact_git_error(msg: &str) -> String` applies four targeted redactions
+  in order:
+  1. HTTPS URLs with embedded credentials (`user:pass@host` → `[redacted]@host`)
+  2. `ghp_XXXX` GitHub token bodies → `[redacted]`
+  3. `github_pat_XXXX` PAT bodies → `[redacted]`
+  4. `key=VALUE` credential pairs for `access_token`, `token`, `password`,
+     `passphrase` (case-insensitive) → `key=[redacted]`
 
-*Initial*: `safe_inventory_join` rejects `..` components, absolute paths, and
-Windows drive/UNC prefixes (via `Component::Prefix` on Windows). The parent
-directory is verified via canonicalization if it exists. `write_repository`
-uses a `checked_write` closure that routes every path through this guard.
+- `GitError::Display::CommandFailed` now routes `stderr` through
+  `redact_git_error` before formatting.
 
-*Review fix 1 — Symlink ancestor escape*: The initial check only canonicalized
-the parent if it already existed. If `inventory/link` is a symlink to
-`/tmp/outside` and the target subdir does not yet exist, the check was skipped.
-Fix: walk up from the immediate parent to the nearest existing ancestor,
-canonicalize it, and verify it falls within the canonical inventory root.
-Additionally, `checked_write` now creates the parent directory eagerly and
-re-canonicalizes it after creation (TOCTOU defence-in-depth).
+- 10 unit tests in `mod redaction_tests` covering all four patterns plus the
+  `GitError::Display` path.
 
-*Review fix 2 — Cross-platform Windows-drive and UNC rejection*: On Unix, Rust's
-path parser treats backslash as a filename character and `C:` as a Normal
-component, so `Component::Prefix` never fires. A new string-level check rejects
-any path whose raw string starts with an ASCII letter + `:` (Windows drive) or
-`\\` (UNC backslash). These forms are now rejected on all platforms.
+**Rust layer — `apps/desktop/src-tauri/src/commands/git.rs`**:
+
+- `ssh_error_message`: the `raw_detail` string (`\n\nGit output:\n{stderr}`) now
+  passes `stderr` through `ris_git::redact_git_error` before appending.
+
+**TypeScript layer — `apps/desktop/src/lib/redact.ts`**:
+
+- `export function redactUrlCredentials(msg: string): string` — regex-based
+  defence-in-depth redaction of `https://userinfo@host` patterns. Applied at the
+  frontend before setting push/pull error state.
+
+**TypeScript layer — `apps/desktop/src/features/repository/RepositoryPanel.tsx`**:
+
+- `setPushError` and `setPullError` now call `redactUrlCredentials(String(e))`
+  instead of `String(e)` directly.
+
+**TypeScript tests — `apps/desktop/src/lib/redact.test.ts`**:
+
+- 5 new tests for `redactUrlCredentials` covering: user:password URL, token
+  as userinfo, credential-free URL preserved, safe message preserved, multiple
+  URLs in one message.
+
+**Docs — `docs/BETA1_FOLLOWUP_PLAN_EN.md`**:
+
+- PR K row added to the PR table (Item 15).
+- SEC-03 row in the security backlog marked ✅ Implemented (PR K).
+- Section 15 added with threat description and implementation details.
 
 ## Files changed
 
 | File | Change |
 |---|---|
-| `crates/ris-repository/Cargo.toml` | Promote `tempfile` from dev-dep to dep |
-| `crates/ris-repository/src/writer.rs` | `atomic_replace`, `safe_inventory_join` (with symlink-ancestor walk + cross-platform path checks), post-`create_dir_all` re-canonicalize in `checked_write`, 10 unit tests |
-| `crates/ris-repository/tests/writer_tests.rs` | 19 integration tests (atomic writes, containment, symlink escape) |
-| `docs/BETA1_FOLLOWUP_PLAN_EN.md` | PR J entry, Section 14, DATA-01/SEC-02 marked ✅ in backlog |
+| `crates/ris-git/src/lib.rs` | `redact_git_error` + 4 helpers; `CommandFailed::Display` updated; 10 unit tests |
+| `apps/desktop/src-tauri/src/commands/git.rs` | `ssh_error_message` raw_detail passes through `redact_git_error` |
+| `apps/desktop/src/lib/redact.ts` | New `redactUrlCredentials` export |
+| `apps/desktop/src/lib/redact.test.ts` | 5 new tests for `redactUrlCredentials` |
+| `apps/desktop/src/features/repository/RepositoryPanel.tsx` | `setPushError`/`setPullError` use `redactUrlCredentials` |
+| `docs/BETA1_FOLLOWUP_PLAN_EN.md` | PR K row, SEC-03 ✅, Section 15 |
 
 ## Tests
 
 ```
-cargo test -p ris-repository
+cargo fmt --all --check
 ```
-- 10 unit tests (`containment_tests`) — all pass
-- 50 integration tests (`writer_tests.rs`) — all pass
-- 19 integration tests (other integration file) — all pass
+Pass (fmt applied; one minor formatting fixup to `redact_git_error`'s body).
+
+```
+cargo check --workspace
+```
+Pass.
 
 ```
 cargo test --workspace
 ```
-All workspace tests pass; 0 failures.
+All pass (0 failures).
 
 ```
 cargo clippy --workspace -- -D warnings
 ```
-No warnings or errors.
+Pass (one clippy fix: trailing `let` binding → direct return).
 
 ```
 npx tsc --noEmit
@@ -66,45 +89,41 @@ npx tsc --noEmit
 No type errors.
 
 ```
-npx vitest run
+/workspace/project/apps/desktop/node_modules/.bin/vitest run apps/desktop/src/lib/redact.test.ts
 ```
-42 test files, 534 tests — all pass.
+28/28 pass (all 5 new `redactUrlCredentials` tests pass).
 
 ```
 node scripts/check-repo-hygiene.mjs
 ```
-All 8 hygiene checks passed.
+All 8 checks pass.
 
 ## Risks
 
-- **`tempfile` promoted to production dependency**: Required for `NamedTempFile`
-  in `atomic_replace`. Mature, widely-used crate with no known security concerns.
-- **Hard crash may leave temp files**: A hard crash (SIGKILL, power loss) can
-  prevent `NamedTempFile::drop` from running. The temp file is left in the same
-  directory as the target. It is not a YAML file (no `.yaml` extension) and does
-  not replace the original. On next startup the user can delete it manually.
-  The original YAML file is never truncated.
-- **Non-existent parent directories**: When a path's parent doesn't yet exist,
-  only the component-level check applies (no ancestor to canonicalize). All new
-  directories are created by our code via `create_dir_all` within the verified
-  `inv_c` root; the post-`create_dir_all` re-canonicalization then confirms they
-  stayed inside.
-- **Windows-style paths on non-Windows**: `C:relative` without a following
-  separator is also caught by the `letter + colon` string check, which is
-  intentionally conservative.
-- **TOCTOU**: The post-`create_dir_all` re-canonicalization in `checked_write`
-  defends against a symlink being swapped in between the pre-creation check and
-  the actual write. A sophisticated adversary with filesystem write access could
-  still win the race; the primary line of defence is `safe_inventory_join`'s
-  pre-check.
+- **`e.to_string()` fallback in `ssh_error_message`**: For non-SSH remotes or
+  unrecognised SSH errors, `ssh_error_message` returns `e.to_string()`. Since
+  `GitError::Display::CommandFailed` now calls `redact_git_error`, this path is
+  also covered.
+- **Regex vs. parser in TS**: `redactUrlCredentials` uses a regex
+  (`https://([^@\s'")\/>]+)@`) rather than a URL parser. This is intentionally
+  conservative — it matches any non-whitespace/quote run before `@`, including
+  multi-segment `user:pass` and bare tokens. False positives (redacting a
+  non-credential `@` in a URL) are safe.
+- **Non-HTTPS credential patterns**: `redact_git_error` covers HTTPS embedded
+  credentials and token patterns. SSH URLs (`git@host`) do not embed credentials
+  in the URL text and are not a concern here.
+- **Vitest environment failures**: 23 test files fail with `document is not
+  defined` due to Node 18 / jsdom incompatibility in the CI environment. These
+  failures are pre-existing (identical count before and after this PR) and are
+  unrelated to PR K changes.
 
 ## Not done
 
-- SEC-03 (diagnostics redaction) — separate item, not in scope
-- Dependency audit — separate item, not in scope
-- `serde_yaml` migration — separate item, not in scope
-- No changes to the Git layer or Tauri commands
+- SEC-03 logging redaction beyond push/pull (e.g. commit, status errors) —
+  `sanitize_error` already covers logs; this PR adds user-facing redaction only.
+- Persistent credential vault / HTTPS token management — separate item.
+- `serde_yaml` migration — separate item.
 
 ## Suggested next step
 
-Attach the generated review context to ChatGPT for sign-off before merging PR #98.
+Generate the review context and attach to ChatGPT for sign-off before merging PR K.
