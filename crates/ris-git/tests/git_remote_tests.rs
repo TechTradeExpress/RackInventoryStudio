@@ -46,6 +46,23 @@ fn setup_working_repo_with_commit(dir: &Path) {
     ris_git::commit_all(dir, "Initial commit").unwrap();
 }
 
+/// Add a remote by calling git directly, bypassing `ris_git::add_remote` URL
+/// validation.  Use this in tests that need a local-path or `file://` remote
+/// for push/pull mechanics — those schemes are intentionally rejected by the
+/// public API to prevent transport-helper injection.
+fn add_remote_for_test(repo_path: &Path, name: &str, url: &str) {
+    let out = Command::new("git")
+        .args(["remote", "add", name, url])
+        .current_dir(repo_path)
+        .output()
+        .expect("git remote add should run");
+    assert!(
+        out.status.success(),
+        "git remote add failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 fn clone_repo(bare_path: &Path, dest: &Path) {
     let out = Command::new("git")
         .arg("clone")
@@ -83,7 +100,7 @@ fn add_remote_and_list_returns_it() {
     ris_git::init_repository(tmp.path()).unwrap();
 
     let bare_path = init_bare(tmp.path(), "remote.git");
-    ris_git::add_remote(tmp.path(), "origin", &bare_path.to_string_lossy()).unwrap();
+    add_remote_for_test(tmp.path(), "origin", &bare_path.to_string_lossy());
 
     let remotes = ris_git::list_remotes(tmp.path()).unwrap();
     assert_eq!(remotes.len(), 1);
@@ -148,7 +165,7 @@ fn push_current_branch_pushes_to_bare_remote() {
     let repo_a = tmp.path().join("repo_a");
     std::fs::create_dir_all(&repo_a).unwrap();
     setup_working_repo_with_commit(&repo_a);
-    ris_git::add_remote(&repo_a, "origin", &bare_path.to_string_lossy()).unwrap();
+    add_remote_for_test(&repo_a, "origin", &bare_path.to_string_lossy());
 
     ris_git::push_current_branch(&repo_a, "origin").unwrap();
 
@@ -174,7 +191,7 @@ fn status_shows_ahead_after_local_commit_post_push() {
     let repo_a = tmp.path().join("repo_a");
     std::fs::create_dir_all(&repo_a).unwrap();
     setup_working_repo_with_commit(&repo_a);
-    ris_git::add_remote(&repo_a, "origin", &bare_path.to_string_lossy()).unwrap();
+    add_remote_for_test(&repo_a, "origin", &bare_path.to_string_lossy());
     ris_git::push_current_branch(&repo_a, "origin").unwrap();
 
     // Make another local commit without pushing
@@ -203,7 +220,7 @@ fn pull_ff_only_fast_forwards_from_remote() {
     let repo_a = tmp.path().join("repo_a");
     std::fs::create_dir_all(&repo_a).unwrap();
     setup_working_repo_with_commit(&repo_a);
-    ris_git::add_remote(&repo_a, "origin", &bare_path.to_string_lossy()).unwrap();
+    add_remote_for_test(&repo_a, "origin", &bare_path.to_string_lossy());
     ris_git::push_current_branch(&repo_a, "origin").unwrap();
 
     // Clone to repo B, add commit, push back to bare
@@ -241,7 +258,7 @@ fn pull_ff_only_rejects_dirty_working_tree() {
     let repo_a = tmp.path().join("repo_a");
     std::fs::create_dir_all(&repo_a).unwrap();
     setup_working_repo_with_commit(&repo_a);
-    ris_git::add_remote(&repo_a, "origin", &bare_path.to_string_lossy()).unwrap();
+    add_remote_for_test(&repo_a, "origin", &bare_path.to_string_lossy());
     ris_git::push_current_branch(&repo_a, "origin").unwrap();
 
     // Add an untracked file to make the working tree dirty
@@ -292,7 +309,7 @@ fn askpass_mode_push_to_local_remote_succeeds() {
     setup_working_repo_with_commit(&workdir);
 
     let remote_url = format!("file://{}", bare_path.display());
-    ris_git::add_remote(&workdir, "origin", &remote_url).unwrap();
+    add_remote_for_test(&workdir, "origin", &remote_url);
 
     let result = ris_git::push_current_branch_with_env(
         &workdir,
@@ -322,7 +339,7 @@ fn askpass_mode_pull_from_local_remote_succeeds() {
     std::fs::create_dir_all(&repo_a).unwrap();
     setup_working_repo_with_commit(&repo_a);
     let remote_url = format!("file://{}", bare_path.display());
-    ris_git::add_remote(&repo_a, "origin", &remote_url).unwrap();
+    add_remote_for_test(&repo_a, "origin", &remote_url);
     ris_git::push_current_branch(&repo_a, "origin").unwrap();
 
     // repo_b: clone and add a new commit
@@ -361,7 +378,7 @@ fn normal_mode_push_unaffected_by_security_refactor() {
     let workdir = tmp.path().join("work");
     std::fs::create_dir_all(&workdir).unwrap();
     setup_working_repo_with_commit(&workdir);
-    ris_git::add_remote(&workdir, "origin", &bare_path.to_string_lossy()).unwrap();
+    add_remote_for_test(&workdir, "origin", &bare_path.to_string_lossy());
 
     let result = ris_git::push_current_branch(&workdir, "origin");
     assert!(result.is_ok(), "normal-mode push must succeed: {result:?}");
@@ -379,7 +396,7 @@ fn has_remote_returns_true_for_configured_remote() {
     let workdir = tmp.path().join("work");
     std::fs::create_dir_all(&workdir).unwrap();
     setup_working_repo_with_commit(&workdir);
-    ris_git::add_remote(&workdir, "origin", &bare_path.to_string_lossy()).unwrap();
+    add_remote_for_test(&workdir, "origin", &bare_path.to_string_lossy());
 
     assert!(
         ris_git::has_remote(&workdir, "origin").unwrap(),
@@ -428,7 +445,7 @@ fn branch_has_upstream_true_after_push_with_set_upstream() {
     let workdir = tmp.path().join("work");
     std::fs::create_dir_all(&workdir).unwrap();
     setup_working_repo_with_commit(&workdir);
-    ris_git::add_remote(&workdir, "origin", &bare_path.to_string_lossy()).unwrap();
+    add_remote_for_test(&workdir, "origin", &bare_path.to_string_lossy());
 
     // Before push: no upstream
     assert!(!ris_git::branch_has_upstream(&workdir).unwrap());
@@ -504,7 +521,7 @@ fn push_second_time_omits_set_upstream_flag() {
     let workdir = tmp.path().join("work");
     std::fs::create_dir_all(&workdir).unwrap();
     setup_working_repo_with_commit(&workdir);
-    ris_git::add_remote(&workdir, "origin", &bare_path.to_string_lossy()).unwrap();
+    add_remote_for_test(&workdir, "origin", &bare_path.to_string_lossy());
 
     // First push: branch_has_upstream is false → push_args uses -u
     ris_git::push_current_branch(&workdir, "origin").unwrap();
@@ -531,7 +548,7 @@ fn push_returns_error_on_detached_head() {
     let workdir = tmp.path().join("work");
     std::fs::create_dir_all(&workdir).unwrap();
     setup_working_repo_with_commit(&workdir);
-    ris_git::add_remote(&workdir, "origin", &bare_path.to_string_lossy()).unwrap();
+    add_remote_for_test(&workdir, "origin", &bare_path.to_string_lossy());
     ris_git::push_current_branch(&workdir, "origin").unwrap();
 
     // Detach HEAD by checking out the commit hash directly
@@ -597,7 +614,7 @@ fn askpass_mode_push_uses_same_remote_name_command() {
     std::fs::create_dir_all(&workdir).unwrap();
     setup_working_repo_with_commit(&workdir);
     let remote_url = format!("file://{}", bare_path.display());
-    ris_git::add_remote(&workdir, "origin", &remote_url).unwrap();
+    add_remote_for_test(&workdir, "origin", &remote_url);
 
     // First push in Askpass mode: must include -u (no upstream yet).
     assert!(!ris_git::branch_has_upstream(&workdir).unwrap());
@@ -663,4 +680,172 @@ fn non_ssh_remote_urls_are_not_classified_as_ssh() {
     assert!(!ris_git::is_ssh_url("C:\\repos\\myrepo"));
     assert!(!ris_git::is_ssh_url("C:/repos/myrepo"));
     assert!(!ris_git::is_ssh_url("../sibling/repo.git"));
+}
+
+// ── add_remote URL validation ─────────────────────────────────────────────────
+
+#[test]
+fn add_remote_accepts_https_url() {
+    if !git_available() {
+        return;
+    }
+    let tmp = tempfile::TempDir::new().unwrap();
+    ris_git::init_repository(tmp.path()).unwrap();
+    let result = ris_git::add_remote(tmp.path(), "origin", "https://github.com/owner/repo.git");
+    assert!(
+        result.is_ok(),
+        "add_remote must accept HTTPS URLs: {result:?}"
+    );
+}
+
+#[test]
+fn add_remote_accepts_ssh_url() {
+    if !git_available() {
+        return;
+    }
+    let tmp = tempfile::TempDir::new().unwrap();
+    ris_git::init_repository(tmp.path()).unwrap();
+    let result = ris_git::add_remote(tmp.path(), "origin", "ssh://git@github.com/owner/repo.git");
+    assert!(result.is_ok(), "add_remote must accept ssh:// URLs: {result:?}");
+}
+
+#[test]
+fn add_remote_accepts_scp_like_ssh() {
+    if !git_available() {
+        return;
+    }
+    let tmp = tempfile::TempDir::new().unwrap();
+    ris_git::init_repository(tmp.path()).unwrap();
+    let result = ris_git::add_remote(tmp.path(), "origin", "git@github.com:owner/repo.git");
+    assert!(
+        result.is_ok(),
+        "add_remote must accept scp-like SSH URLs: {result:?}"
+    );
+}
+
+#[test]
+fn add_remote_rejects_ext_transport_helper() {
+    if !git_available() {
+        return;
+    }
+    let tmp = tempfile::TempDir::new().unwrap();
+    ris_git::init_repository(tmp.path()).unwrap();
+    let result = ris_git::add_remote(tmp.path(), "origin", "ext::sh -c 'id'");
+    assert!(
+        matches!(result, Err(ris_git::GitError::InvalidInput(_))),
+        "ext:: transport helper must be rejected: {result:?}"
+    );
+}
+
+#[test]
+fn add_remote_rejects_fd_transport_helper() {
+    if !git_available() {
+        return;
+    }
+    let tmp = tempfile::TempDir::new().unwrap();
+    ris_git::init_repository(tmp.path()).unwrap();
+    let result = ris_git::add_remote(tmp.path(), "origin", "fd::4");
+    assert!(
+        matches!(result, Err(ris_git::GitError::InvalidInput(_))),
+        "fd:: transport helper must be rejected: {result:?}"
+    );
+}
+
+#[test]
+fn add_remote_rejects_file_scheme() {
+    if !git_available() {
+        return;
+    }
+    let tmp = tempfile::TempDir::new().unwrap();
+    ris_git::init_repository(tmp.path()).unwrap();
+    let result = ris_git::add_remote(tmp.path(), "origin", "file:///home/user/repo.git");
+    assert!(
+        matches!(result, Err(ris_git::GitError::InvalidInput(_))),
+        "file:// scheme must be rejected: {result:?}"
+    );
+}
+
+#[test]
+fn add_remote_rejects_local_absolute_path() {
+    if !git_available() {
+        return;
+    }
+    let tmp = tempfile::TempDir::new().unwrap();
+    ris_git::init_repository(tmp.path()).unwrap();
+    let result = ris_git::add_remote(tmp.path(), "origin", "/home/user/repo.git");
+    assert!(
+        matches!(result, Err(ris_git::GitError::InvalidInput(_))),
+        "absolute local path must be rejected: {result:?}"
+    );
+}
+
+// ── transport safety flags (TRANSPORT_SAFETY constant) ───────────────────────
+
+#[test]
+fn transport_safety_constant_blocks_ext_scheme() {
+    // Verify that TRANSPORT_SAFETY contains the flags to block the ext:: scheme.
+    let flags: Vec<&str> = ris_git::TRANSPORT_SAFETY.to_vec();
+    assert!(
+        flags.windows(2).any(|w| w == ["-c", "protocol.ext.allow=never"]),
+        "TRANSPORT_SAFETY must include -c protocol.ext.allow=never; got: {flags:?}"
+    );
+}
+
+#[test]
+fn transport_safety_constant_blocks_fd_scheme() {
+    let flags: Vec<&str> = ris_git::TRANSPORT_SAFETY.to_vec();
+    assert!(
+        flags.windows(2).any(|w| w == ["-c", "protocol.fd.allow=never"]),
+        "TRANSPORT_SAFETY must include -c protocol.fd.allow=never; got: {flags:?}"
+    );
+}
+
+#[test]
+fn push_with_transport_safety_succeeds_on_local_repo() {
+    // TRANSPORT_SAFETY flags must not break push to a local bare repo (local
+    // transport is not affected by protocol.ext.allow or protocol.fd.allow).
+    if !git_available() {
+        return;
+    }
+    let tmp = tempfile::TempDir::new().unwrap();
+    let bare_path = init_bare(tmp.path(), "remote.git");
+    let workdir = tmp.path().join("work");
+    std::fs::create_dir_all(&workdir).unwrap();
+    setup_working_repo_with_commit(&workdir);
+    add_remote_for_test(&workdir, "origin", &bare_path.to_string_lossy());
+
+    let result = ris_git::push_current_branch(&workdir, "origin");
+    assert!(
+        result.is_ok(),
+        "push with transport safety flags must succeed on local repo: {result:?}"
+    );
+}
+
+#[test]
+fn pull_with_transport_safety_succeeds_on_local_repo() {
+    // Symmetrical check for pull: TRANSPORT_SAFETY must not break local pull.
+    if !git_available() {
+        return;
+    }
+    let tmp = tempfile::TempDir::new().unwrap();
+    let bare_path = init_bare(tmp.path(), "remote.git");
+
+    let repo_a = tmp.path().join("repo_a");
+    std::fs::create_dir_all(&repo_a).unwrap();
+    setup_working_repo_with_commit(&repo_a);
+    add_remote_for_test(&repo_a, "origin", &bare_path.to_string_lossy());
+    ris_git::push_current_branch(&repo_a, "origin").unwrap();
+
+    let repo_b = tmp.path().join("repo_b");
+    clone_repo(&bare_path, &repo_b);
+    configure_identity(&repo_b);
+    std::fs::write(repo_b.join("extra.yaml"), "extra").unwrap();
+    ris_git::commit_all(&repo_b, "Second commit").unwrap();
+    ris_git::push_current_branch(&repo_b, "origin").unwrap();
+
+    let result = ris_git::pull_ff_only(&repo_a, "origin");
+    assert!(
+        result.is_ok(),
+        "pull with transport safety flags must succeed on local repo: {result:?}"
+    );
 }

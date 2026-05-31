@@ -458,14 +458,84 @@ pub fn list_remotes(repo_path: &Path) -> Result<Vec<GitRemoteSummary>, GitError>
     Ok(remotes)
 }
 
-/// Add a named remote pointing to `url`.
-pub fn add_remote(repo_path: &Path, name: &str, url: &str) -> Result<(), GitError> {
-    validate_remote_name(name)?;
-    if url.trim().is_empty() {
+/// Transport-safety flags prepended to every Git network command.
+///
+/// Blocks `ext::` and `fd::` transport helpers, which can execute arbitrary
+/// commands when Git contacts a remote. These flags are defence-in-depth: URL
+/// validation in `add_remote` already rejects such schemes, but a manually
+/// edited `.git/config` could still contain a dangerous URL.
+pub const TRANSPORT_SAFETY: &[&str] = &[
+    "-c",
+    "protocol.ext.allow=never",
+    "-c",
+    "protocol.fd.allow=never",
+];
+
+/// Validate that `url` is an acceptable Git remote URL.
+///
+/// Accepted: HTTPS (`https://`), explicit SSH (`ssh://`, `ssh+git://`), and
+/// SCP-like SSH remotes (`[user@]host:path`).
+///
+/// Rejected: double-colon transport helpers (`ext::`, `fd::`, …), any other
+/// `://` scheme (`file://`, `git://`, `http://`, …), local paths (`/`, `~`,
+/// `.`, Windows `C:\`), and bare names with no colon.
+pub fn validate_remote_url(url: &str) -> Result<(), GitError> {
+    let url = url.trim();
+    if url.is_empty() {
         return Err(GitError::InvalidInput(
             "Remote URL cannot be empty".to_string(),
         ));
     }
+    // Reject double-colon transport helpers (ext::, fd::, git::, …).
+    if url.contains("::") {
+        return Err(GitError::InvalidInput(
+            "Unsupported Git remote URL scheme. Use HTTPS or SSH.".to_string(),
+        ));
+    }
+    // Accept explicit SSH schemes early.
+    if url.starts_with("ssh://") || url.starts_with("ssh+git://") {
+        return Ok(());
+    }
+    // Accept HTTPS.
+    if url.starts_with("https://") {
+        return Ok(());
+    }
+    // Reject file:// and all other :// schemes (http://, git://, …).
+    if url.contains("://") {
+        return Err(GitError::InvalidInput(
+            "Unsupported Git remote URL scheme. Use HTTPS or SSH.".to_string(),
+        ));
+    }
+    // Reject local paths.
+    if url.starts_with('/') || url.starts_with('~') || url.starts_with('.') {
+        return Err(GitError::InvalidInput(
+            "Unsupported Git remote URL scheme. Use HTTPS or SSH.".to_string(),
+        ));
+    }
+    // Reject Windows absolute paths (C:\… or C:/…).
+    let b = url.as_bytes();
+    if b.len() >= 3
+        && b[0].is_ascii_alphabetic()
+        && b[1] == b':'
+        && (b[2] == b'\\' || b[2] == b'/')
+    {
+        return Err(GitError::InvalidInput(
+            "Unsupported Git remote URL scheme. Use HTTPS or SSH.".to_string(),
+        ));
+    }
+    // SCP-like SSH remotes must contain a colon (e.g. user@host:path).
+    if url.contains(':') {
+        return Ok(());
+    }
+    Err(GitError::InvalidInput(
+        "Unsupported Git remote URL scheme. Use HTTPS or SSH.".to_string(),
+    ))
+}
+
+/// Add a named remote pointing to `url`.
+pub fn add_remote(repo_path: &Path, name: &str, url: &str) -> Result<(), GitError> {
+    validate_remote_name(name)?;
+    validate_remote_url(url)?;
     let output = run_git(repo_path, &["remote", "add", name, url])?;
     if output.status.success() {
         Ok(())
@@ -719,7 +789,9 @@ pub fn push_current_branch_with_env(
     };
 
     let push_core = push_args(remote, branch.as_str(), has_up);
-    let mut args: Vec<&str> = Vec::with_capacity(security_args.len() + push_core.len());
+    let mut args: Vec<&str> =
+        Vec::with_capacity(TRANSPORT_SAFETY.len() + security_args.len() + push_core.len());
+    args.extend_from_slice(TRANSPORT_SAFETY);
     for s in &security_args {
         args.push(s.as_str());
     }
@@ -777,7 +849,9 @@ pub fn pull_ff_only_with_env(
         GitSecurityMode::Askpass { .. } => ASKPASS_ENV_REMOVALS,
     };
 
-    let mut args: Vec<&str> = Vec::with_capacity(security_args.len() + 5);
+    let mut args: Vec<&str> =
+        Vec::with_capacity(TRANSPORT_SAFETY.len() + security_args.len() + 5);
+    args.extend_from_slice(TRANSPORT_SAFETY);
     for s in &security_args {
         args.push(s.as_str());
     }
@@ -826,9 +900,14 @@ pub fn is_ssh_url(url: &str) -> bool {
         return false;
     }
     // scp-like syntax: [user@]host:path — colon must not be followed by `//`
-    // (which would indicate a scheme like `git://` or `unknown://`).
+    // (which would indicate a scheme like `git://` or `unknown://`), and the
+    // character immediately after the colon must not be another colon (which
+    // would indicate a transport helper like `ext::` or `fd::`).
     if let Some(colon_pos) = url.find(':') {
         let after_colon = &url[colon_pos + 1..];
+        if after_colon.starts_with(':') {
+            return false;
+        }
         if !after_colon.starts_with("//") && !after_colon.is_empty() {
             return true;
         }
@@ -1265,6 +1344,129 @@ mod ssh_tests {
         assert!(
             is_core_ssh_command_repo_local(tmp.path()),
             "repo-local core.sshCommand in .git/config must be detected as repo-local"
+        );
+    }
+
+    // ── transport helper rejection ────────────────────────────────────────────
+
+    #[test]
+    fn is_ssh_url_rejects_ext_transport_helper() {
+        assert!(!is_ssh_url("ext::sh -c 'touch /tmp/pwned'"));
+    }
+
+    #[test]
+    fn is_ssh_url_rejects_fd_transport_helper() {
+        assert!(!is_ssh_url("fd::4"));
+    }
+
+    #[test]
+    fn is_ssh_url_rejects_git_double_colon_scheme() {
+        assert!(!is_ssh_url("git::host/repo.git"));
+    }
+
+    // ── validate_remote_url ───────────────────────────────────────────────────
+
+    #[test]
+    fn validate_url_accepts_https() {
+        assert!(validate_remote_url("https://github.com/owner/repo.git").is_ok());
+    }
+
+    #[test]
+    fn validate_url_accepts_ssh_scheme() {
+        assert!(validate_remote_url("ssh://git@github.com/owner/repo.git").is_ok());
+    }
+
+    #[test]
+    fn validate_url_accepts_ssh_git_scheme() {
+        assert!(validate_remote_url("ssh+git://git@github.com/owner/repo.git").is_ok());
+    }
+
+    #[test]
+    fn validate_url_accepts_scp_like_with_user() {
+        assert!(validate_remote_url("git@github.com:owner/repo.git").is_ok());
+    }
+
+    #[test]
+    fn validate_url_accepts_scp_like_ssh_alias() {
+        // A real-world case: SSH alias defined in ~/.ssh/config
+        assert!(validate_remote_url("github-ris-test:su-17/ris-ssh-passphrase-empty-test.git").is_ok());
+    }
+
+    #[test]
+    fn validate_url_accepts_scp_like_without_user() {
+        assert!(validate_remote_url("host.example.com:org/repo.git").is_ok());
+    }
+
+    #[test]
+    fn validate_url_rejects_empty() {
+        assert!(validate_remote_url("").is_err());
+        assert!(validate_remote_url("   ").is_err());
+    }
+
+    #[test]
+    fn validate_url_rejects_ext_transport_helper() {
+        let err = validate_remote_url("ext::sh -c 'touch /tmp/pwned'").unwrap_err();
+        assert!(err.to_string().contains("Unsupported"));
+    }
+
+    #[test]
+    fn validate_url_rejects_fd_transport_helper() {
+        let err = validate_remote_url("fd::4").unwrap_err();
+        assert!(err.to_string().contains("Unsupported"));
+    }
+
+    #[test]
+    fn validate_url_rejects_file_scheme() {
+        assert!(validate_remote_url("file:///home/user/repo.git").is_err());
+    }
+
+    #[test]
+    fn validate_url_rejects_git_scheme() {
+        assert!(validate_remote_url("git://github.com/owner/repo.git").is_err());
+    }
+
+    #[test]
+    fn validate_url_rejects_http_scheme() {
+        assert!(validate_remote_url("http://github.com/owner/repo.git").is_err());
+    }
+
+    #[test]
+    fn validate_url_rejects_absolute_path() {
+        assert!(validate_remote_url("/home/user/repo.git").is_err());
+    }
+
+    #[test]
+    fn validate_url_rejects_tilde_path() {
+        assert!(validate_remote_url("~/repos/myrepo.git").is_err());
+    }
+
+    #[test]
+    fn validate_url_rejects_relative_path() {
+        assert!(validate_remote_url("./repos/myrepo.git").is_err());
+        assert!(validate_remote_url("../sibling/repo").is_err());
+    }
+
+    #[test]
+    fn validate_url_rejects_windows_absolute_path() {
+        assert!(validate_remote_url("C:\\repos\\myrepo").is_err());
+        assert!(validate_remote_url("C:/repos/myrepo").is_err());
+    }
+
+    #[test]
+    fn validate_url_rejects_bare_name_without_colon() {
+        assert!(validate_remote_url("justanamenocoton").is_err());
+    }
+
+    #[test]
+    fn transport_safety_contains_ext_and_fd_flags() {
+        let flags: Vec<&str> = TRANSPORT_SAFETY.to_vec();
+        assert!(
+            flags.windows(2).any(|w| w == ["-c", "protocol.ext.allow=never"]),
+            "TRANSPORT_SAFETY must contain -c protocol.ext.allow=never"
+        );
+        assert!(
+            flags.windows(2).any(|w| w == ["-c", "protocol.fd.allow=never"]),
+            "TRANSPORT_SAFETY must contain -c protocol.fd.allow=never"
         );
     }
 }
