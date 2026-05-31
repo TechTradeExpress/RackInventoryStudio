@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { redactForLog, sanitizePathForLog, sanitizeErrorForLog } from "./redact";
+import { redactForLog, sanitizePathForLog, sanitizeErrorForLog, redactUrlCredentials } from "./redact";
 
 describe("redactForLog", () => {
   it("redacts values containing 'token'", () => {
@@ -113,5 +113,43 @@ describe("sanitizeErrorForLog", () => {
     expect(
       sanitizeErrorForLog("failed with auth token at C:\\Users\\me\\repo"),
     ).toBe("[error message redacted: possible credential]");
+  });
+});
+
+describe("redactUrlCredentials", () => {
+  it("redacts user:password in https URL", () => {
+    const msg = "fatal: Authentication failed for 'https://user:s3cr3t@github.com/org/repo.git/'";
+    const out = redactUrlCredentials(msg);
+    expect(out).not.toContain("s3cr3t");
+    expect(out).not.toContain("user:");
+    expect(out).toContain("github.com");
+    expect(out).toContain("[redacted]@");
+  });
+
+  it("redacts token used as userinfo in https URL", () => {
+    const msg = "https://ghp_SECRETTOKEN@github.com/org/repo.git";
+    const out = redactUrlCredentials(msg);
+    expect(out).not.toContain("SECRETTOKEN");
+    expect(out).toContain("github.com");
+    expect(out).toContain("[redacted]@");
+  });
+
+  it("preserves https URL without credentials", () => {
+    const msg = "error fetching https://github.com/org/repo.git";
+    expect(redactUrlCredentials(msg)).toBe(msg);
+  });
+
+  it("preserves safe message without URLs", () => {
+    const msg = "error: src refspec main does not match any";
+    expect(redactUrlCredentials(msg)).toBe(msg);
+  });
+
+  it("redacts multiple credential-bearing URLs in one message", () => {
+    const msg = "https://a:x@host1.com/r and https://b:y@host2.com/r";
+    const out = redactUrlCredentials(msg);
+    expect(out).not.toContain(":x@");
+    expect(out).not.toContain(":y@");
+    expect(out).toContain("host1.com");
+    expect(out).toContain("host2.com");
   });
 });

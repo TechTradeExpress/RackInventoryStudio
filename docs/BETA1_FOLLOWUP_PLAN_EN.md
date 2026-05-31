@@ -421,6 +421,7 @@ The follow-up items are grouped into PRs for focused review:
 | H | Beta-readiness demo repository | Item 12 | Implemented |
 | I | Git transport hardening (SEC-01) | Item 13 | Implemented |
 | J | Atomic YAML writes and writer path containment (DATA-01, SEC-02) | Item 14 | Implemented |
+| K | Git error credential redaction (SEC-03) | Item 15 | Implemented |
 
 ---
 
@@ -489,7 +490,7 @@ Items to resolve before the 0.1.0-beta.2 release:
 | ID | Description |
 |---|---|
 | SEC-02 | Writer containment: prevent `ris-repository` from writing outside the repo root | ✅ Implemented (PR J) |
-| SEC-03 | Diagnostics redaction: scrub secrets and paths from diagnostic output |
+| SEC-03 | Diagnostics redaction: scrub secrets and paths from diagnostic output | ✅ Implemented (PR K) |
 | TEST-01 | End-to-end smoke test: open example repo, render rack, close cleanly |
 
 ### Can wait (post-beta.2)
@@ -567,3 +568,37 @@ unaffected.
 file alongside the YAML file, but the YAML file itself is never left
 truncated or partially written. The temp file has no `.yaml` extension and
 is not loaded by the reader; it can be deleted manually.
+
+---
+
+## 15. Git error credential redaction — SEC-03 (PR K) ✅ IMPLEMENTED
+
+**Threat**: Git error messages returned to the frontend (via Tauri `Err(String)`) can
+contain inline HTTPS credentials such as
+`fatal: Authentication failed for 'https://user:pass@host/'`. These are surfaced
+in push/pull error banners visible in the UI and written to application logs.
+
+**Fix** (PR K):
+
+- **`crates/ris-git/src/lib.rs`** — new `pub fn redact_git_error(msg: &str) -> String`
+  and four private helpers:
+  - `redact_https_credentials`: rewrites `https://userinfo@host` → `https://[redacted]@host`
+  - `redact_prefixed_token`: redacts `ghp_XXX` and `github_pat_XXX` token bodies
+  - `redact_key_value_credential`: redacts `key=VALUE` for `access_token`, `token`,
+    `password`, `passphrase` (case-insensitive)
+  - Applied at `GitError::Display::CommandFailed` (stderr path) and in
+    `ssh_error_message`'s `raw_detail` format string in `commands/git.rs`.
+
+- **`apps/desktop/src/lib/redact.ts`** — new `export function redactUrlCredentials`
+  (regex-based HTTPS credential redaction, defence-in-depth at the TS/frontend layer).
+  Applied in `RepositoryPanel.tsx` at `setPushError` and `setPullError`.
+
+- **10 Rust unit tests** (`mod redaction_tests`) covering all four redaction categories
+  plus the `GitError::Display` path.
+
+- **5 TypeScript tests** (`describe("redactUrlCredentials")`) in `redact.test.ts`.
+
+**Design note**: `redact_git_error` is distinct from the existing `sanitize_error`
+(which nukes the whole message when credential keywords appear, for log-only use).
+`redact_git_error` surgically removes credentials while preserving error context
+(host name, error type) for user display.

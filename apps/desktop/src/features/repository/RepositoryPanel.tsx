@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useBusy } from "../../lib/appBusy";
+import { redactUrlCredentials } from "../../lib/redact";
 import {
   addGitRemote,
   commitRepositoryChanges,
@@ -404,7 +405,7 @@ function GitSection({
       setPushSuccess(`Pushed to "${selectedRemote}".`);
       setRefreshKey((k) => k + 1);
     } catch (e) {
-      setPushError(String(e));
+      setPushError(redactUrlCredentials(String(e)));
     }
   }
 
@@ -420,7 +421,7 @@ function GitSection({
       onPullSuccess(updatedSummary);
       setRefreshKey((k) => k + 1);
     } catch (e) {
-      setPullError(String(e));
+      setPullError(redactUrlCredentials(String(e)));
     }
   }
 

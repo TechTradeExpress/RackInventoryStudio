@@ -42,7 +42,7 @@ impl std::fmt::Display for GitError {
                 "Working tree has uncommitted changes — commit or save changes before pulling"
             ),
             GitError::CommandFailed { stderr, .. } if !stderr.is_empty() => {
-                write!(f, "Git command failed: {stderr}")
+                write!(f, "Git command failed: {}", redact_git_error(stderr))
             }
             GitError::CommandFailed { exit_code, .. } => {
                 write!(f, "Git command failed (exit code: {exit_code:?})")
@@ -62,6 +62,143 @@ impl From<std::io::Error> for GitError {
             GitError::Io(e)
         }
     }
+}
+
+// ── credential redaction ──────────────────────────────────────────────────────
+
+/// Redact inline credentials from a Git output string before showing to the user.
+///
+/// Applied patterns (in order):
+/// 1. HTTPS URLs with embedded credentials:
+///    `https://user:pass@host` → `https://[redacted]@host`
+/// 2. GitHub token prefixes (outside URLs too):
+///    `ghp_XXX` → `[redacted]`, `github_pat_XXX` → `[redacted]`
+/// 3. Key=value forms (case-insensitive):
+///    `access_token=X`, `token=X`, `password=X`, `passphrase=X` → `key=[redacted]`
+///
+/// Safe messages without credentials are returned unchanged.
+pub fn redact_git_error(msg: &str) -> String {
+    let s = redact_https_credentials(msg);
+    let s = redact_prefixed_token(&s, "ghp_");
+    let s = redact_prefixed_token(&s, "github_pat_");
+    let s = redact_key_value_credential(&s, "access_token");
+    let s = redact_key_value_credential(&s, "token");
+    let s = redact_key_value_credential(&s, "password");
+    redact_key_value_credential(&s, "passphrase")
+}
+
+/// Replace `https://[userinfo@]host...` with `https://[redacted]@host...` when
+/// a `@` is present in the URL authority component.
+fn redact_https_credentials(s: &str) -> String {
+    const SCHEME: &str = "https://";
+    let mut out = String::with_capacity(s.len());
+    let mut pos = 0;
+    while pos < s.len() {
+        match s[pos..].find(SCHEME) {
+            None => {
+                out.push_str(&s[pos..]);
+                break;
+            }
+            Some(rel) => {
+                let scheme_start = pos + rel;
+                out.push_str(&s[pos..scheme_start + SCHEME.len()]);
+                let after = &s[scheme_start + SCHEME.len()..];
+                // Find the end of this URL token.
+                let url_len = after
+                    .find(|c: char| c.is_whitespace() || matches!(c, '\'' | '"' | '>' | ')'))
+                    .unwrap_or(after.len());
+                let url_body = &after[..url_len];
+                if let Some(at) = url_body.find('@') {
+                    out.push_str("[redacted]@");
+                    out.push_str(&url_body[at + 1..]);
+                } else {
+                    out.push_str(url_body);
+                }
+                pos = scheme_start + SCHEME.len() + url_len;
+            }
+        }
+    }
+    out
+}
+
+/// Replace all `{prefix}CHARS` occurrences with `[redacted]` where CHARS is
+/// any run of alphanumeric, `_`, or `-` characters.
+fn redact_prefixed_token(s: &str, prefix: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut pos = 0;
+    while pos < s.len() {
+        match s[pos..].find(prefix) {
+            None => {
+                out.push_str(&s[pos..]);
+                break;
+            }
+            Some(rel) => {
+                let match_start = pos + rel;
+                out.push_str(&s[pos..match_start]);
+                let after = &s[match_start + prefix.len()..];
+                let tok_len = after
+                    .find(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-')
+                    .unwrap_or(after.len());
+                out.push_str("[redacted]");
+                pos = match_start + prefix.len() + tok_len;
+            }
+        }
+    }
+    out
+}
+
+/// Replace `{key}=VALUE` (ASCII-case-insensitive) with `{key}=[redacted]`.
+///
+/// VALUE is consumed up to the next whitespace, `&`, `'`, `"`, `)`, or end of string.
+/// Matching is done byte-by-byte using ASCII case-folding only, so the function
+/// never fails open due to unrelated Unicode in the message.
+fn redact_key_value_credential(s: &str, key: &str) -> String {
+    // key is always an ASCII literal so we can use ASCII case folding throughout.
+    let key_bytes = key.as_bytes();
+    let key_len = key_bytes.len();
+    let s_bytes = s.as_bytes();
+    let total = s_bytes.len();
+
+    let mut out = String::with_capacity(s.len());
+    let mut pos = 0; // byte position in s
+
+    while pos < total {
+        // Look for `key=` starting at pos, matching key ASCII-case-insensitively.
+        let search_end = total.saturating_sub(key_len); // need at least key_len + 1 ('=') bytes
+        let mut found_at: Option<usize> = None;
+        'outer: for start in pos..=search_end {
+            // Check that s_bytes[start..start+key_len] matches key case-insensitively.
+            for (i, &kb) in key_bytes.iter().enumerate() {
+                if !s_bytes[start + i].eq_ignore_ascii_case(&kb) {
+                    continue 'outer;
+                }
+            }
+            // Next byte must be '='.
+            if start + key_len < total && s_bytes[start + key_len] == b'=' {
+                found_at = Some(start);
+                break;
+            }
+        }
+
+        match found_at {
+            None => {
+                out.push_str(&s[pos..]);
+                break;
+            }
+            Some(match_start) => {
+                // Emit everything up to and including `key=` (preserving original case).
+                let after_eq = match_start + key_len + 1; // skip key + '='
+                out.push_str(&s[pos..after_eq]);
+                // Consume the value up to the next delimiter or end of string.
+                let val_len = s[after_eq..]
+                    .find(|c: char| c.is_whitespace() || matches!(c, '&' | '\'' | '"' | ')'))
+                    .unwrap_or(total - after_eq);
+                out.push_str("[redacted]");
+                pos = after_eq + val_len;
+            }
+        }
+    }
+    out
 }
 
 // ── output types ──────────────────────────────────────────────────────────────
@@ -1553,5 +1690,165 @@ mod parser_tests {
         assert_eq!(s.staged_count, 1);
         assert_eq!(s.untracked_count, 1);
         assert!(!s.is_clean);
+    }
+}
+
+#[cfg(test)]
+mod redaction_tests {
+    use super::{redact_git_error, GitError};
+
+    #[test]
+    fn redacts_https_user_password_url() {
+        let msg = "fatal: Authentication failed for 'https://user:s3cr3t@github.com/org/repo.git/'";
+        let out = redact_git_error(msg);
+        assert!(!out.contains("s3cr3t"), "password must be redacted");
+        assert!(!out.contains("user:"), "userinfo must be redacted");
+        assert!(out.contains("github.com"), "host must be preserved");
+        assert!(out.contains("[redacted]@"), "redacted marker must appear");
+    }
+
+    #[test]
+    fn redacts_https_token_as_userinfo() {
+        let msg = "remote: Invalid credentials.\nfatal: Authentication failed for 'https://ghp_TOKENVALUE@github.com/org/repo.git'";
+        let out = redact_git_error(msg);
+        assert!(!out.contains("TOKENVALUE"), "token must be redacted");
+        assert!(out.contains("github.com"), "host must be preserved");
+    }
+
+    #[test]
+    fn redacts_ghp_prefix() {
+        let msg = "error: invalid token ghp_abcDEF123456";
+        let out = redact_git_error(msg);
+        assert!(!out.contains("abcDEF123456"), "token body must be redacted");
+        assert!(out.contains("[redacted]"), "redacted marker must appear");
+    }
+
+    #[test]
+    fn redacts_github_pat_prefix() {
+        let msg = "using github_pat_11AAAA_longpat_value to authenticate";
+        let out = redact_git_error(msg);
+        assert!(!out.contains("11AAAA"), "pat body must be redacted");
+        assert!(out.contains("[redacted]"), "redacted marker must appear");
+    }
+
+    #[test]
+    fn redacts_token_key_value() {
+        let msg = "curl failed: token=myverysecrettoken&scope=repo";
+        let out = redact_git_error(msg);
+        assert!(
+            !out.contains("myverysecrettoken"),
+            "token value must be redacted"
+        );
+        assert!(out.contains("token="), "key must be preserved");
+        assert!(out.contains("[redacted]"), "redacted marker must appear");
+    }
+
+    #[test]
+    fn redacts_access_token_key_value() {
+        let msg = "oauth error: access_token=abc123def456";
+        let out = redact_git_error(msg);
+        assert!(
+            !out.contains("abc123def456"),
+            "access_token value must be redacted"
+        );
+        assert!(out.contains("access_token="), "key must be preserved");
+    }
+
+    #[test]
+    fn redacts_password_key_value() {
+        let msg = "login failed: password=hunter2 for user admin";
+        let out = redact_git_error(msg);
+        assert!(!out.contains("hunter2"), "password value must be redacted");
+        assert!(out.contains("password="), "key must be preserved");
+    }
+
+    #[test]
+    fn redacts_passphrase_key_value() {
+        let msg = "decrypt: passphrase=my_pass_phrase ok";
+        let out = redact_git_error(msg);
+        assert!(
+            !out.contains("my_pass_phrase"),
+            "passphrase value must be redacted"
+        );
+        assert!(out.contains("passphrase="), "key must be preserved");
+    }
+
+    #[test]
+    fn preserves_safe_message() {
+        let msg = "error: src refspec main does not match any";
+        let out = redact_git_error(msg);
+        assert_eq!(out, msg, "safe message must be unchanged");
+    }
+
+    #[test]
+    fn git_error_display_redacts_stderr() {
+        let err = GitError::CommandFailed {
+            stderr: "fatal: Authentication failed for 'https://user:secret@host.com/repo.git'"
+                .to_string(),
+            exit_code: Some(128),
+        };
+        let display = format!("{err}");
+        assert!(
+            !display.contains("secret"),
+            "secret must be redacted in Display"
+        );
+        assert!(
+            display.contains("host.com"),
+            "host must be preserved in Display"
+        );
+    }
+
+    // ── Unicode fail-open regression tests ──────────────────────────────────────
+
+    #[test]
+    fn redacts_password_in_unicode_message() {
+        // Polish Unicode before the credential — must not fail open.
+        let msg = "fatal: Błąd İ password=hunter2";
+        let out = redact_git_error(msg);
+        assert!(
+            !out.contains("hunter2"),
+            "secret must be redacted even with Unicode prefix"
+        );
+        assert!(out.contains("password="), "key must be preserved");
+        assert!(out.contains("[redacted]"), "redacted marker must appear");
+    }
+
+    #[test]
+    fn redacts_access_token_in_unicode_message() {
+        let msg = "błąd access_token=abc123 details follow";
+        let out = redact_git_error(msg);
+        assert!(
+            !out.contains("abc123"),
+            "secret must be redacted even with Unicode prefix"
+        );
+        assert!(out.contains("access_token="), "key must be preserved");
+    }
+
+    #[test]
+    fn unicode_context_preserved_around_redaction() {
+        let msg = "fatal: Błąd İ password=hunter2 więcej tekstu";
+        let out = redact_git_error(msg);
+        assert!(!out.contains("hunter2"), "secret must be redacted");
+        // Non-secret Unicode context before and after should survive.
+        assert!(
+            out.contains("Błąd"),
+            "non-secret Unicode before must be preserved"
+        );
+        assert!(
+            out.contains("więcej tekstu"),
+            "non-secret Unicode after must be preserved"
+        );
+    }
+
+    #[test]
+    fn redacts_mixed_case_key_with_unicode_in_message() {
+        // Mixed-case key variants must match when Unicode is elsewhere in the string.
+        let msg = "error: André Password=topsecret";
+        let out = redact_git_error(msg);
+        assert!(!out.contains("topsecret"), "secret must be redacted");
+        assert!(
+            out.contains("André"),
+            "non-secret Unicode must be preserved"
+        );
     }
 }
