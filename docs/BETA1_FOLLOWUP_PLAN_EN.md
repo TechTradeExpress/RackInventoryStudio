@@ -419,3 +419,81 @@ The follow-up items are grouped into PRs for focused review:
 | F | Dirty repository guard | Item 7 | Implemented |
 | G | Release/signing/versioning hardening (custom NSIS path, code signing) | — | Implemented |
 | H | Beta-readiness demo repository | Item 12 | Implemented |
+| I | Git transport hardening (SEC-01) | Item 13 | Implemented |
+
+---
+
+## 13. Git transport hardening — SEC-01 (PR I) ✅ IMPLEMENTED
+
+**Threat**: A malicious repository can contain a remote URL such as `ext::...` or
+`fd::...`. If the user opens such a repository and triggers push or pull, Git may
+execute an external command via the transport helper, leading to arbitrary code
+execution on the user's machine.
+
+**Root cause**:
+- Git's `ext::` and `fd::` transport schemes allow running arbitrary commands as
+  part of a remote connection. No prior validation blocked these schemes from
+  being stored as a remote URL or used during push/pull.
+- `is_ssh_url("ext::sh -c something")` incorrectly returned `true` because the
+  function found the first `:` and the substring after it did not start with `//`
+  — this misclassified transport helpers as SCP-like SSH remotes and could enable
+  askpass on a non-SSH URL.
+
+**Fix** (`harden/git-transport-protocols`):
+
+- **`validate_remote_url`** (new public function in `ris-git`): Rejects any URL
+  containing `::` (transport helpers), any `://` scheme other than `https://`,
+  `ssh://`, or `ssh+git://`, local paths (`/`, `~`, `.`, Windows `C:\`), and
+  bare names with no colon. Accepts HTTPS, explicit SSH, and SCP-like SSH
+  (`user@host:path`). Called from `add_remote` so no dangerous URL can be
+  stored in the first place.
+
+- **`TRANSPORT_SAFETY`** (new public constant in `ris-git`):
+  ```
+  ["-c", "protocol.ext.allow=never", "-c", "protocol.fd.allow=never"]
+  ```
+  Prepended to every `git push` and `git pull` invocation so that even a URL
+  that bypasses `add_remote` (e.g. manually edited `.git/config`) cannot trigger
+  a transport helper during a RIS-initiated network operation.
+
+- **`is_ssh_url` fix**: Added `if after_colon.starts_with(':') { return false; }`
+  before the SCP-like check. `ext::sh -c …` now correctly returns `false`.
+
+**Security invariants preserved**:
+- SSH passphrases are never stored, logged, or passed on the command line.
+- Hook suppression (`-c core.hooksPath=/dev/null`) is retained on all network
+  operations.
+- Push uses the configured `origin` remote name; the URL is never reconstructed
+  or rewritten.
+
+**Not done in this PR**: DATA-01 (atomic YAML writes), SEC-02 (writer
+containment), SEC-03 (diagnostics redaction).
+
+---
+
+## Pre-beta.2 hardening plan
+
+Items to resolve before the 0.1.0-beta.2 release:
+
+### Must fix before 0.1.0-beta.2
+
+| ID | Description | Status |
+|---|---|---|
+| SEC-01 | Git transport helpers (`ext::`, `fd::`) can execute arbitrary code | ✅ Implemented (PR I) |
+| DATA-01 | YAML writes are not atomic; partial writes corrupt the repository on crash | Open |
+
+### Should fix before wider beta
+
+| ID | Description |
+|---|---|
+| SEC-02 | Writer containment: prevent `ris-repository` from writing outside the repo root |
+| SEC-03 | Diagnostics redaction: scrub secrets and paths from diagnostic output |
+| TEST-01 | End-to-end smoke test: open example repo, render rack, close cleanly |
+
+### Can wait (post-beta.2)
+
+- Dependency audit (cargo-audit / npm audit in CI)
+- `serde_yaml` → `serde_yml` migration (upstream fork, no API change)
+- Content-Security-Policy hardening for WebView
+- GitHub Actions SHA pinning for supply-chain hygiene
+- Askpass token constant-time comparison (low priority; token is ephemeral)
