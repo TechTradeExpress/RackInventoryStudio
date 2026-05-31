@@ -821,3 +821,29 @@ fn write_repository_accepts_valid_nested_layout_path() {
         "valid non-canonical layout paths must be accepted: {result:?}"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn write_repository_rejects_symlink_ancestor_escape() {
+    use std::os::unix::fs::symlink;
+    let mut data = load_example();
+    let tmp = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    // Pre-create inventory/ so write_repository's create_dir_all is a no-op,
+    // then plant a symlink inside it pointing to a directory outside.
+    let inv_dir = tmp.path().join("inventory");
+    std::fs::create_dir_all(&inv_dir).unwrap();
+    symlink(outside.path(), inv_dir.join("link")).unwrap();
+    // Route a rack layout file through the symlink into a non-existent subdir.
+    data.layout.rack_files[0].path = PathBuf::from("link/newdir/evil.yaml");
+    let result = write_repository(tmp.path(), &data);
+    assert!(
+        result.is_err() && is_traversal(result.as_ref().unwrap_err()),
+        "symlink ancestor escape must be rejected: {result:?}"
+    );
+    // No directory or file must have been created outside inventory/.
+    assert!(
+        !outside.path().join("newdir").exists(),
+        "no directory must be created outside inventory via symlink"
+    );
+}

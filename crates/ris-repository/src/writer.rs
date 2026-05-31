@@ -122,21 +122,42 @@ pub fn write_if_changed(path: &Path, content: &str) -> Result<WriteStatus, Write
 ///
 /// Rejects:
 /// - absolute paths (`rel.is_absolute()`)
+/// - Windows drive-letter and UNC paths on all platforms (string-level check,
+///   because on Unix the path parser treats `C:` and backslash as regular
+///   filename characters rather than as path separators / prefixes)
 /// - `..` (`Component::ParentDir`)
-/// - Windows drive/UNC prefixes (`Component::Prefix`)
+/// - Windows drive/UNC prefixes on Windows (`Component::Prefix`)
 /// - root-dir components (`Component::RootDir`)
-/// - symlinks whose resolved parent escapes `inv_canonical`
+/// - any path whose nearest existing ancestor canonicalizes to outside
+///   `inv_canonical` (catches symlinks even when the final parent does not
+///   yet exist — e.g. `inventory/link` → `/tmp/outside`, path
+///   `link/newdir/file.yaml` is rejected because `link` resolves outside)
 ///
 /// Normal `./`-relative paths and bare filenames are accepted.
-///
-/// This prevents entity codes or layout metadata from escaping the
-/// repository inventory directory.
 pub(crate) fn safe_inventory_join(inv_canonical: &Path, rel: &Path) -> Result<PathBuf, WriteError> {
     // Absolute paths are always rejected.
     if rel.is_absolute() {
         return Err(WriteError::PathTraversal {
             path: rel.display().to_string(),
         });
+    }
+
+    // Cross-platform rejection of Windows-style drive and UNC paths.
+    // On Windows, Component::Prefix already catches these; on Unix the Rust
+    // path parser treats backslash as a regular character and `C:` as a
+    // Normal component, so we must also inspect the raw string.
+    {
+        let s = rel.to_string_lossy();
+        let b = s.as_bytes();
+        // Drive letter: X: (with or without following separator)
+        let is_drive = b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':';
+        // UNC with backslashes: \\server\... (double-slash is caught by is_absolute() on Unix)
+        let is_unc_backslash = s.starts_with("\\\\");
+        if is_drive || is_unc_backslash {
+            return Err(WriteError::PathTraversal {
+                path: rel.display().to_string(),
+            });
+        }
     }
 
     // Walk every component and reject dangerous ones.
@@ -153,20 +174,26 @@ pub(crate) fn safe_inventory_join(inv_canonical: &Path, rel: &Path) -> Result<Pa
 
     let full = inv_canonical.join(rel);
 
-    // If the parent directory already exists, canonicalize it and verify
-    // containment — this catches symlinks that point outside inventory/.
-    if let Some(parent) = full.parent() {
-        if parent.exists() {
-            let canonical_parent = parent.canonicalize().map_err(|e| WriteError::Io {
-                path: parent.display().to_string(),
+    // Walk up from the immediate parent to the nearest existing ancestor.
+    // Canonicalize it and verify it falls within inv_canonical.
+    // This catches symlinks even when the final parent does not yet exist:
+    // e.g. inventory/link -> /tmp/outside, path = link/newdir/file.yaml —
+    // link/ exists and canonicalizes to /tmp/outside, which fails the check.
+    let mut ancestor: Option<&Path> = full.parent();
+    while let Some(p) = ancestor {
+        if p.exists() {
+            let canonical = p.canonicalize().map_err(|e| WriteError::Io {
+                path: p.display().to_string(),
                 source: e,
             })?;
-            if !canonical_parent.starts_with(inv_canonical) {
+            if !canonical.starts_with(inv_canonical) {
                 return Err(WriteError::PathTraversal {
                     path: rel.display().to_string(),
                 });
             }
+            break;
         }
+        ancestor = p.parent();
     }
 
     Ok(full)
@@ -364,10 +391,29 @@ pub fn write_repository(
     // validated against this canonical root before any file I/O.
     let inv_c = inv.canonicalize().map_err(|e| io_err(e, &inv))?;
 
-    // Helper: validate a relative path, then call write_if_changed.
+    // Helper: validate, create parent directory, re-verify after creation,
+    // then write. The post-create canonicalization is defence-in-depth against
+    // TOCTOU: if something external replaces an ancestor with a symlink between
+    // safe_inventory_join's check and the actual directory creation, the second
+    // canonicalize will catch it.
     let checked_write =
         |rel: &Path, content: &str, rep: &mut WriteReport| -> Result<(), WriteError> {
             let path = safe_inventory_join(&inv_c, rel)?;
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| WriteError::Io {
+                    path: parent.display().to_string(),
+                    source: e,
+                })?;
+                let canonical_parent = parent.canonicalize().map_err(|e| WriteError::Io {
+                    path: parent.display().to_string(),
+                    source: e,
+                })?;
+                if !canonical_parent.starts_with(&inv_c) {
+                    return Err(WriteError::PathTraversal {
+                        path: rel.display().to_string(),
+                    });
+                }
+            }
             rep.record(write_if_changed(&path, content)?, &path);
             Ok(())
         };
@@ -665,25 +711,25 @@ mod containment_tests {
 
     #[test]
     fn accepts_simple_filename() {
-        let (_, inv) = setup();
+        let (_tmp, inv) = setup();
         assert!(safe_inventory_join(&inv, Path::new("repo.yaml")).is_ok());
     }
 
     #[test]
     fn accepts_nested_relative_path() {
-        let (_, inv) = setup();
+        let (_tmp, inv) = setup();
         assert!(safe_inventory_join(&inv, Path::new("racks/room-a.yaml")).is_ok());
     }
 
     #[test]
     fn accepts_cur_dir_relative_path() {
-        let (_, inv) = setup();
+        let (_tmp, inv) = setup();
         assert!(safe_inventory_join(&inv, Path::new("./racks/room-a.yaml")).is_ok());
     }
 
     #[test]
     fn rejects_parent_traversal() {
-        let (_, inv) = setup();
+        let (_tmp, inv) = setup();
         let result = safe_inventory_join(&inv, Path::new("../evil.yaml"));
         assert!(
             matches!(result, Err(WriteError::PathTraversal { .. })),
@@ -693,58 +739,75 @@ mod containment_tests {
 
     #[test]
     fn rejects_nested_traversal() {
-        let (_, inv) = setup();
+        let (_tmp, inv) = setup();
         let result = safe_inventory_join(&inv, Path::new("racks/../../etc/passwd"));
         assert!(matches!(result, Err(WriteError::PathTraversal { .. })));
     }
 
     #[test]
     fn rejects_absolute_path() {
-        let (_, inv) = setup();
+        let (_tmp, inv) = setup();
         let result = safe_inventory_join(&inv, Path::new("/etc/passwd"));
         assert!(matches!(result, Err(WriteError::PathTraversal { .. })));
     }
 
     #[test]
-    fn rejects_windows_drive_path() {
-        let (_, inv) = setup();
-        // Use a raw string to create a Windows-style drive path as a PathBuf.
-        // On Linux/macOS, PathBuf treats this as a relative path starting with "C:",
-        // but the Component::Prefix check catches it on Windows.
-        // On non-Windows, is_absolute() or ParentDir won't fire for "C:\\temp\\evil.yaml",
-        // so we explicitly reject component Prefix by testing the PathBuf representation.
-        #[cfg(windows)]
-        {
-            let result = safe_inventory_join(&inv, Path::new("C:\\temp\\evil.yaml"));
-            assert!(matches!(result, Err(WriteError::PathTraversal { .. })));
-        }
-        // On non-Windows, validate the rejection of paths that *look like*
-        // Windows drive paths by checking our explicit byte-level guard.
-        #[cfg(not(windows))]
-        {
-            // "C:\temp\evil.yaml" as a Unix path: no backslash separator, treated
-            // as a single filename component — not a traversal risk on Unix.
-            // The real risk is on Windows where Component::Prefix fires.
-            // This test documents expected platform behavior.
-            let result = safe_inventory_join(&inv, Path::new("C:\\temp\\evil.yaml"));
-            // On Unix, backslash is a valid filename char, so this is accepted
-            // as a relative filename.  The rejection guard for Prefix only fires
-            // on Windows.  This is intentional and correct.
-            assert!(
-                result.is_ok(),
-                "Unix: Windows-style path is a harmless relative filename: {result:?}"
-            );
-        }
+    fn rejects_windows_drive_backslash_path() {
+        let (_tmp, inv) = setup();
+        // C:\temp\evil.yaml — rejected on all platforms via the string-level check.
+        // On Windows, Component::Prefix would also catch it; on Unix the string
+        // check is the only guard since backslash is a valid filename character.
+        let result = safe_inventory_join(&inv, Path::new("C:\\temp\\evil.yaml"));
+        assert!(
+            matches!(result, Err(WriteError::PathTraversal { .. })),
+            "Windows drive backslash path must be rejected on all platforms: {result:?}"
+        );
     }
 
     #[test]
-    fn rejects_windows_drive_path_on_windows_explicitly() {
-        // This variant checks only on Windows.
-        #[cfg(windows)]
-        {
-            let (_, inv) = setup();
-            let result = safe_inventory_join(&inv, Path::new("C:/temp/evil.yaml"));
-            assert!(matches!(result, Err(WriteError::PathTraversal { .. })));
-        }
+    fn rejects_windows_drive_slash_path() {
+        let (_tmp, inv) = setup();
+        // C:/temp/evil.yaml — rejected on all platforms via the string-level check.
+        let result = safe_inventory_join(&inv, Path::new("C:/temp/evil.yaml"));
+        assert!(
+            matches!(result, Err(WriteError::PathTraversal { .. })),
+            "Windows drive slash path must be rejected on all platforms: {result:?}"
+        );
+    }
+
+    #[test]
+    fn rejects_unc_backslash_path() {
+        let (_tmp, inv) = setup();
+        // \\server\share\evil.yaml — rejected cross-platform via the string-level check.
+        // On Unix, double-slash paths (//server/share) are caught by is_absolute();
+        // backslash UNC is not absolute on Unix, so the string check is required.
+        let result = safe_inventory_join(&inv, Path::new("\\\\server\\share\\evil.yaml"));
+        assert!(
+            matches!(result, Err(WriteError::PathTraversal { .. })),
+            "UNC backslash path must be rejected on all platforms: {result:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlink_ancestor_outside_inventory() {
+        let (tmp, inv) = setup();
+        let outside = TempDir::new().unwrap();
+        // Create inventory/link -> outside (a directory outside inventory/)
+        std::os::unix::fs::symlink(outside.path(), inv.join("link")).unwrap();
+        // link/newdir does not exist, but link itself points outside inventory/
+        let result = safe_inventory_join(&inv, Path::new("link/newdir/file.yaml"));
+        assert!(
+            matches!(result, Err(WriteError::PathTraversal { .. })),
+            "path through non-existent subdir of symlink-outside ancestor must be rejected: \
+             {result:?}"
+        );
+        // Also reject a path directly under the symlink (parent = link, which exists)
+        let result2 = safe_inventory_join(&inv, Path::new("link/file.yaml"));
+        assert!(
+            matches!(result2, Err(WriteError::PathTraversal { .. })),
+            "path directly under symlink pointing outside must be rejected: {result2:?}"
+        );
+        drop(tmp);
     }
 }
