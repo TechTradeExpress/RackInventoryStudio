@@ -46,6 +46,18 @@ function sanitizePathsInMessage(message: string): string {
 }
 
 /**
+ * Redact inline HTTPS credentials from a user-facing error message.
+ * `https://user:pass@host` → `https://[redacted]@host`
+ * Does not nuke the whole message — preserves error context.
+ */
+export function redactUrlCredentials(msg: string): string {
+  return msg.replace(
+    /https:\/\/([^@\s'")\/>]+)@/g,
+    "https://[redacted]@"
+  );
+}
+
+/**
  * Safely stringify an unknown error value, redacted and truncated.
  * Order: credential check → path redaction → truncation.
  */
