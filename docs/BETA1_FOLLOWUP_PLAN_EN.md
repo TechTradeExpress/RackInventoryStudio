@@ -420,6 +420,7 @@ The follow-up items are grouped into PRs for focused review:
 | G | Release/signing/versioning hardening (custom NSIS path, code signing) | — | Implemented |
 | H | Beta-readiness demo repository | Item 12 | Implemented |
 | I | Git transport hardening (SEC-01) | Item 13 | Implemented |
+| J | Atomic YAML writes and writer path containment (DATA-01, SEC-02) | Item 14 | Implemented |
 
 ---
 
@@ -467,7 +468,8 @@ execution on the user's machine.
   or rewritten.
 
 **Not done in this PR**: DATA-01 (atomic YAML writes), SEC-02 (writer
-containment), SEC-03 (diagnostics redaction).
+containment), SEC-03 (diagnostics redaction). DATA-01 and SEC-02 are
+implemented in PR J.
 
 ---
 
@@ -480,13 +482,13 @@ Items to resolve before the 0.1.0-beta.2 release:
 | ID | Description | Status |
 |---|---|---|
 | SEC-01 | Git transport helpers (`ext::`, `fd::`) can execute arbitrary code | ✅ Implemented (PR I) |
-| DATA-01 | YAML writes are not atomic; partial writes corrupt the repository on crash | Open |
+| DATA-01 | YAML writes are not atomic; partial writes corrupt the repository on crash | ✅ Implemented (PR J) |
 
 ### Should fix before wider beta
 
 | ID | Description |
 |---|---|
-| SEC-02 | Writer containment: prevent `ris-repository` from writing outside the repo root |
+| SEC-02 | Writer containment: prevent `ris-repository` from writing outside the repo root | ✅ Implemented (PR J) |
 | SEC-03 | Diagnostics redaction: scrub secrets and paths from diagnostic output |
 | TEST-01 | End-to-end smoke test: open example repo, render rack, close cleanly |
 
@@ -497,3 +499,56 @@ Items to resolve before the 0.1.0-beta.2 release:
 - Content-Security-Policy hardening for WebView
 - GitHub Actions SHA pinning for supply-chain hygiene
 - Askpass token constant-time comparison (low priority; token is ephemeral)
+
+---
+
+## 14. Atomic YAML writes and writer path containment — DATA-01 + SEC-02 (PR J) ✅ IMPLEMENTED
+
+**DATA-01 — Atomic writes**: `crates/ris-repository` previously used
+`std::fs::write` which truncates the target file before writing. A crash
+or power loss during a write could leave a truncated/empty YAML file,
+corrupting the repository.
+
+**SEC-02 — Writer containment**: Layout-derived file paths (from
+`RepositoryLayout` populated by the loader) were passed to `inv.join(rel)`
+without validation. A malicious repository file could embed `../`
+components or absolute paths in the layout metadata, causing the writer
+to create or overwrite files outside the `inventory/` directory.
+
+**Fix** (`fix/repository-atomic-writes`):
+
+- **`atomic_replace`** (private): writes content to a `NamedTempFile` in the
+  same directory as the target (same filesystem), flushes, calls `sync_all`,
+  then renames atomically to the target. On Unix: `rename(2)`. On Windows:
+  `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING` (via the `tempfile` crate).
+  The `NamedTempFile` RAII removes the temp file on error/drop so no `.tmp`
+  files are left after a failed write.
+
+- **`write_if_changed`** updated: existing "skip if unchanged" optimisation
+  preserved; write path now uses `atomic_replace` instead of `std::fs::write`.
+
+- **`safe_inventory_join`** (pub crate): validates a relative path before
+  joining with the canonical inventory root. Rejects: `..` components,
+  absolute paths, Windows drive/UNC prefixes, and symlinks whose resolved
+  parent escapes the canonical inventory root.
+
+- **`write_repository`** updated: canonicalises `inventory/` after
+  `create_dir_all`; all path joins (fixed and layout-derived) go through
+  `safe_inventory_join`. A malicious path returns
+  `WriteError::PathTraversal` and no file is written.
+
+- **`tempfile` crate** promoted from `[dev-dependencies]` to
+  `[dependencies]` in `ris-repository/Cargo.toml`.
+
+- **8 new inline unit tests** for `safe_inventory_join` (accepts valid
+  paths; rejects `../`, absolute, Windows drive).
+
+- **18 new integration tests** covering: no temp files after save, double
+  save stability, failed-write preserves original, example-repository
+  round-trip (3 locations / 6 racks / 50+ devices), traversal rejection
+  for all four layout categories, absolute-path rejection, valid
+  non-canonical paths still accepted.
+
+**Normal save behavior unchanged**: write-only-if-changed, path
+preservation from layout, canonical fallback for new entities — all
+unaffected.
