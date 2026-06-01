@@ -5,9 +5,8 @@ name: Dependency Audit
 # - manually via workflow_dispatch
 # - on PRs that touch dependency files or this workflow
 #
-# Both jobs use continue-on-error: true so that pre-existing findings surface
-# as visible failures without blocking unrelated PRs. Once the dependency tree
-# is known-clean, remove continue-on-error to make the jobs blocking.
+# rust-audit uses continue-on-error: true (advisory state unknown at authoring).
+# frontend-audit is blocking — pnpm audit is clean as of vite v6 upgrade (PR M).
 
 on:
   schedule:
@@ -49,7 +48,6 @@ jobs:
   frontend-audit:
     name: Frontend dependency audit
     runs-on: ubuntu-24.04
-    continue-on-error: true
 
     steps:
       - name: Checkout repository
@@ -69,4 +67,3 @@ jobs:
 
       - name: Run pnpm audit
         run: pnpm audit --audit-level moderate
-        working-directory: apps/desktop
