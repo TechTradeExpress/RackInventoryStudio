@@ -422,6 +422,7 @@ The follow-up items are grouped into PRs for focused review:
 | I | Git transport hardening (SEC-01) | Item 13 | Implemented |
 | J | Atomic YAML writes and writer path containment (DATA-01, SEC-02) | Item 14 | Implemented |
 | K | Git error credential redaction (SEC-03) | Item 15 | Implemented |
+| L | Supply/dependency visibility (Dependabot + cargo-audit + pnpm audit) | Item 16 | Implemented |
 
 ---
 
@@ -487,15 +488,39 @@ Items to resolve before the 0.1.0-beta.2 release:
 
 ### Should fix before wider beta
 
-| ID | Description |
-|---|---|
+| ID | Description | Status |
+|---|---|---|
 | SEC-02 | Writer containment: prevent `ris-repository` from writing outside the repo root | ✅ Implemented (PR J) |
 | SEC-03 | Diagnostics redaction: scrub secrets and paths from diagnostic output | ✅ Implemented (PR K) |
-| TEST-01 | End-to-end smoke test: open example repo, render rack, close cleanly |
+| SUPPLY-01 | Dependency visibility: Dependabot, cargo-audit, pnpm audit in CI | ✅ Implemented (PR L) |
+
+### Known findings from initial audit run (PR L)
+
+**Frontend audit** (PR L first run): `pnpm audit` found 2 moderate advisories
+in development dependencies. Both are Vite dev-server vulnerabilities with no
+impact on the production Tauri desktop binary.
+
+| Package | Version | Advisory | Fix |
+|---|---|---|---|
+| `vite` | 5.4.21 | Path traversal in `.map` handling (GHSA-4w7w-66w2-5vf9) | Upgrade to ≥6.4.2 (vite v6 major) |
+| `esbuild` | 0.21.5 (transitive) | Dev server SSRF (GHSA-67mh-4wv8-2f99) | Fixed by vite upgrade |
+
+Follow-up: open a `chore(deps): upgrade vite to v6` PR (or let Dependabot open
+it), test the build pipeline, and remove `continue-on-error: true` from
+`frontend-audit` in `.github/workflows/dependency-audit.yml` after verification.
+
+**Rust audit** (PR L first run): No advisories found. ✅
+
+### Before beta release checklist
+
+**TEST-01** — End-to-end smoke test: open example repo, render rack, close cleanly.
+
+Run TEST-01 immediately before the beta release checklist. It is not a numbered
+implementation PR — it is a manual or semi-automated gate performed by the
+release engineer when all hardening PRs are merged and the build is candidate-ready.
 
 ### Can wait (post-beta.2)
 
-- Dependency audit (cargo-audit / npm audit in CI)
 - `serde_yaml` → `serde_yml` migration (upstream fork, no API change)
 - Content-Security-Policy hardening for WebView
 - GitHub Actions SHA pinning for supply-chain hygiene
@@ -602,3 +627,52 @@ in push/pull error banners visible in the UI and written to application logs.
 (which nukes the whole message when credential keywords appear, for log-only use).
 `redact_git_error` surgically removes credentials while preserving error context
 (host name, error type) for user display.
+
+---
+
+## 16. Supply/dependency visibility — SUPPLY-01 (PR L) ✅ IMPLEMENTED
+
+**Goal**: Ensure the project has automated visibility into dependency risk before
+wider beta distribution, without blocking routine development.
+
+**Implemented** (PR L, branch `ci/supply-dependency-visibility`):
+
+### Dependabot (`.github/dependabot.yml`)
+
+Dependabot is configured for three ecosystems, all on a weekly schedule:
+
+- **GitHub Actions** (`/`) — keeps action versions up to date.
+- **Cargo** (`/`) — opens PRs for Rust crate updates.
+- **npm/pnpm** (`/apps/desktop`) — opens PRs for frontend package updates.
+
+Minor and patch updates are grouped to reduce PR noise. No auto-merge is
+configured; all Dependabot PRs require human review and CI pass before merge.
+
+### Dependency audit workflow (`.github/workflows/dependency-audit.yml`)
+
+A new workflow runs:
+- **On schedule**: weekly (Monday 06:00 UTC) — catches regressions even without
+  a triggering PR.
+- **On `workflow_dispatch`**: manual run at any time.
+- **On pull requests** that touch `Cargo.lock`, `pnpm-lock.yaml`, any
+  `Cargo.toml`, any `package.json`, or the workflow file itself.
+
+Two jobs:
+
+| Job | Tool | Scope |
+|---|---|---|
+| `rust-audit` | `cargo audit` (cargo-advisory-db) | All Rust crates in `Cargo.lock` |
+| `frontend-audit` | `pnpm audit --audit-level moderate` | `apps/desktop` frontend packages |
+
+Both jobs use `continue-on-error: true` so that pre-existing findings surface as
+visible failures without breaking CI for unrelated PRs. The audit result is
+always present in the workflow run log. Once any known findings are resolved, the
+`continue-on-error` flag can be removed to make the jobs blocking.
+
+### Blocking vs non-blocking rationale
+
+The current state of the dependency tree is not known at PR L authoring time
+(audit tools not available in the local environment). Making the jobs
+non-blocking on first introduction is the safe default: it ensures findings are
+always visible without risking a hard CI breakage due to an unfixed upstream
+advisory. Dependabot PRs provide the path to resolving findings incrementally.

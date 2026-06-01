@@ -1,81 +1,93 @@
-# CC Report — PR K: Redact credentials in user-facing Git errors (SEC-03)
+# CC Report — PR L: Supply/dependency visibility (SUPPLY-01)
 
 ## Summary
 
-PR K implements SEC-03: credentials that appear in Git error messages are now
-redacted before the error text reaches the frontend or appears in the SSH detail
-banner.
-
-**Rust layer — `crates/ris-git/src/lib.rs`**:
-
-- `pub fn redact_git_error(msg: &str) -> String` applies four targeted redactions
-  in order:
-  1. HTTPS URLs with embedded credentials (`user:pass@host` → `[redacted]@host`)
-  2. `ghp_XXXX` GitHub token bodies → `[redacted]`
-  3. `github_pat_XXXX` PAT bodies → `[redacted]`
-  4. `key=VALUE` credential pairs for `access_token`, `token`, `password`,
-     `passphrase` (ASCII-case-insensitive) → `key=[redacted]`
-
-- `GitError::Display::CommandFailed` now routes `stderr` through
-  `redact_git_error` before formatting.
-
-- **Review fix — Unicode fail-open**: The original `redact_key_value_credential`
-  lowercased the entire string and bailed out returning the unredacted input when
-  the lowercased form had a different byte length (e.g. Turkish dotted İ).
-  A message containing Unicode plus `password=secret` could therefore reach the
-  user unredacted. Fixed by replacing the whole-string `to_lowercase()` approach
-  with a byte-by-byte scan using `eq_ignore_ascii_case`, which operates only on
-  ASCII bytes and is never affected by Unicode elsewhere in the message.
-
-- 14 unit tests in `mod redaction_tests`: 10 original + 4 new Unicode regression
-  tests (`password=` with Polish prefix, `access_token=` with Polish prefix,
-  non-secret Unicode preserved around redaction, mixed-case key with Unicode).
-
-**Rust layer — `apps/desktop/src-tauri/src/commands/git.rs`**:
-
-- `ssh_error_message`: the `raw_detail` string (`\n\nGit output:\n{stderr}`) now
-  passes `stderr` through `ris_git::redact_git_error` before appending.
-
-**TypeScript layer — `apps/desktop/src/lib/redact.ts`**:
-
-- `export function redactUrlCredentials(msg: string): string` — regex-based
-  defence-in-depth redaction of `https://userinfo@host` patterns. Applied at the
-  frontend before setting push/pull error state.
-
-**TypeScript layer — `apps/desktop/src/features/repository/RepositoryPanel.tsx`**:
-
-- `setPushError` and `setPullError` now call `redactUrlCredentials(String(e))`
-  instead of `String(e)` directly.
-
-**TypeScript tests — `apps/desktop/src/lib/redact.test.ts`**:
-
-- 5 new tests for `redactUrlCredentials` covering: user:password URL, token
-  as userinfo, credential-free URL preserved, safe message preserved, multiple
-  URLs in one message.
-
-**Docs — `docs/BETA1_FOLLOWUP_PLAN_EN.md`**:
-
-- PR K row added to the PR table (Item 15).
-- SEC-03 row in the security backlog marked ✅ Implemented (PR K).
-- Section 15 added with threat description and implementation details.
+PR L adds automated dependency visibility before wider beta distribution:
+Dependabot configuration for three ecosystems, a new `dependency-audit` CI
+workflow (cargo-audit + pnpm audit), and a plan-doc reorder that moves TEST-01
+to "before beta release checklist" rather than treating it as the next numbered
+implementation PR.
 
 ## Files changed
 
 | File | Change |
 |---|---|
-| `crates/ris-git/src/lib.rs` | `redact_git_error` + 4 helpers; `CommandFailed::Display` updated; Unicode fail-open fix; 14 unit tests |
-| `apps/desktop/src-tauri/src/commands/git.rs` | `ssh_error_message` raw_detail passes through `redact_git_error` |
-| `apps/desktop/src/lib/redact.ts` | New `redactUrlCredentials` export |
-| `apps/desktop/src/lib/redact.test.ts` | 5 new tests for `redactUrlCredentials` |
-| `apps/desktop/src/features/repository/RepositoryPanel.tsx` | `setPushError`/`setPullError` use `redactUrlCredentials` |
-| `docs/BETA1_FOLLOWUP_PLAN_EN.md` | PR K row, SEC-03 ✅, Section 15 |
+| `.github/dependabot.yml` | New — Dependabot for github-actions, cargo, npm (pnpm) |
+| `.github/workflows/dependency-audit.yml` | New — weekly + PR-triggered cargo-audit and pnpm audit jobs |
+| `docs/BETA1_FOLLOWUP_PLAN_EN.md` | PR L row in table; SUPPLY-01 in hardening backlog; TEST-01 moved to "Before beta release checklist" section; Section 16 added |
+| `.ai/cc-report.md` | This file |
+
+## Plan reorder summary
+
+- PR L (SUPPLY-01) row added to the PR table and "Should fix before wider beta"
+  hardening table.
+- TEST-01 moved from the "Should fix before wider beta" row (implying it is a PR
+  task) to a dedicated "Before beta release checklist" section. TEST-01 is a
+  manual/semi-automated gate for the release engineer, not an implementation PR.
+- "Can wait" list: removed "Dependency audit" entry (now implemented). Remaining
+  post-beta.2 items unchanged.
+- Section 16 added describing Dependabot setup, workflow design, blocking/non-blocking
+  rationale.
+
+## Dependency visibility implementation
+
+### Dependabot (`.github/dependabot.yml`)
+
+- `github-actions` at `/` — weekly Monday
+- `cargo` at `/` — weekly Monday; minor/patch updates grouped
+- `npm` at `/apps/desktop` — weekly Monday; minor/patch updates grouped
+
+No auto-merge configured. Commit prefixes: `ci` (actions), `chore(deps)` (cargo/npm).
+
+### Audit workflow (`.github/workflows/dependency-audit.yml`)
+
+Triggers:
+- `schedule`: weekly Monday 06:00 UTC
+- `workflow_dispatch`: manual
+- `pull_request` on paths: `Cargo.lock`, `**/Cargo.toml`, `pnpm-lock.yaml`,
+  `**/package.json`, `.github/workflows/dependency-audit.yml`
+
+Jobs:
+- `rust-audit`: `dtolnay/rust-toolchain@stable` + `Swatinem/rust-cache@v2` +
+  `cargo install cargo-audit --locked` + `cargo audit`
+- `frontend-audit`: pnpm install + `pnpm audit --audit-level moderate`
+  (working-directory: `apps/desktop`)
+
+### Blocking vs non-blocking
+
+Both jobs use `continue-on-error: true`. Rationale: the current audit state
+cannot be verified locally (neither `cargo-audit` nor `pnpm` are available in
+the development environment). Making jobs non-blocking on introduction is the
+safe default — findings are always visible in the workflow log. Once any
+pre-existing findings are resolved, `continue-on-error` can be removed to make
+the jobs blocking.
 
 ## Tests
 
 ```
+git diff --check
+```
+Clean.
+
+```
+node scripts/check-version-consistency.mjs
+```
+Pass — 0.1.0-beta.1 consistent.
+
+```
+node --test scripts/*.test.mjs
+```
+17/17 pass.
+
+```
+node scripts/check-repo-hygiene.mjs
+```
+All 8 checks pass.
+
+```
 cargo fmt --all --check
 ```
-Pass (fmt applied; one minor formatting fixup to `redact_git_error`'s body).
+Clean (no Rust code changes).
 
 ```
 cargo check --workspace
@@ -85,13 +97,12 @@ Pass.
 ```
 cargo test --workspace
 ```
-All pass (0 failures).
+All pass, 0 failures.
 
 ```
 cargo clippy --workspace -- -D warnings
 ```
-Pass (review-fix clippy finding: `manual_ignore_case_cmp` — replaced
-`to_ascii_lowercase()` comparison with `.eq_ignore_ascii_case()`).
+Clean.
 
 ```
 npx tsc --noEmit
@@ -99,50 +110,73 @@ npx tsc --noEmit
 No type errors.
 
 ```
-vitest run apps/desktop/src/lib/redact.test.ts
+npx vitest run
 ```
-28/28 pass (all 5 new `redactUrlCredentials` tests pass; no TS changes in this
-review fix so TS test count is unchanged).
+42 test files, 539 tests — all pass.
 
-Note: `npx vitest run` (full suite) has 23 pre-existing failures due to Node 18
-/ jsdom incompatibility (`document is not defined`). Count is identical before
-and after this branch; unrelated to PR K.
+The `dependency-audit` workflow was validated by actionlint (runs in CI as part
+of the existing `workflow-lint` job).
 
-```
-node scripts/check-repo-hygiene.mjs
-```
-All 8 checks pass.
+**First GitHub Actions run results** (PR #100):
+
+- `rust-audit` — **pass**. No Rust advisories found.
+- `frontend-audit` — **fail (expected/visible)**. `pnpm audit` ran correctly and
+  found 2 moderate advisories:
+
+| Advisory | Package | Installed | Vulnerable | Patched | Path | Ref |
+|---|---|---|---|---|---|---|
+| esbuild dev server SSRF | `esbuild` | 0.21.5 | ≤0.24.2 | ≥0.25.0 | `apps__desktop>vite>esbuild` | GHSA-67mh-4wv8-2f99 |
+| Vite path traversal in `.map` | `vite` | 5.4.21 | ≤6.4.1 | ≥6.4.2 | `apps__desktop>vite` | GHSA-4w7w-66w2-5vf9 |
+
+**Assessment**: Both advisories are development-server vulnerabilities. They
+affect the Vite dev server (`pnpm dev`) and have no impact on the production
+Tauri desktop binary. Exploitation requires a malicious website to target a
+developer's running dev server.
+
+**Fixing these advisories requires upgrading `vite` from `^5.4.0` to `>=6.4.2`**
+(major version bump 5→6). This is a significant change that requires testing
+the full build pipeline and is out of scope for this CI hygiene PR.
+
+**Intended behavior**: `continue-on-error: true` is in place on the
+`frontend-audit` job. The job check shows "fail" (findings are visible in CI)
+but the overall `Dependency Audit` workflow run succeeds, and the main `CI`
+workflow (which gates merging) is unaffected. This is the intended visibility
+behaviour. The `continue-on-error` flag can be removed once vite is upgraded.
+
+**Recommended follow-up**: Open a dedicated `chore(deps): upgrade vite to v6`
+PR (or let Dependabot open it), test the build pipeline, and remove
+`continue-on-error: true` from `frontend-audit` after verification.
 
 ## Risks
 
-- **`e.to_string()` fallback in `ssh_error_message`**: For non-SSH remotes or
-  unrecognised SSH errors, `ssh_error_message` returns `e.to_string()`. Since
-  `GitError::Display::CommandFailed` now calls `redact_git_error`, this path is
-  also covered.
-- **Regex vs. parser in TS**: `redactUrlCredentials` uses a regex
-  (`https://([^@\s'")\/>]+)@`) rather than a URL parser. This is intentionally
-  conservative — it matches any non-whitespace/quote run before `@`, including
-  multi-segment `user:pass` and bare tokens. False positives (redacting a
-  non-credential `@` in a URL) are safe.
-- **Non-HTTPS credential patterns**: `redact_git_error` covers HTTPS embedded
-  credentials and token patterns. SSH URLs (`git@host`) do not embed credentials
-  in the URL text and are not a concern here.
-- **Unicode fail-open (fixed)**: The original implementation returned the
-  unredacted string when `to_lowercase()` changed the byte length. This is now
-  fixed; the new implementation uses `eq_ignore_ascii_case` byte-by-byte and
-  never skips redaction due to Unicode in unrelated parts of the message.
-- **Vitest environment failures**: 23 test files fail with `document is not
-  defined` due to Node 18 / jsdom incompatibility in the CI environment. These
-  failures are pre-existing (identical count before and after this PR) and are
-  unrelated to PR K changes.
+- **Non-blocking audit jobs**: `continue-on-error: true` means a failing audit
+  does not block CI. This is intentional for first introduction; tighten after
+  initial findings are reviewed.
+- **cargo-audit install time**: `cargo install cargo-audit --locked` downloads
+  and compiles the tool on each run. The `Swatinem/rust-cache@v2` caches the
+  compiled binary across runs. Cold install may take 2-4 minutes.
+- **pnpm audit coverage**: `pnpm audit` checks only packages with known advisories
+  in the npm advisory database. It does not replace a full SCA tool.
+- **Dependabot pnpm support**: Dependabot uses `package-ecosystem: npm` for pnpm
+  projects. It reads `pnpm-lock.yaml` and can open update PRs, but some pnpm
+  workspace features may not be fully understood.
 
 ## Not done
 
-- SEC-03 logging redaction beyond push/pull (e.g. commit, status errors) —
-  `sanitize_error` already covers logs; this PR adds user-facing redaction only.
-- Persistent credential vault / HTTPS token management — separate item.
-- `serde_yaml` migration — separate item.
+- `serde_yaml` → `serde_yml` migration
+- Content-Security-Policy hardening
+- GitHub Actions SHA pinning
+- Askpass token constant-time comparison
+- TEST-01 e2e smoke test (scheduled before beta release checklist, not a PR)
+
+## Remaining items before beta release
+
+1. **vite upgrade** — upgrade `vite` from `^5.4.0` to `>=6.4.2` to resolve
+   the 2 moderate frontend audit findings (dev-server only, not production risk).
+   Can be done in a follow-up PR or via Dependabot.
+2. **TEST-01** — manual smoke test (before release checklist, not a PR).
+3. Post-beta.2: serde_yaml migration, CSP, SHA pinning, askpass CT comparison.
 
 ## Suggested next step
 
-Generate the review context and attach to ChatGPT for sign-off before merging PR K.
+Generate review context and attach to ChatGPT for sign-off before merging PR L.
