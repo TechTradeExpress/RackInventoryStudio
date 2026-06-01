@@ -11,7 +11,7 @@ ris-validation = { path = "../ris-validation" }
 ris-import = { path = "../ris-import" }
 uuid = { version = "1", features = ["v4"] }
 serde = { version = "1", features = ["derive"] }
-serde_yaml = "0.9"
+serde_yml = "0.0.13"
 thiserror = "1"
 
 [dev-dependencies]

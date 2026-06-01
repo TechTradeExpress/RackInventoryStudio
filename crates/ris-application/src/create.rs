@@ -58,7 +58,7 @@ fn code_is_valid(code: &str) -> bool {
 
 // ── repo.yaml serialization DTO ───────────────────────────────────────────────
 
-// Field declaration order controls YAML output order (serde_yaml 0.9 preserves
+// Field declaration order controls YAML output order (serde_yml preserves
 // struct field order via indexmap).
 
 #[derive(Serialize)]
@@ -150,9 +150,9 @@ pub fn create_repository(
 
     let id = input.id.unwrap_or_else(|| Uuid::new_v4().to_string());
 
-    // repo.yaml — serialized via serde_yaml so all user-provided values are
+    // repo.yaml — serialized via serde_yml so all user-provided values are
     // correctly escaped regardless of content (colons, hashes, quotes, etc.).
-    let repo_yaml_content = serde_yaml::to_string(&RepoYaml {
+    let repo_yaml_content = serde_yml::to_string(&RepoYaml {
         format: "rack-inventory-studio".into(),
         version: "0.1".into(),
         repository: RepoMeta {

@@ -12,7 +12,7 @@ use crate::raw::{
 #[derive(Deserialize)]
 struct DtoRepoFile {
     format: Option<String>,
-    version: Option<serde_yaml::Value>, // accept number or string
+    version: Option<serde_yml::Value>, // accept number or string
     repository: Option<DtoRepoMeta>,
 }
 
@@ -33,7 +33,7 @@ struct DtoLocation {
     id: Option<String>,
     code: Option<String>,
     name: Option<String>,
-    tags: Option<serde_yaml::Value>,
+    tags: Option<serde_yml::Value>,
 }
 
 #[derive(Deserialize)]
@@ -47,8 +47,8 @@ struct DtoRack {
     id: Option<String>,
     code: Option<String>,
     name: Option<String>,
-    height_u: Option<serde_yaml::Value>,
-    tags: Option<serde_yaml::Value>,
+    height_u: Option<serde_yml::Value>,
+    tags: Option<serde_yml::Value>,
 }
 
 #[derive(Deserialize)]
@@ -62,8 +62,8 @@ struct DtoDeviceModel {
     id: Option<String>,
     code: Option<String>,
     name: Option<String>,
-    default_height_u: Option<serde_yaml::Value>,
-    tags: Option<serde_yaml::Value>,
+    default_height_u: Option<serde_yml::Value>,
+    tags: Option<serde_yml::Value>,
 }
 
 #[derive(Deserialize)]
@@ -81,7 +81,7 @@ struct DtoDevice {
     serial_number: Option<String>,
     asset_tag: Option<String>,
     status: Option<String>,
-    tags: Option<serde_yaml::Value>,
+    tags: Option<serde_yml::Value>,
 }
 
 #[derive(Deserialize)]
@@ -102,14 +102,14 @@ struct DtoPlacement {
     code: Option<String>,
     target_kind: Option<String>,
     target_id: Option<String>,
-    start_u: Option<serde_yaml::Value>,
-    height_u: Option<serde_yaml::Value>,
-    tags: Option<serde_yaml::Value>,
+    start_u: Option<serde_yml::Value>,
+    height_u: Option<serde_yml::Value>,
+    tags: Option<serde_yml::Value>,
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-fn read_yaml<T: serde::de::DeserializeOwned>(
+fn read_yaml<T: serde::de::DeserializeOwned + 'static>(
     path: &Path,
     errors: &mut Vec<(String, String)>,
 ) -> Option<T> {
@@ -120,7 +120,7 @@ fn read_yaml<T: serde::de::DeserializeOwned>(
             return None;
         }
     };
-    match serde_yaml::from_str(&text) {
+    match serde_yml::from_str(&text) {
         Ok(v) => Some(v),
         Err(e) => {
             errors.push((path.display().to_string(), format!("YAML parse error: {e}")));
@@ -129,7 +129,7 @@ fn read_yaml<T: serde::de::DeserializeOwned>(
     }
 }
 
-fn read_yaml_dir<T: serde::de::DeserializeOwned>(
+fn read_yaml_dir<T: serde::de::DeserializeOwned + 'static>(
     dir: &Path,
     errors: &mut Vec<(String, String)>,
 ) -> Vec<(String, T)> {
@@ -157,10 +157,10 @@ fn read_yaml_dir<T: serde::de::DeserializeOwned>(
     results
 }
 
-fn version_to_string(v: Option<serde_yaml::Value>) -> Option<String> {
+fn version_to_string(v: Option<serde_yml::Value>) -> Option<String> {
     match v? {
-        serde_yaml::Value::String(s) => Some(s),
-        serde_yaml::Value::Number(n) => Some(n.to_string()),
+        serde_yml::Value::String(s) => Some(s),
+        serde_yml::Value::Number(n) => Some(n.to_string()),
         other => Some(format!("{other:?}")),
     }
 }
@@ -170,10 +170,10 @@ fn version_to_string(v: Option<serde_yaml::Value>) -> Option<String> {
 /// Returns `(Some(n), false)` for a valid value (including 0),
 /// `(None, false)` when the field was absent,
 /// `(None, true)` when present but not a valid non-negative integer.
-fn parse_raw_u32(v: Option<serde_yaml::Value>) -> (Option<u32>, bool) {
+fn parse_raw_u32(v: Option<serde_yml::Value>) -> (Option<u32>, bool) {
     match v {
         None => (None, false),
-        Some(serde_yaml::Value::Number(n)) => {
+        Some(serde_yml::Value::Number(n)) => {
             if let Some(u) = n.as_u64() {
                 if u <= u32::MAX as u64 {
                     (Some(u as u32), false)
@@ -192,14 +192,14 @@ fn parse_raw_u32(v: Option<serde_yaml::Value>) -> (Option<u32>, bool) {
 ///
 /// Returns `(tags, false)` when absent or a valid list of strings,
 /// `([], true)` when present but not a valid list of strings.
-fn parse_tags(v: Option<serde_yaml::Value>) -> (Vec<String>, bool) {
+fn parse_tags(v: Option<serde_yml::Value>) -> (Vec<String>, bool) {
     match v {
         None => (Vec::new(), false),
-        Some(serde_yaml::Value::Sequence(seq)) => {
+        Some(serde_yml::Value::Sequence(seq)) => {
             let mut strings = Vec::new();
             for item in seq {
                 match item {
-                    serde_yaml::Value::String(s) => strings.push(s),
+                    serde_yml::Value::String(s) => strings.push(s),
                     _ => return (Vec::new(), true),
                 }
             }
