@@ -114,10 +114,38 @@ npx vitest run
 ```
 42 test files, 539 tests — all pass.
 
-Note: the `dependency-audit` workflow was validated by actionlint (runs in CI
-as part of the existing `workflow-lint` job). The audit jobs themselves require
-`cargo-audit` and `pnpm` which are not available locally; they will be exercised
-on the first GitHub Actions run.
+The `dependency-audit` workflow was validated by actionlint (runs in CI as part
+of the existing `workflow-lint` job).
+
+**First GitHub Actions run results** (PR #100):
+
+- `rust-audit` — **pass**. No Rust advisories found.
+- `frontend-audit` — **fail (expected/visible)**. `pnpm audit` ran correctly and
+  found 2 moderate advisories:
+
+| Advisory | Package | Installed | Vulnerable | Patched | Path | Ref |
+|---|---|---|---|---|---|---|
+| esbuild dev server SSRF | `esbuild` | 0.21.5 | ≤0.24.2 | ≥0.25.0 | `apps__desktop>vite>esbuild` | GHSA-67mh-4wv8-2f99 |
+| Vite path traversal in `.map` | `vite` | 5.4.21 | ≤6.4.1 | ≥6.4.2 | `apps__desktop>vite` | GHSA-4w7w-66w2-5vf9 |
+
+**Assessment**: Both advisories are development-server vulnerabilities. They
+affect the Vite dev server (`pnpm dev`) and have no impact on the production
+Tauri desktop binary. Exploitation requires a malicious website to target a
+developer's running dev server.
+
+**Fixing these advisories requires upgrading `vite` from `^5.4.0` to `>=6.4.2`**
+(major version bump 5→6). This is a significant change that requires testing
+the full build pipeline and is out of scope for this CI hygiene PR.
+
+**Intended behavior**: `continue-on-error: true` is in place on the
+`frontend-audit` job. The job check shows "fail" (findings are visible in CI)
+but the overall `Dependency Audit` workflow run succeeds, and the main `CI`
+workflow (which gates merging) is unaffected. This is the intended visibility
+behaviour. The `continue-on-error` flag can be removed once vite is upgraded.
+
+**Recommended follow-up**: Open a dedicated `chore(deps): upgrade vite to v6`
+PR (or let Dependabot open it), test the build pipeline, and remove
+`continue-on-error: true` from `frontend-audit` after verification.
 
 ## Risks
 
@@ -143,8 +171,11 @@ on the first GitHub Actions run.
 
 ## Remaining items before beta release
 
-1. TEST-01 — manual smoke test (before release checklist, not a PR)
-2. Post-beta.2: serde_yaml migration, CSP, SHA pinning, askpass CT comparison
+1. **vite upgrade** — upgrade `vite` from `^5.4.0` to `>=6.4.2` to resolve
+   the 2 moderate frontend audit findings (dev-server only, not production risk).
+   Can be done in a follow-up PR or via Dependabot.
+2. **TEST-01** — manual smoke test (before release checklist, not a PR).
+3. Post-beta.2: serde_yaml migration, CSP, SHA pinning, askpass CT comparison.
 
 ## Suggested next step
 

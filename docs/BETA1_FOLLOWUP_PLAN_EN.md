@@ -494,6 +494,23 @@ Items to resolve before the 0.1.0-beta.2 release:
 | SEC-03 | Diagnostics redaction: scrub secrets and paths from diagnostic output | ✅ Implemented (PR K) |
 | SUPPLY-01 | Dependency visibility: Dependabot, cargo-audit, pnpm audit in CI | ✅ Implemented (PR L) |
 
+### Known findings from initial audit run (PR L)
+
+**Frontend audit** (PR L first run): `pnpm audit` found 2 moderate advisories
+in development dependencies. Both are Vite dev-server vulnerabilities with no
+impact on the production Tauri desktop binary.
+
+| Package | Version | Advisory | Fix |
+|---|---|---|---|
+| `vite` | 5.4.21 | Path traversal in `.map` handling (GHSA-4w7w-66w2-5vf9) | Upgrade to ≥6.4.2 (vite v6 major) |
+| `esbuild` | 0.21.5 (transitive) | Dev server SSRF (GHSA-67mh-4wv8-2f99) | Fixed by vite upgrade |
+
+Follow-up: open a `chore(deps): upgrade vite to v6` PR (or let Dependabot open
+it), test the build pipeline, and remove `continue-on-error: true` from
+`frontend-audit` in `.github/workflows/dependency-audit.yml` after verification.
+
+**Rust audit** (PR L first run): No advisories found. ✅
+
 ### Before beta release checklist
 
 **TEST-01** — End-to-end smoke test: open example repo, render rack, close cleanly.
