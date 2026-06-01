@@ -19,7 +19,7 @@ pub enum WriteError {
         source: std::io::Error,
     },
     #[error("YAML serialization error: {0}")]
-    Yaml(#[from] serde_yaml::Error),
+    Yaml(#[from] serde_yml::Error),
     /// A layout-derived path would escape the inventory directory.
     #[error(
         "Path traversal rejected for '{path}': \
@@ -200,7 +200,7 @@ pub(crate) fn safe_inventory_join(inv_canonical: &Path, rel: &Path) -> Result<Pa
 }
 
 // ── Output DTOs ───────────────────────────────────────────────────────────────
-// Field declaration order controls YAML output order (serde_yaml 0.9 preserves
+// Field declaration order controls YAML output order (serde_yml preserves
 // struct field order via indexmap).
 
 #[derive(Serialize)]
@@ -366,7 +366,7 @@ fn to_out_placement(p: &Placement) -> OutPlacement {
 }
 
 fn serialize_yaml<T: Serialize>(value: &T) -> Result<String, WriteError> {
-    serde_yaml::to_string(value).map_err(WriteError::Yaml)
+    serde_yml::to_string(value).map_err(WriteError::Yaml)
 }
 
 fn io_err(e: std::io::Error, path: &Path) -> WriteError {

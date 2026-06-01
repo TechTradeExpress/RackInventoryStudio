@@ -16,18 +16,18 @@ use crate::yaml::{
     placement::YamlPlacementsFile, rack::YamlRacksFile, repo::YamlRepoFile,
 };
 
-fn read_yaml<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, LoadError> {
+fn read_yaml<T: serde::de::DeserializeOwned + 'static>(path: &Path) -> Result<T, LoadError> {
     let text = std::fs::read_to_string(path).map_err(|e| LoadError::Io {
         path: path.display().to_string(),
         source: e,
     })?;
-    serde_yaml::from_str(&text).map_err(|e| LoadError::Yaml {
+    serde_yml::from_str(&text).map_err(|e| LoadError::Yaml {
         path: path.display().to_string(),
         source: e,
     })
 }
 
-fn read_yaml_glob<T: serde::de::DeserializeOwned>(
+fn read_yaml_glob<T: serde::de::DeserializeOwned + 'static>(
     dir: &Path,
 ) -> Result<Vec<(String, T)>, LoadError> {
     let mut results = Vec::new();

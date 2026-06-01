@@ -11,7 +11,7 @@ pub enum LoadError {
     Yaml {
         path: String,
         #[source]
-        source: serde_yaml::Error,
+        source: serde_yml::Error,
     },
 
     #[error("Invalid value '{value}' in '{path}': {message}")]

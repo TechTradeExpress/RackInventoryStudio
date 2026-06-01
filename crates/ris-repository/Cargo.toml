@@ -7,7 +7,7 @@ description = "YAML repository loader/writer and RepositoryIndex."
 [dependencies]
 ris-core = { path = "../ris-core" }
 serde = { version = "1", features = ["derive"] }
-serde_yaml = "0.9"
+serde_yml = "0.0.13"
 tempfile = "3"
 thiserror = "1"
 
