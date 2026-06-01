@@ -1,117 +1,105 @@
-# CC Report — PR N: Migrate serde_yaml to serde_yml
+# CC Report — PR O: WebView CSP Hardening
 
 ## Summary
 
-PR N removes the deprecated/unmaintained `serde_yaml 0.9` crate (RUSTSEC-2024-0320)
-from the workspace dependency graph and replaces it with `serde_yml 0.0.13`.
-`serde_yml 0.0.13` is a compatibility shim backed by `noyalib 0.0.5`, a pure-Rust
-(`#![forbid(unsafe_code)]`) YAML library. `unsafe-libyaml` (the C-FFI YAML parser
-that was pulled in by `serde_yaml 0.9`) is no longer in the dependency graph.
+PR O adds a production Content-Security-Policy to the Tauri desktop WebView.
+Before this PR the CSP was `null` (no policy). The new policy restricts script,
+style, image, connect, and object sources to `'self'` or explicitly required
+endpoints, and adds `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'`,
+and `form-action 'none'`.
 
-## Dependency before and after
+## CSP before and after
 
-| Crate | Before | After |
+| State | CSP |
+|---|---|
+| Before | `null` (no CSP applied) |
+| After | See policy below |
+
+## Final CSP policy
+
+```
+default-src 'self'; connect-src ipc: http://ipc.localhost; script-src 'self'; style-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'
+```
+
+## Directive-by-directive explanation
+
+| Directive | Value | Reason |
 |---|---|---|
-| `serde_yaml` | 0.9.34+deprecated | removed |
-| `unsafe-libyaml` | 0.2.11 (transitive) | removed |
-| `serde_yml` | — | 0.0.13 (new) |
-| `noyalib` | — | 0.0.5 (transitive via serde_yml) |
+| `default-src` | `'self'` | Fallback — all content from the app origin (tauri://localhost / http://tauri.localhost) |
+| `connect-src` | `ipc: http://ipc.localhost` | Tauri IPC protocol. `ipc:` covers macOS/Linux (`ipc://localhost/...`); `http://ipc.localhost` covers Windows. Both are required for cross-platform builds. Explicitly specified because Tauri does NOT auto-inject these into connect-src. |
+| `script-src` | `'self'` | Only same-origin scripts allowed. Tauri auto-adds `'nonce-RANDOM'` values at serve time for its injected initialization scripts via the `replace_csp_nonce` mechanism. |
+| `style-src` | `'self'` | Production CSS is a separate file loaded via `<link rel="stylesheet">` from the same origin. No inline `<style>` blocks. React inline styles are DOM property mutations (not blocked by CSP). |
+| `img-src` | `'self'` | No external images. Inline SVG icons are JSX, not separate image files. No `data:` images detected. |
+| `object-src` | `'none'` | Disables all plugin/embed content (Flash, etc.). Overrides default-src fallback. |
+| `base-uri` | `'none'` | Prevents injection of `<base href>` to redirect relative URLs. Not covered by default-src. |
+| `frame-ancestors` | `'none'` | Prevents the app from being embedded in iframes (anti-clickjacking). Not covered by default-src in CSP Level 3. |
+| `form-action` | `'none'` | Prevents native HTML form submissions. All user interactions in the app are handled via JavaScript. |
 
-## Crates affected
+## Current state inventory (Part 1)
 
-- `crates/ris-repository` — YAML load and write
-- `crates/ris-application` — repository creation (repo.yaml scaffold)
+**Tauri version**: 2.11.0 (config schema v2)
+
+**Previous CSP**: `"csp": null` — no policy applied
+
+**App analysis**:
+- ✅ No `eval()`, `new Function`, `innerHTML`, `dangerouslySetInnerHTML`, inline event handlers
+- ✅ No remote CDN URLs, no external scripts/styles/images/fonts
+- ✅ No `data:` or `blob:` URLs in source
+- ✅ No `<canvas>` elements; icons are inline SVGs via React JSX
+- ✅ No HTTP `fetch()` calls — all backend communication via Tauri `invoke()` (IPC)
+- ✅ System fonts only (Segoe UI, Cascadia Mono) — no `@font-face` with remote URLs
+- ✅ No `<img>` tags — icons are SVGs
+- ⚠️ Heavy use of React `style={{...}}` inline style props — NOT blocked by CSP (DOM property mutations)
+- ⚠️ `listen()` / Tauri events — use `ipc://localhost` covered by `connect-src ipc:`
+- Production build: external JS bundle + external CSS file, no inline scripts or styles
+
+**Tauri v2 CSP mechanism**:
+- CSP in `tauri.conf.json` → `app.security.csp` applies ONLY to production (custom protocol)
+- In dev mode (`devUrl: http://localhost:1420`), Vite serves the page and Tauri's CSP is not applied
+- Tauri injects IPC initialization scripts with random nonces at serve time (`replace_csp_nonce`)
+- Those nonces are automatically added to `script-src` in the response CSP header
+
+**Why `'unsafe-inline'` is not required**:
+1. `style-src`: Production CSS is an external file, not inline `<style>` blocks. React's
+   `style={{...}}` props use `element.style.prop = value` — DOM mutations not covered by CSP.
+2. `script-src`: Production HTML has only external `<script type="module" src="...">` tags.
+   Tauri's injected initialization scripts use nonces (auto-managed by Tauri).
 
 ## Files changed
 
 | File | Change |
 |---|---|
-| `crates/ris-repository/Cargo.toml` | `serde_yaml = "0.9"` → `serde_yml = "0.0.13"` |
-| `crates/ris-application/Cargo.toml` | `serde_yaml = "0.9"` → `serde_yml = "0.0.13"` |
-| `crates/ris-repository/src/error.rs` | `serde_yaml::Error` → `serde_yml::Error` |
-| `crates/ris-repository/src/loader.rs` | `serde_yaml::` → `serde_yml::`; `+ 'static` on `T` in `read_yaml`, `read_yaml_glob` |
-| `crates/ris-repository/src/raw_loader.rs` | All `serde_yaml::` → `serde_yml::`; `+ 'static` on `T` in `read_yaml`, `read_yaml_dir` |
-| `crates/ris-repository/src/writer.rs` | `serde_yaml::Error` and `serde_yaml::to_string` → `serde_yml::` |
-| `crates/ris-application/src/create.rs` | `serde_yaml::to_string` → `serde_yml::to_string` |
-| `Cargo.lock` | `serde_yaml 0.9` + `unsafe-libyaml` removed; `serde_yml 0.0.13` + `noyalib 0.0.5` added |
-| `docs/BETA1_FOLLOWUP_PLAN_EN.md` | PR N row added; `serde_yaml` migration item removed from "can wait" list; Section 18 added |
+| `apps/desktop/src-tauri/tauri.conf.json` | `"csp": null` → explicit production policy string |
+| `docs/BETA1_FOLLOWUP_PLAN_EN.md` | PR O row; CSP item removed from "can wait" list; Section 19 added |
 | `.ai/cc-report.md` | This file |
 
-## Exact YAML call sites migrated
+## Unsafe pattern scan results
 
-### `ris-repository`
+| Pattern | Occurrences | Notes |
+|---|---|---|
+| `eval(` | 0 | Clean |
+| `new Function` | 0 | Clean |
+| `innerHTML` | 0 | Clean |
+| `dangerouslySetInnerHTML` | 0 | Clean |
+| Inline event handlers (`onclick=`, `onload=`) | 0 | Clean |
+| Remote CDN URLs in source | 0 | `http://`/`https://` in source is only in `redact.ts` (string matching, not fetch) |
+| `data:` / `blob:` URLs | 0 | Clean |
+| `<canvas>` | 0 | Clean |
+| `fetch(` / `XMLHttpRequest` | 0 | Clean — all backend calls use `invoke()` |
 
-| File | Call site |
-|---|---|
-| `src/error.rs:14` | `source: serde_yaml::Error` |
-| `src/loader.rs:24` | `serde_yaml::from_str(&text)` |
-| `src/raw_loader.rs:123` | `match serde_yaml::from_str(&text)` |
-| `src/raw_loader.rs:15,36,50,51,65,66,84,105,106,107` | `Option<serde_yaml::Value>` fields in DTOs |
-| `src/raw_loader.rs:160–202` | `serde_yaml::Value::String`, `::Number`, `::Sequence` pattern matches |
-| `src/writer.rs:22` | `Yaml(#[from] serde_yaml::Error)` |
-| `src/writer.rs:369` | `serde_yaml::to_string(value)` |
+## Dev vs production behavior
 
-### `ris-application`
+| Context | CSP applied? | How served |
+|---|---|---|
+| Dev (`pnpm dev`) | ❌ No | Vite dev server at `http://localhost:1420`; Tauri's protocol handler not involved |
+| Production build | ✅ Yes | Tauri custom protocol (`tauri://localhost` / `http://tauri.localhost`); CSP injected in response headers |
 
-| File | Call site |
-|---|---|
-| `src/create.rs:155` | `serde_yaml::to_string(&RepoYaml { … })` |
+## Dependency audit results
 
-## API difference and adaptation
-
-`serde_yml::from_str` (backed by `noyalib`) requires `T: 'static`. `serde_yaml 0.9` did not.
-
-All DTOs used in the YAML load path are owned structs with no borrowed fields, so
-`+ 'static` was added to the internal generic bounds on:
-- `read_yaml<T>` in `loader.rs` and `raw_loader.rs`
-- `read_yaml_glob<T>` in `loader.rs`
-- `read_yaml_dir<T>` in `raw_loader.rs`
-
-No semantic change — all concrete types that are passed for `T` are `'static`.
-
-**`serde_yml::Value`** variants used (`String`, `Number`, `Sequence`) are identical in
-`serde_yml 0.0.13` / `noyalib::compat::serde_yaml::Value`. No match arm changes needed.
-
-## Output format notes
-
-`serde_yml 0.0.13` (backed by `noyalib`) produces YAML output that passes all existing
-format-sensitive tests:
-- `generated_yaml_has_no_null_optional_fields` — no `null` values emitted for `Option`
-  fields annotated with `#[serde(skip_serializing_if = "Option::is_none")]`
-- `generated_yaml_has_stable_field_order_across_two_writes` — struct field order preserved
-- `repo_yaml_field_order_is_format_version_repository` — `format:` before `version:` before `repository:`
-- `second_write_reports_all_unchanged` — byte-for-byte stable output on second write
-
-## Compatibility testing performed
-
-- All 50 `ris-repository` tests pass (round-trip, stability, null-field, field-order,
-  containment, load/write basics)
-- All 28 `ris-application` tests pass (create, example-repo, MVP smoke, search)
-- Full workspace (`cargo test --workspace`): all pass, 0 failures
-- Existing YAML fixture files load without error under `serde_yml`
-- Round-trip: load → write → load → compare counts/IDs all match
-
-## Error messages
-
-The error message format from `serde_yml::Error` / `noyalib` is functionally equivalent
-to `serde_yaml 0.9`. The `LoadError::Yaml` variant wraps the error as `{source}` via
-`thiserror`, so any wording change in the underlying library's Display impl flows through
-transparently. No tests assert on exact YAML error message strings; no user-facing changes.
-
-## Audit results
-
-- `cargo audit` — not installed locally. CI `Rust dependency audit` job verifies.
-  `serde_yaml 0.9` (RUSTSEC-2024-0320) is no longer in the dependency graph, so the
-  advisory is expected to resolve.
-- `pnpm audit --audit-level moderate` — no frontend changes; result unchanged from PR M
-  (No known vulnerabilities found).
+- `cargo audit` — not installed locally; CI `Rust dependency audit` will verify (no Cargo changes)
+- `pnpm audit --audit-level moderate` — no frontend dependency changes; clean (same as PR M)
 
 ## Tests
-
-```
-cargo fmt --all --check
-```
-Clean.
 
 ```
 git diff --check
@@ -134,6 +122,11 @@ node scripts/check-repo-hygiene.mjs
 All 8 checks pass.
 
 ```
+cargo fmt --all --check
+```
+Clean (no Rust changes).
+
+```
 cargo check --workspace
 ```
 Pass.
@@ -149,39 +142,56 @@ cargo clippy --workspace -- -D warnings
 Clean.
 
 ```
-npx tsc --noEmit
+npx pnpm@10.33.4 -C apps/desktop exec tsc --noEmit
 ```
 No type errors.
 
 ```
-npx vitest run
+npx pnpm@10.33.4 --filter @rack-inventory-studio/desktop exec vitest run
 ```
-42 test files, 539 tests — all pass (no frontend changes; unaffected by this PR).
+42 test files, 539 tests — all pass.
+
+```
+npx pnpm@10.33.4 --filter @rack-inventory-studio/desktop exec vite build
+```
+Production build succeeds. Output: `dist/index.html` with external-only JS and CSS references.
+Built `dist/index.html` contains NO inline scripts and NO inline styles.
+
+Note: `npx vitest run` (without pnpm) fails in this environment with
+`SyntaxError: ... 'styleText'` because the global Node.js version is 18.19.1, which
+predates `node:util.styleText` (added in Node 20.12). The project's local vitest (3.2.4)
+is run correctly via `pnpm exec`.
+
+Note: Full Tauri production build (`cargo tauri build`) cannot be run locally because
+it requires Windows SDK/NSIS for the NSIS installer target. CI `Rust workspace` passes,
+which confirms the Tauri app compiles. The CSP is a JSON string field — no compile-time
+validation needed beyond the JSON schema check at build time.
 
 ## Risks
 
-- **`serde_yml 0.0.13` is itself a deprecated shim**: The crate documentation notes that
-  `serde_yml 0.0.13` is a "thin compatibility shim" and recommends migrating to `noyalib`
-  directly. However: (a) it removes the security concern (`serde_yaml 0.9` / `unsafe-libyaml`),
-  (b) all tests pass, (c) there are no active RUSTSEC advisories against `serde_yml 0.0.13`,
-  (d) it is a thin re-export layer with no additional risk surface. A follow-up PR can
-  migrate to `noyalib` directly using `use noyalib::compat::serde_yaml as serde_yaml_compat`.
-- **`+ 'static` bound propagation**: The added `'static` bounds are correct and match the
-  concrete types used at all call sites. They are compiler-enforced.
+- **IPC on platforms not yet tested**: `ipc:` covers macOS/Linux; `http://ipc.localhost` covers
+  Windows. The official Tauri v2 documentation example (`connect-src ipc: http://ipc.localhost`)
+  is the canonical cross-platform recommendation. If a future platform requires a different URI,
+  `connect-src` will need updating.
+- **Tauri nonce injection**: Tauri automatically adds nonces to `script-src` for its initialization
+  scripts. If a future Tauri version changes this mechanism, `script-src 'self'` alone may
+  block those scripts. The nonce mechanism has been stable across Tauri v2 releases.
+- **React inline styles**: React's `style={{...}}` props work via DOM property mutations, which
+  are NOT CSP-controlled. This is a deliberate CSP spec design and not a loophole — inline
+  style attributes set by JavaScript after page load are not covered by `style-src`.
 
 ## Not done
 
 - TEST-01 smoke test (gate before beta release checklist, not a PR)
-- CSP hardening
 - GitHub Actions SHA pinning
 - Askpass constant-time comparison
-- Direct migration to `noyalib` (separate future PR if desired)
+- End-to-end verification of CSP enforcement in a live Tauri build (requires Windows build env)
 
 ## Remaining items before beta release
 
 1. **TEST-01** — manual smoke test (before release checklist, not a PR).
-2. Post-beta.2: CSP hardening, GitHub Actions SHA pinning, askpass CT comparison.
+2. Post-beta.2: GitHub Actions SHA pinning, askpass CT comparison.
 
 ## Suggested next step
 
-Generate review context and attach to ChatGPT for sign-off before merging PR N.
+Generate review context and attach to ChatGPT for sign-off before merging PR O.
