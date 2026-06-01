@@ -1,26 +1,57 @@
-# CC Report — PR P: TEST-01 Beta Smoke Gate
+# CC Report -- PR P (rev 2): TEST-01 Beta Smoke Gate
 
 ## Summary
 
-Adds TEST-01 — a structured, partially-automated smoke gate to be run before
+Adds TEST-01 -- a structured, partially-automated smoke gate to be run before
 the beta release checklist. Does not change any application logic, data schemas,
 Git behaviour, or CI configuration.
 
-Deliverables:
-1. `docs/BETA1_SMOKE_TEST_EN.md` — full gate document (automated + manual layers).
-2. `scripts/smoke-beta-gate.mjs` — automated gate script (7 fast checks).
-3. `"smoke:beta"` npm/pnpm script in root `package.json`.
-4. Updated `docs/BETA1_FOLLOWUP_PLAN_EN.md` — TEST-01 marked as gate prepared;
-   PR P row added to the grouping table.
+Rev 2 fixes four issues identified in review:
+1. **Blocker 1**: `vitest < 4.1.0` critical vulnerability (GHSA-5xrq-8626-4rwp)
+   fixed by upgrading vitest to 4.1.8. `environmentMatchGlobs` (removed in
+   vitest 4.x) replaced with per-file `// @vitest-environment jsdom` annotations.
+2. **Blocker 2**: Smoke test checklist now uses a disposable copy of
+   `examples/example-repository` for all mutating steps. Tracked fixture is
+   never modified. Project repo cleanliness check added at the end.
+3. **Blocker 3**: "Manage racks" button reference removed. Checklist now correctly
+   says to click the location row.
+4. **Cleanup 1**: Script tests now discover all `scripts/*.test.mjs` files
+   dynamically instead of hardcoding one filename.
+5. **Cleanup 2**: All non-ASCII / decorative Unicode removed from
+   `scripts/smoke-beta-gate.mjs`. Output uses plain ASCII only.
 
 ## Files changed
 
 | File | Change |
 |---|---|
-| `docs/BETA1_SMOKE_TEST_EN.md` | New: full beta smoke gate document (automated + manual steps) |
-| `scripts/smoke-beta-gate.mjs` | New: semi-automated gate script, 7 checks + manual checklist printout |
-| `package.json` | Added `"smoke:beta": "node scripts/smoke-beta-gate.mjs"` |
-| `docs/BETA1_FOLLOWUP_PLAN_EN.md` | TEST-01 status updated; PR P row added to grouping table |
+| `docs/BETA1_SMOKE_TEST_EN.md` | Rewritten: disposable copy pattern, correct Locations UX (click row), ASCII-only, project cleanliness check added |
+| `scripts/smoke-beta-gate.mjs` | Fixed: ASCII-only output, dynamic script test discovery |
+| `apps/desktop/package.json` | `vitest` `^3.2.4` -> `^4.1.8` (fixes GHSA-5xrq-8626-4rwp) |
+| `apps/desktop/vite.config.ts` | Removed `environmentMatchGlobs` (removed in vitest 4.x) |
+| `apps/desktop/pnpm-lock.yaml` | Updated for vitest 4.1.8 |
+| `apps/desktop/src/components/ui/ConfirmDialog.test.tsx` | Added `// @vitest-environment jsdom` |
+| `apps/desktop/src/components/ui/UnsavedChangesDialog.test.tsx` | Added `// @vitest-environment jsdom` |
+| `apps/desktop/src/components/ui/Segmented.test.tsx` | Added `// @vitest-environment jsdom` |
+| `apps/desktop/src/components/ui/Modal.test.tsx` | Added `// @vitest-environment jsdom` |
+| `apps/desktop/src/features/csvImport/CsvImportPanel.test.tsx` | Added `// @vitest-environment jsdom` |
+| `apps/desktop/src/features/devices/DeviceFormModal.test.tsx` | Added `// @vitest-environment jsdom` |
+| `apps/desktop/src/features/deviceModels/DeviceModelFormModal.test.tsx` | Added `// @vitest-environment jsdom` |
+| `apps/desktop/src/features/devices/DevicesPanel.test.tsx` | Added `// @vitest-environment jsdom` |
+| `apps/desktop/src/features/locations/LocationFormModal.test.tsx` | Added `// @vitest-environment jsdom` |
+| `apps/desktop/src/features/locations/LocationsPanel.test.tsx` | Added `// @vitest-environment jsdom` |
+| `apps/desktop/src/features/racks/EditPlacementModal.test.tsx` | Added `// @vitest-environment jsdom` |
+| `apps/desktop/src/features/racks/PlacePlacementModal.test.tsx` | Added `// @vitest-environment jsdom` |
+| `apps/desktop/src/features/racks/RackFormModal.test.tsx` | Added `// @vitest-environment jsdom` |
+| `apps/desktop/src/features/racks/PlacementPalettePanel.test.tsx` | Added `// @vitest-environment jsdom` |
+| `apps/desktop/src/features/racks/RackUnitDiagram.test.tsx` | Added `// @vitest-environment jsdom` |
+| `apps/desktop/src/features/repository/CreateRepositoryWizard.test.tsx` | Added `// @vitest-environment jsdom` |
+| `apps/desktop/src/features/repository/RepositoryPanel.test.tsx` | Added `// @vitest-environment jsdom` |
+| `apps/desktop/src/features/repository/SshPassphraseModal.test.tsx` | Added `// @vitest-environment jsdom` |
+| `apps/desktop/src/features/racks/RacksPanel.test.tsx` | Added `// @vitest-environment jsdom` |
+| `apps/desktop/src/features/validation/ValidationPanel.test.tsx` | Added `// @vitest-environment jsdom` |
+| `apps/desktop/src/lib/unsavedGuard.test.ts` | Added `// @vitest-environment jsdom` |
+| `docs/BETA1_FOLLOWUP_PLAN_EN.md` | TEST-01 marked as gate prepared; PR P row added (from rev 1) |
+| `package.json` | Added `smoke:beta` pnpm script (from rev 1) |
 | `.ai/cc-report.md` | This file |
 
 ## Tests
@@ -33,7 +64,7 @@ Clean.
 ```
 node scripts/check-version-consistency.mjs
 ```
-Pass — 0.1.0-beta.1 consistent.
+Pass -- 0.1.0-beta.1 consistent.
 
 ```
 node --test scripts/*.test.mjs
@@ -43,7 +74,7 @@ node --test scripts/*.test.mjs
 ```
 node scripts/check-repo-hygiene.mjs
 ```
-All 8 checks pass.
+All 8 hygiene checks pass.
 
 ```
 cargo fmt --all --check
@@ -73,7 +104,7 @@ No type errors.
 ```
 npx pnpm@10.33.4 --filter @rack-inventory-studio/desktop exec vitest run
 ```
-42 test files, 539 tests — all pass.
+42 test files, 539 tests -- all pass (vitest 4.1.8).
 
 ```
 npx pnpm@10.33.4 --filter @rack-inventory-studio/desktop exec vite build
@@ -85,26 +116,37 @@ node scripts/smoke-beta-gate.mjs
 ```
 7/7 automated checks passed. Manual checklist printed.
 
+## GitHub checks status (after push)
+
+| Check | Status |
+|---|---|
+| Frontend dependency audit | Pending (was: FAIL -- vitest < 4.1.0; fixed by upgrade) |
+| Rust dependency audit | Expected: pass |
+| Frontend checks | Expected: pass |
+| Rust workspace | Expected: pass |
+| Script and hygiene | Expected: pass |
+| Version consistency | Expected: pass |
+| Workflow lint | Expected: pass |
+
 ## Risks
 
-- **pnpm not on PATH**: The script auto-detects pnpm. If `pnpm` is not on PATH it
-  falls back to `npx pnpm@VERSION` using the version from `packageManager` in
-  `package.json`. Both paths produce identical results.
-- **Vitest invocation note**: In this environment (Node 18.19.1), `npx vitest run`
-  from the workspace root fails due to missing `node:util.styleText` (added in
-  Node 20.12). The script uses `pnpm exec vitest run` which invokes vitest correctly
-  regardless of global Node.js version.
-- **TEST-01 is not automated E2E**: The manual steps require a human on a real dev
-  machine with the Tauri WebView. The script covers all checks that can run without
-  a live Tauri binary.
+- **vitest 4.x migration**: `environmentMatchGlobs` was removed in vitest 4.x.
+  The fix (per-file `// @vitest-environment jsdom` annotations) touches 21 test
+  files but is the canonical vitest 4.x approach. All 539 tests pass.
+- **GHSA-5xrq-8626-4rwp scope**: The vulnerability only triggers when the Vitest
+  UI server is running (`vitest --ui`). This project never uses the UI server.
+  The upgrade to 4.1.8 is the correct fix regardless.
+- **pnpm not on PATH**: The script auto-detects pnpm. Falls back to
+  `npx pnpm@VERSION` when pnpm is not on PATH.
 
 ## Not done
 
-- Playwright / full Tauri E2E automation — out of scope for this PR.
-- GitHub Actions SHA pinning — post-beta.2, tracked in plan.
-- Askpass constant-time comparison — post-beta.2, tracked in plan.
+- Playwright / full Tauri E2E automation -- out of scope.
+- GitHub Actions SHA pinning -- post-beta.2, tracked in plan.
+- Askpass constant-time comparison -- post-beta.2, tracked in plan.
 
 ## Suggested next step
 
-Run `pnpm smoke:beta` followed by the manual checklist in `docs/BETA1_SMOKE_TEST_EN.md`
-on a developer machine before cutting the `release/v0.1.0-beta.1` branch.
+Wait for CI to confirm all checks green on PR #112, then sign off and merge.
+Then run `pnpm smoke:beta` followed by `docs/BETA1_SMOKE_TEST_EN.md` on a
+developer machine before cutting the release branch.

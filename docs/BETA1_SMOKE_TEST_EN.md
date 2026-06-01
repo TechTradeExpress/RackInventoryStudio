@@ -1,4 +1,4 @@
-# Beta 1 Smoke Gate — TEST-01
+# Beta 1 Smoke Gate -- TEST-01
 
 Run this gate immediately before the beta release checklist, after all
 hardening PRs are merged and CI is green on `master`.
@@ -20,18 +20,16 @@ in a ready-to-test state before distributing an installer to QA.
 
 | Requirement | Notes |
 |---|---|
-| Node.js ≥ 20 | `node --version` |
+| Node.js >= 20 | `node --version` |
 | pnpm 10.x | `pnpm --version` |
 | Rust stable toolchain | `cargo --version` |
 | Git on PATH | `git --version` |
-| Clean working tree | `git status` — no uncommitted changes |
-| Example repository | `examples/example-repository` (already in repo) |
-| Disposable test repo | A fresh directory for create-new-repo tests |
+| Clean working tree | `git status` -- no uncommitted changes in the project repo |
 | Safe test remote (push/pull only) | A personal/test GitHub repo. **Do not use production repos.** |
 
 ---
 
-## 3. Step 1 — Run the automated gate
+## 3. Step 1 -- Run the automated gate
 
 ```bash
 pnpm smoke:beta
@@ -51,21 +49,21 @@ This runs:
 If it fails, fix the issue, re-run, and confirm a clean pass.
 
 > In environments where `pnpm` is not on PATH, run:
-> `node scripts/smoke-beta-gate.mjs` — or `npx pnpm@10.33.4 run smoke:beta`
+> `node scripts/smoke-beta-gate.mjs`
 
 ---
 
-## 4. Step 2 — Rust workspace checks (CI or local)
+## 4. Step 2 -- Rust workspace checks (CI or local)
 
 These are performed by CI on every PR. Confirm the candidate commit is green:
 
 ```
-CI: Rust workspace      ✅ green
-CI: Frontend checks     ✅ green
-CI: Script and hygiene  ✅ green
-CI: Version consistency ✅ green
-CI: Workflow lint       ✅ green
-CI: Dependency audit    ✅ green
+CI: Rust workspace      -- green
+CI: Frontend checks     -- green
+CI: Script and hygiene  -- green
+CI: Version consistency -- green
+CI: Workflow lint       -- green
+CI: Dependency audit    -- green
 ```
 
 To verify locally before CI:
@@ -78,9 +76,33 @@ cargo test --workspace
 
 ---
 
-## 5. Step 3 — Manual UI smoke walk
+## 5. Step 3 -- Prepare a disposable test copy
 
-Run these steps in dev mode on a developer machine:
+All mutating steps (save, commit, push, pull) must be performed on a
+**disposable copy** of `examples/example-repository` placed **outside** the
+project directory. This ensures the tracked example fixture stays clean and
+`git status` in the project repository remains clean throughout the test.
+
+```bash
+# Create a temp directory and copy the fixture into it
+cp -r /path/to/project/examples/example-repository /tmp/ris-smoke-test
+
+# Verify the project repo is still clean
+git -C /path/to/project status
+# Expected: nothing to commit, working tree clean
+```
+
+Open the copy (`/tmp/ris-smoke-test`) in the app for all subsequent steps.
+
+> **Rule:** Never save, commit, or push from the tracked
+> `examples/example-repository` directory inside the project.
+> Every mutating action uses `/tmp/ris-smoke-test` (or equivalent temp path).
+
+---
+
+## 6. Step 4 -- Manual UI smoke walk
+
+Start the app in dev mode:
 
 ```bash
 pnpm dev
@@ -91,7 +113,7 @@ section below. Check each item before moving to the next.
 
 ---
 
-### 5.1 App launch and initial state
+### 6.1 App launch and initial state
 
 - [ ] App shell loads without blank screen or unhandled exception.
 - [ ] Left navigation shows the Repository tab (no repo open).
@@ -99,10 +121,10 @@ section below. Check each item before moving to the next.
 
 ---
 
-### 5.2 Open example repository
+### 6.2 Open the disposable test copy
 
 - [ ] Click **Open** on the Repository tab.
-- [ ] Navigate to `examples/example-repository` in the file dialog.
+- [ ] Navigate to `/tmp/ris-smoke-test` (the copy prepared in Step 3).
 - [ ] Repository Summary appears with non-zero counts (3 locations, 6 racks, 50+ devices).
 - [ ] All tabs (Locations, Racks, Devices, Device Models, CSV Import, Validation, Git) are accessible.
 - [ ] Search bar is visible.
@@ -110,34 +132,35 @@ section below. Check each item before moving to the next.
 
 ---
 
-### 5.3 Locations, racks, devices, placements
+### 6.3 Locations, racks, devices, placements
 
-- [ ] **Locations**: Navigate to Locations. At least 3 rows visible (Warsaw, Gdańsk, Łódź).
-- [ ] Click "Manage racks" on Warsaw HQ → Racks tab opens with the Warsaw context subtitle.
+- [ ] **Locations**: Navigate to Locations. At least 3 rows visible (Warsaw HQ, Gdansk, Lodz).
+- [ ] Click the **Warsaw HQ row** -- the Racks tab opens showing only Warsaw HQ racks.
 - [ ] **Racks**: At least 3 racks listed for Warsaw HQ.
-- [ ] Click a rack to open Rack Detail.
+- [ ] Click a rack row to open Rack Detail.
 - [ ] **Rack diagram**: Rack diagram is rendered; placed devices are visible as colored cards.
-- [ ] Click an empty U-slot → Place modal opens with U prefilled.
-- [ ] Dismiss the modal (Cancel) — no crash or stale state.
-- [ ] Click a placed card in the rack → Placement Inspector opens on the right.
+- [ ] Click an empty U-slot -- Place modal opens with U prefilled.
+- [ ] Dismiss the modal (Cancel) -- no crash or stale state.
+- [ ] Click a placed card in the rack -- Placement Inspector opens on the right.
 - [ ] **Devices**: Navigate to Devices. Table shows 50+ rows. Names are displayed (not codes).
 - [ ] Filter or scroll to verify no obvious rendering errors.
 - [ ] **Device Models**: Navigate to Device Models. 17+ models visible. Names visible.
 
 ---
 
-### 5.4 Create a test location and rack
+### 6.4 Create a test location and rack
 
 - [ ] Navigate to Locations. Click **Add location**.
 - [ ] Leave code blank (auto-generated). Enter name `Smoke Test Location`. Submit.
 - [ ] Success message appears. `Smoke Test Location` is visible in the table.
 - [ ] Unsaved changes banner is shown at the top.
-- [ ] Navigate to Racks. Add a rack under `Smoke Test Location`: name `Smoke Rack 01`, height 10.
+- [ ] Click the **Smoke Test Location row** -- Racks tab opens for that location.
+- [ ] Add a rack: name `Smoke Rack 01`, height 10.
 - [ ] Success message appears. Rack is visible in the list.
 
 ---
 
-### 5.5 Save data
+### 6.5 Save data
 
 - [ ] Navigate to Validation. Click **Validate repository**.
 - [ ] Validation completes. No unexpected blocking errors (warnings for unplaced devices are acceptable).
@@ -146,79 +169,82 @@ section below. Check each item before moving to the next.
 
 ---
 
-### 5.6 Close and reopen — persistence check
+### 6.6 Close and reopen -- persistence check
 
-- [ ] On the Repository tab, note the example repository path.
+- [ ] On the Repository tab, note the path (`/tmp/ris-smoke-test`).
 - [ ] Click **Close**.
 - [ ] Repository tab returns to initial (open/create) state.
-- [ ] Re-open the same example repository.
-- [ ] Locations list includes `Smoke Test Location` — confirming the save persisted.
+- [ ] Re-open `/tmp/ris-smoke-test`.
+- [ ] Locations list includes `Smoke Test Location` -- confirming the save persisted.
 - [ ] Rack `Smoke Rack 01` is visible in the Racks list.
 
 ---
 
-### 5.7 Unsaved changes / dirty guard
+### 6.7 Unsaved changes / dirty guard
 
-- [ ] Open the example repository (if not already open).
+- [ ] Open the test copy (if not already open).
 - [ ] Add a location: name `Temp Location`. **Do not save**.
 - [ ] Click **Close** on the Repository tab.
 - [ ] Confirmation dialog appears: "You have unsaved in-memory changes. Close anyway?"
-- [ ] Click **Cancel** → repository remains open.
+- [ ] Click **Cancel** -- repository remains open.
 - [ ] Click **Close** again, then confirm.
 - [ ] Repository closes cleanly.
 
 ---
 
-### 5.8 Git status and dirty indicator
+### 6.8 Git status and dirty indicator
 
-- [ ] Open the example repository.
+- [ ] Open the test copy.
 - [ ] Navigate to the **Git** section (left nav or Repository tab).
 - [ ] Git status is displayed: branch name, ahead/behind count, last commit.
 - [ ] Add a location (name `Git Dirty Test`). Do not save.
 - [ ] The UI shows unsaved-changes indicator.
-- [ ] Save changes (Validation → Save changes).
+- [ ] Save changes (Validation -> Save changes).
 - [ ] Git panel now shows the repository as dirty (uncommitted local changes).
-- [ ] Discard these changes or commit them to leave the repo clean before push/pull testing.
+- [ ] Discard or commit those changes before the push/pull step below.
+- [ ] **After this step**: verify the project repo is still clean:
+  `git -C /path/to/project status` -- should still show clean working tree.
 
 ---
 
-### 5.9 Push/pull check — safe test repository only
+### 6.9 Push/pull check -- safe test repository only
 
 > **Use only a safe, disposable test repository.**
-> Do not use your private or production repositories.
+> Do not use the tracked `examples/example-repository` or any private repo.
 > Do not proceed with push/pull on a repository whose remote you do not control.
 
-- [ ] Create a new test repository (or open one backed by a personal test GitHub remote).
-- [ ] Commit some changes in the app (add a location, save, then use Git → Commit).
-- [ ] Attempt **Push** with no upstream set → app shows appropriate first-push guidance.
+- [ ] Open a repository backed by a personal test GitHub remote (the test copy
+  at `/tmp/ris-smoke-test`, or a freshly created repo).
+- [ ] Commit some changes in the app (add a location, save, then use Git Commit).
+- [ ] Attempt **Push** with no upstream set -- app shows appropriate first-push guidance.
 - [ ] After push succeeds, make another change, save, commit, and push again.
-- [ ] Attempt **Pull** on the test repository → completes or returns a clean "nothing to pull" message.
-- [ ] Push/pull with a repository that has **no configured origin** remote → app shows a clear
-  "No remote named origin is configured" error — no crash, no invented URL.
+- [ ] Attempt **Pull** -- completes or returns a clean "nothing to pull" message.
+- [ ] Open a repository with **no configured origin** remote -- app shows a clear
+  "No remote named origin is configured" error -- no crash, no invented URL.
 
 ---
 
-### 5.10 Cancel operation behavior
+### 6.10 Cancel operation behavior
 
-- [ ] Open a file dialog (Open repository) and click **Cancel** → no crash, no stale state.
-- [ ] Open the Place modal, fill in a device and U slot, then click **Cancel** → no crash, rack diagram unchanged.
-- [ ] Open the Edit Placement modal, make changes, then click **Cancel** → no changes applied.
+- [ ] Open a file dialog (Open repository) and click **Cancel** -- no crash, no stale state.
+- [ ] Open the Place modal, fill in a device and U slot, then click **Cancel** -- no crash, rack diagram unchanged.
+- [ ] Open the Edit Placement modal, make changes, then click **Cancel** -- no changes applied.
 
 ---
 
-### 5.11 Create a new repository
+### 6.11 Create a new repository
 
 - [ ] Click **Create** on the Repository tab.
-- [ ] Choose an empty disposable directory.
+- [ ] Choose an empty disposable directory (e.g. `/tmp/ris-new-repo`).
 - [ ] Repository is created. Git is initialized automatically.
 - [ ] Repository summary shows zero counts.
 - [ ] Add a location and rack; save. Files appear in the chosen directory.
 
 ---
 
-### 5.12 CSV import
+### 6.12 CSV import
 
-- [ ] Open the example repository.
+- [ ] Open the test copy.
 - [ ] Navigate to **CSV Import**.
 - [ ] Paste the following CSV:
 
@@ -228,13 +254,13 @@ section below. Check each item before moving to the next.
   network,in_stock,Smoke Import Switch
   ```
 
-- [ ] Click **Preview** → 2 rows shown, action `Create`, no errors.
-- [ ] Click **Import** → success message, 2 devices imported.
-- [ ] Navigate to **Devices** → new devices are visible.
+- [ ] Click **Preview** -- 2 rows shown, action `Create`, no errors.
+- [ ] Click **Import** -- success message, 2 devices imported.
+- [ ] Navigate to **Devices** -- new devices are visible.
 
 ---
 
-### 5.13 Log check
+### 6.13 Log check
 
 Logs are written to:
 
@@ -243,7 +269,7 @@ Logs are written to:
 | Windows | `%PROGRAMDATA%\TechTradeExpress\RackInventoryStudio\logs\` |
 | macOS / Linux (dev) | Tauri default log directory for the app identifier |
 
-To find the active log path: **Settings → Diagnostics and logs → Open logs folder**.
+To find the active log path: **Settings -> Diagnostics and logs -> Open logs folder**.
 
 - [ ] Open logs folder via Settings.
 - [ ] Log file exists and contains recent entries (launch, open repo, save, etc.).
@@ -254,7 +280,23 @@ To find the active log path: **Settings → Diagnostics and logs → Open logs f
 
 ---
 
-## 6. Blockers vs. non-blockers
+### 6.14 Project repo cleanliness check
+
+After completing all manual steps, verify the project repository itself is unchanged:
+
+```bash
+git -C /path/to/project status
+# Expected: nothing to commit, working tree clean
+
+git -C /path/to/project diff HEAD
+# Expected: (no output)
+```
+
+If any project files were accidentally modified, review and revert before tagging.
+
+---
+
+## 7. Blockers vs. non-blockers
 
 ### Release blockers (fix before tagging beta)
 
@@ -281,7 +323,7 @@ To find the active log path: **Settings → Diagnostics and logs → Open logs f
 
 ---
 
-## 7. Pass / fail
+## 8. Pass / fail
 
 ### PASS criteria (all must be true)
 
@@ -289,16 +331,18 @@ To find the active log path: **Settings → Diagnostics and logs → Open logs f
 - [ ] All CI checks green on the candidate commit.
 - [ ] All manual steps above completed with no blockers found.
 - [ ] Log check passed (no credential leakage, no panics).
+- [ ] Project repo `git status` clean after all steps.
 
 ### FAIL criteria (any one fails the gate)
 
 - Any automated check exits non-zero.
-- Any blocker from section 6 observed during manual steps.
+- Any blocker from section 7 observed during manual steps.
 - CI not green.
+- Project repo `git status` dirty after test (tracked fixture was accidentally modified).
 
 ---
 
-## 8. After gate passes
+## 9. After gate passes
 
 1. Cut release branch: `git checkout -b release/v0.1.0-beta.N`.
 2. Trigger **Windows Installer** workflow on the release branch.
