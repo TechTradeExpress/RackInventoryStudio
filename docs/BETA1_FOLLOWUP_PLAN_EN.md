@@ -424,6 +424,7 @@ The follow-up items are grouped into PRs for focused review:
 | K | Git error credential redaction (SEC-03) | Item 15 | Implemented |
 | L | Supply/dependency visibility (Dependabot + cargo-audit + pnpm audit) | Item 16 | Implemented |
 | M | Vite v6 dependency fix and blocking frontend audit | Item 17 | Implemented |
+| N | YAML dependency migration: serde_yaml to serde_yml | Item 18 | Implemented |
 
 ---
 
@@ -523,7 +524,6 @@ release engineer when all hardening PRs are merged and the build is candidate-re
 
 ### Can wait (post-beta.2)
 
-- `serde_yaml` → `serde_yml` migration (upstream fork, no API change)
 - Content-Security-Policy hardening for WebView
 - GitHub Actions SHA pinning for supply-chain hygiene
 - Askpass token constant-time comparison (low priority; token is ephemeral)
@@ -710,3 +710,38 @@ Both affected only the Vite development server, not the production Tauri build. 
 
 **Verification**: `pnpm audit --audit-level moderate` → **No known vulnerabilities found**.
 All 42 test files / 539 tests pass with vitest@3.2.4 and vite@6.4.2.
+
+---
+
+## 18. YAML dependency migration: serde_yaml to serde_yml — PR N ✅ IMPLEMENTED
+
+**Motivation**: `serde_yaml 0.9` is officially deprecated and unmaintained (RUSTSEC-2024-0320).
+It depends on `unsafe-libyaml`, a C-FFI YAML parser that is itself unmaintained and
+introduces unsafe code into the dependency graph.
+
+**Target**: `serde_yml 0.0.13` — a compatibility shim over `noyalib`, a pure-Rust
+(`#![forbid(unsafe_code)]`) YAML library. `serde_yml 0.0.13` re-exports the same
+API surface as `serde_yaml 0.9` from `noyalib::compat::serde_yaml`, so call-site changes
+are limited to `serde_yaml::` → `serde_yml::` renames.
+
+**Changes** (branch `chore/migrate-serde-yml`):
+
+- **`crates/ris-repository/Cargo.toml`**: `serde_yaml = "0.9"` → `serde_yml = "0.0.13"`.
+- **`crates/ris-application/Cargo.toml`**: `serde_yaml = "0.9"` → `serde_yml = "0.0.13"`.
+- **`crates/ris-repository/src/error.rs`**: `serde_yaml::Error` → `serde_yml::Error`.
+- **`crates/ris-repository/src/loader.rs`**: `serde_yaml::from_str` → `serde_yml::from_str`;
+  `+ 'static` added to `T` bounds on `read_yaml` and `read_yaml_glob` (required by `serde_yml`).
+- **`crates/ris-repository/src/raw_loader.rs`**: all `serde_yaml::` → `serde_yml::`;
+  `+ 'static` added to `T` bounds on `read_yaml` and `read_yaml_dir`.
+- **`crates/ris-repository/src/writer.rs`**: `serde_yaml::Error` and `serde_yaml::to_string` → `serde_yml::`.
+- **`crates/ris-application/src/create.rs`**: `serde_yaml::to_string` → `serde_yml::to_string`.
+- **`Cargo.lock`**: updated to include `serde_yml 0.0.13` and `noyalib 0.0.5`; `serde_yaml 0.9`
+  and `unsafe-libyaml` are no longer present.
+
+**API difference**: `serde_yml::from_str` (backed by `noyalib`) requires `T: 'static` whereas
+`serde_yaml 0.9` did not. All DTOs used in the YAML load path are owned structs with no
+borrowed fields, so `+ 'static` was added to the internal helper generic bounds with no
+semantic impact.
+
+**Verification**: All 50 `ris-repository` tests pass (including round-trip, stability, null-field,
+and field-order tests). All 28 `ris-application` tests pass. Full workspace: all pass.
