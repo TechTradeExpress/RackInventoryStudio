@@ -425,6 +425,7 @@ The follow-up items are grouped into PRs for focused review:
 | L | Supply/dependency visibility (Dependabot + cargo-audit + pnpm audit) | Item 16 | Implemented |
 | M | Vite v6 dependency fix and blocking frontend audit | Item 17 | Implemented |
 | N | YAML dependency migration: serde_yaml to serde_yml | Item 18 | Implemented |
+| O | WebView CSP hardening | Item 19 | Implemented |
 
 ---
 
@@ -524,7 +525,6 @@ release engineer when all hardening PRs are merged and the build is candidate-re
 
 ### Can wait (post-beta.2)
 
-- Content-Security-Policy hardening for WebView
 - GitHub Actions SHA pinning for supply-chain hygiene
 - Askpass token constant-time comparison (low priority; token is ephemeral)
 
@@ -745,3 +745,56 @@ semantic impact.
 
 **Verification**: All 50 `ris-repository` tests pass (including round-trip, stability, null-field,
 and field-order tests). All 28 `ris-application` tests pass. Full workspace: all pass.
+
+---
+
+## 19. WebView CSP hardening — PR O ✅ IMPLEMENTED
+
+**Motivation**: The Tauri WebView had `"csp": null`, meaning no Content-Security-Policy header
+was applied in production builds. This left the app without a key defence against injection attacks.
+
+**CSP configured** (in `apps/desktop/src-tauri/tauri.conf.json`):
+
+```
+default-src 'self';
+connect-src ipc: http://ipc.localhost;
+script-src 'self';
+style-src 'self';
+img-src 'self';
+object-src 'none';
+base-uri 'none';
+frame-ancestors 'none';
+form-action 'none'
+```
+
+**Directive rationale**:
+- `default-src 'self'` — fallback; all content must come from the app origin
+- `connect-src ipc: http://ipc.localhost` — Tauri IPC; `ipc:` scheme covers macOS/Linux,
+  `http://ipc.localhost` covers Windows (official Tauri v2 recommendation)
+- `script-src 'self'` — only same-origin scripts; Tauri automatically adds `'nonce-...'`
+  values for its initialization scripts at serve time
+- `style-src 'self'` — production CSS bundle loaded via `<link>` from same origin
+- `img-src 'self'` — no external images; inline SVGs are part of JS and not covered by img-src
+- `object-src 'none'` — no Flash/plugin content
+- `base-uri 'none'` — prevents base-URI injection
+- `frame-ancestors 'none'` — prevents clickjacking
+- `form-action 'none'` — no form submissions; React handles all interactions via JavaScript
+
+**Why `'unsafe-inline'` is not needed**:
+- The production Vite build outputs a separate CSS file (`/assets/index-*.css`) loaded via `<link>`,
+  not inline `<style>` blocks.
+- React's `style={{...}}` props are applied via JavaScript DOM property mutations
+  (`element.style.prop = value`) at runtime, which are NOT controlled by `style-src`.
+- No inline scripts in the production HTML; only a `<script type="module" src="...">` tag.
+
+**Dev mode**: The CSP from `tauri.conf.json` does NOT apply during development.
+In dev mode, the WebView loads from `http://localhost:1420` (Vite dev server) and Tauri's
+custom protocol handler (which applies the CSP) is not invoked for external URLs.
+Development workflow is unaffected.
+
+**Changes** (branch `security/webview-csp-hardening`):
+- **`apps/desktop/src-tauri/tauri.conf.json`**: `"csp": null` → explicit production policy string.
+
+**Verification**: Production Vite build succeeds. Built `dist/index.html` has no inline scripts
+or inline styles — only `<script type="module" src="...">` and `<link rel="stylesheet">`.
+All workspace Rust tests pass (0 failures). All 42 frontend test files / 539 tests pass.
