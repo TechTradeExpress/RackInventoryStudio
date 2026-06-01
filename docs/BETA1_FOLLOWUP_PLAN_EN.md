@@ -426,6 +426,7 @@ The follow-up items are grouped into PRs for focused review:
 | M | Vite v6 dependency fix and blocking frontend audit | Item 17 | Implemented |
 | N | YAML dependency migration: serde_yaml to serde_yml | Item 18 | Implemented |
 | O | WebView CSP hardening | Item 19 | Implemented |
+| P | TEST-01 smoke gate checklist and script | TEST-01 | Implemented |
 
 ---
 
@@ -517,11 +518,19 @@ impact on the production Tauri desktop binary.
 
 ### Before beta release checklist
 
-**TEST-01** — End-to-end smoke test: open example repo, render rack, close cleanly.
+**TEST-01** ✅ Gate prepared — `docs/BETA1_SMOKE_TEST_EN.md`
 
-Run TEST-01 immediately before the beta release checklist. It is not a numbered
-implementation PR — it is a manual or semi-automated gate performed by the
-release engineer when all hardening PRs are merged and the build is candidate-ready.
+Run TEST-01 immediately before the beta release checklist. It is not an
+implementation PR that changes application behaviour — it is a structured,
+partially-automated gate performed by the release engineer when all hardening
+PRs are merged and the build is candidate-ready.
+
+The gate has two layers:
+1. **Automated** — `pnpm smoke:beta` (version consistency, hygiene, script tests,
+   frontend typecheck + vitest, production build sanity check). Must exit 0.
+2. **Manual** — follow the checklist in `docs/BETA1_SMOKE_TEST_EN.md` step-by-step
+   (app launch, UI walk, create/open repo, data persistence, dirty guard, Git
+   push/pull on a safe test repo, log check).
 
 ### Can wait (post-beta.2)
 
