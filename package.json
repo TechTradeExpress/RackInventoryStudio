@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.1.0-beta.1",
   "packageManager": "pnpm@10.33.4",
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  },
   "scripts": {
     "dev": "pnpm --filter @rack-inventory-studio/desktop dev",
     "build": "pnpm --filter @rack-inventory-studio/desktop build",
