@@ -423,6 +423,7 @@ The follow-up items are grouped into PRs for focused review:
 | J | Atomic YAML writes and writer path containment (DATA-01, SEC-02) | Item 14 | Implemented |
 | K | Git error credential redaction (SEC-03) | Item 15 | Implemented |
 | L | Supply/dependency visibility (Dependabot + cargo-audit + pnpm audit) | Item 16 | Implemented |
+| M | Vite v6 dependency fix and blocking frontend audit | Item 17 | Implemented |
 
 ---
 
@@ -494,20 +495,21 @@ Items to resolve before the 0.1.0-beta.2 release:
 | SEC-03 | Diagnostics redaction: scrub secrets and paths from diagnostic output | ✅ Implemented (PR K) |
 | SUPPLY-01 | Dependency visibility: Dependabot, cargo-audit, pnpm audit in CI | ✅ Implemented (PR L) |
 
-### Known findings from initial audit run (PR L)
+### Known findings from initial audit run (PR L) — ✅ Resolved (PR M)
 
 **Frontend audit** (PR L first run): `pnpm audit` found 2 moderate advisories
-in development dependencies. Both are Vite dev-server vulnerabilities with no
+in development dependencies. Both were Vite dev-server vulnerabilities with no
 impact on the production Tauri desktop binary.
 
-| Package | Version | Advisory | Fix |
+| Package | Before (PR L) | Advisory | After (PR M) |
 |---|---|---|---|
-| `vite` | 5.4.21 | Path traversal in `.map` handling (GHSA-4w7w-66w2-5vf9) | Upgrade to ≥6.4.2 (vite v6 major) |
-| `esbuild` | 0.21.5 (transitive) | Dev server SSRF (GHSA-67mh-4wv8-2f99) | Fixed by vite upgrade |
+| `vite` | 5.4.21 | Path traversal in `.map` handling (GHSA-4w7w-66w2-5vf9) | ✅ 6.4.2 |
+| `esbuild` | 0.21.5 (transitive) | Dev server SSRF (GHSA-67mh-4wv8-2f99) | ✅ 0.25.12 (via vite v6) |
 
-Follow-up: open a `chore(deps): upgrade vite to v6` PR (or let Dependabot open
-it), test the build pipeline, and remove `continue-on-error: true` from
-`frontend-audit` in `.github/workflows/dependency-audit.yml` after verification.
+**PR M resolution**: `vite` upgraded to `6.4.2`; `vitest` upgraded to `3.2.4`
+(required for vite v6 compatibility); `continue-on-error: true` removed from
+`frontend-audit` job — the frontend audit is now blocking. `pnpm audit
+--audit-level moderate` confirms: **No known vulnerabilities found**.
 
 **Rust audit** (PR L first run): No advisories found. ✅
 
@@ -676,3 +678,35 @@ The current state of the dependency tree is not known at PR L authoring time
 non-blocking on first introduction is the safe default: it ensures findings are
 always visible without risking a hard CI breakage due to an unfixed upstream
 advisory. Dependabot PRs provide the path to resolving findings incrementally.
+
+---
+
+## 17. Vite v6 dependency fix and blocking frontend audit — PR M ✅ IMPLEMENTED
+
+**Motivation**: Two moderate advisories found by the PR L audit run:
+- `vite@5.4.21` — GHSA-4w7w-66w2-5vf9 (path traversal in dev server `.map` handling)
+- `esbuild@0.21.5` (transitive via vite) — GHSA-67mh-4wv8-2f99 (SSRF in dev server)
+
+Both affected only the Vite development server, not the production Tauri build. Fix: upgrade to vite `^6.4.2`.
+
+**Changes** (branch `chore/upgrade-vite-v6`):
+
+- **`apps/desktop/package.json`**: `vite` `^5.4.0` → `^6.4.2`; `vitest` `^2.1.9` → `^3.2.4`.
+  `vitest@3.x` is required because `vitest@2.x` depends on `vite@^5` and does not
+  support vite v6 natively. `@vitejs/plugin-react` kept at `^4.3.0` (already resolves
+  to 4.7.0 which supports vite v6 via peerDeps `^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0`).
+
+- **`package.json`** (root): Added `pnpm.onlyBuiltDependencies: ["esbuild"]`. Required
+  in pnpm v9+ to allow esbuild's postinstall script (which downloads the platform binary)
+  to run. Without this, pnpm silently skips the build script and the esbuild binary is
+  not installed, breaking the vite build.
+
+- **`pnpm-lock.yaml`**: Updated to resolve `vite@6.4.2`, `vitest@3.2.4`, `esbuild@0.25.12`.
+
+- **`.github/workflows/dependency-audit.yml`**: Removed `continue-on-error: true` from
+  `frontend-audit` job. Frontend dependency audit is now a blocking CI check. The
+  `working-directory: apps/desktop` step was also removed since `pnpm audit` from the
+  workspace root covers all workspace packages.
+
+**Verification**: `pnpm audit --audit-level moderate` → **No known vulnerabilities found**.
+All 42 test files / 539 tests pass with vitest@3.2.4 and vite@6.4.2.
