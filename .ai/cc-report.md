@@ -1,152 +1,83 @@
-# CC Report -- PR P (rev 2): TEST-01 Beta Smoke Gate
-
 ## Summary
 
-Adds TEST-01 -- a structured, partially-automated smoke gate to be run before
-the beta release checklist. Does not change any application logic, data schemas,
-Git behaviour, or CI configuration.
+Fixes two beta.2 release blockers:
 
-Rev 2 fixes four issues identified in review:
-1. **Blocker 1**: `vitest < 4.1.0` critical vulnerability (GHSA-5xrq-8626-4rwp)
-   fixed by upgrading vitest to 4.1.8. `environmentMatchGlobs` (removed in
-   vitest 4.x) replaced with per-file `// @vitest-environment jsdom` annotations.
-2. **Blocker 2**: Smoke test checklist now uses a disposable copy of
-   `examples/example-repository` for all mutating steps. Tracked fixture is
-   never modified. Project repo cleanliness check added at the end.
-3. **Blocker 3**: "Manage racks" button reference removed. Checklist now correctly
-   says to click the location row.
-4. **Cleanup 1**: Script tests now discover all `scripts/*.test.mjs` files
-   dynamically instead of hardcoding one filename.
-5. **Cleanup 2**: All non-ASCII / decorative Unicode removed from
-   `scripts/smoke-beta-gate.mjs`. Output uses plain ASCII only.
+1. **NSIS installer/uninstaller false "running" prompt** — Replaced the bundler-supplied
+   `CheckIfAppIsRunning` macro with a custom `RisCheckIfRunning` macro in
+   `apps/desktop/src-tauri/nsis/main.nsi`. The custom macro calls
+   `nsis_tauri_utils::FindProcess` directly and only shows the dialog when the
+   process is verifiably running (return value `1`). Fresh installs and
+   post-close uninstalls are now silent.
+
+2. **OS X button does not close the app** — Fixed the `onCloseRequested` handler
+   in `apps/desktop/src/App.tsx`. The previous code returned early without
+   calling `event.preventDefault()` when there were no unsaved changes, relying
+   on Tauri's implicit default close — which does not work reliably in all
+   Tauri v2 environments. The handler now always calls `event.preventDefault()`
+   and explicitly calls `getCurrentWindow().destroy()`. A `closingRef` guard
+   prevents re-entrant invocations (e.g., rapid double-click on X).
 
 ## Files changed
 
 | File | Change |
 |---|---|
-| `docs/BETA1_SMOKE_TEST_EN.md` | Rewritten: disposable copy pattern, correct Locations UX (click row), ASCII-only, project cleanliness check added |
-| `scripts/smoke-beta-gate.mjs` | Fixed: ASCII-only output, dynamic script test discovery |
-| `apps/desktop/package.json` | `vitest` `^3.2.4` -> `^4.1.8` (fixes GHSA-5xrq-8626-4rwp) |
-| `apps/desktop/vite.config.ts` | Removed `environmentMatchGlobs` (removed in vitest 4.x) |
-| `apps/desktop/pnpm-lock.yaml` | Updated for vitest 4.1.8 |
-| `apps/desktop/src/components/ui/ConfirmDialog.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/components/ui/UnsavedChangesDialog.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/components/ui/Segmented.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/components/ui/Modal.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/csvImport/CsvImportPanel.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/devices/DeviceFormModal.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/deviceModels/DeviceModelFormModal.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/devices/DevicesPanel.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/locations/LocationFormModal.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/locations/LocationsPanel.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/racks/EditPlacementModal.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/racks/PlacePlacementModal.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/racks/RackFormModal.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/racks/PlacementPalettePanel.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/racks/RackUnitDiagram.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/repository/CreateRepositoryWizard.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/repository/RepositoryPanel.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/repository/SshPassphraseModal.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/racks/RacksPanel.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/validation/ValidationPanel.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/lib/unsavedGuard.test.ts` | Added `// @vitest-environment jsdom` |
-| `docs/BETA1_FOLLOWUP_PLAN_EN.md` | TEST-01 marked as gate prepared; PR P row added (from rev 1) |
-| `package.json` | Added `smoke:beta` pnpm script (from rev 1) |
-| `.ai/cc-report.md` | This file |
+| `apps/desktop/src/App.tsx` | Added `closingRef`; rewrote `onCloseRequested` to always `preventDefault` and explicitly call `destroy()` |
+| `apps/desktop/src-tauri/nsis/main.nsi` | Added custom `RisCheckIfRunning` macro; replaced both `CheckIfAppIsRunning` calls |
+| `apps/desktop/src/App.close.test.tsx` | New test file -- 12 tests for OS X button close path (no unsaved changes, unsaved changes, re-entrancy guard) |
+| `docs/BETA1_SMOKE_TEST_EN.md` | Added sections 6.14 (OS X close) and 6.15 (installer prompt); added two rows to blocker table |
 
 ## Tests
 
 ```
-git diff --check
+npx pnpm@10.33.4 --filter "@rack-inventory-studio/desktop" exec vitest run
 ```
-Clean.
 
-```
-node scripts/check-version-consistency.mjs
-```
-Pass -- 0.1.0-beta.1 consistent.
-
-```
-node --test scripts/*.test.mjs
-```
-17/17 pass.
-
-```
-node scripts/check-repo-hygiene.mjs
-```
-All 8 hygiene checks pass.
-
-```
-cargo fmt --all --check
-```
-Clean (no Rust changes).
-
-```
-cargo check --workspace
-```
-Pass.
-
-```
-cargo test --workspace
-```
-All pass, 0 failures.
-
-```
-cargo clippy --workspace -- -D warnings
-```
-Clean (no Rust changes).
+Result: **547 tests passed** across 43 test files (12 new in `App.close.test.tsx`).
 
 ```
 npx pnpm@10.33.4 -C apps/desktop exec tsc --noEmit
 ```
-No type errors.
+
+Result: **clean** (no errors).
 
 ```
-npx pnpm@10.33.4 --filter @rack-inventory-studio/desktop exec vitest run
+npx pnpm@10.33.4 --filter "@rack-inventory-studio/desktop" exec vite build
 ```
-42 test files, 539 tests -- all pass (vitest 4.1.8).
+
+Result: **success** (303 kB JS, 22 kB CSS, no inline scripts or styles).
 
 ```
-npx pnpm@10.33.4 --filter @rack-inventory-studio/desktop exec vite build
+node --test scripts/*.test.mjs
 ```
-Production build succeeds. `dist/index.html` verified: no inline scripts, no inline styles.
 
-```
-node scripts/smoke-beta-gate.mjs
-```
-7/7 automated checks passed. Manual checklist printed.
-
-## GitHub checks status (after push)
-
-| Check | Status |
-|---|---|
-| Frontend dependency audit | Pending (was: FAIL -- vitest < 4.1.0; fixed by upgrade) |
-| Rust dependency audit | Expected: pass |
-| Frontend checks | Expected: pass |
-| Rust workspace | Expected: pass |
-| Script and hygiene | Expected: pass |
-| Version consistency | Expected: pass |
-| Workflow lint | Expected: pass |
+Result: **17 pass**.
 
 ## Risks
 
-- **vitest 4.x migration**: `environmentMatchGlobs` was removed in vitest 4.x.
-  The fix (per-file `// @vitest-environment jsdom` annotations) touches 21 test
-  files but is the canonical vitest 4.x approach. All 539 tests pass.
-- **GHSA-5xrq-8626-4rwp scope**: The vulnerability only triggers when the Vitest
-  UI server is running (`vitest --ui`). This project never uses the UI server.
-  The upgrade to 4.1.8 is the correct fix regardless.
-- **pnpm not on PATH**: The script auto-detects pnpm. Falls back to
-  `npx pnpm@VERSION` when pnpm is not on PATH.
+- **NSIS macro untested locally**: The `RisCheckIfRunning` macro cannot be compiled
+  without the Windows NSIS toolchain. The logic is straightforward NSIS using
+  the same `nsis_tauri_utils` plugin already bundled by Tauri, but it will only
+  be validated when the Windows Installer CI workflow runs.
+- **`FindProcess` return value**: The macro assumes `nsis_tauri_utils::FindProcess`
+  returns `1` when the process is found and `0` (or negative) otherwise, consistent
+  with the Tauri source for `nsis-tauri-utils`. If the plugin version bundled by
+  the project uses a different convention, the guard would behave incorrectly.
+- **Tauri v2 `destroy()` event loop**: Calling `destroy()` from inside
+  `onCloseRequested` should be safe per Tauri v2 docs, but it has not been tested
+  with a full Tauri build in this session (only unit-tested with mocks).
 
 ## Not done
 
-- Playwright / full Tauri E2E automation -- out of scope.
-- GitHub Actions SHA pinning -- post-beta.2, tracked in plan.
-- Askpass constant-time comparison -- post-beta.2, tracked in plan.
+- Full end-to-end test on a Windows 11 machine with the NSIS installer -- this
+  requires the Windows Installer CI workflow and a real Tauri build.
+- The `UnsavedChangesDialog` cancel path in the OS-close flow relies on the same
+  `unsavedGuardResolveRef` mechanism tested in `App.guard.test.tsx`; no separate
+  integration test was added for that path in `App.close.test.tsx` beyond what the
+  "Cancel" test already covers.
 
 ## Suggested next step
 
-Wait for CI to confirm all checks green on PR #112, then sign off and merge.
-Then run `pnpm smoke:beta` followed by `docs/BETA1_SMOKE_TEST_EN.md` on a
-developer machine before cutting the release branch.
+Merge this PR and trigger the Windows Installer workflow on the branch to validate
+the NSIS macro change in a real NSIS compile. If the build succeeds and the false
+prompt is gone on a manual smoke check, the branch is ready to proceed toward the
+beta.2 release gate.

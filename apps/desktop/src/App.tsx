@@ -101,6 +101,8 @@ export function App() {
   // Always-current value of hasUnsavedChanges; used in effects with stable closures.
   const hasUnsavedChangesRef = useRef(hasUnsavedChanges);
   hasUnsavedChangesRef.current = hasUnsavedChanges;
+  // Prevents re-entrant close handling while destroy() is in flight.
+  const closingRef = useRef(false);
 
   const isOpen = summary !== null;
 
@@ -175,24 +177,37 @@ export function App() {
   }, []);
 
   // Guard window close when there are unsaved changes.
+  // Always calls event.preventDefault() and manages the close explicitly via
+  // destroy() so the window closes reliably in all Tauri v2 environments.
   useEffect(() => {
     if (!isTauri()) return;
     let unlisten: (() => void) | undefined;
     getCurrentWindow()
       .onCloseRequested(async (event) => {
-        if (!hasUnsavedChangesRef.current) return;
         event.preventDefault();
-        const action = await openGuardDialog();
-        if (action === "cancel") return;
-        // 'save' means save already completed successfully in handleGuardSave.
-        // 'discard' or 'save' both result in closing the window.
-        await getCurrentWindow().destroy();
+        if (closingRef.current) return;
+        closingRef.current = true;
+        try {
+          if (hasUnsavedChangesRef.current) {
+            const action = await openGuardDialog();
+            if (action === "cancel") {
+              closingRef.current = false;
+              return;
+            }
+            // 'save' means save already completed in handleGuardSave.
+            // 'discard' or 'save' both proceed to close.
+          }
+          await getCurrentWindow().destroy();
+        } catch {
+          closingRef.current = false;
+        }
       })
       .then((fn) => {
         unlisten = fn;
       });
     return () => {
       unlisten?.();
+      closingRef.current = false;
     };
   }, [openGuardDialog]);
 
