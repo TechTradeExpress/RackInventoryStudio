@@ -9,13 +9,17 @@ Fixes two beta.2 release blockers:
    process is verifiably running (return value `1`). Fresh installs and
    post-close uninstalls are now silent.
 
-2. **OS X button does not close the app** — Fixed the `onCloseRequested` handler
-   in `apps/desktop/src/App.tsx`. The previous code returned early without
-   calling `event.preventDefault()` when there were no unsaved changes, relying
-   on Tauri's implicit default close — which does not work reliably in all
-   Tauri v2 environments. The handler now always calls `event.preventDefault()`
-   and explicitly calls `getCurrentWindow().destroy()`. A `closingRef` guard
-   prevents re-entrant invocations (e.g., rapid double-click on X).
+2. **OS window close button does not close the app** — Fixed the `onCloseRequested`
+   handler in `apps/desktop/src/App.tsx`. The previous code returned early without
+   calling `event.preventDefault()` when there were no unsaved changes, relying on
+   Tauri's implicit default close — which does not work reliably in all Tauri v2
+   environments. The handler now always calls `event.preventDefault()` and explicitly
+   calls `getCurrentWindow().destroy()`. A `closingRef` guard prevents re-entrant
+   invocations (e.g., rapid double-click on the system title-bar X button).
+
+Also fixed two documentation issues in `docs/BETA1_SMOKE_TEST_EN.md`:
+- Removed a duplicate `---` separator between sections 6.16 and 7.
+- Changed "OS X button" to "OS window close button" in the blockers table.
 
 ## Files changed
 
@@ -23,61 +27,68 @@ Fixes two beta.2 release blockers:
 |---|---|
 | `apps/desktop/src/App.tsx` | Added `closingRef`; rewrote `onCloseRequested` to always `preventDefault` and explicitly call `destroy()` |
 | `apps/desktop/src-tauri/nsis/main.nsi` | Added custom `RisCheckIfRunning` macro; replaced both `CheckIfAppIsRunning` calls |
-| `apps/desktop/src/App.close.test.tsx` | New test file -- 12 tests for OS X button close path (no unsaved changes, unsaved changes, re-entrancy guard) |
-| `docs/BETA1_SMOKE_TEST_EN.md` | Added sections 6.14 (OS X close) and 6.15 (installer prompt); added two rows to blocker table |
+| `apps/desktop/src/App.close.test.tsx` | New test file -- 12 tests for OS window close path (no unsaved changes, unsaved changes, re-entrancy guard) |
+| `docs/BETA1_SMOKE_TEST_EN.md` | Added sections 6.14 (OS window close) and 6.15 (installer prompt); fixed duplicate separator; fixed blocker table wording |
+
+## PR
+
+https://github.com/TechTradeExpress/RackInventoryStudio/pull/115
+
+## Git status before push
+
+```
+On branch bugfix/beta2-installer-close-blockers
+Changes to be committed:
+  modified:   .ai/cc-report.md
+  modified:   docs/BETA1_SMOKE_TEST_EN.md
+```
 
 ## Tests
 
-```
-npx pnpm@10.33.4 --filter "@rack-inventory-studio/desktop" exec vitest run
-```
+All checks passed on the local environment (Linux, Node 18, Rust 1.95.0).
 
-Result: **547 tests passed** across 43 test files (12 new in `App.close.test.tsx`).
+| Check | Result |
+|---|---|
+| `git diff --check` | clean |
+| `node scripts/check-version-consistency.mjs` | 0.1.0-beta.1 across all 4 sources |
+| `node --test scripts/*.test.mjs` | 17 pass |
+| `node scripts/check-repo-hygiene.mjs` | 8/8 pass |
+| `cargo fmt --all -- --check` | clean |
+| `cargo check --workspace` | clean |
+| `cargo test --workspace` | 0 failures |
+| `cargo clippy --workspace -- -D warnings` | clean |
+| `npx pnpm@10.33.4 -C apps/desktop exec tsc --noEmit` | clean |
+| `npx pnpm@10.33.4 --filter @rack-inventory-studio/desktop exec vitest run` | 547 pass (43 files) |
+| `npx pnpm@10.33.4 --filter @rack-inventory-studio/desktop exec vite build` | 303 kB JS, 22 kB CSS -- no inline scripts or styles |
 
-```
-npx pnpm@10.33.4 -C apps/desktop exec tsc --noEmit
-```
+## Windows NSIS build
 
-Result: **clean** (no errors).
-
-```
-npx pnpm@10.33.4 --filter "@rack-inventory-studio/desktop" exec vite build
-```
-
-Result: **success** (303 kB JS, 22 kB CSS, no inline scripts or styles).
-
-```
-node --test scripts/*.test.mjs
-```
-
-Result: **17 pass**.
+**Not possible locally.** The NSIS toolchain and `nsis_tauri_utils.dll` are only
+available in the Windows Installer CI workflow. The `RisCheckIfRunning` macro
+logic is straightforward NSIS using the same plugin already bundled by Tauri, but
+the macro must be validated by triggering the Windows Installer workflow on this
+branch after the PR is merged.
 
 ## Risks
 
-- **NSIS macro untested locally**: The `RisCheckIfRunning` macro cannot be compiled
-  without the Windows NSIS toolchain. The logic is straightforward NSIS using
-  the same `nsis_tauri_utils` plugin already bundled by Tauri, but it will only
-  be validated when the Windows Installer CI workflow runs.
-- **`FindProcess` return value**: The macro assumes `nsis_tauri_utils::FindProcess`
-  returns `1` when the process is found and `0` (or negative) otherwise, consistent
-  with the Tauri source for `nsis-tauri-utils`. If the plugin version bundled by
-  the project uses a different convention, the guard would behave incorrectly.
-- **Tauri v2 `destroy()` event loop**: Calling `destroy()` from inside
-  `onCloseRequested` should be safe per Tauri v2 docs, but it has not been tested
-  with a full Tauri build in this session (only unit-tested with mocks).
+- **`FindProcess` return value convention**: The macro assumes `nsis_tauri_utils::FindProcess`
+  returns `1` when found, `0` (or negative) when not found -- consistent with the
+  Tauri `nsis-tauri-utils` source. If the bundled plugin version uses a different
+  convention, the guard logic would be inverted.
+- **Tauri v2 `destroy()` from within `onCloseRequested`**: Confirmed safe by Tauri v2
+  docs, but only unit-tested with mocks in this session. Full validation requires a
+  Tauri dev-mode build on Windows.
 
-## Not done
+## Manual QA steps after Windows installer build
 
-- Full end-to-end test on a Windows 11 machine with the NSIS installer -- this
-  requires the Windows Installer CI workflow and a real Tauri build.
-- The `UnsavedChangesDialog` cancel path in the OS-close flow relies on the same
-  `unsavedGuardResolveRef` mechanism tested in `App.guard.test.tsx`; no separate
-  integration test was added for that path in `App.close.test.tsx` beyond what the
-  "Cancel" test already covers.
+1. Fresh install on Windows 11 -- verify no "running" prompt appears.
+2. Close app, run installer again (update) -- verify no prompt.
+3. Launch app, run installer without closing -- verify prompt appears; click OK; verify installer proceeds.
+4. Launch app in dev mode (`pnpm dev`); click system title-bar X with no unsaved changes -- verify app closes immediately.
+5. Open repo, add a location (do not save), click X -- verify guard dialog appears; Cancel keeps app open; X again + "Continue without saving" closes app.
 
 ## Suggested next step
 
-Merge this PR and trigger the Windows Installer workflow on the branch to validate
-the NSIS macro change in a real NSIS compile. If the build succeeds and the false
-prompt is gone on a manual smoke check, the branch is ready to proceed toward the
-beta.2 release gate.
+Merge PR #115, trigger the Windows Installer CI workflow, and run the manual QA
+steps above. If the NSIS build and installer smoke pass, the branch is clear for
+the beta.2 release gate.

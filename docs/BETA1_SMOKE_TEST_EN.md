@@ -321,8 +321,6 @@ If any project files were accidentally modified, review and revert before taggin
 
 ---
 
----
-
 ## 7. Blockers vs. non-blockers
 
 ### Release blockers (fix before tagging beta)
@@ -335,7 +333,7 @@ If any project files were accidentally modified, review and revert before taggin
 | Panic or unhandled Rust error visible in UI | |
 | Log contains password, token, or passphrase | |
 | Dirty guard does not fire before close | |
-| OS X button does not close the app | Window close broken |
+| OS window close button does not close the app | Window close broken |
 | Installer shows false "running" prompt | Blocks fresh installs |
 | Production build has inline scripts or styles | CSP regression |
 | Cargo test failures | |
