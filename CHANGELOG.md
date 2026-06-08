@@ -24,6 +24,12 @@
 
 ### Fixed
 
+- **Windows window close button now works**: Added `core:window:allow-close` and
+  `core:window:allow-destroy` to `capabilities/default.json`. Without these entries
+  Tauri v2's IPC permission system silently rejected `destroy()` calls, preventing
+  the system title-bar X button from closing the app. The `onCloseRequested` handler
+  now also logs any future `destroy()` failures via the diagnostics log instead of
+  swallowing them silently.
 - Windows rack placement drag-and-drop compatibility: `dragDropEnabled: false` in
   Tauri window config prevents WebView2 from intercepting HTML5 DnD events; payload
   now written to both custom MIME type and `text/plain` fallback.

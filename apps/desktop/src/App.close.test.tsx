@@ -1,4 +1,8 @@
 // @vitest-environment jsdom
+// NOTE: These unit tests mock getCurrentWindow().destroy() as a resolved/rejected
+// Promise. They do NOT validate real Tauri capability permission checks.
+// Full validation of the window close fix requires a Windows Tauri build and
+// manual smoke testing (see docs/BETA1_SMOKE_TEST_EN.md section 6.14).
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
 import { AppBusyProvider } from "./lib/appBusy";
@@ -9,6 +13,7 @@ const {
   closeHandlerCapture,
   mockDestroy,
   mockOnCloseRequested,
+  mockLogError,
   mockListen,
   mockOpenRepository,
   mockCloseRepository,
@@ -26,6 +31,7 @@ const {
     closeHandlerCapture: capture,
     mockDestroy,
     mockOnCloseRequested,
+    mockLogError: vi.fn(),
     mockListen: vi.fn().mockResolvedValue(() => {}),
     mockOpenRepository: vi.fn(),
     mockCloseRepository: vi.fn(),
@@ -58,7 +64,7 @@ vi.mock("./features/repository/recentRepositories", () => ({
 }));
 
 vi.mock("./lib/diagnosticsLog", () => ({
-  logError: vi.fn(),
+  logError: mockLogError,
   logInfo: vi.fn(),
   logWarn: vi.fn(),
 }));
@@ -146,7 +152,7 @@ afterEach(() => cleanup());
 
 // ── OS window close: no unsaved changes ──────────────────────────────────────
 
-describe("OS window X button — no unsaved changes", () => {
+describe("OS window close button — no unsaved changes", () => {
   it("registers an onCloseRequested handler when in Tauri", async () => {
     renderApp();
     await waitFor(() => expect(mockOnCloseRequested).toHaveBeenCalled());
@@ -198,7 +204,7 @@ async function openRepoAndMarkDirty() {
   await waitFor(() => expect(screen.getByText(/Unsaved inventory changes/)).toBeTruthy());
 }
 
-describe("OS window X button — unsaved changes", () => {
+describe("OS window close button — unsaved changes", () => {
   it("shows the guard dialog and does not destroy immediately", async () => {
     await openRepoAndMarkDirty();
     await waitFor(() => expect(closeHandlerCapture.current).toBeTruthy());
@@ -244,8 +250,8 @@ describe("OS window X button — unsaved changes", () => {
     const handler = closeHandlerCapture.current!;
     const event = { preventDefault: vi.fn() };
 
-    // First call initiates close (no unsaved changes path)
-    // Second call arrives before destroy() resolves — should be ignored
+    // First call initiates close (no unsaved changes path).
+    // Second call arrives before destroy() resolves — should be ignored.
     let resolveDestroy!: () => void;
     mockDestroy.mockReturnValueOnce(new Promise<void>((res) => { resolveDestroy = res; }));
 
@@ -258,5 +264,40 @@ describe("OS window X button — unsaved changes", () => {
 
     // destroy() called exactly once
     expect(mockDestroy).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── destroy() rejection handling ─────────────────────────────────────────────
+
+describe("OS window close button — destroy() rejection", () => {
+  it("logs the error when destroy() rejects", async () => {
+    renderApp();
+    await waitFor(() => expect(closeHandlerCapture.current).toBeTruthy());
+
+    mockDestroy.mockRejectedValueOnce(new Error("Forbidden: core:window:allow-destroy not granted"));
+
+    await simulateCloseRequest();
+
+    expect(mockLogError).toHaveBeenCalledWith(
+      expect.stringContaining("window close failed"),
+    );
+  });
+
+  it("resets closingRef after destroy() rejection so a retry is possible", async () => {
+    renderApp();
+    await waitFor(() => expect(closeHandlerCapture.current).toBeTruthy());
+
+    // First attempt — destroy() rejects
+    mockDestroy.mockRejectedValueOnce(new Error("permission denied"));
+    await simulateCloseRequest();
+
+    expect(mockLogError).toHaveBeenCalledTimes(1);
+    expect(mockDestroy).toHaveBeenCalledTimes(1);
+
+    // Second attempt — destroy() succeeds; closingRef must have been reset
+    mockDestroy.mockResolvedValueOnce(undefined);
+    await simulateCloseRequest();
+
+    expect(mockDestroy).toHaveBeenCalledTimes(2);
   });
 });

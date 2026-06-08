@@ -198,8 +198,11 @@ export function App() {
             // 'discard' or 'save' both proceed to close.
           }
           await getCurrentWindow().destroy();
-        } catch {
+        } catch (error) {
+          // destroy() rejected — likely a missing capability permission.
+          // Reset so the user can retry; log for diagnostics.
           closingRef.current = false;
+          logError(`window close failed: ${sanitizeErrorForLog(error)}`);
         }
       })
       .then((fn) => {
