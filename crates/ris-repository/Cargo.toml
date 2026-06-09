@@ -9,7 +9,7 @@ ris-core = { path = "../ris-core" }
 serde = { version = "1", features = ["derive"] }
 serde_yml = "0.0.13"
 tempfile = "3"
-thiserror = "1"
+thiserror = "2"
 
 [dev-dependencies]
 

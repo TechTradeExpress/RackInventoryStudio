@@ -2802,7 +2802,7 @@ dependencies = [
  "serde",
  "serde_yml",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "uuid",
 ]
 
@@ -2834,7 +2834,7 @@ dependencies = [
  "serde",
  "serde_yml",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -2844,7 +2844,7 @@ dependencies = [
  "regex",
  "ris-core",
  "ris-repository",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "uuid",
 ]
 
