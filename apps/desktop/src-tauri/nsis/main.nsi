@@ -570,33 +570,12 @@ Section WebView2
   ${EndIf}
 SectionEnd
 
-; -- RisCheckIfRunning ---------------------------------------------------------
-; Custom replacement for the bundler-supplied CheckIfAppIsRunning macro.
-; FindProcess returns 1 when the process is found, 0 when it is not.
-; We only prompt when the app is verifiably running so fresh installs are silent.
-!macro RisCheckIfRunning MACRO_UNIQ
-  nsis_tauri_utils::FindProcess "${MAINBINARYNAME}.exe"
-  Pop $R0
-  IntCmp $R0 1 ris_running_${MACRO_UNIQ} ris_done_${MACRO_UNIQ} ris_done_${MACRO_UNIQ}
-  ris_running_${MACRO_UNIQ}:
-  MessageBox MB_OKCANCEL|MB_ICONEXCLAMATION \
-    "${PRODUCTNAME} is currently running.$\n$\nPlease close it before continuing, or click OK to close it automatically." \
-    /SD IDOK IDCANCEL ris_abort_${MACRO_UNIQ}
-  nsis_tauri_utils::KillProcess "${MAINBINARYNAME}.exe"
-  Pop $R0
-  Sleep 2000
-  Goto ris_done_${MACRO_UNIQ}
-  ris_abort_${MACRO_UNIQ}:
-  Abort
-  ris_done_${MACRO_UNIQ}:
-!macroend
-
 Section Install
   SetOutPath $INSTDIR
   !ifmacrodef NSIS_HOOK_PREINSTALL
     !insertmacro NSIS_HOOK_PREINSTALL
   !endif
-  !insertmacro RisCheckIfRunning "install"
+  !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
   ; Copy main executable
   File "${MAINBINARYSRCPATH}"
   ; Copy resources
@@ -707,7 +686,7 @@ Section Uninstall
   !ifmacrodef NSIS_HOOK_PREUNINSTALL
     !insertmacro NSIS_HOOK_PREUNINSTALL
   !endif
-  !insertmacro RisCheckIfRunning "uninstall"
+  !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
   ; Delete the app directory and its content from disk
   ; Copy main executable
   Delete "$INSTDIR\${MAINBINARYNAME}.exe"

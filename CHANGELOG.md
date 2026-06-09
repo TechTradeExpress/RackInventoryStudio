@@ -24,6 +24,11 @@
 
 ### Fixed
 
+- **Fixed false Windows installer "app is currently running" prompt**: Restored
+  Tauri's canonical `CheckIfAppIsRunning` NSIS macro. The custom `RisCheckIfRunning`
+  macro introduced in beta.2 had inverted `nsis_tauri_utils::FindProcess` return value
+  logic (`FindProcess` returns `0` when found, not `1`), causing the prompt to appear
+  on every fresh install or update when the app was not running.
 - **Windows window close button now works**: Added `core:window:allow-close` and
   `core:window:allow-destroy` to `capabilities/default.json`. Without these entries
   Tauri v2's IPC permission system silently rejected `destroy()` calls, preventing

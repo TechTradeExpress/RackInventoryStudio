@@ -2,53 +2,57 @@
 
 Fixes two beta.2 release blockers on branch `bugfix/beta2-installer-close-blockers` (PR #115).
 
-### Blocker 1 — NSIS installer false "running" prompt
+### Blocker 1 — NSIS installer false "running" prompt (root cause confirmed, reverted)
 
-Replaced the bundler-supplied `CheckIfAppIsRunning` macro with a custom `RisCheckIfRunning`
-macro in `apps/desktop/src-tauri/nsis/main.nsi`. The macro calls
-`nsis_tauri_utils::FindProcess` directly and only shows the dialog when the process is
-verifiably running. Fresh installs and post-close uninstalls are silent.
+**Root cause verified** by fetching the canonical Tauri bundler source
+(`crates/tauri-bundler/src/bundle/windows/nsis/utils.nsh` via GitHub API):
 
-### Blocker 2 — OS window close button does not close the app (root cause confirmed)
+`nsis_tauri_utils::FindProcess` returns `0` when the process IS found (running),
+and non-zero when the process is NOT found. The canonical macro checks `${If} $R0 = 0`
+to detect a running process.
 
-Root cause verified via `apps/desktop/src-tauri/gen/schemas/acl-manifests.json`:
+The custom `RisCheckIfRunning` macro introduced in commit `9bf25e5` had this inverted:
+it checked `IntCmp $R0 1 ris_running...` — triggering the prompt and kill path when
+`$R0 = 1`, i.e., when the process was NOT running. This caused the false prompt on
+every fresh install or reinstall after the app was closed.
 
-`core:window:default` (included transitively via `core:default`) grants only read-only
-getter permissions — it does **not** include `allow-destroy` or `allow-close`.
+**Fix:** Removed `RisCheckIfRunning` entirely. Both call sites (Section Install and
+Section Uninstall) now use the canonical bundler macro:
+```
+!insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
+```
+`utils.nsh` is provided by the Tauri bundler at build time and handles all edge cases:
+correct `FindProcess` convention, currentUser install mode, silent/passive mode,
+localized strings, kill success/failure flow.
 
-In Tauri v2 the `getCurrentWindow().destroy()` call issues IPC command
-`plugin:window|destroy`, which is gated by `core:window:allow-destroy`. Without this
-permission Tauri silently rejects the call. The previous `catch {}` swallowed the
-rejection, making the bug invisible in logs.
+### Blocker 2 — OS window close button (capability fix preserved, unchanged)
 
-**Fix applied:**
-1. Added `core:window:allow-close` and `core:window:allow-destroy` to
-   `apps/desktop/src-tauri/capabilities/default.json` — minimal allow-list, no wildcards.
-2. Replaced empty `catch {}` with `catch (error)` that calls
-   `logError(\`window close failed: ${sanitizeErrorForLog(error)}\`)` and resets
-   `closingRef.current = false` so a retry is possible.
+`core:window:allow-close` and `core:window:allow-destroy` remain in
+`apps/desktop/src-tauri/capabilities/default.json`. The `onCloseRequested` handler
+in `App.tsx` logs `destroy()` failures via `logError` instead of swallowing them.
+No changes to this fix in this revision.
 
 ## PR
 
 https://github.com/TechTradeExpress/RackInventoryStudio/pull/115
 
-## Files changed
+## Files changed in this revision
 
 | File | Change |
 |---|---|
-| `apps/desktop/src-tauri/capabilities/default.json` | Added `core:window:allow-close` and `core:window:allow-destroy` |
-| `apps/desktop/src/App.tsx` | `catch {}` → `catch (error)` with `logError` + `closingRef` reset |
-| `apps/desktop/src/App.close.test.tsx` | Added destroy-rejection tests; `mockLogError` captured in `vi.hoisted`; added NOTE comment about mock limitations |
-| `apps/desktop/src-tauri/nsis/main.nsi` | Custom `RisCheckIfRunning` macro (from previous commit) |
-| `scripts/check-capabilities.test.mjs` | New guard test: asserts `core:window:allow-destroy` and `core:window:allow-close` are present in capabilities |
-| `CHANGELOG.md` | Added Fixed entry for window close button |
-| `docs/BETA1_SMOKE_TEST_EN.md` | Sections 6.14/6.15 for manual OS close + installer verification |
-| `Cargo.lock` | Version updated to 0.1.0-beta.2 (via master merge) |
+| `apps/desktop/src-tauri/nsis/main.nsi` | Removed `RisCheckIfRunning` macro; restored `CheckIfAppIsRunning` at both call sites |
+| `CHANGELOG.md` | Added Fixed entry for installer false running prompt |
+| `.ai/cc-report.md` | Updated with root cause, revert description, full check results |
 
-## Branch alignment
+## Files preserved from previous revisions (unchanged here)
 
-Branch was 1 commit behind `origin/master` (beta.2 version bump `1402c2d`). Merged
-cleanly via `git merge origin/master`. Version is `0.1.0-beta.2` across all 4 sources.
+| File | Status |
+|---|---|
+| `apps/desktop/src-tauri/capabilities/default.json` | `core:window:allow-close` + `core:window:allow-destroy` present |
+| `apps/desktop/src/App.tsx` | `catch (error)` with `logError` + `closingRef` reset |
+| `apps/desktop/src/App.close.test.tsx` | 549 tests pass including rejection/retry |
+| `scripts/check-capabilities.test.mjs` | Guard test for capability permissions |
+| `docs/BETA1_SMOKE_TEST_EN.md` | Sections 6.14/6.15 for manual OS close + installer |
 
 ## Version consistency
 
@@ -70,53 +74,52 @@ All checks passed (Linux, Node 18, Rust 1.95.0):
 | `node scripts/check-version-consistency.mjs` | 0.1.0-beta.2 -- all 4 sources |
 | `node --test scripts/*.test.mjs` | 19 pass (17 bump-version + 2 capabilities guard) |
 | `node scripts/check-repo-hygiene.mjs` | 8/8 pass |
-| `pnpm smoke:beta` | 7/7 pass (script unit tests now reports 2 files) |
+| `pnpm smoke:beta` | 7/7 pass |
 | `cargo fmt --all -- --check` | clean |
 | `cargo check --workspace` | clean |
 | `cargo test --workspace` | 0 failures |
 | `cargo clippy --workspace -- -D warnings` | clean |
 | `npx pnpm@10.33.4 -C apps/desktop exec tsc --noEmit` | clean |
-| `npx pnpm@10.33.4 --filter @rack-inventory-studio/desktop exec vitest run` | 549 pass (43 files, +2 rejection tests) |
+| `npx pnpm@10.33.4 --filter @rack-inventory-studio/desktop exec vitest run` | 549 pass (43 files) |
 | `npx pnpm@10.33.4 --filter @rack-inventory-studio/desktop exec vite build` | success -- no inline scripts or styles |
-
-## Unit test limitations
-
-`App.close.test.tsx` mocks `getCurrentWindow().destroy()` as a resolved/rejected Promise.
-These tests do NOT validate real Tauri IPC permission checks. The capability fix in
-`default.json` can only be confirmed by a Windows Tauri build and manual smoke test.
 
 ## Windows Installer CI
 
-Workflow triggered on branch `bugfix/beta2-installer-close-blockers` (previous run):
-https://github.com/TechTradeExpress/RackInventoryStudio/actions/runs/27099613236
+Workflow triggered on branch `bugfix/beta2-installer-close-blockers` after push.
+Previous run (capability fix only):
+https://github.com/TechTradeExpress/RackInventoryStudio/actions/runs/27161492074
 
-A new run will be triggered after this push by CI (if configured on push), or must be
-manually triggered by the user at:
+A new run must be triggered after this push. Manual trigger at:
 https://github.com/TechTradeExpress/RackInventoryStudio/actions/workflows/windows-installer.yml
 
-**The capability permission change (`default.json`) is the critical fix.** It must be
-validated by a Windows build before tagging beta.2.
+Select branch: `bugfix/beta2-installer-close-blockers`
+
+**The NSIS revert is the critical fix for the false running prompt** and must be
+validated by a Windows build.
 
 ## Manual QA required after Windows installer build
 
-1. Fresh install -- no false "running" prompt.
-2. Close app, reinstall -- no prompt.
-3. Install with app running -- prompt appears; OK closes app; installer continues.
-4. Dev mode on Windows: click system title-bar X with no unsaved changes -- app closes immediately.
-5. Dev mode on Windows: unsaved changes + X -- 3-button guard dialog appears.
-6. Guard: "Save and continue" -- saves and closes.
-7. Guard: "Continue without saving" -- closes without saving.
-8. Guard: "Cancel" -- app remains open.
+1. RIS not running: install proceeds without "is currently running" prompt.
+2. RIS not running: uninstall proceeds without "is currently running" prompt.
+3. RIS running: installer shows prompt.
+4. RIS running: click OK — RIS closes, install/uninstall continues.
+5. RIS running: click Cancel — install/uninstall aborts cleanly.
+6. Dev mode on Windows: system X button with no unsaved changes — app closes immediately.
+7. Dev mode on Windows: system X button with unsaved changes — 3-button guard dialog appears.
+8. Guard: "Save and continue" — saves and closes.
+9. Guard: "Continue without saving" — closes without saving.
+10. Guard: "Cancel" — app remains open.
 
 ## Risks
 
-- **Capability fix unverified locally**: `default.json` change is structural JSON; the
-  actual IPC enforcement can only be confirmed on a Windows Tauri build.
-- **`nsis_tauri_utils::FindProcess` return value**: Assumes `1` = found, `0` = not found.
-  Confirmed by Tauri source; will be validated by Windows Installer CI run.
+- **NSIS can only be compiled on Windows**: The revert to `CheckIfAppIsRunning` is
+  correct by source inspection but must be confirmed by the Windows Installer CI run.
+- **Capability fix unverified locally**: `core:window:allow-destroy` enforcement is
+  a Windows-only Tauri IPC check; confirmed by source analysis, validated by Windows
+  build + manual smoke.
 
 ## Suggested next step
 
 Trigger Windows Installer CI on branch `bugfix/beta2-installer-close-blockers`, then
-run manual QA steps 1-8. If the system X button closes the app without errors and the
-installer smoke passes, merge PR #115 and proceed with the beta.2 release gate.
+run manual QA steps 1-10 above. If installer smoke passes and the system X button
+closes the app correctly, merge PR #115 and proceed with the beta.2 release gate.
