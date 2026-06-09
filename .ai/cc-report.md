@@ -1,152 +1,125 @@
-# CC Report -- PR P (rev 2): TEST-01 Beta Smoke Gate
-
 ## Summary
 
-Adds TEST-01 -- a structured, partially-automated smoke gate to be run before
-the beta release checklist. Does not change any application logic, data schemas,
-Git behaviour, or CI configuration.
+Fixes two beta.2 release blockers on branch `bugfix/beta2-installer-close-blockers` (PR #115).
 
-Rev 2 fixes four issues identified in review:
-1. **Blocker 1**: `vitest < 4.1.0` critical vulnerability (GHSA-5xrq-8626-4rwp)
-   fixed by upgrading vitest to 4.1.8. `environmentMatchGlobs` (removed in
-   vitest 4.x) replaced with per-file `// @vitest-environment jsdom` annotations.
-2. **Blocker 2**: Smoke test checklist now uses a disposable copy of
-   `examples/example-repository` for all mutating steps. Tracked fixture is
-   never modified. Project repo cleanliness check added at the end.
-3. **Blocker 3**: "Manage racks" button reference removed. Checklist now correctly
-   says to click the location row.
-4. **Cleanup 1**: Script tests now discover all `scripts/*.test.mjs` files
-   dynamically instead of hardcoding one filename.
-5. **Cleanup 2**: All non-ASCII / decorative Unicode removed from
-   `scripts/smoke-beta-gate.mjs`. Output uses plain ASCII only.
+### Blocker 1 — NSIS installer false "running" prompt (root cause confirmed, reverted)
 
-## Files changed
+**Root cause verified** by fetching the canonical Tauri bundler source
+(`crates/tauri-bundler/src/bundle/windows/nsis/utils.nsh` via GitHub API):
+
+`nsis_tauri_utils::FindProcess` returns `0` when the process IS found (running),
+and non-zero when the process is NOT found. The canonical macro checks `${If} $R0 = 0`
+to detect a running process.
+
+The custom `RisCheckIfRunning` macro introduced in commit `9bf25e5` had this inverted:
+it checked `IntCmp $R0 1 ris_running...` — triggering the prompt and kill path when
+`$R0 = 1`, i.e., when the process was NOT running. This caused the false prompt on
+every fresh install or reinstall after the app was closed.
+
+**Fix:** Removed `RisCheckIfRunning` entirely. Both call sites (Section Install and
+Section Uninstall) now use the canonical bundler macro:
+```
+!insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
+```
+`utils.nsh` is provided by the Tauri bundler at build time and handles all edge cases:
+correct `FindProcess` convention, currentUser install mode, silent/passive mode,
+localized strings, kill success/failure flow.
+
+### Blocker 2 — OS window close button (capability fix preserved, unchanged)
+
+`core:window:allow-close` and `core:window:allow-destroy` remain in
+`apps/desktop/src-tauri/capabilities/default.json`. The `onCloseRequested` handler
+in `App.tsx` logs `destroy()` failures via `logError` instead of swallowing them.
+No changes to this fix in this revision.
+
+## PR
+
+https://github.com/TechTradeExpress/RackInventoryStudio/pull/115
+
+## Files changed in this revision
 
 | File | Change |
 |---|---|
-| `docs/BETA1_SMOKE_TEST_EN.md` | Rewritten: disposable copy pattern, correct Locations UX (click row), ASCII-only, project cleanliness check added |
-| `scripts/smoke-beta-gate.mjs` | Fixed: ASCII-only output, dynamic script test discovery |
-| `apps/desktop/package.json` | `vitest` `^3.2.4` -> `^4.1.8` (fixes GHSA-5xrq-8626-4rwp) |
-| `apps/desktop/vite.config.ts` | Removed `environmentMatchGlobs` (removed in vitest 4.x) |
-| `apps/desktop/pnpm-lock.yaml` | Updated for vitest 4.1.8 |
-| `apps/desktop/src/components/ui/ConfirmDialog.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/components/ui/UnsavedChangesDialog.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/components/ui/Segmented.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/components/ui/Modal.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/csvImport/CsvImportPanel.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/devices/DeviceFormModal.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/deviceModels/DeviceModelFormModal.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/devices/DevicesPanel.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/locations/LocationFormModal.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/locations/LocationsPanel.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/racks/EditPlacementModal.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/racks/PlacePlacementModal.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/racks/RackFormModal.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/racks/PlacementPalettePanel.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/racks/RackUnitDiagram.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/repository/CreateRepositoryWizard.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/repository/RepositoryPanel.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/repository/SshPassphraseModal.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/racks/RacksPanel.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/features/validation/ValidationPanel.test.tsx` | Added `// @vitest-environment jsdom` |
-| `apps/desktop/src/lib/unsavedGuard.test.ts` | Added `// @vitest-environment jsdom` |
-| `docs/BETA1_FOLLOWUP_PLAN_EN.md` | TEST-01 marked as gate prepared; PR P row added (from rev 1) |
-| `package.json` | Added `smoke:beta` pnpm script (from rev 1) |
-| `.ai/cc-report.md` | This file |
+| `apps/desktop/src-tauri/nsis/main.nsi` | Removed `RisCheckIfRunning` macro; restored `CheckIfAppIsRunning` at both call sites |
+| `CHANGELOG.md` | Added Fixed entry for installer false running prompt |
+| `.ai/cc-report.md` | Updated with root cause, revert description, full check results |
 
-## Tests
+## Files preserved from previous revisions (unchanged here)
 
-```
-git diff --check
-```
-Clean.
-
-```
-node scripts/check-version-consistency.mjs
-```
-Pass -- 0.1.0-beta.1 consistent.
-
-```
-node --test scripts/*.test.mjs
-```
-17/17 pass.
-
-```
-node scripts/check-repo-hygiene.mjs
-```
-All 8 hygiene checks pass.
-
-```
-cargo fmt --all --check
-```
-Clean (no Rust changes).
-
-```
-cargo check --workspace
-```
-Pass.
-
-```
-cargo test --workspace
-```
-All pass, 0 failures.
-
-```
-cargo clippy --workspace -- -D warnings
-```
-Clean (no Rust changes).
-
-```
-npx pnpm@10.33.4 -C apps/desktop exec tsc --noEmit
-```
-No type errors.
-
-```
-npx pnpm@10.33.4 --filter @rack-inventory-studio/desktop exec vitest run
-```
-42 test files, 539 tests -- all pass (vitest 4.1.8).
-
-```
-npx pnpm@10.33.4 --filter @rack-inventory-studio/desktop exec vite build
-```
-Production build succeeds. `dist/index.html` verified: no inline scripts, no inline styles.
-
-```
-node scripts/smoke-beta-gate.mjs
-```
-7/7 automated checks passed. Manual checklist printed.
-
-## GitHub checks status (after push)
-
-| Check | Status |
+| File | Status |
 |---|---|
-| Frontend dependency audit | Pending (was: FAIL -- vitest < 4.1.0; fixed by upgrade) |
-| Rust dependency audit | Expected: pass |
-| Frontend checks | Expected: pass |
-| Rust workspace | Expected: pass |
-| Script and hygiene | Expected: pass |
-| Version consistency | Expected: pass |
-| Workflow lint | Expected: pass |
+| `apps/desktop/src-tauri/capabilities/default.json` | `core:window:allow-close` + `core:window:allow-destroy` present |
+| `apps/desktop/src/App.tsx` | `catch (error)` with `logError` + `closingRef` reset |
+| `apps/desktop/src/App.close.test.tsx` | 549 tests pass including rejection/retry |
+| `scripts/check-capabilities.test.mjs` | Guard test for capability permissions |
+| `docs/BETA1_SMOKE_TEST_EN.md` | Sections 6.14/6.15 for manual OS close + installer |
+
+## Version consistency
+
+```
+  package.json (workspace root)           0.1.0-beta.2
+  apps/desktop/package.json               0.1.0-beta.2
+  apps/desktop/src-tauri/Cargo.toml       0.1.0-beta.2
+  apps/desktop/src-tauri/tauri.conf.json  0.1.0-beta.2
+  All versions match: 0.1.0-beta.2
+```
+
+## Checks
+
+All checks passed (Linux, Node 18, Rust 1.95.0):
+
+| Check | Result |
+|---|---|
+| `git diff --check` | clean |
+| `node scripts/check-version-consistency.mjs` | 0.1.0-beta.2 -- all 4 sources |
+| `node --test scripts/*.test.mjs` | 19 pass (17 bump-version + 2 capabilities guard) |
+| `node scripts/check-repo-hygiene.mjs` | 8/8 pass |
+| `pnpm smoke:beta` | 7/7 pass |
+| `cargo fmt --all -- --check` | clean |
+| `cargo check --workspace` | clean |
+| `cargo test --workspace` | 0 failures |
+| `cargo clippy --workspace -- -D warnings` | clean |
+| `npx pnpm@10.33.4 -C apps/desktop exec tsc --noEmit` | clean |
+| `npx pnpm@10.33.4 --filter @rack-inventory-studio/desktop exec vitest run` | 549 pass (43 files) |
+| `npx pnpm@10.33.4 --filter @rack-inventory-studio/desktop exec vite build` | success -- no inline scripts or styles |
+
+## Windows Installer CI
+
+Workflow triggered on branch `bugfix/beta2-installer-close-blockers` after push.
+Previous run (capability fix only):
+https://github.com/TechTradeExpress/RackInventoryStudio/actions/runs/27161492074
+
+A new run must be triggered after this push. Manual trigger at:
+https://github.com/TechTradeExpress/RackInventoryStudio/actions/workflows/windows-installer.yml
+
+Select branch: `bugfix/beta2-installer-close-blockers`
+
+**The NSIS revert is the critical fix for the false running prompt** and must be
+validated by a Windows build.
+
+## Manual QA required after Windows installer build
+
+1. RIS not running: install proceeds without "is currently running" prompt.
+2. RIS not running: uninstall proceeds without "is currently running" prompt.
+3. RIS running: installer shows prompt.
+4. RIS running: click OK — RIS closes, install/uninstall continues.
+5. RIS running: click Cancel — install/uninstall aborts cleanly.
+6. Dev mode on Windows: system X button with no unsaved changes — app closes immediately.
+7. Dev mode on Windows: system X button with unsaved changes — 3-button guard dialog appears.
+8. Guard: "Save and continue" — saves and closes.
+9. Guard: "Continue without saving" — closes without saving.
+10. Guard: "Cancel" — app remains open.
 
 ## Risks
 
-- **vitest 4.x migration**: `environmentMatchGlobs` was removed in vitest 4.x.
-  The fix (per-file `// @vitest-environment jsdom` annotations) touches 21 test
-  files but is the canonical vitest 4.x approach. All 539 tests pass.
-- **GHSA-5xrq-8626-4rwp scope**: The vulnerability only triggers when the Vitest
-  UI server is running (`vitest --ui`). This project never uses the UI server.
-  The upgrade to 4.1.8 is the correct fix regardless.
-- **pnpm not on PATH**: The script auto-detects pnpm. Falls back to
-  `npx pnpm@VERSION` when pnpm is not on PATH.
-
-## Not done
-
-- Playwright / full Tauri E2E automation -- out of scope.
-- GitHub Actions SHA pinning -- post-beta.2, tracked in plan.
-- Askpass constant-time comparison -- post-beta.2, tracked in plan.
+- **NSIS can only be compiled on Windows**: The revert to `CheckIfAppIsRunning` is
+  correct by source inspection but must be confirmed by the Windows Installer CI run.
+- **Capability fix unverified locally**: `core:window:allow-destroy` enforcement is
+  a Windows-only Tauri IPC check; confirmed by source analysis, validated by Windows
+  build + manual smoke.
 
 ## Suggested next step
 
-Wait for CI to confirm all checks green on PR #112, then sign off and merge.
-Then run `pnpm smoke:beta` followed by `docs/BETA1_SMOKE_TEST_EN.md` on a
-developer machine before cutting the release branch.
+Trigger Windows Installer CI on branch `bugfix/beta2-installer-close-blockers`, then
+run manual QA steps 1-10 above. If installer smoke passes and the system X button
+closes the app correctly, merge PR #115 and proceed with the beta.2 release gate.

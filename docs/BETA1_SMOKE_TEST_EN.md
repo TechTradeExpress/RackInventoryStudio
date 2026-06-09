@@ -280,7 +280,32 @@ To find the active log path: **Settings -> Diagnostics and logs -> Open logs fol
 
 ---
 
-### 6.14 Project repo cleanliness check
+### 6.14 OS window close button
+
+- [ ] With a repository open and no unsaved changes, click the OS title-bar **X** button.
+- [ ] App closes immediately -- no dialog, no hang.
+- [ ] With a repository open and unsaved changes (add a location, do not save), click the OS **X** button.
+- [ ] Unsaved-changes dialog appears.
+- [ ] Click **Cancel** -- app remains open, repository unchanged.
+- [ ] Click **X** again, then click **Continue without saving** -- app closes cleanly.
+
+---
+
+### 6.15 Installer: no false "running" prompt
+
+This check applies only when testing on a Windows machine with the built installer.
+
+- [ ] On a fresh machine (or after uninstalling completely), run the installer.
+- [ ] Installer does **not** show "Rack Inventory Studio is currently running" on first install.
+- [ ] Close the app. Run the installer again (update flow).
+- [ ] Installer does **not** show the running prompt (app is already closed).
+- [ ] Launch the app. Run the installer again without closing the app first.
+- [ ] Installer **does** show the prompt and offers to close the app automatically.
+- [ ] Click OK -- installer closes the app and proceeds without error.
+
+---
+
+### 6.16 Project repo cleanliness check
 
 After completing all manual steps, verify the project repository itself is unchanged:
 
@@ -308,6 +333,8 @@ If any project files were accidentally modified, review and revert before taggin
 | Panic or unhandled Rust error visible in UI | |
 | Log contains password, token, or passphrase | |
 | Dirty guard does not fire before close | |
+| OS window close button does not close the app | Window close broken |
+| Installer shows false "running" prompt | Blocks fresh installs |
 | Production build has inline scripts or styles | CSP regression |
 | Cargo test failures | |
 | CI not green on candidate commit | |

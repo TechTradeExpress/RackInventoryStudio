@@ -569,6 +569,7 @@ Section WebView2
     !endif
   ${EndIf}
 SectionEnd
+
 Section Install
   SetOutPath $INSTDIR
   !ifmacrodef NSIS_HOOK_PREINSTALL
