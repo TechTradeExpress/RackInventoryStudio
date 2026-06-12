@@ -161,12 +161,15 @@ fn validate_repo_code(code: &str) -> Result<(), String> {
         return Err("Repository code must not end with a space".to_string());
     }
     // Reject Windows reserved device names (case-insensitive).
-    let upper = code.to_ascii_uppercase();
+    // Windows treats "NAME.ext" identically to "NAME", so we check the stem
+    // (everything before the first dot). This catches con.txt, nul.repo, etc.
+    let stem = code.split('.').next().unwrap_or(code);
+    let upper_stem = stem.to_ascii_uppercase();
     const RESERVED: &[&str] = &[
         "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
         "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
     ];
-    if RESERVED.contains(&upper.as_str()) {
+    if RESERVED.contains(&upper_stem.as_str()) {
         return Err(format!("'{code}' is a reserved name on Windows"));
     }
     Ok(())
@@ -1116,6 +1119,27 @@ mod tests {
         assert!(validate_repo_code("con").is_err());
         assert!(validate_repo_code("nul").is_err());
         assert!(validate_repo_code("com1").is_err());
+    }
+
+    #[test]
+    fn windows_reserved_names_with_extension_are_rejected() {
+        // Windows treats NAME.ext the same as NAME — both map to the device.
+        assert!(validate_repo_code("con.txt").is_err());
+        assert!(validate_repo_code("nul.repo").is_err());
+        assert!(validate_repo_code("aux.data").is_err());
+        assert!(validate_repo_code("com1.test").is_err());
+        assert!(validate_repo_code("lpt9.backup").is_err());
+        // Case variants with extension
+        assert!(validate_repo_code("CON.txt").is_err());
+        assert!(validate_repo_code("NuL.repo").is_err());
+    }
+
+    #[test]
+    fn normal_dotted_codes_are_accepted() {
+        // These share a stem with no reserved name — must not be rejected.
+        assert!(validate_repo_code("dc.01").is_ok());
+        assert!(validate_repo_code("rack.01").is_ok());
+        assert!(validate_repo_code("my.repo-1").is_ok());
     }
 
     #[test]

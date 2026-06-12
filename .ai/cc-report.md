@@ -56,7 +56,12 @@ Runs before `final_path` is composed, before any filesystem access. Rejects:
 | Windows-forbidden chars `< > : " \| ? *` | `name:bad`, `name*bad` |
 | Trailing dot | `repo.`, `repo..` |
 | Trailing space | `repo ` |
-| Windows reserved names (case-insensitive) | `CON`, `NUL`, `com1`, `LPT9` |
+| Windows reserved names — bare and with extension (case-insensitive) | `CON`, `NUL`, `com1`, `LPT9`, `con.txt`, `nul.repo`, `aux.data`, `com1.test`, `lpt9.backup` |
+
+Windows treats `NAME.ext` identically to `NAME` for reserved device names. The check
+extracts the stem (everything before the first `.`) and compares that against the
+reserved list. This allows dotted codes like `dc.01`, `rack.01`, and `my.repo-1`
+while still blocking `con.txt`, `nul.repo`, etc.
 
 The error for an existing target directory reads:
 `Target directory already exists: <full final path>` — i.e. `<parent>/<code>`.
@@ -96,7 +101,7 @@ All checks run locally on the current HEAD (`426c299`) and passed:
 | `node scripts/smoke-beta-gate.mjs` (= `pnpm smoke:beta`) | 7/7 pass |
 | `cargo fmt --all -- --check` | clean |
 | `cargo check --workspace` | clean |
-| `cargo test --workspace` | 0 failures (validate_repo_code tests: 70 pass in desktop crate) |
+| `cargo test --workspace` | 0 failures (validate_repo_code tests: 72 pass in desktop crate) |
 | `cargo clippy --workspace -- -D warnings` | clean |
 | `tsc --noEmit` (apps/desktop) | clean |
 | Vitest (apps/desktop) | 562 tests pass, 43 files |
