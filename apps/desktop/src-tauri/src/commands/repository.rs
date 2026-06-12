@@ -134,6 +134,44 @@ pub fn open_repository_cmd(
     })
 }
 
+fn validate_repo_code(code: &str) -> Result<(), String> {
+    if code.is_empty() {
+        return Err("Repository code cannot be blank".to_string());
+    }
+    // Reject path separators first — catches "../repo", "a/b", "a\b", "repo/" etc.
+    if code.contains('/') || code.contains('\\') {
+        return Err("Repository code must not contain path separators ('/' or '\\')".to_string());
+    }
+    // Reject ".." as a standalone component (directory traversal after join).
+    if code == ".." {
+        return Err("Repository code must not be '..'".to_string());
+    }
+    // Reject Windows-forbidden filename characters.
+    const FORBIDDEN: &[char] = &['<', '>', ':', '"', '|', '?', '*'];
+    if let Some(c) = code.chars().find(|ch| FORBIDDEN.contains(ch)) {
+        return Err(format!(
+            "Repository code contains forbidden character '{c}'"
+        ));
+    }
+    // Reject trailing dot or space (Windows silently strips them, causing confusion).
+    if code.ends_with('.') {
+        return Err("Repository code must not end with a dot".to_string());
+    }
+    if code.ends_with(' ') {
+        return Err("Repository code must not end with a space".to_string());
+    }
+    // Reject Windows reserved device names (case-insensitive).
+    let upper = code.to_ascii_uppercase();
+    const RESERVED: &[&str] = &[
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+        "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    ];
+    if RESERVED.contains(&upper.as_str()) {
+        return Err(format!("'{code}' is a reserved name on Windows"));
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn create_repository_cmd(
     input: CreateRepositoryInputDto,
@@ -144,13 +182,12 @@ pub fn create_repository_cmd(
         return Err("Parent path cannot be blank".to_string());
     }
     let code = input.code.trim().to_string();
-    if code.is_empty() {
-        return Err("Repository code cannot be blank".to_string());
-    }
+    validate_repo_code(&code)?;
+    let name = input.name.trim().to_string();
     let final_path = std::path::PathBuf::from(&parent_path).join(&code);
     if final_path.exists() {
         return Err(format!(
-            "Directory already exists: {}",
+            "Target directory already exists: {}",
             final_path.display()
         ));
     }
@@ -161,8 +198,8 @@ pub fn create_repository_cmd(
 
     let session = create_repository(CreateRepositoryInput {
         path: final_path,
-        code: input.code.clone(),
-        name: input.name.clone(),
+        code: code.clone(),
+        name,
         id: None,
     })
     .map_err(|e| {
@@ -1015,9 +1052,71 @@ pub fn search_repository_cmd(
 
 #[cfg(test)]
 mod tests {
-    use super::{read_csv_content, DEVICE_IMPORT_SAMPLE_CSV, MAX_CSV_BYTES};
+    use super::{read_csv_content, validate_repo_code, DEVICE_IMPORT_SAMPLE_CSV, MAX_CSV_BYTES};
     use std::io::Write;
     use std::path::Path;
+
+    // ── validate_repo_code ────────────────────────────────────────────────────
+
+    #[test]
+    fn valid_codes_are_accepted() {
+        assert!(validate_repo_code("test-lab").is_ok());
+        assert!(validate_repo_code("rack_01").is_ok());
+        assert!(validate_repo_code("dc.01").is_ok());
+        assert!(validate_repo_code("a").is_ok());
+        assert!(validate_repo_code("my.repo-1_test").is_ok());
+    }
+
+    #[test]
+    fn empty_code_is_rejected() {
+        let err = validate_repo_code("").unwrap_err();
+        assert!(err.contains("blank"), "got: {err}");
+    }
+
+    #[test]
+    fn path_traversal_is_rejected() {
+        // ".." by itself
+        assert!(validate_repo_code("..").is_err());
+        // Separator-embedded traversal
+        assert!(validate_repo_code("../repo").is_err());
+        assert!(validate_repo_code("a/b").is_err());
+        assert!(validate_repo_code("a\\b").is_err());
+        assert!(validate_repo_code("repo/").is_err());
+    }
+
+    #[test]
+    fn windows_forbidden_chars_are_rejected() {
+        assert!(validate_repo_code("name:bad").is_err());
+        assert!(validate_repo_code("name*bad").is_err());
+        assert!(validate_repo_code("name<bad").is_err());
+        assert!(validate_repo_code("name>bad").is_err());
+        assert!(validate_repo_code("name\"bad").is_err());
+        assert!(validate_repo_code("name|bad").is_err());
+        assert!(validate_repo_code("name?bad").is_err());
+    }
+
+    #[test]
+    fn trailing_dot_is_rejected() {
+        assert!(validate_repo_code("repo.").is_err());
+        assert!(validate_repo_code("repo..").is_err());
+    }
+
+    #[test]
+    fn trailing_space_is_rejected() {
+        assert!(validate_repo_code("repo ").is_err());
+    }
+
+    #[test]
+    fn windows_reserved_names_are_rejected() {
+        assert!(validate_repo_code("CON").is_err());
+        assert!(validate_repo_code("NUL").is_err());
+        assert!(validate_repo_code("COM1").is_err());
+        assert!(validate_repo_code("LPT9").is_err());
+        // Case-insensitive
+        assert!(validate_repo_code("con").is_err());
+        assert!(validate_repo_code("nul").is_err());
+        assert!(validate_repo_code("com1").is_err());
+    }
 
     #[test]
     fn reads_valid_utf8_csv() {

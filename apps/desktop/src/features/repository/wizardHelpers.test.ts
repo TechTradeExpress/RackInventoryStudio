@@ -103,4 +103,16 @@ describe("computePreviewPath", () => {
     expect(preview).not.toContain("My Name");
     expect(preview).toBe("/a/my-code");
   });
+
+  it("strips trailing forward slash from unix parent", () => {
+    expect(computePreviewPath("/tmp/", "repo")).toBe("/tmp/repo");
+  });
+
+  it("strips trailing backslash from Windows parent", () => {
+    expect(computePreviewPath("D:\\RIS\\", "repo")).toBe("D:\\RIS\\repo");
+  });
+
+  it("strips multiple trailing separators", () => {
+    expect(computePreviewPath("/tmp//", "repo")).toBe("/tmp/repo");
+  });
 });

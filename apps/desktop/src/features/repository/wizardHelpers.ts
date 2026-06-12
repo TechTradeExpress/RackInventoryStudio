@@ -34,9 +34,11 @@ export function hasWizardErrors(errors: WizardFormErrors): boolean {
 }
 
 export function computePreviewPath(parent: string, code: string): string {
-  const p = parent.trim();
+  const raw = parent.trim();
   const c = code.trim();
-  if (!p || !c) return "";
+  if (!raw || !c) return "";
+  // Strip any trailing separators so we never produce double-slash/backslash.
+  const p = raw.replace(/[\\/]+$/, "");
   const sep = p.includes("\\") ? "\\" : "/";
   return `${p}${sep}${c}`;
 }
