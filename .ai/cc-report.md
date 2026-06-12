@@ -9,6 +9,12 @@ Added strict backend validation of `code` as a safe directory name before compos
 `final_path`. Frontend validation remains the first line of defence; the backend is
 the authoritative security boundary.
 
+**Cleanup**: commit `0f7e5d8` accidentally tracked `.ai/review-context-20260612-0719.md`
+(a ChatGPT review artefact that must not be part of any PR). It was removed from git
+tracking in commit `e3c8e80` via `git rm --cached`. The `.gitignore` already contains
+`.ai/` which prevents future accidental tracking of review-context files. Review-context
+artefacts are generated locally and passed to ChatGPT; they are never committed.
+
 ## PR
 
 https://github.com/TechTradeExpress/RackInventoryStudio/pull/116
@@ -27,9 +33,20 @@ https://github.com/TechTradeExpress/RackInventoryStudio/pull/116
 | `docs/BETA1_SMOKE_TEST_EN.md` | Section 6.11 updated for parent directory flow + existing-dir error |
 | `CHANGELOG.md` | Fixed entry added |
 
+## How the path is composed
+
+```
+final_path = PathBuf::from(parent_path.trim()).join(code.trim())
+```
+
+`code` becomes the last path component (directory name). `name` is stored only in
+`repo.yaml` as a display label — it is never part of the filesystem path.
+
+Example: parent = `D:\RIS`, code = `test-lab` → `final_path = D:\RIS\test-lab`.
+
 ## Backend `code` validation (`validate_repo_code`)
 
-Runs before `final_path` is composed. Rejects:
+Runs before `final_path` is composed, before any filesystem access. Rejects:
 
 | Rule | Example rejected |
 |---|---|
@@ -41,17 +58,8 @@ Runs before `final_path` is composed. Rejects:
 | Trailing space | `repo ` |
 | Windows reserved names (case-insensitive) | `CON`, `NUL`, `com1`, `LPT9` |
 
-The error message for an existing target directory reads:
+The error for an existing target directory reads:
 `Target directory already exists: <full final path>` — i.e. `<parent>/<code>`.
-
-## `name` does not affect the path
-
-`name` is a display-only label stored in `repo.yaml`. The final path is built
-exclusively from `parent_path` and `code`:
-
-```
-final_path = PathBuf::from(parent_path).join(code)
-```
 
 ## `computePreviewPath` trailing-separator fix
 
@@ -61,7 +69,8 @@ The helper strips trailing `/` or `\` from the parent before joining:
 const p = raw.replace(/[\\/]+$/, "");
 ```
 
-So `/tmp/` + `repo` → `/tmp/repo` and `D:\RIS\` + `repo` → `D:\RIS\repo`.
+So `/tmp/` + `repo` → `/tmp/repo` (not `/tmp//repo`) and
+`D:\RIS\` + `repo` → `D:\RIS\repo` (not `D:\RIS\\repo`).
 
 ## Version consistency
 
@@ -76,40 +85,42 @@ So `/tmp/` + `repo` → `/tmp/repo` and `D:\RIS\` + `repo` → `D:\RIS\repo`.
 
 ## Checks
 
+All checks run locally on the current HEAD (`426c299`) and passed:
+
 | Check | Result |
 |---|---|
 | `git diff --check` | clean |
 | `node scripts/check-version-consistency.mjs` | ✓ 0.1.0-beta.2 — all 4 sources |
 | `node --test scripts/*.test.mjs` | 19 pass |
-| `node scripts/check-repo-hygiene.mjs` | 8/8 pass |
+| `node scripts/check-repo-hygiene.mjs` | 8/8 pass (incl. no review-context tracked) |
 | `node scripts/smoke-beta-gate.mjs` (= `pnpm smoke:beta`) | 7/7 pass |
 | `cargo fmt --all -- --check` | clean |
 | `cargo check --workspace` | clean |
-| `cargo test --workspace` | 0 failures (new `validate_repo_code` tests pass) |
+| `cargo test --workspace` | 0 failures (validate_repo_code tests: 70 pass in desktop crate) |
 | `cargo clippy --workspace -- -D warnings` | clean |
 | `tsc --noEmit` (apps/desktop) | clean |
 | Vitest (apps/desktop) | 562 tests pass, 43 files |
 | `vite build` (apps/desktop) | success — no inline scripts or styles |
 
+GitHub CI (run 27401679752): all 5 checks green.
+
 ## Risks
 
 - **Windows path separator in preview**: `computePreviewPath` detects Windows paths
-  by the presence of `\` in the trimmed parent. If a user types a mixed-separator
-  path this heuristic may pick the wrong separator for display only; the OS resolves
-  the actual path correctly at creation time.
+  by the presence of `\` in the trimmed parent. Mixed-separator paths would pick the
+  wrong separator for display only; the OS resolves the actual path correctly.
 - **TOCTOU on existence check**: `final_path.exists()` and `create_dir_all` are not
-  atomic. Acceptable for an interactive wizard (window is negligible in normal use).
-- **`cargo test` runs no integration tests against a real filesystem**: Code-path
-  correctness for `create_repository` relies on Vitest + manual smoke (section 6.11).
+  atomic. Acceptable for an interactive wizard.
+- **No integration tests against a real filesystem**: correctness of `create_repository`
+  path composition relies on Vitest + manual smoke (section 6.11).
 
 ## Not done
 
-- No change to `RepositorySummaryDto.repo_path` — still returns the final path.
-- Frontend validation (`CODE_RE`) is unchanged; it is more restrictive than the backend
-  (lowercase only, no uppercase), which is intentional: backend allows any safe name;
-  frontend narrows to the project's naming convention.
+- `RepositorySummaryDto.repo_path` unchanged — still returns the final path.
+- Frontend `CODE_RE` is more restrictive than backend (lowercase only); intentional.
 
 ## Suggested next step
 
-Manual smoke test section 6.11: select parent dir, enter code, verify preview,
-create, confirm directory is `<parent>/<code>`, confirm existing-dir error on retry.
+Manual smoke test section 6.11 on Windows: select parent dir, enter code, confirm
+preview shows `<parent>\<code>`, create, confirm directory is `<parent>\<code>`,
+confirm existing-dir error on retry. Then merge PR #116.
