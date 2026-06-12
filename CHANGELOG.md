@@ -24,6 +24,12 @@
 
 ### Fixed
 
+- **Create repository now uses selected folder as parent directory**: The "Create
+  repository" wizard now asks for a **parent directory** instead of the final
+  repository directory. The repository is created inside
+  `<parent>/<code>` — e.g. selecting `D:\RIS` with code `test-lab` creates
+  `D:\RIS\test-lab`. If the target directory already exists the operation is
+  rejected with a clear error message.
 - **Fixed false Windows installer "app is currently running" prompt**: Restored
   Tauri's canonical `CheckIfAppIsRunning` NSIS macro. The custom `RisCheckIfRunning`
   macro introduced in beta.2 had inverted `nsis_tauri_utils::FindProcess` return value

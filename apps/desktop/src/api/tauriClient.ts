@@ -538,7 +538,7 @@ export function getSshDiagnostics(remote?: string): Promise<SshDiagnosticsDto> {
 // ── Create repository ─────────────────────────────────────────────────────────
 
 export interface CreateRepositoryInput {
-  path: string;
+  parent_path: string;
   code: string;
   name: string;
 }
@@ -593,7 +593,7 @@ export async function selectRepositoryFolder(): Promise<string | null> {
   const result = await open({
     directory: true,
     multiple: false,
-    title: "Select Repository Folder",
+    title: "Choose parent directory",
   });
   if (result === null || result === undefined) return null;
   if (Array.isArray(result)) return result[0] ?? null;

@@ -16,7 +16,7 @@ const mockBrowse = vi.mocked(selectRepositoryFolder);
 
 const FIXTURE_RESULT: OpenRepositoryResultDto = {
   summary: {
-    repo_path: "/some/path",
+    repo_path: "/some/path/test-repo",
     repository_code: "test-repo",
     repository_name: "Test Repo",
     locations_count: 0,
@@ -54,10 +54,10 @@ describe("CreateRepositoryWizard — Git enforcement", () => {
     ).toBeTruthy();
   });
 
-  it("calls createRepository without initialize_git field on submit", async () => {
+  it("calls createRepository with parent_path (not path) on submit", async () => {
     render(<CreateRepositoryWizard onSuccess={vi.fn()} />);
 
-    fireEvent.change(screen.getByPlaceholderText(/path to new/i), {
+    fireEvent.change(screen.getByPlaceholderText(/path to parent directory/i), {
       target: { value: "/my/dir" },
     });
     fireEvent.change(screen.getByPlaceholderText(/e\.g\. my-datacenter/i), {
@@ -71,15 +71,16 @@ describe("CreateRepositoryWizard — Git enforcement", () => {
 
     await waitFor(() => expect(mockCreate).toHaveBeenCalledOnce());
     const call = mockCreate.mock.calls[0][0];
-    expect(call).toEqual({ path: "/my/dir", code: "test-repo", name: "Test Repo" });
+    expect(call).toEqual({ parent_path: "/my/dir", code: "test-repo", name: "Test Repo" });
     expect(Object.prototype.hasOwnProperty.call(call, "initialize_git")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(call, "path")).toBe(false);
   });
 
   it("calls onSuccess after successful create", async () => {
     const onSuccess = vi.fn();
     render(<CreateRepositoryWizard onSuccess={onSuccess} />);
 
-    fireEvent.change(screen.getByPlaceholderText(/path to new/i), {
+    fireEvent.change(screen.getByPlaceholderText(/path to parent directory/i), {
       target: { value: "/my/dir" },
     });
     fireEvent.change(screen.getByPlaceholderText(/e\.g\. my-datacenter/i), {
@@ -92,5 +93,53 @@ describe("CreateRepositoryWizard — Git enforcement", () => {
     fireEvent.submit(screen.getByRole("button", { name: /create repository/i }).closest("form")!);
 
     await waitFor(() => expect(onSuccess).toHaveBeenCalledWith(FIXTURE_RESULT));
+  });
+});
+
+describe("CreateRepositoryWizard — path preview", () => {
+  it("shows path preview when both parent and code are filled", async () => {
+    render(<CreateRepositoryWizard onSuccess={vi.fn()} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/path to parent directory/i), {
+      target: { value: "/home/user/repos" },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/e\.g\. my-datacenter/i), {
+      target: { value: "my-dc" },
+    });
+
+    expect(screen.getByText(/repository will be created at/i)).toBeTruthy();
+    expect(screen.getByText("/home/user/repos/my-dc")).toBeTruthy();
+  });
+
+  it("does not show path preview when parent is empty", () => {
+    render(<CreateRepositoryWizard onSuccess={vi.fn()} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/e\.g\. my-datacenter/i), {
+      target: { value: "my-dc" },
+    });
+
+    expect(screen.queryByText(/repository will be created at/i)).toBeNull();
+  });
+
+  it("path preview uses code, not name, as the folder", async () => {
+    render(<CreateRepositoryWizard onSuccess={vi.fn()} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/path to parent directory/i), {
+      target: { value: "/a" },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/e\.g\. my-datacenter/i), {
+      target: { value: "mycode" },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/e\.g\. my datacenter/i), {
+      target: { value: "Some Name" },
+    });
+
+    expect(screen.getByText("/a/mycode")).toBeTruthy();
+    expect(screen.queryByText("/a/Some Name")).toBeNull();
+  });
+
+  it("shows 'Parent directory' label", () => {
+    render(<CreateRepositoryWizard onSuccess={vi.fn()} />);
+    expect(screen.getByText("Parent directory")).toBeTruthy();
   });
 });

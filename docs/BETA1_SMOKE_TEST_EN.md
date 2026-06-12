@@ -235,10 +235,14 @@ section below. Check each item before moving to the next.
 ### 6.11 Create a new repository
 
 - [ ] Click **Create** on the Repository tab.
-- [ ] Choose an empty disposable directory (e.g. `/tmp/ris-new-repo`).
-- [ ] Repository is created. Git is initialized automatically.
+- [ ] Click **Browse…** next to **Parent directory** and select an empty disposable parent directory (e.g. `/tmp`).
+- [ ] Enter a **Code** such as `ris-new-repo`. The path preview shows `/tmp/ris-new-repo`.
+- [ ] Enter a **Name** such as `RIS New Repo`.
+- [ ] Click **Create repository**.
+- [ ] Repository is created inside `/tmp/ris-new-repo`. Git is initialized automatically.
 - [ ] Repository summary shows zero counts.
-- [ ] Add a location and rack; save. Files appear in the chosen directory.
+- [ ] Add a location and rack; save. Files appear inside `/tmp/ris-new-repo`.
+- [ ] Attempt to create a second repository with the same parent and code — app shows an error that the directory already exists.
 
 ---
 

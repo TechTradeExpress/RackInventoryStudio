@@ -139,17 +139,28 @@ pub fn create_repository_cmd(
     input: CreateRepositoryInputDto,
     state: State<AppState>,
 ) -> Result<OpenRepositoryResultDto, String> {
-    let path = input.path.trim().to_string();
-    if path.is_empty() {
-        return Err("Target path cannot be blank".to_string());
+    let parent_path = input.parent_path.trim().to_string();
+    if parent_path.is_empty() {
+        return Err("Parent path cannot be blank".to_string());
+    }
+    let code = input.code.trim().to_string();
+    if code.is_empty() {
+        return Err("Repository code cannot be blank".to_string());
+    }
+    let final_path = std::path::PathBuf::from(&parent_path).join(&code);
+    if final_path.exists() {
+        return Err(format!(
+            "Directory already exists: {}",
+            final_path.display()
+        ));
     }
     log::info!(
         "create_repository: {}",
-        basename(std::path::Path::new(&path)),
+        basename(std::path::Path::new(&final_path)),
     );
 
     let session = create_repository(CreateRepositoryInput {
-        path: std::path::PathBuf::from(&path),
+        path: final_path,
         code: input.code.clone(),
         name: input.name.clone(),
         id: None,
