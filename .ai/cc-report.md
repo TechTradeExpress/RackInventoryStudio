@@ -90,7 +90,7 @@ So `/tmp/` + `repo` → `/tmp/repo` (not `/tmp//repo`) and
 
 ## Checks
 
-All checks run locally on the current HEAD (`426c299`) and passed:
+All checks run locally and passed:
 
 | Check | Result |
 |---|---|
@@ -107,7 +107,15 @@ All checks run locally on the current HEAD (`426c299`) and passed:
 | Vitest (apps/desktop) | 562 tests pass, 43 files |
 | `vite build` (apps/desktop) | success — no inline scripts or styles |
 
-GitHub CI (run 27401679752): all 5 checks green.
+GitHub CI (run 27407532393, HEAD `ce73a0e`): all 5 checks green.
+
+| CI check | Status |
+|---|---|
+| Frontend checks | ✓ pass |
+| Rust workspace | ✓ pass |
+| Script and hygiene checks | ✓ pass |
+| Version consistency | ✓ pass |
+| Workflow lint | ✓ pass |
 
 ## Risks
 
