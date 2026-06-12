@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { hasWizardErrors, validateWizardForm } from "./wizardHelpers";
+import { computePreviewPath, hasWizardErrors, validateWizardForm } from "./wizardHelpers";
 
 const base = {
-  path: "/some/path",
+  parentPath: "/some/path",
   code: "my-repo",
   name: "My Repository",
 };
@@ -12,8 +12,8 @@ describe("validateWizardForm", () => {
     expect(validateWizardForm(base)).toEqual({});
   });
 
-  it("requires path", () => {
-    expect(validateWizardForm({ ...base, path: "   " }).path).toBeDefined();
+  it("requires parentPath", () => {
+    expect(validateWizardForm({ ...base, parentPath: "   " }).parentPath).toBeDefined();
   });
 
   it("requires code", () => {
@@ -53,7 +53,7 @@ describe("validateWizardForm", () => {
   });
 
   it("returns no errors when all required fields are provided", () => {
-    expect(validateWizardForm({ path: "/a", code: "a", name: "A" })).toEqual({});
+    expect(validateWizardForm({ parentPath: "/a", code: "a", name: "A" })).toEqual({});
   });
 });
 
@@ -66,11 +66,53 @@ describe("hasWizardErrors", () => {
     expect(hasWizardErrors({ code: "invalid" })).toBe(true);
   });
 
-  it("returns true when path error is present", () => {
-    expect(hasWizardErrors({ path: "required" })).toBe(true);
+  it("returns true when parentPath error is present", () => {
+    expect(hasWizardErrors({ parentPath: "required" })).toBe(true);
   });
 
   it("returns true when name error is present", () => {
     expect(hasWizardErrors({ name: "required" })).toBe(true);
+  });
+});
+
+describe("computePreviewPath", () => {
+  it("joins parent and code with forward slash on unix paths", () => {
+    expect(computePreviewPath("/home/user/repos", "my-datacenter")).toBe(
+      "/home/user/repos/my-datacenter",
+    );
+  });
+
+  it("joins parent and code with backslash on Windows paths", () => {
+    expect(computePreviewPath("D:\\RIS", "test-lab")).toBe("D:\\RIS\\test-lab");
+  });
+
+  it("returns empty string when parent is blank", () => {
+    expect(computePreviewPath("   ", "my-repo")).toBe("");
+  });
+
+  it("returns empty string when code is blank", () => {
+    expect(computePreviewPath("/some/path", "   ")).toBe("");
+  });
+
+  it("returns empty string when both are blank", () => {
+    expect(computePreviewPath("", "")).toBe("");
+  });
+
+  it("name does not appear in the preview path", () => {
+    const preview = computePreviewPath("/a", "my-code");
+    expect(preview).not.toContain("My Name");
+    expect(preview).toBe("/a/my-code");
+  });
+
+  it("strips trailing forward slash from unix parent", () => {
+    expect(computePreviewPath("/tmp/", "repo")).toBe("/tmp/repo");
+  });
+
+  it("strips trailing backslash from Windows parent", () => {
+    expect(computePreviewPath("D:\\RIS\\", "repo")).toBe("D:\\RIS\\repo");
+  });
+
+  it("strips multiple trailing separators", () => {
+    expect(computePreviewPath("/tmp//", "repo")).toBe("/tmp/repo");
   });
 });

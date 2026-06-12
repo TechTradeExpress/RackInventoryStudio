@@ -5,7 +5,7 @@ import {
   selectRepositoryFolder,
   type OpenRepositoryResultDto,
 } from "../../api/tauriClient";
-import { hasWizardErrors, validateWizardForm } from "./wizardHelpers";
+import { computePreviewPath, hasWizardErrors, validateWizardForm } from "./wizardHelpers";
 import { useBusy } from "../../lib/appBusy";
 
 interface Props {
@@ -15,18 +15,19 @@ interface Props {
 export function CreateRepositoryWizard({ onSuccess }: Props) {
   const { isBusy, runBusy } = useBusy();
 
-  const [path, setPath] = useState("");
+  const [parentPath, setParentPath] = useState("");
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const validationErrors = validateWizardForm({ path, code, name });
+  const validationErrors = validateWizardForm({ parentPath, code, name });
   const formHasErrors = hasWizardErrors(validationErrors);
+  const previewPath = computePreviewPath(parentPath, code);
 
   async function handleBrowse() {
     try {
       const selected = await selectRepositoryFolder();
-      if (selected !== null) setPath(selected);
+      if (selected !== null) setParentPath(selected);
     } catch (e) {
       setError(String(e));
     }
@@ -38,7 +39,7 @@ export function CreateRepositoryWizard({ onSuccess }: Props) {
     setError(null);
     try {
       const result = await runBusy("Creating repository…", () =>
-        createRepository({ path: path.trim(), code: code.trim(), name: name.trim() }),
+        createRepository({ parent_path: parentPath.trim(), code: code.trim(), name: name.trim() }),
       );
       onSuccess(result);
     } catch (e) {
@@ -49,13 +50,13 @@ export function CreateRepositoryWizard({ onSuccess }: Props) {
   return (
     <form onSubmit={handleSubmit}>
       <div style={styles.field}>
-        <label style={styles.label}>Directory</label>
+        <label style={styles.label}>Parent directory</label>
         <div style={common.row}>
           <input
             style={common.input}
-            value={path}
-            onChange={(e) => setPath(e.target.value)}
-            placeholder="Path to new repository directory…"
+            value={parentPath}
+            onChange={(e) => setParentPath(e.target.value)}
+            placeholder="Path to parent directory…"
             disabled={isBusy}
           />
           <button
@@ -67,8 +68,8 @@ export function CreateRepositoryWizard({ onSuccess }: Props) {
             Browse…
           </button>
         </div>
-        {validationErrors.path && (
-          <div style={styles.fieldError}>{validationErrors.path}</div>
+        {validationErrors.parentPath && (
+          <div style={styles.fieldError}>{validationErrors.parentPath}</div>
         )}
       </div>
 
@@ -88,6 +89,12 @@ export function CreateRepositoryWizard({ onSuccess }: Props) {
           <div style={styles.fieldError}>{validationErrors.code}</div>
         )}
       </div>
+
+      {previewPath && (
+        <div style={styles.previewPath}>
+          Repository will be created at: <span style={styles.previewPathValue}>{previewPath}</span>
+        </div>
+      )}
 
       <div style={styles.field}>
         <label style={styles.label}>Name</label>
@@ -145,6 +152,15 @@ const styles = {
     fontSize: "0.8rem",
     color: "#b00020",
     marginTop: "0.15rem",
+  } as CSSProperties,
+  previewPath: {
+    fontSize: "0.82rem",
+    color: "#555",
+    marginBottom: "0.65rem",
+  } as CSSProperties,
+  previewPathValue: {
+    fontFamily: "monospace",
+    color: "#333",
   } as CSSProperties,
   gitNote: {
     fontSize: "0.82rem",

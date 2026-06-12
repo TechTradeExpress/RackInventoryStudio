@@ -309,7 +309,7 @@ pub struct UpdateDeviceInputDto {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateRepositoryInputDto {
-    pub path: String,
+    pub parent_path: String,
     pub code: String,
     pub name: String,
 }

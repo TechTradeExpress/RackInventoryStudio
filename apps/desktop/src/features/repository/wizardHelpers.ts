@@ -1,11 +1,11 @@
 export interface WizardFormState {
-  path: string;
+  parentPath: string;
   code: string;
   name: string;
 }
 
 export interface WizardFormErrors {
-  path?: string;
+  parentPath?: string;
   code?: string;
   name?: string;
 }
@@ -14,8 +14,8 @@ const CODE_RE = /^[a-z0-9][a-z0-9._-]*$/;
 
 export function validateWizardForm(state: WizardFormState): WizardFormErrors {
   const errors: WizardFormErrors = {};
-  if (!state.path.trim()) {
-    errors.path = "Path is required.";
+  if (!state.parentPath.trim()) {
+    errors.parentPath = "Parent directory is required.";
   }
   if (!state.code.trim()) {
     errors.code = "Code is required.";
@@ -31,4 +31,14 @@ export function validateWizardForm(state: WizardFormState): WizardFormErrors {
 
 export function hasWizardErrors(errors: WizardFormErrors): boolean {
   return Object.keys(errors).length > 0;
+}
+
+export function computePreviewPath(parent: string, code: string): string {
+  const raw = parent.trim();
+  const c = code.trim();
+  if (!raw || !c) return "";
+  // Strip any trailing separators so we never produce double-slash/backslash.
+  const p = raw.replace(/[\\/]+$/, "");
+  const sep = p.includes("\\") ? "\\" : "/";
+  return `${p}${sep}${c}`;
 }
