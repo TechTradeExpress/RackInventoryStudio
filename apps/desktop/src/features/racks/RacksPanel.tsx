@@ -291,6 +291,7 @@ export function RacksPanel({
             flush
             title={`${visibleRacks.length} rack${visibleRacks.length !== 1 ? "s" : ""}`}
           >
+            <div className="tbl-wrap">
             <table className="tbl">
               <thead>
                 <tr>
@@ -364,6 +365,7 @@ export function RacksPanel({
                 })}
               </tbody>
             </table>
+            </div>
           </Panel>
         )}
       </div>

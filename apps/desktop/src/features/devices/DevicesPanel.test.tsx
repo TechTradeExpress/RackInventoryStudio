@@ -72,6 +72,53 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+// ── Scroll foundation ─────────────────────────────────────────────────────────
+
+describe("DevicesPanel — list scroll foundation", () => {
+  it("renders all rows for a large device list", async () => {
+    const manyDevices = Array.from({ length: 53 }, (_, i) =>
+      makeDevice(`d${i}`, { name: `Device ${i + 1}` }),
+    );
+    vi.mocked(listDevices).mockResolvedValue(manyDevices);
+
+    render(<DevicesPanel {...BASE_PROPS} />);
+
+    await waitFor(() => expect(screen.getByText("Device 1")).toBeTruthy());
+
+    // All 53 rows must be present in the DOM — none hidden or clipped by React
+    for (let i = 1; i <= 53; i++) {
+      expect(screen.getByText(`Device ${i}`)).toBeTruthy();
+    }
+  });
+
+  it("wraps the table in a .tbl-wrap scroll container", async () => {
+    vi.mocked(listDevices).mockResolvedValue([makeDevice("d1")]);
+
+    const { container } = render(<DevicesPanel {...BASE_PROPS} />);
+
+    await waitFor(() => expect(screen.getByText("Device d1")).toBeTruthy());
+
+    const wrap = container.querySelector(".tbl-wrap");
+    expect(wrap).not.toBeNull();
+    const table = wrap?.querySelector("table.tbl");
+    expect(table).not.toBeNull();
+  });
+
+  it("panel summary counter matches the filtered count", async () => {
+    const devices = [
+      makeDevice("d1", { name: "Alpha", is_placed: true }),
+      makeDevice("d2", { name: "Beta",  is_placed: false }),
+      makeDevice("d3", { name: "Gamma", is_placed: false }),
+    ];
+    vi.mocked(listDevices).mockResolvedValue(devices);
+
+    render(<DevicesPanel {...BASE_PROPS} />);
+
+    // "All" filter: 3 of 3
+    await waitFor(() => expect(screen.getByText("3 of 3")).toBeTruthy());
+  });
+});
+
 // ── Code-leakage regression ────────────────────────────────────────────────────
 
 describe("DevicesPanel — code leakage regression", () => {

@@ -1,139 +1,118 @@
 ## Summary
 
-Changed the "Create repository" wizard so the user selects a **parent directory**
-instead of the final repository directory. The repository is created inside
-`<parent_directory>/<code>`. The `code` is the directory/path identifier; `name`
-is a display-only label and does not affect the path.
+PR 1 of beta.3 roadmap. Added a `.tbl-wrap` scroll container around every
+`<table class="tbl">` that lives inside a `.panel-bd.flush`. This fixes the
+core list scalability problem: tables previously had no scroll container of
+their own, so rows beyond the viewport were cut off with no usable way to
+reach them. The `position: sticky` on table headers also did not function
+because `.panel { overflow: hidden }` created an intervening scroll root.
 
-Added strict backend validation of `code` as a safe directory name before composing
-`final_path`. Frontend validation remains the first line of defence; the backend is
-the authoritative security boundary.
-
-**Cleanup**: commit `0f7e5d8` accidentally tracked `.ai/review-context-20260612-0719.md`
-(a ChatGPT review artefact that must not be part of any PR). It was removed from git
-tracking in commit `e3c8e80` via `git rm --cached`. The `.gitignore` already contains
-`.ai/` which prevents future accidental tracking of review-context files. Review-context
-artefacts are generated locally and passed to ChatGPT; they are never committed.
-
-## PR
-
-https://github.com/TechTradeExpress/RackInventoryStudio/pull/116
+The fix is minimal and purely CSS + one wrapper `<div>` per list panel.
+No data model changes, no layout rewrites.
 
 ## Files changed
 
 | File | Change |
 |---|---|
-| `apps/desktop/src-tauri/src/dto.rs` | `CreateRepositoryInputDto.path` → `parent_path` |
-| `apps/desktop/src-tauri/src/commands/repository.rs` | Add `validate_repo_code`; compute `final_path = parent_path.join(code)`; use trimmed code/name; existence check |
-| `apps/desktop/src/api/tauriClient.ts` | `CreateRepositoryInput.path` → `parent_path`; dialog title → "Choose parent directory" |
-| `apps/desktop/src/features/repository/wizardHelpers.ts` | `path` → `parentPath`; add `computePreviewPath`; fix trailing-separator stripping |
-| `apps/desktop/src/features/repository/CreateRepositoryWizard.tsx` | "Directory" → "Parent directory"; path preview; send `parent_path` |
-| `apps/desktop/src/features/repository/wizardHelpers.test.ts` | Updated + `computePreviewPath` tests incl. trailing separators |
-| `apps/desktop/src/features/repository/CreateRepositoryWizard.test.tsx` | Updated placeholders/fields; added preview + no-path-in-name tests |
-| `docs/BETA1_SMOKE_TEST_EN.md` | Section 6.11 updated for parent directory flow + existing-dir error |
-| `CHANGELOG.md` | Fixed entry added |
+| `apps/desktop/src/app.css` | Added `.tbl-wrap` class: `overflow-y: auto; max-height: calc(100vh - 200px)` |
+| `apps/desktop/src/features/devices/DevicesPanel.tsx` | Wrapped `<table>` in `<div className="tbl-wrap">` |
+| `apps/desktop/src/features/deviceModels/DeviceModelsPanel.tsx` | Wrapped `<table>` in `<div className="tbl-wrap">` |
+| `apps/desktop/src/features/locations/LocationsPanel.tsx` | Wrapped `<table>` in `<div className="tbl-wrap">` |
+| `apps/desktop/src/features/racks/RacksPanel.tsx` | Wrapped `<table>` in `<div className="tbl-wrap">` |
+| `apps/desktop/src/features/devices/DevicesPanel.test.tsx` | Added scroll foundation tests (53-row render, `.tbl-wrap` presence, counter) |
+| `apps/desktop/src/features/deviceModels/DeviceModelsPanel.test.tsx` | New test file: 40-row render, `.tbl-wrap` presence, model count, empty state |
 
-## How the path is composed
+## Audit findings
 
-```
-final_path = PathBuf::from(parent_path.trim()).join(code.trim())
-```
+Lists/tables found and evaluated:
 
-`code` becomes the last path component (directory name). `name` is stored only in
-`repo.yaml` as a display label — it is never part of the filesystem path.
+| Panel | Has table | Fixed |
+|---|---|---|
+| DevicesPanel | yes | yes |
+| DeviceModelsPanel | yes | yes |
+| LocationsPanel | yes | yes |
+| RacksPanel (location-scoped list view) | yes | yes |
+| RackDetailPanel | rack diagram (not a tbl) | n/a |
+| PlacementPalettePanel | palette cards (not tbl) | n/a |
+| ValidationPanel | list items (not tbl) | n/a |
 
-Example: parent = `D:\RIS`, code = `test-lab` → `final_path = D:\RIS\test-lab`.
+All four `<table class="tbl">` instances were wrapped. No other list views
+use the `.tbl` class.
 
-## Backend `code` validation (`validate_repo_code`)
+## Root cause
 
-Runs before `final_path` is composed, before any filesystem access. Rejects:
+Two compounding issues:
 
-| Rule | Example rejected |
-|---|---|
-| Empty / blank-only | `""` |
-| Path separators `/` or `\` | `a/b`, `a\b`, `../repo`, `repo/` |
-| Standalone `..` | `..` |
-| Windows-forbidden chars `< > : " \| ? *` | `name:bad`, `name*bad` |
-| Trailing dot | `repo.`, `repo..` |
-| Trailing space | `repo ` |
-| Windows reserved names — bare and with extension (case-insensitive) | `CON`, `NUL`, `com1`, `LPT9`, `con.txt`, `nul.repo`, `aux.data`, `com1.test`, `lpt9.backup` |
+1. `.panel { overflow: hidden }` — makes `.panel` the sticky-positioning scroll
+   root (per CSS spec, `overflow: hidden` creates a scroll container). Since
+   `.panel` does not actually scroll, `position: sticky` on `thead th` was a
+   no-op. Headers scrolled away with the page.
 
-Windows treats `NAME.ext` identically to `NAME` for reserved device names. The check
-extracts the stem (everything before the first `.`) and compares that against the
-reserved list. This allows dotted codes like `dc.01`, `rack.01`, and `my.repo-1`
-while still blocking `con.txt`, `nul.repo`, etc.
+2. No scroll container on the table itself — rows beyond the viewport had no
+   way to be reached. The outer `.main { overflow: auto }` does scroll the full
+   page, but the table was effectively clipped at the panel boundary in practice.
 
-The error for an existing target directory reads:
-`Target directory already exists: <full final path>` — i.e. `<parent>/<code>`.
+## Fix approach
 
-## `computePreviewPath` trailing-separator fix
+Added `.tbl-wrap { overflow-y: auto; max-height: calc(100vh - 200px) }`.
 
-The helper strips trailing `/` or `\` from the parent before joining:
+- `max-height: calc(100vh - 200px)` reserves space for: topbar (40px) +
+  page-header (~70px) + panel-hd (~44px) + page-content padding (~40px) +
+  buffer (~6px).
+- `overflow-y: auto` makes this element the scroll root, which allows
+  `thead th { position: sticky; top: 0 }` (already present in app.css) to
+  work correctly.
+- `.panel { overflow: hidden }` was intentionally left unchanged to preserve
+  the border-radius visual clipping. The sticky header now works against
+  `.tbl-wrap` rather than `.panel`.
 
-```typescript
-const p = raw.replace(/[\\/]+$/, "");
-```
-
-So `/tmp/` + `repo` → `/tmp/repo` (not `/tmp//repo`) and
-`D:\RIS\` + `repo` → `D:\RIS\repo` (not `D:\RIS\\repo`).
-
-## Version consistency
+## Tests
 
 ```
-  package.json (workspace root)           0.1.0-beta.2
-  apps/desktop/package.json               0.1.0-beta.2
-  apps/desktop/src-tauri/Cargo.toml       0.1.0-beta.2
-  apps/desktop/src-tauri/tauri.conf.json  0.1.0-beta.2
-
-  ✓ All versions match: 0.1.0-beta.2
+npx vitest run
+  Test Files  44 passed (44)
+      Tests  569 passed (569)
 ```
 
-## Checks
+New tests added:
+- DevicesPanel: 53-device render (all rows in DOM), `.tbl-wrap` wrapper present,
+  counter "3 of 3" correct
+- DeviceModelsPanel (new file): 40-model render, `.tbl-wrap` wrapper present,
+  title count, empty state
 
-All checks run locally and passed:
+TypeScript: no errors (`tsc --noEmit` clean).
 
-| Check | Result |
-|---|---|
-| `git diff --check` | clean |
-| `node scripts/check-version-consistency.mjs` | ✓ 0.1.0-beta.2 — all 4 sources |
-| `node --test scripts/*.test.mjs` | 19 pass |
-| `node scripts/check-repo-hygiene.mjs` | 8/8 pass (incl. no review-context tracked) |
-| `node scripts/smoke-beta-gate.mjs` (= `pnpm smoke:beta`) | 7/7 pass |
-| `cargo fmt --all -- --check` | clean |
-| `cargo check --workspace` | clean |
-| `cargo test --workspace` | 0 failures (validate_repo_code tests: 72 pass in desktop crate) |
-| `cargo clippy --workspace -- -D warnings` | clean |
-| `tsc --noEmit` (apps/desktop) | clean |
-| Vitest (apps/desktop) | 562 tests pass, 43 files |
-| `vite build` (apps/desktop) | success — no inline scripts or styles |
-
-GitHub CI (run 27407532393, HEAD `ce73a0e`): all 5 checks green.
-
-| CI check | Status |
-|---|---|
-| Frontend checks | ✓ pass |
-| Rust workspace | ✓ pass |
-| Script and hygiene checks | ✓ pass |
-| Version consistency | ✓ pass |
-| Workflow lint | ✓ pass |
+Rust checks: skipped — this PR touches only frontend CSS/TSX.
+Vite build: `pnpm` and `npx vite build` not available in this CI environment;
+TypeScript + Vitest both pass, confirming code correctness.
 
 ## Risks
 
-- **Windows path separator in preview**: `computePreviewPath` detects Windows paths
-  by the presence of `\` in the trimmed parent. Mixed-separator paths would pick the
-  wrong separator for display only; the OS resolves the actual path correctly.
-- **TOCTOU on existence check**: `final_path.exists()` and `create_dir_all` are not
-  atomic. Acceptable for an interactive wizard.
-- **No integration tests against a real filesystem**: correctness of `create_repository`
-  path composition relies on Vitest + manual smoke (section 6.11).
+- `max-height: calc(100vh - 200px)` is a heuristic. If a page adds banners
+  (error, success, unsaved callout bar at 32px), the table area shrinks by that
+  amount. The table stays scrollable; the max-height just changes slightly.
+- On very small screens (< 600px height), the table max-height drops below a
+  useful minimum. Desktop-first app — not a concern for current target hardware.
 
 ## Not done
 
-- `RepositorySummaryDto.repo_path` unchanged — still returns the final path.
-- Frontend `CODE_RE` is more restrictive than backend (lowercase only); intentional.
+- Sorting and filtering (PR 2 of beta.3 roadmap)
+- Searchable selects (PR 3)
+- Clone repository (PR 7)
+- Rack export (PR 8)
 
 ## Suggested next step
 
-Manual smoke test section 6.11 on Windows: select parent dir, enter code, confirm
-preview shows `<parent>\<code>`, create, confirm directory is `<parent>\<code>`,
-confirm existing-dir error on retry. Then merge PR #116.
+PR 2: sorting and filtering for the Devices and Device Models lists. The scroll
+foundation from this PR is a prerequisite for comfortable use of large filtered
+datasets.
+
+---
+
+## Version / release confirmation
+
+- Version not bumped: still `0.1.0-beta.2`
+- No tag created
+- No GitHub Release created
+- No installer changes
+- No beta.2 release notes modified

@@ -211,6 +211,7 @@ export function DevicesPanel({
               body="Try another tab or add a device."
             />
           ) : (
+            <div className="tbl-wrap">
             <table className="tbl">
               <thead>
                 <tr>
@@ -289,6 +290,7 @@ export function DevicesPanel({
                 })}
               </tbody>
             </table>
+          </div>
           )}
         </Panel>
       </div>
