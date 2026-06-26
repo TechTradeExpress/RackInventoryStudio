@@ -144,68 +144,70 @@ export function DeviceModelsPanel({
             flush
             title={`${models.length} model${models.length !== 1 ? "s" : ""}`}
           >
-            <table className="tbl">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Type</th>
-                  <th>Vendor</th>
-                  <th className="tbl-mono">Model / SKU</th>
-                  <th className="tbl-num">Height</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {models.map((m) => (
-                  <tr
-                    key={m.id}
-                    data-model-id={m.id}
-                    className={
-                      m.id === highlightedDeviceModelId
-                        ? "tbl-selected"
-                        : undefined
-                    }
-                  >
-                    <td>
-                      <strong>{m.name}</strong>
-                    </td>
-                    <td>
-                      <Badge
-                        tone={m.device_type === "rack_object" ? "muted" : "info"}
-                      >
-                        {m.device_type}
-                      </Badge>
-                    </td>
-                    <td>
-                      {m.vendor ?? (
-                        <span style={{ color: "var(--tx-4)" }}>—</span>
-                      )}
-                    </td>
-                    <td className="tbl-mono">{m.model_number ?? "—"}</td>
-                    <td className="tbl-num tbl-mono">{m.default_height_u}U</td>
-                    <td className="tbl-actions">
-                      <button
-                        className="btn btn-ghost btn-sm btn-icon"
-                        title="Edit"
-                        aria-label={`Edit ${m.name}`}
-                        onClick={() => openEdit(m)}
-                      >
-                        <IcEdit size={12} />
-                      </button>
-                      <button
-                        className="btn btn-ghost btn-sm btn-icon"
-                        title="Delete"
-                        aria-label={`Delete ${m.name}`}
-                        onClick={() => setPendingDelete(m)}
-                        style={{ color: "var(--st-err-tx)" }}
-                      >
-                        <IcTrash size={12} />
-                      </button>
-                    </td>
+            <div className="tbl-wrap">
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Vendor</th>
+                    <th className="tbl-mono">Model / SKU</th>
+                    <th className="tbl-num">Height</th>
+                    <th />
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {models.map((m) => (
+                    <tr
+                      key={m.id}
+                      data-model-id={m.id}
+                      className={
+                        m.id === highlightedDeviceModelId
+                          ? "tbl-selected"
+                          : undefined
+                      }
+                    >
+                      <td>
+                        <strong>{m.name}</strong>
+                      </td>
+                      <td>
+                        <Badge
+                          tone={m.device_type === "rack_object" ? "muted" : "info"}
+                        >
+                          {m.device_type}
+                        </Badge>
+                      </td>
+                      <td>
+                        {m.vendor ?? (
+                          <span style={{ color: "var(--tx-4)" }}>—</span>
+                        )}
+                      </td>
+                      <td className="tbl-mono">{m.model_number ?? "—"}</td>
+                      <td className="tbl-num tbl-mono">{m.default_height_u}U</td>
+                      <td className="tbl-actions">
+                        <button
+                          className="btn btn-ghost btn-sm btn-icon"
+                          title="Edit"
+                          aria-label={`Edit ${m.name}`}
+                          onClick={() => openEdit(m)}
+                        >
+                          <IcEdit size={12} />
+                        </button>
+                        <button
+                          className="btn btn-ghost btn-sm btn-icon"
+                          title="Delete"
+                          aria-label={`Delete ${m.name}`}
+                          onClick={() => setPendingDelete(m)}
+                          style={{ color: "var(--st-err-tx)" }}
+                        >
+                          <IcTrash size={12} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </Panel>
         )}
       </div>

@@ -537,6 +537,20 @@ textarea.ri-input { height: auto; padding: 6px 8px; font-family: var(--font-mono
 .step-action { display: flex; gap: var(--sp-2); align-self: center; }
 
 /* ============== Tables ============== */
+
+/*
+ * .tbl-wrap — scroll container for tables inside panels.
+ * Constrains table height to the visible viewport area so rows are always
+ * reachable via scroll, and allows thead th (position: sticky) to work
+ * correctly by making this element — not the outer .panel — the scroll root.
+ */
+.tbl-wrap {
+  overflow-y: auto;
+  /* Reserve space for: topbar (40) + page-header (~70) + panel-hd (~44)
+     + page-content padding (~40) + any banners (~6). Total ≈ 200 px. */
+  max-height: calc(100vh - 200px);
+}
+
 table.tbl { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--fs-12); }
 table.tbl thead th {
   text-align: left;
