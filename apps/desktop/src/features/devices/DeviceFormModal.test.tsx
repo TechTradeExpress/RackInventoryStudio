@@ -369,6 +369,83 @@ describe("DeviceFormModal — add mode", () => {
   });
 });
 
+describe("DeviceFormModal — defaultStatus prop", () => {
+  it("without defaultStatus, status defaults to 'planned' in add mode", () => {
+    render(
+      <DeviceFormModal open editing={null} models={MODELS} onClose={vi.fn()} onSaved={vi.fn()} />,
+    );
+    expect((screen.getByTestId("field-status") as HTMLSelectElement).value).toBe("planned");
+  });
+
+  it("with defaultStatus='installed', status defaults to 'installed' in add mode", () => {
+    render(
+      <DeviceFormModal
+        open
+        editing={null}
+        models={MODELS}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        defaultStatus="installed"
+      />,
+    );
+    expect((screen.getByTestId("field-status") as HTMLSelectElement).value).toBe("installed");
+  });
+
+  it("edit mode ignores defaultStatus and uses the device's own status", () => {
+    // FIXTURE_DEVICE.status is "installed"; pass defaultStatus="planned" — should be ignored
+    render(
+      <DeviceFormModal
+        open
+        editing={FIXTURE_DEVICE}
+        models={MODELS}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        defaultStatus="planned"
+      />,
+    );
+    expect((screen.getByTestId("field-status") as HTMLSelectElement).value).toBe("installed");
+  });
+
+  it("user can manually change status regardless of defaultStatus", () => {
+    render(
+      <DeviceFormModal
+        open
+        editing={null}
+        models={MODELS}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        defaultStatus="installed"
+      />,
+    );
+    fireEvent.change(screen.getByTestId("field-status"), { target: { value: "planned" } });
+    expect((screen.getByTestId("field-status") as HTMLSelectElement).value).toBe("planned");
+  });
+
+  it("defaultStatus='installed' is sent in the payload on save", async () => {
+    const onSaved = vi.fn();
+    const onClose = vi.fn();
+    render(
+      <DeviceFormModal
+        open
+        editing={null}
+        models={MODELS}
+        onClose={onClose}
+        onSaved={onSaved}
+        defaultStatus="installed"
+      />,
+    );
+    fireEvent.change(screen.getByTestId("field-device-type"), { target: { value: "server" } });
+    fireEvent.change(screen.getByTestId("field-name"), { target: { value: "Test Server" } });
+    fireEvent.click(screen.getByText("Create device"));
+
+    await waitFor(() => {
+      expect(mockAdd).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "installed" }),
+      );
+    });
+  });
+});
+
 describe("DeviceFormModal — edit mode", () => {
   it("shows Edit device title and pre-populated fields", () => {
     render(

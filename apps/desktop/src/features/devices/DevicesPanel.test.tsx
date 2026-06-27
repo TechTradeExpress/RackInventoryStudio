@@ -20,7 +20,14 @@ vi.mock("../../lib/appBusy", () => ({
   }),
 }));
 
+vi.mock("../../lib/workMode", () => ({
+  useWorkMode: vi.fn(() => ({ mode: "planning", setMode: vi.fn() })),
+  WORK_MODE_DEFAULT_STATUS: { planning: "planned", "on-site": "installed" },
+}));
+
 import { listDevices, listDeviceModels } from "../../api/tauriClient";
+import { useWorkMode } from "../../lib/workMode";
+const mockUseWorkMode = vi.mocked(useWorkMode);
 
 const BASE_PROPS = {
   repoPath: "/repos/test",
@@ -325,5 +332,37 @@ describe("DevicesPanel — code leakage regression", () => {
 
     expect(screen.getByLabelText("Delete Storage Array")).toBeTruthy();
     expect(screen.queryByLabelText(/device-secret-code-123/)).toBeNull();
+  });
+});
+
+// ── Work mode integration ──────────────────────────────────────────────────────
+
+describe("DevicesPanel — work mode default status", () => {
+  it("Add Device in planning mode opens form with 'planned' status", async () => {
+    mockUseWorkMode.mockReturnValue({ mode: "planning", setMode: vi.fn() });
+    render(<DevicesPanel {...BASE_PROPS} />);
+    fireEvent.click(screen.getByRole("button", { name: "Add device" }));
+    await waitFor(() => expect(screen.getByTestId("field-status")).toBeTruthy());
+    expect((screen.getByTestId("field-status") as HTMLSelectElement).value).toBe("planned");
+  });
+
+  it("Add Device in on-site mode opens form with 'installed' status", async () => {
+    mockUseWorkMode.mockReturnValue({ mode: "on-site", setMode: vi.fn() });
+    render(<DevicesPanel {...BASE_PROPS} />);
+    fireEvent.click(screen.getByRole("button", { name: "Add device" }));
+    await waitFor(() => expect(screen.getByTestId("field-status")).toBeTruthy());
+    expect((screen.getByTestId("field-status") as HTMLSelectElement).value).toBe("installed");
+  });
+
+  it("Edit Device ignores work mode and uses the device's own status", async () => {
+    mockUseWorkMode.mockReturnValue({ mode: "on-site", setMode: vi.fn() });
+    const device = makeDevice("d1", { name: "My Server", status: "planned" });
+    vi.mocked(listDevices).mockResolvedValue([device]);
+    render(<DevicesPanel {...BASE_PROPS} />);
+    await waitFor(() => expect(screen.getByLabelText("Edit My Server")).toBeTruthy());
+    fireEvent.click(screen.getByLabelText("Edit My Server"));
+    await waitFor(() => expect(screen.getByTestId("field-status")).toBeTruthy());
+    // Should show device's own "planned" status, not the on-site default "installed"
+    expect((screen.getByTestId("field-status") as HTMLSelectElement).value).toBe("planned");
   });
 });

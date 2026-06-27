@@ -68,12 +68,12 @@ function deviceToForm(dev: DeviceDto): FormState {
   };
 }
 
-function isDirty(form: FormState, editing: DeviceDto | null): boolean {
+function isDirty(form: FormState, editing: DeviceDto | null, initialStatus = "planned"): boolean {
   if (!editing) {
     return (
       form.deviceType !== "" ||
       form.name !== "" ||
-      form.status !== "planned" ||
+      form.status !== initialStatus ||
       form.deviceModelId !== "" ||
       form.serialNumber !== "" ||
       form.assetTag !== "" ||
@@ -105,6 +105,8 @@ export interface DeviceFormModalProps {
   onClose: () => void;
   /** In add mode the newly created device ID is passed; in edit mode no argument is passed. */
   onSaved: (newDeviceId?: string) => void;
+  /** Default status for new devices (add mode only). Ignored in edit mode. */
+  defaultStatus?: string;
 }
 
 export function DeviceFormModal({
@@ -113,6 +115,7 @@ export function DeviceFormModal({
   models,
   onClose,
   onSaved,
+  defaultStatus,
 }: DeviceFormModalProps) {
   const { runBusy } = useBusy();
   const [form, setForm] = useState<FormState>(EMPTY);
@@ -123,11 +126,15 @@ export function DeviceFormModal({
 
   useEffect(() => {
     if (open) {
-      setForm(editing ? deviceToForm(editing) : EMPTY);
+      setForm(
+        editing
+          ? deviceToForm(editing)
+          : { ...EMPTY, status: defaultStatus ?? EMPTY.status },
+      );
       setError(null);
       setSubmitting(false);
     }
-  }, [open, editing]);
+  }, [open, editing, defaultStatus]);
 
   function set(
     k: keyof FormState,
@@ -220,7 +227,7 @@ export function DeviceFormModal({
     }
   }
 
-  const dirty = isDirty(form, editing);
+  const dirty = isDirty(form, editing, defaultStatus ?? EMPTY.status);
 
   return (
     <Modal
