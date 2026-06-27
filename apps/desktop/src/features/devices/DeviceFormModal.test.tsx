@@ -267,7 +267,7 @@ describe("DeviceFormModal — add mode", () => {
     });
   });
 
-  it("filters device models by selected device type", () => {
+  it("filters device models by selected device type", async () => {
     render(
       <DeviceFormModal
         open
@@ -280,16 +280,18 @@ describe("DeviceFormModal — add mode", () => {
     fireEvent.change(screen.getByTestId("field-device-type"), {
       target: { value: "server" },
     });
-    const modelSelect = screen.getByTestId(
-      "field-device-model",
-    ) as HTMLSelectElement;
-    const optionValues = Array.from(modelSelect.options).map((o) => o.value);
-    // Only server model should appear (plus the empty option)
-    expect(optionValues).toContain("model-srv");
-    expect(optionValues).not.toContain("model-net");
+
+    // Open the model searchable-select dropdown
+    fireEvent.click(screen.getByTestId("field-device-model-trigger"));
+
+    // Only the server model should appear in the dropdown
+    await waitFor(() => {
+      expect(screen.getByText("PowerEdge R750")).toBeTruthy();
+      expect(screen.queryByText("Catalyst 9300")).toBeNull();
+    });
   });
 
-  it("clears device model when device type changes to incompatible type", () => {
+  it("clears device model when device type changes to incompatible type", async () => {
     render(
       <DeviceFormModal
         open
@@ -299,24 +301,71 @@ describe("DeviceFormModal — add mode", () => {
         onSaved={vi.fn()}
       />,
     );
-    // Select server type and pick a server model
+
+    // Select server type, then pick server model via searchable-select
     fireEvent.change(screen.getByTestId("field-device-type"), {
       target: { value: "server" },
     });
-    fireEvent.change(screen.getByTestId("field-device-model"), {
-      target: { value: "model-srv" },
+    fireEvent.click(screen.getByTestId("field-device-model-trigger"));
+    await waitFor(() => screen.getByText("PowerEdge R750"));
+    fireEvent.mouseDown(screen.getByText("PowerEdge R750").closest(".ss-option")!);
+
+    // Trigger should show the selected model
+    await waitFor(() => {
+      expect(screen.getByTestId("field-device-model-trigger").textContent).toContain(
+        "PowerEdge R750",
+      );
     });
-    expect(
-      (screen.getByTestId("field-device-model") as HTMLSelectElement).value,
-    ).toBe("model-srv");
 
     // Switch to network type — server model should be cleared
     fireEvent.change(screen.getByTestId("field-device-type"), {
       target: { value: "network" },
     });
-    expect(
-      (screen.getByTestId("field-device-model") as HTMLSelectElement).value,
-    ).toBe("");
+
+    // Trigger should no longer show the server model
+    await waitFor(() => {
+      expect(screen.getByTestId("field-device-model-trigger").textContent).not.toContain(
+        "PowerEdge R750",
+      );
+    });
+  });
+
+  it("selecting a model via searchable-select is included in the save payload", async () => {
+    const onSaved = vi.fn();
+    const onClose = vi.fn();
+    render(
+      <DeviceFormModal
+        open
+        editing={null}
+        models={MODELS}
+        onClose={onClose}
+        onSaved={onSaved}
+      />,
+    );
+
+    fireEvent.change(screen.getByTestId("field-device-type"), {
+      target: { value: "server" },
+    });
+    fireEvent.change(screen.getByTestId("field-name"), {
+      target: { value: "Test Server" },
+    });
+
+    // Pick a model from the searchable select
+    fireEvent.click(screen.getByTestId("field-device-model-trigger"));
+    await waitFor(() => screen.getByText("PowerEdge R750"));
+    fireEvent.mouseDown(screen.getByText("PowerEdge R750").closest(".ss-option")!);
+
+    fireEvent.click(screen.getByText("Create device"));
+
+    await waitFor(() => {
+      expect(mockAdd).toHaveBeenCalledWith(
+        expect.objectContaining({
+          device_type: "server",
+          name: "Test Server",
+          device_model_id: "model-srv",
+        }),
+      );
+    });
   });
 });
 
@@ -338,6 +387,22 @@ describe("DeviceFormModal — edit mode", () => {
     expect(
       (screen.getByTestId("field-serial") as HTMLInputElement).value,
     ).toBe("SN123456");
+  });
+
+  it("shows the current device model in the searchable-select trigger", () => {
+    render(
+      <DeviceFormModal
+        open
+        editing={FIXTURE_DEVICE}
+        models={MODELS}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+    // FIXTURE_DEVICE has device_model_id: "model-srv" → name "PowerEdge R750"
+    expect(
+      screen.getByTestId("field-device-model-trigger").textContent,
+    ).toContain("PowerEdge R750");
   });
 
   it("calls updateDevice without code, onSaved without ID, and onClose on valid edit", async () => {
