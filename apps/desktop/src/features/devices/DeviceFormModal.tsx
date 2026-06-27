@@ -1,6 +1,7 @@
 import { useState, useEffect, type ChangeEvent, type FormEvent } from "react";
 import { Modal } from "../../components/ui/Modal";
 import { Field } from "../../components/ui/Field";
+import { SearchableSelect } from "../../components/ui/SearchableSelect";
 import { parseTags, joinTags } from "../../lib/tags";
 import { useBusy } from "../../lib/appBusy";
 import {
@@ -311,20 +312,31 @@ export function DeviceFormModal({
           </div>
 
           <Field label="Device model">
-            <select
-              className="input"
+            <SearchableSelect
+              options={[
+                { value: "", label: "— none —" },
+                ...filteredModels.map((m) => ({
+                  value: m.id,
+                  label: m.name?.trim() || "Unnamed model",
+                  keywords: [m.vendor, m.model_number, m.device_type]
+                    .filter(Boolean)
+                    .join(" "),
+                  meta:
+                    [
+                      m.vendor,
+                      m.model_number,
+                      m.device_type,
+                      m.default_height_u != null ? `${m.default_height_u}U` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ") || undefined,
+                })),
+              ]}
               value={form.deviceModelId}
-              onChange={(e) => set("deviceModelId", e)}
+              onChange={(val) => setForm((f) => ({ ...f, deviceModelId: val }))}
               disabled={submitting}
               data-testid="field-device-model"
-            >
-              <option value="">— none —</option>
-              {filteredModels.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name?.trim() || "Unnamed model"}
-                </option>
-              ))}
-            </select>
+            />
           </Field>
 
           <Field className="col-6" label="Serial number">
