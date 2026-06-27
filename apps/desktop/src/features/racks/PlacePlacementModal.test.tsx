@@ -844,3 +844,19 @@ describe("PlacePlacementModal — Edit rack object button", () => {
     });
   });
 });
+
+describe("PlacePlacementModal — defaultDeviceStatus prop", () => {
+  it("inline Create Device inherits defaultDeviceStatus='installed'", async () => {
+    render(<PlacePlacementModal {...BASE_PROPS} defaultDeviceStatus="installed" />);
+    fireEvent.click(screen.getByTestId("create-device-btn"));
+    await waitFor(() => expect(screen.getByText("Add device")).toBeTruthy());
+    expect((screen.getByTestId("field-status") as HTMLSelectElement).value).toBe("installed");
+  });
+
+  it("inline Create Device defaults to 'planned' when defaultDeviceStatus is not set", async () => {
+    render(<PlacePlacementModal {...BASE_PROPS} />);
+    fireEvent.click(screen.getByTestId("create-device-btn"));
+    await waitFor(() => expect(screen.getByText("Add device")).toBeTruthy());
+    expect((screen.getByTestId("field-status") as HTMLSelectElement).value).toBe("planned");
+  });
+});

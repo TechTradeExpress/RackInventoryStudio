@@ -26,6 +26,7 @@ import {
   IcX,
 } from "../../components/ui/Icon";
 import { matchesSearch, cmpStr, toggleDir, type SortDir } from "../../lib/listHelpers";
+import { useWorkMode, WORK_MODE_DEFAULT_STATUS } from "../../lib/workMode";
 import type { ReactNode } from "react";
 
 type DeviceFilter = "all" | "placed" | "unplaced" | "installed" | "unknown";
@@ -65,6 +66,9 @@ export function DevicesPanel({
   highlightedDeviceId,
   onRepositoryMutated,
 }: Props) {
+  const { mode: workMode } = useWorkMode();
+  const defaultDeviceStatus = WORK_MODE_DEFAULT_STATUS[workMode];
+
   const [devices, setDevices] = useState<DeviceDto[]>([]);
   const [models, setModels]   = useState<DeviceModelDto[]>([]);
   const [error, setError]     = useState<string | null>(null);
@@ -395,6 +399,7 @@ export function DevicesPanel({
         models={models}
         onClose={() => setModalOpen(false)}
         onSaved={handleSaved}
+        defaultStatus={editingDevice ? undefined : defaultDeviceStatus}
       />
 
       <ConfirmDialog

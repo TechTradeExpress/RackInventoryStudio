@@ -29,6 +29,8 @@ export interface PlacePlacementModalProps {
   initialTargetKind?: "device" | "rack_object" | null;
   /** Preselect a specific device/model ID when opened from the palette "Place…" button. */
   initialTargetId?: string | null;
+  /** Default status for inline-created devices. Derived from work mode by the caller. */
+  defaultDeviceStatus?: string;
   onClose: () => void;
   onPlaced: (placementId: string) => void;
   /**
@@ -52,6 +54,7 @@ export function PlacePlacementModal({
   availableRackObjects,
   initialTargetKind,
   initialTargetId,
+  defaultDeviceStatus,
   onClose,
   onPlaced,
   onDeviceCreated,
@@ -500,6 +503,7 @@ export function PlacePlacementModal({
         models={allModels}
         onClose={() => setCreateDeviceOpen(false)}
         onSaved={handleDeviceSaved}
+        defaultStatus={defaultDeviceStatus}
       />
 
       {/* Inline rack object creation — layered on top of the place modal */}

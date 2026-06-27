@@ -23,6 +23,7 @@ import { PageHeader } from "../../components/ui/PageHeader";
 import { Panel } from "../../components/ui/Panel";
 import { Banner } from "../../components/ui/Banner";
 import { Segmented } from "../../components/ui/Segmented";
+import { useWorkMode, WORK_MODE_DEFAULT_STATUS } from "../../lib/workMode";
 
 interface NavigationRequest {
   placementId: string;
@@ -58,6 +59,9 @@ export function RackDetailPanel({
   onNavigationConsumed,
   onBack,
 }: Props) {
+  const { mode: workMode } = useWorkMode();
+  const defaultDeviceStatus = WORK_MODE_DEFAULT_STATUS[workMode];
+
   const [detail, setDetail] = useState<RackDetailDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -338,6 +342,7 @@ export function RackDetailPanel({
         availableRackObjects={availableRackObjects}
         initialTargetKind={placeModalTargetKind}
         initialTargetId={placeModalTargetId}
+        defaultDeviceStatus={defaultDeviceStatus}
         onClose={() => {
           setPlacePlacementOpen(false);
           setPlaceModalTargetKind(null);
