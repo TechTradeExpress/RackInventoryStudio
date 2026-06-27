@@ -508,6 +508,8 @@ export function PlacePlacementModal({
         editing={null}
         onClose={() => setCreateRackObjectOpen(false)}
         onSaved={handleRackObjectSaved}
+        forcedDeviceType="rack_object"
+        lockDeviceType
       />
 
       {/* Inline device edit — layered on top of the place modal */}

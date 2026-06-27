@@ -183,6 +183,73 @@ describe("DeviceModelFormModal — add mode", () => {
   });
 });
 
+describe("DeviceModelFormModal — locked rack object mode", () => {
+  it("shows 'Create rack object' as title and submit label", () => {
+    render(
+      <DeviceModelFormModal
+        open
+        editing={null}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        forcedDeviceType="rack_object"
+        lockDeviceType
+      />,
+    );
+    // Both the modal title div and the submit button contain this text
+    expect(screen.getAllByText("Create rack object").length).toBeGreaterThan(0);
+  });
+
+  it("hides device type select and shows locked type display", () => {
+    render(
+      <DeviceModelFormModal
+        open
+        editing={null}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        forcedDeviceType="rack_object"
+        lockDeviceType
+      />,
+    );
+    expect(screen.queryByTestId("field-device-type")).toBeNull();
+    const locked = screen.getByTestId("field-device-type-locked");
+    expect(locked.textContent).toContain("rack_object");
+  });
+
+  it("payload contains device_type: rack_object on valid submit", async () => {
+    const onSaved = vi.fn();
+    const onClose = vi.fn();
+    render(
+      <DeviceModelFormModal
+        open
+        editing={null}
+        onClose={onClose}
+        onSaved={onSaved}
+        forcedDeviceType="rack_object"
+        lockDeviceType
+      />,
+    );
+    fireEvent.change(screen.getByTestId("field-name"), { target: { value: "Cable Org 1U" } });
+    fireEvent.change(screen.getByTestId("field-height-u"), { target: { value: "1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create rack object" }));
+
+    await waitFor(() => {
+      expect(mockAdd).toHaveBeenCalledWith(
+        expect.objectContaining({ device_type: "rack_object", name: "Cable Org 1U" }),
+      );
+      expect(onSaved).toHaveBeenCalledWith("new-model-id");
+      expect(onClose).toHaveBeenCalledOnce();
+    });
+  });
+
+  it("normal add mode still shows editable device type select", () => {
+    render(
+      <DeviceModelFormModal open editing={null} onClose={vi.fn()} onSaved={vi.fn()} />,
+    );
+    expect(screen.getByTestId("field-device-type")).toBeTruthy();
+    expect(screen.queryByTestId("field-device-type-locked")).toBeNull();
+  });
+});
+
 describe("DeviceModelFormModal — edit mode", () => {
   it("shows Edit device model title and pre-populated fields", () => {
     render(
