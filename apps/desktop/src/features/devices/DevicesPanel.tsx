@@ -6,7 +6,7 @@ import {
   type DeviceDto,
   type DeviceModelDto,
 } from "../../api/tauriClient";
-import { DeviceFormModal } from "./DeviceFormModal";
+import { DeviceFormModal, type DevicePrefill } from "./DeviceFormModal";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { Panel } from "../../components/ui/Panel";
 import { Badge } from "../../components/ui/Badge";
@@ -24,8 +24,10 @@ import {
   IcUps,
   IcSearch,
   IcX,
+  IcCopy,
 } from "../../components/ui/Icon";
 import { matchesSearch, cmpStr, toggleDir, type SortDir } from "../../lib/listHelpers";
+import { joinTags } from "../../lib/tags";
 import { useWorkMode, WORK_MODE_DEFAULT_STATUS } from "../../lib/workMode";
 import type { ReactNode } from "react";
 
@@ -82,6 +84,7 @@ export function DevicesPanel({
   // Modal state
   const [modalOpen, setModalOpen]       = useState(false);
   const [editingDevice, setEditingDevice] = useState<DeviceDto | null>(null);
+  const [prefillDevice, setPrefillDevice] = useState<DevicePrefill | undefined>(undefined);
 
   // Delete confirm state
   const [pendingDelete, setPendingDelete] = useState<DeviceDto | null>(null);
@@ -117,13 +120,29 @@ export function DevicesPanel({
   }, [repoPath, mutationToken, reloadToken]);
 
   function openAdd() {
+    setPrefillDevice(undefined);
     setEditingDevice(null);
     setSuccessMsg(null);
     setModalOpen(true);
   }
 
   function openEdit(dev: DeviceDto) {
+    setPrefillDevice(undefined);
     setEditingDevice(dev);
+    setSuccessMsg(null);
+    setModalOpen(true);
+  }
+
+  function openSimilar(dev: DeviceDto) {
+    setPrefillDevice({
+      deviceType: dev.device_type,
+      name: `Copy of ${dev.name || "unnamed device"}`,
+      status: dev.status,
+      deviceModelId: dev.device_model_id ?? "",
+      description: dev.description ?? "",
+      tags: joinTags(dev.tags),
+    });
+    setEditingDevice(null);
     setSuccessMsg(null);
     setModalOpen(true);
   }
@@ -367,6 +386,14 @@ export function DevicesPanel({
                         <td className="tbl-actions">
                           <button
                             className="btn btn-ghost btn-sm btn-icon"
+                            title="Create similar"
+                            aria-label={`Create similar to ${devName}`}
+                            onClick={() => openSimilar(dev)}
+                          >
+                            <IcCopy size={12} />
+                          </button>
+                          <button
+                            className="btn btn-ghost btn-sm btn-icon"
                             title="Edit"
                             aria-label={`Edit ${devName}`}
                             onClick={() => openEdit(dev)}
@@ -397,9 +424,10 @@ export function DevicesPanel({
         open={modalOpen}
         editing={editingDevice}
         models={models}
-        onClose={() => setModalOpen(false)}
+        onClose={() => { setModalOpen(false); setPrefillDevice(undefined); }}
         onSaved={handleSaved}
         defaultStatus={editingDevice ? undefined : defaultDeviceStatus}
+        prefill={editingDevice ? undefined : prefillDevice}
       />
 
       <ConfirmDialog

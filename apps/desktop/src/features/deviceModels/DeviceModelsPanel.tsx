@@ -4,15 +4,16 @@ import {
   deleteDeviceModel,
   type DeviceModelDto,
 } from "../../api/tauriClient";
-import { DeviceModelFormModal } from "./DeviceModelFormModal";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { Panel } from "../../components/ui/Panel";
 import { Badge } from "../../components/ui/Badge";
 import { Banner } from "../../components/ui/Banner";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
-import { IcPlus, IcEdit, IcTrash, IcLayers, IcSearch, IcX } from "../../components/ui/Icon";
+import { IcPlus, IcEdit, IcTrash, IcLayers, IcSearch, IcX, IcCopy } from "../../components/ui/Icon";
 import { matchesSearch, cmpStr, cmpNum, toggleDir, type SortDir } from "../../lib/listHelpers";
+import { joinTags } from "../../lib/tags";
+import { DeviceModelFormModal, type DeviceModelPrefill } from "./DeviceModelFormModal";
 
 type ModelSortCol = "name" | "type" | "vendor" | "sku" | "height";
 
@@ -40,6 +41,7 @@ export function DeviceModelsPanel({
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
   const [editingModel, setEditingModel] = useState<DeviceModelDto | null>(null);
+  const [prefillModel, setPrefillModel] = useState<DeviceModelPrefill | undefined>(undefined);
 
   // Delete confirm state
   const [pendingDelete, setPendingDelete] = useState<DeviceModelDto | null>(null);
@@ -71,13 +73,30 @@ export function DeviceModelsPanel({
   }, [repoPath, mutationToken, reloadToken]);
 
   function openAdd() {
+    setPrefillModel(undefined);
     setEditingModel(null);
     setSuccessMsg(null);
     setModalOpen(true);
   }
 
   function openEdit(m: DeviceModelDto) {
+    setPrefillModel(undefined);
     setEditingModel(m);
+    setSuccessMsg(null);
+    setModalOpen(true);
+  }
+
+  function openSimilar(m: DeviceModelDto) {
+    setPrefillModel({
+      deviceType: m.device_type,
+      name: `Copy of ${m.name || "unnamed model"}`,
+      vendor: m.vendor ?? "",
+      modelNumber: m.model_number ?? "",
+      heightU: String(m.default_height_u),
+      description: m.description ?? "",
+      tags: joinTags(m.tags),
+    });
+    setEditingModel(null);
     setSuccessMsg(null);
     setModalOpen(true);
   }
@@ -276,6 +295,14 @@ export function DeviceModelsPanel({
                         <td className="tbl-actions">
                           <button
                             className="btn btn-ghost btn-sm btn-icon"
+                            title="Create similar"
+                            aria-label={`Create similar to ${m.name}`}
+                            onClick={() => openSimilar(m)}
+                          >
+                            <IcCopy size={12} />
+                          </button>
+                          <button
+                            className="btn btn-ghost btn-sm btn-icon"
                             title="Edit"
                             aria-label={`Edit ${m.name}`}
                             onClick={() => openEdit(m)}
@@ -305,8 +332,9 @@ export function DeviceModelsPanel({
       <DeviceModelFormModal
         open={modalOpen}
         editing={editingModel}
-        onClose={() => setModalOpen(false)}
+        onClose={() => { setModalOpen(false); setPrefillModel(undefined); }}
         onSaved={handleSaved}
+        prefill={prefillModel}
       />
 
       <ConfirmDialog

@@ -1,4 +1,4 @@
-import { useState, useEffect, type ChangeEvent } from "react";
+import { useState, useEffect, useRef, type ChangeEvent } from "react";
 import { Modal } from "../../components/ui/Modal";
 import { Field } from "../../components/ui/Field";
 import { parseTags, joinTags } from "../../lib/tags";
@@ -51,16 +51,16 @@ function modelToForm(m: DeviceModelDto): FormState {
   };
 }
 
-function isDirty(form: FormState, editing: DeviceModelDto | null, initialType = ""): boolean {
+function isDirty(form: FormState, editing: DeviceModelDto | null, initialForm: FormState = EMPTY): boolean {
   if (!editing) {
     return (
-      form.deviceType !== initialType ||
-      form.name !== "" ||
-      form.vendor !== "" ||
-      form.modelNumber !== "" ||
-      form.heightU !== "" ||
-      form.description !== "" ||
-      form.tags !== ""
+      form.deviceType !== initialForm.deviceType ||
+      form.name !== initialForm.name ||
+      form.vendor !== initialForm.vendor ||
+      form.modelNumber !== initialForm.modelNumber ||
+      form.heightU !== initialForm.heightU ||
+      form.description !== initialForm.description ||
+      form.tags !== initialForm.tags
     );
   }
   const orig = modelToForm(editing);
@@ -75,6 +75,16 @@ function isDirty(form: FormState, editing: DeviceModelDto | null, initialType = 
   );
 }
 
+export interface DeviceModelPrefill {
+  deviceType?: string;
+  name?: string;
+  vendor?: string;
+  modelNumber?: string;
+  heightU?: string;
+  description?: string;
+  tags?: string;
+}
+
 export interface DeviceModelFormModalProps {
   open: boolean;
   /** null → add mode, DeviceModelDto → edit mode */
@@ -86,6 +96,8 @@ export interface DeviceModelFormModalProps {
   forcedDeviceType?: string;
   /** When true, hides the device type selector and locks the type to forcedDeviceType. */
   lockDeviceType?: boolean;
+  /** Pre-fill form fields in add mode (ignored in edit mode). */
+  prefill?: DeviceModelPrefill;
 }
 
 export function DeviceModelFormModal({
@@ -95,24 +107,26 @@ export function DeviceModelFormModal({
   onSaved,
   forcedDeviceType,
   lockDeviceType,
+  prefill,
 }: DeviceModelFormModalProps) {
   const [form, setForm] = useState<FormState>(EMPTY);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const initialFormRef = useRef<FormState>(EMPTY);
 
   const isEdit = editing !== null;
 
   useEffect(() => {
     if (open) {
-      setForm(
-        editing
-          ? modelToForm(editing)
-          : { ...EMPTY, deviceType: forcedDeviceType ?? "" },
-      );
+      const initial = editing
+        ? modelToForm(editing)
+        : { ...EMPTY, deviceType: forcedDeviceType ?? "", ...prefill };
+      initialFormRef.current = initial;
+      setForm(initial);
       setError(null);
       setSubmitting(false);
     }
-  }, [open, editing, forcedDeviceType]);
+  }, [open, editing, forcedDeviceType, prefill]);
 
   const set =
     (k: keyof FormState) =>
@@ -185,7 +199,7 @@ export function DeviceModelFormModal({
     }
   }
 
-  const dirty = isDirty(form, editing, forcedDeviceType ?? "");
+  const dirty = isDirty(form, editing, initialFormRef.current);
   const isLockedRackObject = !!lockDeviceType && !isEdit && forcedDeviceType === "rack_object";
 
   const title = isLockedRackObject

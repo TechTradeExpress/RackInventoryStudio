@@ -1,4 +1,4 @@
-import { useState, useEffect, type ChangeEvent, type FormEvent } from "react";
+import { useState, useEffect, useRef, type ChangeEvent, type FormEvent } from "react";
 import { Modal } from "../../components/ui/Modal";
 import { Field } from "../../components/ui/Field";
 import { SearchableSelect } from "../../components/ui/SearchableSelect";
@@ -68,18 +68,18 @@ function deviceToForm(dev: DeviceDto): FormState {
   };
 }
 
-function isDirty(form: FormState, editing: DeviceDto | null, initialStatus = "planned"): boolean {
+function isDirty(form: FormState, editing: DeviceDto | null, initialForm: FormState = EMPTY): boolean {
   if (!editing) {
     return (
-      form.deviceType !== "" ||
-      form.name !== "" ||
-      form.status !== initialStatus ||
-      form.deviceModelId !== "" ||
-      form.serialNumber !== "" ||
-      form.assetTag !== "" ||
-      form.externalRef !== "" ||
-      form.description !== "" ||
-      form.tags !== ""
+      form.deviceType !== initialForm.deviceType ||
+      form.name !== initialForm.name ||
+      form.status !== initialForm.status ||
+      form.deviceModelId !== initialForm.deviceModelId ||
+      form.serialNumber !== initialForm.serialNumber ||
+      form.assetTag !== initialForm.assetTag ||
+      form.externalRef !== initialForm.externalRef ||
+      form.description !== initialForm.description ||
+      form.tags !== initialForm.tags
     );
   }
   const orig = deviceToForm(editing);
@@ -96,6 +96,15 @@ function isDirty(form: FormState, editing: DeviceDto | null, initialStatus = "pl
   );
 }
 
+export interface DevicePrefill {
+  deviceType?: string;
+  name?: string;
+  status?: string;
+  deviceModelId?: string;
+  description?: string;
+  tags?: string;
+}
+
 export interface DeviceFormModalProps {
   open: boolean;
   /** null → add mode, DeviceDto → edit mode */
@@ -107,6 +116,8 @@ export interface DeviceFormModalProps {
   onSaved: (newDeviceId?: string) => void;
   /** Default status for new devices (add mode only). Ignored in edit mode. */
   defaultStatus?: string;
+  /** Pre-fill form fields in add mode (ignored in edit mode). Takes priority over defaultStatus for status. */
+  prefill?: DevicePrefill;
 }
 
 export function DeviceFormModal({
@@ -116,25 +127,27 @@ export function DeviceFormModal({
   onClose,
   onSaved,
   defaultStatus,
+  prefill,
 }: DeviceFormModalProps) {
   const { runBusy } = useBusy();
   const [form, setForm] = useState<FormState>(EMPTY);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const initialFormRef = useRef<FormState>(EMPTY);
 
   const isEdit = editing !== null;
 
   useEffect(() => {
     if (open) {
-      setForm(
-        editing
-          ? deviceToForm(editing)
-          : { ...EMPTY, status: defaultStatus ?? EMPTY.status },
-      );
+      const initial = editing
+        ? deviceToForm(editing)
+        : { ...EMPTY, status: defaultStatus ?? EMPTY.status, ...prefill };
+      initialFormRef.current = initial;
+      setForm(initial);
       setError(null);
       setSubmitting(false);
     }
-  }, [open, editing, defaultStatus]);
+  }, [open, editing, defaultStatus, prefill]);
 
   function set(
     k: keyof FormState,
@@ -227,7 +240,7 @@ export function DeviceFormModal({
     }
   }
 
-  const dirty = isDirty(form, editing, defaultStatus ?? EMPTY.status);
+  const dirty = isDirty(form, editing, initialFormRef.current);
 
   return (
     <Modal
