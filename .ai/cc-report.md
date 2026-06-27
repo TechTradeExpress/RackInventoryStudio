@@ -1,122 +1,126 @@
 ## Summary
 
-PR 3 of beta.3 roadmap. Added a reusable `SearchableSelect` combobox component and
-applied it to the Device Model picker in the Add/Edit Device form. Users can now
-type a fragment of name, vendor, model number or device type to filter a potentially
-long list of models. No backend changes, no data model changes, no new dependencies,
-no version bump.
+PR 4 of beta.3 roadmap. Applied the existing `SearchableSelect` component to the
+`PlacePlacementModal` — the two native `<select>` elements for choosing an unplaced
+device and a rack-object model have been replaced. The placement flow UX is now
+consistent with the Device Model picker added in PR 3. No backend changes, no data
+model changes, no new dependencies, no version bump.
 
 ## Base branch / working branch
 
-- Base: `roadmap/beta3` (includes PR 1 scroll foundation + PR 2 search/sort)
-- Working: `feature/beta3-searchable-selects`
+- Base: `roadmap/beta3` (includes PR 1 scroll + PR 2 search/sort + PR 3 SearchableSelect)
+- Working: `feature/beta3-placement-searchable-selects`
 
 ## Files changed
 
 | File | Change |
 |---|---|
-| `apps/desktop/src/components/ui/SearchableSelect.tsx` | New reusable combobox component |
-| `apps/desktop/src/components/ui/SearchableSelect.test.tsx` | 18 new tests for the component |
-| `apps/desktop/src/components/ui/index.ts` | Export SearchableSelect |
-| `apps/desktop/src/app.css` | Styles for `.ss-*` — trigger, dropdown, list, option, empty |
-| `apps/desktop/src/features/devices/DeviceFormModal.tsx` | Device Model field replaced with SearchableSelect |
-| `apps/desktop/src/features/devices/DeviceFormModal.test.tsx` | Updated 2 tests (field-device-model pattern changed from native select to SearchableSelect); added 3 new integration tests |
+| `apps/desktop/src/features/racks/PlacePlacementModal.tsx` | Replace device and rack-object `<select>` with `SearchableSelect`; add import |
+| `apps/desktop/src/features/racks/PlacePlacementModal.test.tsx` | Rewrite all tests that interacted with native `<select>`; add 7 new search tests |
 
-## Select audit
+## Select audit — PlacePlacementModal
 
-### All `<select>` occurrences found
+### Selects found and changed
 
-| File | Field | Options count | Note |
-|---|---|---|---|
-| `DeviceFormModal.tsx` | Device type | ~6 | Small fixed list — native select is fine |
-| `DeviceFormModal.tsx` | Status | ~7 | Small fixed list — native select is fine |
-| `DeviceFormModal.tsx` | Device model | Unbounded | **Changed in this PR** |
-| `DeviceModelFormModal.tsx` | Device type | ~6 | Small fixed list — native select is fine |
-| `PlacePlacementModal.tsx` | Device (unplaced) | Unbounded | Follow-up — complex sub-modal flow |
-| `PlacePlacementModal.tsx` | Rack object model | Unbounded | Follow-up — complex sub-modal flow |
-| `RepositoryPanel.tsx` | Git remote | 1-2 typically | Native select is fine |
+| Field | Options count | Changed |
+|---|---|---|
+| Device selector (unplaced devices) | Unbounded | **Yes** |
+| Rack object model selector | Unbounded | **Yes** |
 
-### Changed in this PR
+### Inline sub-modal selects — NOT changed
 
-- **DeviceFormModal — Device model**: replaced with `SearchableSelect`.  
-  Search works by name, vendor, model_number, device_type.  
-  Each option shows the model name as primary label and
-  `vendor · model_number · device_type · height` as secondary meta line.
+| Component | Field | Note |
+|---|---|---|
+| `DeviceFormModal` (Create new device) | Device type (~6), Status (~7), Device Model | Device Model already SearchableSelect (PR 3) |
+| `DeviceModelFormModal` (Create rack object) | Device type (~6) | Small fixed list — native select is fine |
 
-### Kept as follow-up
+No unbounded selects remain in this modal.
 
-- `PlacePlacementModal` device and rack-object selects — both have unbounded lists and
-  are good candidates. However, the modal already has complex inline sub-modal flows
-  (create-device, edit-device, create-rack-object, edit-rack-object). Replacing their
-  selects safely is a separate PR to keep scope controlled.
+## SearchableSelect in placement flow
 
-## SearchableSelect component
+### Device selector
 
-**Location:** `apps/desktop/src/components/ui/SearchableSelect.tsx`
+- Options from `localDevices` (refreshed after inline creation)
+- `label`: `d.name || "Unnamed device"`
+- `keywords`: `device_type + status + serial_number + asset_tag + external_ref + device_model_code`
+- `meta`: `device_type · status · S/N: xxx · AT: yyy` (non-null fields only)
+- `placeholder`: "— select device —"
+- `data-testid`: `"device-select"` / `"device-select-trigger"` / `"device-select-search"`
+- `onChange`: `setDeviceId(val); setError(null)` — identical semantics to prior native select
 
-**Props:**
-- `options: SelectOption[]` — `{ value, label, keywords?, meta? }`
-- `value: string` — controlled current value
-- `onChange: (value: string) => void`
-- `placeholder?: string` — shown when value doesn't match any option
-- `disabled?: boolean`
-- `aria-label?: string`
-- `data-testid?: string` — also generates `${id}-trigger` and `${id}-search` sub-ids
+### Rack object selector
 
-**Behaviour:**
-- Trigger button styled identically to `.input` (height 28 px, same border/focus ring)
-- Dropdown rendered via `createPortal` to `document.body` with `position: fixed`
-  so it is never clipped by `overflow-y: auto` on `.modal-bd`
-- Search input at the top of the dropdown, auto-focused on open
-- Results list: `max-height: 200px; overflow-y: auto`
-- Escape (capture phase) closes the dropdown without closing the parent modal
-- Click-outside closes the dropdown
-- "No results" empty state when search has no match
-- `onMouseDown` on options with `e.preventDefault()` — avoids focus flicker
+- Options from `localRackObjects` (refreshed after inline creation)
+- `label`: `m.name || "Unnamed model"`
+- `keywords`: `vendor + model_number + device_type`
+- `meta`: `vendor · model_number · heightU`
+- `placeholder`: "— select rack object —"
+- `data-testid`: `"rack-object-select"` / `"rack-object-select-trigger"` / `"rack-object-select-search"`
+- `onChange`: `setDeviceModelId(val); setError(null)`
 
-## Add/Edit Device — Device Model selector
+### Inline flows preserved
 
-- Options: `{ value: "", label: "— none —" }` + one per `filteredModels`
-  (already filtered by device_type when a type is selected)
-- `keywords`: joined `vendor + model_number + device_type`
-- `meta`: `vendor · model_number · device_type · NU`
-- `onChange`: directly calls `setForm(f => ({ ...f, deviceModelId: val }))`
-- Existing auto-clear logic (model cleared when device type changes to incompatible
-  type) is untouched — it runs on the device-type select's change handler
+After inline device/rack-object creation, the new item is preselected in the SearchableSelect
+trigger automatically (component reads `value` prop; `setDeviceId` / `setDeviceModelId` is
+called with the new ID, which is in the refreshed options list).
 
 ## Tests
 
 ```
 vitest run src/
   Test Files  45 passed (45)
-      Tests  604 passed (604)   (+20 new vs PR 2 baseline of 584)
+      Tests  611 passed (611)   (+7 new vs PR 3 baseline of 604)
 ```
 
-New tests: 18 in `SearchableSelect.test.tsx` + 3 in `DeviceFormModal.test.tsx`
-(plus 2 existing tests updated to use the new UI interaction pattern).
+### New tests (7)
 
-TypeScript: no errors.
-Rust checks: skipped — PR is frontend-only; no Rust/Tauri code was touched.
-Vite build: `pnpm` not available in this environment; TS + Vitest confirm correctness.
+- Device search: by name, by serial number, case-insensitive, no-results
+- Rack object search: by name, by vendor, no-results
+
+### Existing tests updated (18)
+
+All tests that used `fireEvent.change` on a native select or read `.value as HTMLSelectElement`
+were converted to use `selectDevice(label)` / `selectRackObject(label)` helpers and
+`trigger.textContent` / `trigger.querySelector(".ss-placeholder")` assertions.
+
+Module-level helper pair `selectDevice` / `selectRackObject` queries
+`.ss-dropdown .ss-option` via `document.querySelectorAll` to avoid false-positive
+text matches between the trigger button and dropdown options.
+
+## Checks
+
+| Check | Result |
+|---|---|
+| `git diff --check` | clean |
+| `node scripts/check-version-consistency.mjs` | ✓ 0.1.0-beta.2 — 4 sources |
+| `node --test scripts/*.test.mjs` | 19 pass |
+| `node scripts/check-repo-hygiene.mjs` | 8/8 pass |
+| `node scripts/smoke-beta-gate.mjs` | automated layer PASS |
+| `tsc --noEmit` | clean |
+| Vitest | 611 pass (45 files) |
+
+Rust checks: skipped — PR is frontend-only.
+Vite build: `pnpm` unavailable in this environment; TS + Vitest confirm correctness.
 
 ## Risks
 
-- `getBoundingClientRect()` returns zeros in JSDOM; the `position: fixed` dropdown
-  renders at `top: 2, left: 0` in tests (harmless) but correct on the real desktop app.
-- Client-side search on the model list is fine for typical inventories. Very large
-  model catalogues (thousands) may benefit from debounced search in a future PR.
+- DnD preselection (`initialTargetId`) relies on the SearchableSelect finding the matching
+  option in `localDevices`/`localRackObjects`. If a DnD-dropped ID is not in the local list,
+  the trigger shows the placeholder — same behavior as the prior native select for unknown values.
+- Escape key in SearchableSelect uses capture-phase listener, closing only the dropdown
+  while keeping the placement modal open. Verified in `SearchableSelect.test.tsx`.
 
 ## Not done
 
-- Searchable select in PlacePlacementModal (device / rack-object pickers) — follow-up PR
-- Auto-populate Device Type from selected model — explicitly out of scope per brief
-- Contextual rack-object form, planning/on-site mode, duplicate/create-similar,
-  clone repository, rack export — all out of scope per brief
+- Device type selects (~6 options) in DeviceFormModal / DeviceModelFormModal — native select fine
+- Status select (~7 options) in DeviceFormModal — native select fine
+- Git remote selector in RepositoryPanel (1–2 options) — native select fine
+- Keyboard navigation (arrow-up/down) in SearchableSelect — accessibility follow-up
 
 ## Suggested next step
 
-PR 4: Replace the unplaced-device and rack-object selects in PlacePlacementModal with
-SearchableSelect, now that the component exists and is tested.
+PR 5: Contextual Rack Object inline form with pre-locked `device_type = rack_object`
+(removes the type select from the inline creation flow in PlacePlacementModal).
 
 ---
 

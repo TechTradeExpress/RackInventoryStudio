@@ -11,6 +11,7 @@ import {
 import { useBusy } from "../../lib/appBusy";
 import { Modal } from "../../components/ui/Modal";
 import { Field } from "../../components/ui/Field";
+import { SearchableSelect } from "../../components/ui/SearchableSelect";
 import { parsePositiveInt } from "./positiveInt";
 import { DeviceFormModal } from "../devices/DeviceFormModal";
 import { DeviceModelFormModal } from "../deviceModels/DeviceModelFormModal";
@@ -340,22 +341,38 @@ export function PlacePlacementModal({
                 required
                 className="col-12"
               >
-                <select
-                  className="ri-input"
+                <SearchableSelect
+                  options={localDevices.map((d) => ({
+                    value: d.id,
+                    label: d.name?.trim() || "Unnamed device",
+                    keywords: [
+                      d.device_type,
+                      d.status,
+                      d.serial_number,
+                      d.asset_tag,
+                      d.external_ref,
+                      d.device_model_code,
+                    ]
+                      .filter(Boolean)
+                      .join(" "),
+                    meta:
+                      [
+                        d.device_type,
+                        d.status,
+                        d.serial_number ? `S/N: ${d.serial_number}` : null,
+                        d.asset_tag ? `AT: ${d.asset_tag}` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ") || undefined,
+                  }))}
                   value={deviceId}
-                  onChange={(e) => {
-                    setDeviceId(e.target.value);
+                  onChange={(val) => {
+                    setDeviceId(val);
                     setError(null);
                   }}
+                  placeholder="— select device —"
                   data-testid="device-select"
-                >
-                  <option value="">— select —</option>
-                  {localDevices.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name?.trim() || "Unnamed device"}
-                    </option>
-                  ))}
-                </select>
+                />
               </Field>
               <div className="col-12" style={{ marginTop: -4, display: "flex", gap: 8 }}>
                 <button
@@ -385,22 +402,30 @@ export function PlacePlacementModal({
                 required
                 className="col-12"
               >
-                <select
-                  className="ri-input"
+                <SearchableSelect
+                  options={localRackObjects.map((m) => ({
+                    value: m.id,
+                    label: m.name?.trim() || "Unnamed model",
+                    keywords: [m.vendor, m.model_number, m.device_type]
+                      .filter(Boolean)
+                      .join(" "),
+                    meta:
+                      [
+                        m.vendor,
+                        m.model_number,
+                        `${m.default_height_u}U`,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ") || undefined,
+                  }))}
                   value={deviceModelId}
-                  onChange={(e) => {
-                    setDeviceModelId(e.target.value);
+                  onChange={(val) => {
+                    setDeviceModelId(val);
                     setError(null);
                   }}
+                  placeholder="— select rack object —"
                   data-testid="rack-object-select"
-                >
-                  <option value="">— select —</option>
-                  {localRackObjects.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name?.trim() || "Unnamed model"} ({m.default_height_u}U)
-                    </option>
-                  ))}
-                </select>
+                />
               </Field>
               <div className="col-12" style={{ marginTop: -4, display: "flex", gap: 8 }}>
                 <button
