@@ -1,111 +1,93 @@
 ## Summary
 
-PR 1 of beta.3 roadmap. Added a `.tbl-wrap` scroll container around every
-`<table class="tbl">` that lives inside a `.panel-bd.flush`. This fixes the
-core list scalability problem: tables previously had no scroll container of
-their own, so rows beyond the viewport were cut off with no usable way to
-reach them. The `position: sticky` on table headers also did not function
-because `.panel { overflow: hidden }` created an intervening scroll root.
+PR 2 of beta.3 roadmap. Added client-side search, sorting and a filter-aware
+counter to the Devices and Device Models list views. Builds on the `.tbl-wrap`
+scroll foundation from PR 1. No backend changes, no data model changes, no new
+dependencies, no version bump.
 
-The fix is minimal and purely CSS + one wrapper `<div>` per list panel.
-No data model changes, no layout rewrites.
+**Repair (post-review):** Fixed ineffective sort-direction test, changed
+sortable header cursor from `default` to `pointer`, committed previously
+unstaged `cc-report.md`.
 
 ## Files changed
 
 | File | Change |
 |---|---|
-| `apps/desktop/src/app.css` | Added `.tbl-wrap` class: `overflow-y: auto; max-height: calc(100vh - 200px)` |
-| `apps/desktop/src/features/devices/DevicesPanel.tsx` | Wrapped `<table>` in `<div className="tbl-wrap">` |
-| `apps/desktop/src/features/deviceModels/DeviceModelsPanel.tsx` | Wrapped `<table>` in `<div className="tbl-wrap">` |
-| `apps/desktop/src/features/locations/LocationsPanel.tsx` | Wrapped `<table>` in `<div className="tbl-wrap">` |
-| `apps/desktop/src/features/racks/RacksPanel.tsx` | Wrapped `<table>` in `<div className="tbl-wrap">` |
-| `apps/desktop/src/features/devices/DevicesPanel.test.tsx` | Added scroll foundation tests (53-row render, `.tbl-wrap` presence, counter) |
-| `apps/desktop/src/features/deviceModels/DeviceModelsPanel.test.tsx` | New test file: 40-row render, `.tbl-wrap` presence, model count, empty state |
+| `apps/desktop/src/lib/listHelpers.ts` | New shared helpers: `matchesSearch`, `cmpStr`, `cmpNum`, `toggleDir`, `SortDir` |
+| `apps/desktop/src/app.css` | Sort header + panel search bar styles; `cursor: pointer` on `.tbl-th-sort` |
+| `apps/desktop/src/features/devices/DevicesPanel.tsx` | Search input, sort by Name/Type/Status/Placed, updated counter |
+| `apps/desktop/src/features/deviceModels/DeviceModelsPanel.tsx` | Search input, sort by Name/Type/Vendor/SKU/Height, updated counter |
+| `apps/desktop/src/features/devices/DevicesPanel.test.tsx` | +8 tests (search 6, sort 2); sort-desc test now verifies actual row order |
+| `apps/desktop/src/features/deviceModels/DeviceModelsPanel.test.tsx` | +7 tests (search 5, sort 2) |
 
-## Audit findings
+## Base branch / working branch
 
-Lists/tables found and evaluated:
+- Base: `roadmap/beta3` (includes PR 1 scroll foundation)
+- Working: `feature/beta3-list-search-sort-filter`
 
-| Panel | Has table | Fixed |
-|---|---|---|
-| DevicesPanel | yes | yes |
-| DeviceModelsPanel | yes | yes |
-| LocationsPanel | yes | yes |
-| RacksPanel (location-scoped list view) | yes | yes |
-| RackDetailPanel | rack diagram (not a tbl) | n/a |
-| PlacementPalettePanel | palette cards (not tbl) | n/a |
-| ValidationPanel | list items (not tbl) | n/a |
+## Devices list — search, sort, filter
 
-All four `<table class="tbl">` instances were wrapped. No other list views
-use the `.tbl` class.
+**Search:**
+- Input inside the panel body above the table (`.panel-filter` bar)
+- Searches: `name`, `device_type`, `status`, `serial_number`, `asset_tag`,
+  `external_ref`, and resolved model name
+- Case-insensitive, trims whitespace, safe on null/undefined
+- Works together with existing tab filter (All / Placed / Unplaced / Installed / Unknown)
+- Counter: "5 of 53" when search is active
+- Empty state distinguishes "no devices yet" from "no match"
 
-## Root cause
+**Sort:**
+- Sortable columns: Name, Type, Status, Placed — `cursor: pointer`
+- Click header → asc; click again → desc; ↑/↓ indicator on active column
+- Default: Name ascending
 
-Two compounding issues:
+**Filter pipeline:** tab filter → search → sort
 
-1. `.panel { overflow: hidden }` — makes `.panel` the sticky-positioning scroll
-   root (per CSS spec, `overflow: hidden` creates a scroll container). Since
-   `.panel` does not actually scroll, `position: sticky` on `thead th` was a
-   no-op. Headers scrolled away with the page.
+## Device Models list — search, sort
 
-2. No scroll container on the table itself — rows beyond the viewport had no
-   way to be reached. The outer `.main { overflow: auto }` does scroll the full
-   page, but the table was effectively clipped at the panel boundary in practice.
+**Search:** searches `name`, `device_type`, `vendor`, `model_number`
+**Title:** "40 models" → "8 of 40 models" when searching
+**Sort:** Name, Type, Vendor, SKU, Height (numeric via `cmpNum`)
 
-## Fix approach
+## Shared pattern
 
-Added `.tbl-wrap { overflow-y: auto; max-height: calc(100vh - 200px) }`.
-
-- `max-height: calc(100vh - 200px)` reserves space for: topbar (40px) +
-  page-header (~70px) + panel-hd (~44px) + page-content padding (~40px) +
-  buffer (~6px).
-- `overflow-y: auto` makes this element the scroll root, which allows
-  `thead th { position: sticky; top: 0 }` (already present in app.css) to
-  work correctly.
-- `.panel { overflow: hidden }` was intentionally left unchanged to preserve
-  the border-radius visual clipping. The sticky header now works against
-  `.tbl-wrap` rather than `.panel`.
+`listHelpers.ts`: `matchesSearch`, `cmpStr`, `cmpNum`, `toggleDir`, `SortDir`
+CSS: `.tbl-th-sort` (pointer, hover), `.sort-ic`, `.panel-filter`, `.pf-input-wrap`
 
 ## Tests
 
 ```
-npx vitest run
+vitest run (src/ — excludes pre-existing e2e/scripts issues)
   Test Files  44 passed (44)
-      Tests  569 passed (569)
+      Tests  584 passed (584)   (+15 new vs PR 1 baseline)
 ```
 
-New tests added:
-- DevicesPanel: 53-device render (all rows in DOM), `.tbl-wrap` wrapper present,
-  counter "3 of 3" correct
-- DeviceModelsPanel (new file): 40-model render, `.tbl-wrap` wrapper present,
-  title count, empty state
+Post-repair: sort-desc test verifies actual row text order (Zebra before Alpha),
+plus round-trip back to asc. Previously the test only checked `toBeDefined()`.
 
-TypeScript: no errors (`tsc --noEmit` clean).
+TypeScript: no errors. Rust checks: skipped (frontend-only). Vite build: `pnpm`
+not available in this environment; TS + Vitest confirm correctness.
 
-Rust checks: skipped — this PR touches only frontend CSS/TSX.
-Vite build: `pnpm` and `npx vite build` not available in this CI environment;
-TypeScript + Vitest both pass, confirming code correctness.
+## Repair checklist
+
+- [x] `cursor: pointer` on `.tbl-th-sort` (was `cursor: default`)
+- [x] Sort-desc test now asserts actual row order, not just `toBeDefined()`
+- [x] `.ai/cc-report.md` committed — working tree clean
+- [x] No review-context files committed
 
 ## Risks
 
-- `max-height: calc(100vh - 200px)` is a heuristic. If a page adds banners
-  (error, success, unsaved callout bar at 32px), the table area shrinks by that
-  amount. The table stays scrollable; the max-height just changes slightly.
-- On very small screens (< 600px height), the table max-height drops below a
-  useful minimum. Desktop-first app — not a concern for current target hardware.
+- Client-side search/sort is fine for typical inventories. Very large datasets
+  (thousands) may need debounced search in a future PR.
 
 ## Not done
 
-- Sorting and filtering (PR 2 of beta.3 roadmap)
-- Searchable selects (PR 3)
-- Clone repository (PR 7)
-- Rack export (PR 8)
+- Sortable Locations and Racks lists (lower priority)
+- Searchable selects / comboboxes (PR 3 of roadmap)
 
 ## Suggested next step
 
-PR 2: sorting and filtering for the Devices and Device Models lists. The scroll
-foundation from this PR is a prerequisite for comfortable use of large filtered
-datasets.
+PR 3: Searchable selects / comboboxes for model selection in Add/Edit Device.
 
 ---
 
