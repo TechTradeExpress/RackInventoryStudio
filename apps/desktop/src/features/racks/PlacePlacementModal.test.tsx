@@ -706,24 +706,37 @@ describe("PlacePlacementModal — Create new rack object flow", () => {
     expect(screen.getByTestId("create-rack-object-btn")).toBeTruthy();
   });
 
-  it("clicking 'Create new rack object…' opens the DeviceModelFormModal", async () => {
+  it("clicking 'Create new rack object…' opens the form with contextual title", async () => {
     render(<PlacePlacementModal {...BASE_PROPS} initialTargetKind="rack_object" />);
     fireEvent.click(screen.getByTestId("create-rack-object-btn"));
+    // Both the title div and the submit button contain "Create rack object"
     await waitFor(() => {
-      expect(screen.getByText("Add device model")).toBeTruthy();
+      expect(screen.getAllByText("Create rack object").length).toBeGreaterThan(0);
     });
   });
 
-  it("canceling DeviceModelFormModal returns to unchanged Place equipment modal", async () => {
+  it("rack object creation form locks device type to rack_object", async () => {
+    render(<PlacePlacementModal {...BASE_PROPS} initialTargetKind="rack_object" />);
+    fireEvent.click(screen.getByTestId("create-rack-object-btn"));
+    await waitFor(() => expect(screen.getAllByText("Create rack object").length).toBeGreaterThan(0));
+
+    // Editable device type select must not exist
+    expect(screen.queryByTestId("field-device-type")).toBeNull();
+    // Locked type display must show rack_object
+    const locked = screen.getByTestId("field-device-type-locked");
+    expect(locked.textContent).toContain("rack_object");
+  });
+
+  it("canceling rack object creation form returns to unchanged Place equipment modal", async () => {
     render(<PlacePlacementModal {...BASE_PROPS} initialTargetKind="rack_object" startU={7} />);
     fireEvent.click(screen.getByTestId("create-rack-object-btn"));
-    await waitFor(() => expect(screen.getByText("Add device model")).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText("Create rack object").length).toBeGreaterThan(0));
 
     const cancelBtns = screen.getAllByText("Cancel");
     cancelBtns[cancelBtns.length - 1].click();
 
     await waitFor(() => {
-      expect(screen.queryByText("Add device model")).toBeNull();
+      expect(screen.queryAllByText("Create rack object")).toHaveLength(0);
       expect(screen.getByText("Place equipment")).toBeTruthy();
     });
     expect((screen.getByTestId("start-u-input") as HTMLInputElement).value).toBe("7");
@@ -732,7 +745,7 @@ describe("PlacePlacementModal — Create new rack object flow", () => {
     expect(trigger.querySelector(".ss-placeholder")).not.toBeNull();
   });
 
-  it("successful rack object creation refreshes list and preselects new model", async () => {
+  it("successful rack object creation sends rack_object type and preselects new model", async () => {
     const onRackObjectCreated = vi.fn();
     render(
       <PlacePlacementModal
@@ -744,16 +757,15 @@ describe("PlacePlacementModal — Create new rack object flow", () => {
     );
 
     fireEvent.click(screen.getByTestId("create-rack-object-btn"));
-    await waitFor(() => expect(screen.getByText("Add device model")).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText("Create rack object").length).toBeGreaterThan(0));
 
-    // Fill minimal form: device_type (rack_object), name, height
-    fireEvent.change(screen.getByTestId("field-device-type"), { target: { value: "rack_object" } });
+    // Type is pre-locked — only fill name and height
     fireEvent.change(screen.getByTestId("field-name"), { target: { value: "New Rack Object" } });
     fireEvent.change(screen.getByTestId("field-height-u"), { target: { value: "1" } });
-    fireEvent.click(screen.getByText("Create model"));
+    fireEvent.click(screen.getByRole("button", { name: "Create rack object" }));
 
     await waitFor(() => {
-      expect(screen.queryByText("Add device model")).toBeNull();
+      expect(screen.queryAllByText("Create rack object")).toHaveLength(0);
       expect(screen.getByText("Place equipment")).toBeTruthy();
     });
 
