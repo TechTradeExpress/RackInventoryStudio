@@ -7,7 +7,7 @@ import type { DeviceModelDto } from "../../api/tauriClient";
 vi.mock("../../api/tauriClient", () => ({
   listDeviceModels: vi.fn().mockResolvedValue([]),
   deleteDeviceModel: vi.fn(),
-  addDeviceModel: vi.fn(),
+  addDeviceModel: vi.fn().mockResolvedValue("new-model-id"),
   updateDeviceModel: vi.fn(),
 }));
 
@@ -19,7 +19,8 @@ vi.mock("../../lib/appBusy", () => ({
   }),
 }));
 
-import { listDeviceModels } from "../../api/tauriClient";
+import { listDeviceModels, addDeviceModel } from "../../api/tauriClient";
+const mockAddModel = vi.mocked(addDeviceModel);
 
 const BASE_PROPS = {
   repoPath: "/repos/test",
@@ -44,6 +45,7 @@ function makeModel(id: string, overrides: Partial<DeviceModelDto> = {}): DeviceM
 
 beforeEach(() => {
   vi.mocked(listDeviceModels).mockResolvedValue([]);
+  mockAddModel.mockResolvedValue("new-model-id");
 });
 
 afterEach(() => {
@@ -223,5 +225,79 @@ describe("DeviceModelsPanel — sort", () => {
       const firstName = rows[1].querySelector("strong")?.textContent;
       expect(firstName).toBe("Tall");
     });
+  });
+});
+
+// ── Create similar ─────────────────────────────────────────────────────────────
+
+describe("DeviceModelsPanel — create similar", () => {
+  it("Create similar button opens add modal with prefilled name 'Copy of ...'", async () => {
+    vi.mocked(listDeviceModels).mockResolvedValue([
+      makeModel("m1", { name: "PowerEdge R750", device_type: "server", default_height_u: 2 }),
+    ]);
+    render(<DeviceModelsPanel {...BASE_PROPS} />);
+    await waitFor(() => expect(screen.getByText("PowerEdge R750")).toBeTruthy());
+
+    fireEvent.click(screen.getByLabelText("Create similar to PowerEdge R750"));
+
+    await waitFor(() => expect(screen.getByTestId("field-name")).toBeTruthy());
+    expect((screen.getByTestId("field-name") as HTMLInputElement).value).toBe("Copy of PowerEdge R750");
+  });
+
+  it("Create similar prefills device type and height", async () => {
+    vi.mocked(listDeviceModels).mockResolvedValue([
+      makeModel("m1", { name: "Server A", device_type: "server", default_height_u: 4 }),
+    ]);
+    render(<DeviceModelsPanel {...BASE_PROPS} />);
+    await waitFor(() => expect(screen.getByText("Server A")).toBeTruthy());
+
+    fireEvent.click(screen.getByLabelText("Create similar to Server A"));
+
+    await waitFor(() => expect(screen.getByTestId("field-height-u")).toBeTruthy());
+    expect((screen.getByTestId("field-height-u") as HTMLInputElement).value).toBe("4");
+  });
+
+  it("Create similar save calls addDeviceModel without id or code", async () => {
+    vi.mocked(listDeviceModels).mockResolvedValue([
+      makeModel("m1", { name: "PowerEdge R750", device_type: "server", default_height_u: 2 }),
+    ]);
+    render(<DeviceModelsPanel {...BASE_PROPS} />);
+    await waitFor(() => expect(screen.getByText("PowerEdge R750")).toBeTruthy());
+
+    fireEvent.click(screen.getByLabelText("Create similar to PowerEdge R750"));
+    await waitFor(() => expect(screen.getByTestId("field-name")).toBeTruthy());
+
+    fireEvent.click(screen.getByText("Create model"));
+
+    await waitFor(() => {
+      expect(mockAddModel).toHaveBeenCalledWith(
+        expect.objectContaining({
+          device_type: "server",
+          name: "Copy of PowerEdge R750",
+          default_height_u: 2,
+        }),
+      );
+      const call = mockAddModel.mock.calls[0][0];
+      expect(call).not.toHaveProperty("id");
+      expect(call).not.toHaveProperty("code");
+    });
+  });
+
+  it("Edit model still works correctly after Create similar has been used", async () => {
+    vi.mocked(listDeviceModels).mockResolvedValue([
+      makeModel("m1", { name: "PowerEdge R750", device_type: "server", default_height_u: 2 }),
+    ]);
+    render(<DeviceModelsPanel {...BASE_PROPS} />);
+    await waitFor(() => expect(screen.getByText("PowerEdge R750")).toBeTruthy());
+
+    // Use Create similar then close
+    fireEvent.click(screen.getByLabelText("Create similar to PowerEdge R750"));
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+    fireEvent.click(screen.getByText("Cancel"));
+
+    // Then open Edit — should show "Edit device model" title, not Create similar
+    fireEvent.click(screen.getByLabelText("Edit PowerEdge R750"));
+    await waitFor(() => expect(screen.getByText("Edit device model")).toBeTruthy());
+    expect((screen.getByTestId("field-name") as HTMLInputElement).value).toBe("PowerEdge R750");
   });
 });

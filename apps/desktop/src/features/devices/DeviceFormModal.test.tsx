@@ -446,6 +446,128 @@ describe("DeviceFormModal — defaultStatus prop", () => {
   });
 });
 
+describe("DeviceFormModal — prefill prop", () => {
+  it("add mode with prefill shows prefilled name, type, and status", () => {
+    render(
+      <DeviceFormModal
+        open
+        editing={null}
+        models={MODELS}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        prefill={{ deviceType: "server", name: "Copy of Web Server", status: "planned" }}
+      />,
+    );
+    expect((screen.getByTestId("field-name") as HTMLInputElement).value).toBe("Copy of Web Server");
+    expect((screen.getByTestId("field-status") as HTMLSelectElement).value).toBe("planned");
+  });
+
+  it("prefill status overrides defaultStatus from work mode", () => {
+    render(
+      <DeviceFormModal
+        open
+        editing={null}
+        models={MODELS}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        defaultStatus="installed"
+        prefill={{ status: "planned" }}
+      />,
+    );
+    expect((screen.getByTestId("field-status") as HTMLSelectElement).value).toBe("planned");
+  });
+
+  it("serial, asset tag, and external ref are empty in add mode with prefill (not copied)", () => {
+    render(
+      <DeviceFormModal
+        open
+        editing={null}
+        models={MODELS}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        prefill={{ deviceType: "server", name: "Copy of Server", status: "installed" }}
+      />,
+    );
+    expect((screen.getByTestId("field-serial") as HTMLInputElement).value).toBe("");
+    expect((screen.getByTestId("field-asset-tag") as HTMLInputElement).value).toBe("");
+  });
+
+  it("edit mode ignores prefill and uses device's own values", () => {
+    render(
+      <DeviceFormModal
+        open
+        editing={FIXTURE_DEVICE}
+        models={MODELS}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        prefill={{ name: "Should be ignored", status: "disposed" }}
+      />,
+    );
+    expect((screen.getByTestId("field-name") as HTMLInputElement).value).toBe("Production Web Server");
+    expect((screen.getByTestId("field-status") as HTMLSelectElement).value).toBe("installed");
+  });
+
+  it("opening with prefill does not make form immediately dirty (backdrop close not blocked)", () => {
+    const onClose = vi.fn();
+    render(
+      <DeviceFormModal
+        open
+        editing={null}
+        models={MODELS}
+        onClose={onClose}
+        onSaved={vi.fn()}
+        prefill={{ deviceType: "server", name: "Copy of Server", status: "installed" }}
+      />,
+    );
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("prefill payload is sent to addDevice on save (no id, code, serial, asset)", async () => {
+    const onSaved = vi.fn();
+    const onClose = vi.fn();
+    render(
+      <DeviceFormModal
+        open
+        editing={null}
+        models={MODELS}
+        onClose={onClose}
+        onSaved={onSaved}
+        prefill={{ deviceType: "server", name: "Copy of Web Server", status: "installed" }}
+      />,
+    );
+    fireEvent.click(screen.getByText("Create device"));
+    await waitFor(() => {
+      expect(mockAdd).toHaveBeenCalledWith(
+        expect.objectContaining({
+          device_type: "server",
+          name: "Copy of Web Server",
+          status: "installed",
+        }),
+      );
+      const call = mockAdd.mock.calls[0][0];
+      expect(call).not.toHaveProperty("id");
+      expect(call).not.toHaveProperty("code");
+      expect(call.serial_number).toBeUndefined();
+      expect(call.asset_tag).toBeUndefined();
+    });
+  });
+
+  it("without prefill, regular add mode still uses defaultStatus", () => {
+    render(
+      <DeviceFormModal
+        open
+        editing={null}
+        models={MODELS}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        defaultStatus="installed"
+      />,
+    );
+    expect((screen.getByTestId("field-status") as HTMLSelectElement).value).toBe("installed");
+  });
+});
+
 describe("DeviceFormModal — edit mode", () => {
   it("shows Edit device title and pre-populated fields", () => {
     render(

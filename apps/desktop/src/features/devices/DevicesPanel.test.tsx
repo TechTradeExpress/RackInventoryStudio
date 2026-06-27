@@ -366,3 +366,71 @@ describe("DevicesPanel — work mode default status", () => {
     expect((screen.getByTestId("field-status") as HTMLSelectElement).value).toBe("planned");
   });
 });
+
+// ── Create similar ─────────────────────────────────────────────────────────────
+
+describe("DevicesPanel — create similar", () => {
+  it("Create similar opens add modal with 'Copy of <name>' prefilled", async () => {
+    mockUseWorkMode.mockReturnValue({ mode: "planning", setMode: vi.fn() });
+    vi.mocked(listDevices).mockResolvedValue([
+      makeDevice("d1", { name: "Web Server 01", device_type: "server", status: "installed" }),
+    ]);
+    render(<DevicesPanel {...BASE_PROPS} />);
+    await waitFor(() => expect(screen.getByText("Web Server 01")).toBeTruthy());
+
+    fireEvent.click(screen.getByLabelText("Create similar to Web Server 01"));
+
+    await waitFor(() => expect(screen.getByTestId("field-name")).toBeTruthy());
+    expect((screen.getByTestId("field-name") as HTMLInputElement).value).toBe("Copy of Web Server 01");
+  });
+
+  it("Create similar copies the source device's status (not work mode default)", async () => {
+    mockUseWorkMode.mockReturnValue({ mode: "planning", setMode: vi.fn() });
+    vi.mocked(listDevices).mockResolvedValue([
+      makeDevice("d1", { name: "DB Server", status: "installed" }),
+    ]);
+    render(<DevicesPanel {...BASE_PROPS} />);
+    await waitFor(() => expect(screen.getByText("DB Server")).toBeTruthy());
+
+    fireEvent.click(screen.getByLabelText("Create similar to DB Server"));
+
+    await waitFor(() => expect(screen.getByTestId("field-status")).toBeTruthy());
+    // Source device status "installed" should override planning-mode default "planned"
+    expect((screen.getByTestId("field-status") as HTMLSelectElement).value).toBe("installed");
+  });
+
+  it("Create similar leaves serial number and asset tag empty", async () => {
+    mockUseWorkMode.mockReturnValue({ mode: "planning", setMode: vi.fn() });
+    vi.mocked(listDevices).mockResolvedValue([
+      makeDevice("d1", { name: "Server A", serial_number: "SN-001", asset_tag: "AT-001" }),
+    ]);
+    render(<DevicesPanel {...BASE_PROPS} />);
+    await waitFor(() => expect(screen.getByText("Server A")).toBeTruthy());
+
+    fireEvent.click(screen.getByLabelText("Create similar to Server A"));
+
+    await waitFor(() => expect(screen.getByTestId("field-serial")).toBeTruthy());
+    expect((screen.getByTestId("field-serial") as HTMLInputElement).value).toBe("");
+    expect((screen.getByTestId("field-asset-tag") as HTMLInputElement).value).toBe("");
+  });
+
+  it("regular Add Device still respects work mode default status after Create similar was used", async () => {
+    mockUseWorkMode.mockReturnValue({ mode: "on-site", setMode: vi.fn() });
+    vi.mocked(listDevices).mockResolvedValue([
+      makeDevice("d1", { name: "Server A", status: "planned" }),
+    ]);
+    render(<DevicesPanel {...BASE_PROPS} />);
+    await waitFor(() => expect(screen.getByText("Server A")).toBeTruthy());
+
+    // Use Create similar and then close
+    fireEvent.click(screen.getByLabelText("Create similar to Server A"));
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+    fireEvent.click(screen.getByText("Cancel"));
+
+    // Open regular Add Device
+    fireEvent.click(screen.getByRole("button", { name: "Add device" }));
+    await waitFor(() => expect(screen.getByTestId("field-status")).toBeTruthy());
+    // Should use work mode default "installed", not the previously prefilled "planned"
+    expect((screen.getByTestId("field-status") as HTMLSelectElement).value).toBe("installed");
+  });
+});
