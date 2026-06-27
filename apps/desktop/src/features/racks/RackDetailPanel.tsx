@@ -429,10 +429,11 @@ export function RackDetailPanel({
               value={activeSide}
               onChange={handleSideChange}
               options={[
-                { value: "front", label: "Front" },
-                { value: "rear", label: "Rear" },
+                { value: "front", label: "Front", testId: "rack-side-front" },
+                { value: "rear", label: "Rear", testId: "rack-side-rear" },
               ]}
               ariaLabel="Rack side"
+              testId="rack-side-toggle"
             />
             {onBack && (
               <button className="btn" onClick={onBack}>

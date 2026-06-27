@@ -121,6 +121,23 @@ const DETAIL_WITH_PLACEMENT: RackDetailDto = {
 
 const DETAIL_EMPTY: RackDetailDto = { ...DETAIL_WITH_PLACEMENT, front: [], rear: [] };
 
+const REAR_PLACEMENT: PlacementDto = {
+  ...PLACEMENT,
+  id: "plc-rear-1",
+  code: "plc-rear-1",
+  target_id: "dev-rear",
+  target_code: "srv-rear",
+  target_name: "Rear Server",
+  start_u: 2,
+  end_u: 2,
+};
+
+const DETAIL_BOTH_SIDES: RackDetailDto = {
+  ...DETAIL_WITH_PLACEMENT,
+  front: [PLACEMENT],
+  rear: [REAR_PLACEMENT],
+};
+
 // ── Test setup ────────────────────────────────────────────────────────────────
 
 afterEach(() => {
@@ -272,5 +289,191 @@ describe("RackDetailPanel — inspector unplace updates recency", () => {
       palette!.querySelectorAll("[data-testid^='dnd-device-']"),
     );
     expect(cards[0].getAttribute("data-testid")).toBe("dnd-device-d1");
+  });
+});
+
+// ── Rack side view toggle ──────────────────────────────────────────────────────
+
+function setupSideToggle(detail: RackDetailDto) {
+  mockGetRackDetail.mockResolvedValue(detail);
+  mockListDevices.mockResolvedValue([]);
+  mockListDeviceModels.mockResolvedValue([]);
+  mockRemovePlacement.mockResolvedValue(undefined);
+  mockMovePlacement.mockResolvedValue(undefined);
+}
+
+describe("RackDetailPanel — front/rear side toggle", () => {
+  it("renders the side toggle with correct test IDs", async () => {
+    setupSideToggle(DETAIL_EMPTY);
+    render(
+      <RackDetailPanel
+        rack={RACK}
+        mutationToken={0}
+        onRepositoryMutated={vi.fn()}
+        onNavigateToRackPlacement={() => false}
+        initialNavigation={null}
+      />,
+    );
+    expect(screen.getByTestId("rack-side-toggle")).toBeTruthy();
+    expect(screen.getByTestId("rack-side-front")).toBeTruthy();
+    expect(screen.getByTestId("rack-side-rear")).toBeTruthy();
+  });
+
+  it("defaults to front side — Front button is aria-selected", async () => {
+    setupSideToggle(DETAIL_EMPTY);
+    render(
+      <RackDetailPanel
+        rack={RACK}
+        mutationToken={0}
+        onRepositoryMutated={vi.fn()}
+        onNavigateToRackPlacement={() => false}
+        initialNavigation={null}
+      />,
+    );
+    const frontBtn = screen.getByTestId("rack-side-front");
+    const rearBtn = screen.getByTestId("rack-side-rear");
+    expect(frontBtn.getAttribute("aria-selected")).toBe("true");
+    expect(rearBtn.getAttribute("aria-selected")).toBe("false");
+  });
+
+  it("shows front placement and hides rear placement by default", async () => {
+    setupSideToggle(DETAIL_BOTH_SIDES);
+    render(
+      <RackDetailPanel
+        rack={RACK}
+        mutationToken={0}
+        onRepositoryMutated={vi.fn()}
+        onNavigateToRackPlacement={() => false}
+        initialNavigation={null}
+      />,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId(`placed-front-${PLACEMENT_ID}`)).toBeTruthy();
+    });
+    expect(screen.queryByTestId("placed-rear-plc-rear-1")).toBeNull();
+  });
+
+  it("clicking Rear shows rear placement and hides front placement", async () => {
+    setupSideToggle(DETAIL_BOTH_SIDES);
+    render(
+      <RackDetailPanel
+        rack={RACK}
+        mutationToken={0}
+        onRepositoryMutated={vi.fn()}
+        onNavigateToRackPlacement={() => false}
+        initialNavigation={null}
+      />,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId(`placed-front-${PLACEMENT_ID}`)).toBeTruthy();
+    });
+    fireEvent.click(screen.getByTestId("rack-side-rear"));
+    await waitFor(() => {
+      expect(screen.getByTestId("placed-rear-plc-rear-1")).toBeTruthy();
+    });
+    expect(screen.queryByTestId(`placed-front-${PLACEMENT_ID}`)).toBeNull();
+  });
+
+  it("switching back to Front restores front placements", async () => {
+    setupSideToggle(DETAIL_BOTH_SIDES);
+    render(
+      <RackDetailPanel
+        rack={RACK}
+        mutationToken={0}
+        onRepositoryMutated={vi.fn()}
+        onNavigateToRackPlacement={() => false}
+        initialNavigation={null}
+      />,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId(`placed-front-${PLACEMENT_ID}`)).toBeTruthy();
+    });
+    fireEvent.click(screen.getByTestId("rack-side-rear"));
+    await waitFor(() => {
+      expect(screen.getByTestId("placed-rear-plc-rear-1")).toBeTruthy();
+    });
+    fireEvent.click(screen.getByTestId("rack-side-front"));
+    await waitFor(() => {
+      expect(screen.getByTestId(`placed-front-${PLACEMENT_ID}`)).toBeTruthy();
+    });
+    expect(screen.queryByTestId("placed-rear-plc-rear-1")).toBeNull();
+  });
+
+  it("Rear button becomes aria-selected after clicking Rear", async () => {
+    setupSideToggle(DETAIL_EMPTY);
+    render(
+      <RackDetailPanel
+        rack={RACK}
+        mutationToken={0}
+        onRepositoryMutated={vi.fn()}
+        onNavigateToRackPlacement={() => false}
+        initialNavigation={null}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("rack-side-rear"));
+    expect(screen.getByTestId("rack-side-rear").getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByTestId("rack-side-front").getAttribute("aria-selected")).toBe("false");
+  });
+
+  it("selecting a placement then switching side deselects it", async () => {
+    setupSideToggle(DETAIL_BOTH_SIDES);
+    render(
+      <RackDetailPanel
+        rack={RACK}
+        mutationToken={0}
+        onRepositoryMutated={vi.fn()}
+        onNavigateToRackPlacement={() => false}
+        initialNavigation={null}
+      />,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId(`placed-front-${PLACEMENT_ID}`)).toBeTruthy();
+    });
+    // Select a front placement
+    fireEvent.click(screen.getByTestId(`placed-front-${PLACEMENT_ID}`));
+    // Switch to rear — selection should clear
+    fireEvent.click(screen.getByTestId("rack-side-rear"));
+    // Inspector should show no placement selected
+    await waitFor(() => {
+      expect(screen.getByText("Select a placement in the diagram")).toBeTruthy();
+    });
+  });
+
+  it("toggle renders correctly when both sides are empty", async () => {
+    setupSideToggle(DETAIL_EMPTY);
+    render(
+      <RackDetailPanel
+        rack={RACK}
+        mutationToken={0}
+        onRepositoryMutated={vi.fn()}
+        onNavigateToRackPlacement={() => false}
+        initialNavigation={null}
+      />,
+    );
+    expect(screen.getByTestId("rack-side-toggle")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("rack-side-rear"));
+    expect(screen.getByTestId("rack-side-rear").getAttribute("aria-selected")).toBe("true");
+    // No placements shown in either side
+    expect(screen.queryByTestId(`placed-front-${PLACEMENT_ID}`)).toBeNull();
+    expect(screen.queryByTestId("placed-rear-plc-rear-1")).toBeNull();
+  });
+
+  it("front-only placement does not appear when Rear is selected", async () => {
+    const frontOnlyDetail: RackDetailDto = { ...DETAIL_WITH_PLACEMENT, rear: [] };
+    setupSideToggle(frontOnlyDetail);
+    render(
+      <RackDetailPanel
+        rack={RACK}
+        mutationToken={0}
+        onRepositoryMutated={vi.fn()}
+        onNavigateToRackPlacement={() => false}
+        initialNavigation={null}
+      />,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId(`placed-front-${PLACEMENT_ID}`)).toBeTruthy();
+    });
+    fireEvent.click(screen.getByTestId("rack-side-rear"));
+    expect(screen.queryByTestId(`placed-front-${PLACEMENT_ID}`)).toBeNull();
   });
 });
