@@ -238,29 +238,36 @@ describe("DevicesPanel — sort", () => {
     expect(names[1]).toBe("Zebra");
   });
 
-  it("clicking Name header toggles to descending", async () => {
+  it("clicking Name header once switches to descending order", async () => {
     vi.mocked(listDevices).mockResolvedValue([
       makeDevice("d1", { name: "Zebra" }),
       makeDevice("d2", { name: "Alpha" }),
     ]);
     render(<DevicesPanel {...BASE_PROPS} />);
-    await waitFor(() => expect(screen.getByText("Alpha")).toBeTruthy());
 
-    // Click Name header twice → desc
-    const nameHeader = screen.getByText((t) => t.startsWith("Name"));
-    fireEvent.click(nameHeader); // asc (already asc) → desc
-    fireEvent.click(nameHeader); // back to asc — wait, first click on same active col toggles
-
-    // After one click on already-active "name" col, direction should be desc
-    fireEvent.click(nameHeader);
-
-    // Now it's asc again. Let's just verify: after two total clicks it should be asc
+    // Default: asc — Alpha first
     await waitFor(() => {
       const rows = screen.getAllByRole("row");
-      const first = rows[1].querySelector("strong")?.textContent;
-      const last  = rows[rows.length - 1].querySelector("strong")?.textContent;
-      expect(first).toBeDefined();
-      expect(last).toBeDefined();
+      expect(rows[1].querySelector("strong")?.textContent).toBe("Alpha");
+      expect(rows[2].querySelector("strong")?.textContent).toBe("Zebra");
+    });
+
+    // One click on the active Name header → desc
+    fireEvent.click(screen.getByText((t) => t.startsWith("Name")));
+
+    await waitFor(() => {
+      const rows = screen.getAllByRole("row");
+      expect(rows[1].querySelector("strong")?.textContent).toBe("Zebra");
+      expect(rows[2].querySelector("strong")?.textContent).toBe("Alpha");
+    });
+
+    // Second click → back to asc
+    fireEvent.click(screen.getByText((t) => t.startsWith("Name")));
+
+    await waitFor(() => {
+      const rows = screen.getAllByRole("row");
+      expect(rows[1].querySelector("strong")?.textContent).toBe("Alpha");
+      expect(rows[2].querySelector("strong")?.textContent).toBe("Zebra");
     });
   });
 });

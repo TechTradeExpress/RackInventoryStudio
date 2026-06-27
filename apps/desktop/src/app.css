@@ -573,7 +573,7 @@ table.tbl tbody td {
 table.tbl tbody tr:last-child td { border-bottom: 0; }
 
 /* Sortable column headers */
-table.tbl th.tbl-th-sort { cursor: default; user-select: none; }
+table.tbl th.tbl-th-sort { cursor: pointer; user-select: none; }
 table.tbl th.tbl-th-sort:hover { background: var(--bg-sunken); color: var(--tx-1); }
 .sort-ic { font-size: 9px; margin-left: 3px; color: var(--ac-text); }
 
