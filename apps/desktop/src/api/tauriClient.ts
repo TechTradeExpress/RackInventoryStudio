@@ -602,6 +602,45 @@ export async function saveSampleCsvViaDialog(
   return "saved";
 }
 
+/**
+ * Open a native save-file dialog and write `svgContent` to the chosen path.
+ * Returns `"saved"` when written, `"cancelled"` if the user dismissed the dialog.
+ * Throws on write error.
+ */
+export async function saveRackViewSvgViaDialog(
+  svgContent: string,
+  defaultFilename: string,
+): Promise<"saved" | "cancelled"> {
+  const path = await save({
+    title: "Export rack view — SVG",
+    defaultPath: defaultFilename,
+    filters: [{ name: "SVG Files", extensions: ["svg"] }],
+  });
+  if (path === null || path === undefined) return "cancelled";
+  await invoke("write_export_file", { path, content: svgContent });
+  return "saved";
+}
+
+/**
+ * Open a native save-file dialog and write `pngBytes` (PNG byte array) to the
+ * chosen path.
+ * Returns `"saved"` when written, `"cancelled"` if the user dismissed the dialog.
+ * Throws on write error.
+ */
+export async function saveRackViewPngViaDialog(
+  pngBytes: number[],
+  defaultFilename: string,
+): Promise<"saved" | "cancelled"> {
+  const path = await save({
+    title: "Export rack view — PNG",
+    defaultPath: defaultFilename,
+    filters: [{ name: "PNG Files", extensions: ["png"] }],
+  });
+  if (path === null || path === undefined) return "cancelled";
+  await invoke("write_export_bytes", { path, bytes: pngBytes });
+  return "saved";
+}
+
 export async function selectRepositoryFolder(): Promise<string | null> {
   const result = await open({
     directory: true,

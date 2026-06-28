@@ -5,12 +5,16 @@ import {
   listDeviceModels,
   movePlacement,
   removePlacement,
+  saveRackViewSvgViaDialog,
+  saveRackViewPngViaDialog,
   type DeviceDto,
   type DeviceModelDto,
   type PlacementDto,
   type RackDetailDto,
   type RackSummaryDto,
 } from "../../api/tauriClient";
+import { buildRackViewSvg, sanitizeFilename } from "./rackExport";
+import { rasterizeSvgToPng } from "./rackExportDom";
 import { RackUnitDiagram } from "./RackUnitDiagram";
 import { PlacementInspectorPanel } from "./PlacementInspectorPanel";
 import { PlacementPalettePanel } from "./PlacementPalettePanel";
@@ -72,6 +76,8 @@ export function RackDetailPanel({
   // Device IDs unplaced during this session (chronological, last = most recent).
   // Used to sort the palette so recently unplaced devices appear first.
   const [recentlyUnplacedDeviceIds, setRecentlyUnplacedDeviceIds] = useState<string[]>([]);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportBusy, setExportBusy] = useState(false);
 
   // Available devices/models for the place modal (kept in sync via targetReloadToken)
   const [availableDevices, setAvailableDevices] = useState<DeviceDto[]>([]);
@@ -325,6 +331,52 @@ export function RackDetailPanel({
     }
   }
 
+  function buildExportSvg() {
+    if (!detail) return null;
+    return buildRackViewSvg({
+      rackName: rack.name,
+      rackCode: rack.code,
+      heightU: detail.height_u,
+      side: activeSide,
+      placements: activeSide === "front" ? detail.front : detail.rear,
+    });
+  }
+
+  async function handleExportSvg() {
+    const svgContent = buildExportSvg();
+    if (!svgContent) return;
+    setExportError(null);
+    setExportBusy(true);
+    try {
+      const safeName = sanitizeFilename(rack.code || rack.name);
+      const filename = `rack-${safeName}-${activeSide}.svg`;
+      const result = await saveRackViewSvgViaDialog(svgContent, filename);
+      if (result === "cancelled") return;
+    } catch (e) {
+      setExportError(`SVG export failed: ${String(e)}`);
+    } finally {
+      setExportBusy(false);
+    }
+  }
+
+  async function handleExportPng() {
+    const svgContent = buildExportSvg();
+    if (!svgContent) return;
+    setExportError(null);
+    setExportBusy(true);
+    try {
+      const safeName = sanitizeFilename(rack.code || rack.name);
+      const filename = `rack-${safeName}-${activeSide}.png`;
+      const pngBytes = await rasterizeSvgToPng(svgContent);
+      const result = await saveRackViewPngViaDialog(pngBytes, filename);
+      if (result === "cancelled") return;
+    } catch (e) {
+      setExportError(`PNG export failed: ${String(e)}`);
+    } finally {
+      setExportBusy(false);
+    }
+  }
+
   const selectedSide = deriveSide(selectedPlacement, detail);
 
   const frontUsed = detail?.front.reduce((s, p) => s + (p.effective_height_u ?? 1), 0) ?? 0;
@@ -435,6 +487,30 @@ export function RackDetailPanel({
               ariaLabel="Rack side"
               testId="rack-side-toggle"
             />
+            {detail && (
+              <>
+                <button
+                  className="btn"
+                  onClick={handleExportSvg}
+                  disabled={exportBusy}
+                  data-testid="export-svg-btn"
+                  aria-label="Export SVG"
+                  title={`Export ${activeSide} side as SVG`}
+                >
+                  Export SVG
+                </button>
+                <button
+                  className="btn"
+                  onClick={handleExportPng}
+                  disabled={exportBusy}
+                  data-testid="export-png-btn"
+                  aria-label="Export PNG"
+                  title={`Export ${activeSide} side as PNG`}
+                >
+                  Export PNG
+                </button>
+              </>
+            )}
             {onBack && (
               <button className="btn" onClick={onBack}>
                 ← Back to racks
@@ -449,6 +525,11 @@ export function RackDetailPanel({
           <p style={{ fontSize: 12, color: "var(--tx-3)", fontStyle: "italic" }}>Loading…</p>
         )}
         {error && <Banner tone="err">{error}</Banner>}
+        {exportError && (
+          <div data-testid="export-error-banner">
+            <Banner tone="err">{exportError}</Banner>
+          </div>
+        )}
 
         {detail && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gap: 16, minHeight: 0 }}>
