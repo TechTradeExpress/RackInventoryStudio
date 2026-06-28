@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
-use crate::diagnostics::{basename, sanitize_error};
+use crate::diagnostics::{basename, redact_git_url, sanitize_error, sanitize_git_error};
 
 use ris_application::{
     create_repository, open_repository, AddDeviceInput, AddDeviceModelInput, AddLocationInput,
@@ -243,8 +243,6 @@ pub fn clone_repository_cmd(
     destination: String,
     state: State<AppState>,
 ) -> Result<OpenRepositoryResultDto, String> {
-    use crate::diagnostics::redact_git_url;
-
     let url = url.trim().to_string();
     if url.is_empty() {
         return Err("Git URL cannot be blank".to_string());
@@ -276,15 +274,15 @@ pub fn clone_repository_cmd(
     );
 
     let output = std::process::Command::new("git")
-        .args(["clone", &url, &destination])
+        .args(["clone", "--", &url, &destination])
         .output()
         .map_err(|e| format!("Failed to run git: {e}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let sanitized = sanitize_error(&stderr);
+        let sanitized = sanitize_git_error(&stderr);
         log::error!("clone_repository failed: {}", sanitized);
-        return Err(format!("git clone failed: {}", sanitize_error(&stderr)));
+        return Err(format!("git clone failed: {sanitized}"));
     }
 
     log::info!(

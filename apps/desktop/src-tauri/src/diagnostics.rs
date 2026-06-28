@@ -62,19 +62,67 @@ pub fn sanitize_paths_in_message(message: &str) -> String {
     out
 }
 
-/// Redact HTTPS userinfo credentials from a Git URL for safe logging.
+/// Redact HTTP/HTTPS userinfo credentials from a Git URL for safe logging.
 ///
-/// - `https://token@host/path` → `https://***@host/path`
+/// - `https://token@host/path`    → `https://***@host/path`
 /// - `https://user:pass@host/path` → `https://***@host/path`
+/// - `http://token@host/path`     → `http://***@host/path`
 /// - SSH URLs (`git@host:org/repo.git`) have no embedded secrets and are returned unchanged.
 pub fn redact_git_url(url: &str) -> String {
-    if let Some(rest) = url.strip_prefix("https://") {
-        if let Some(at_pos) = rest.find('@') {
-            let after_at = &rest[at_pos + 1..];
-            return format!("https://***@{after_at}");
+    for scheme in ["https://", "http://"] {
+        if let Some(rest) = url.strip_prefix(scheme) {
+            if let Some(at_pos) = rest.find('@') {
+                let after_at = &rest[at_pos + 1..];
+                return format!("{scheme}***@{after_at}");
+            }
         }
     }
     url.to_string()
+}
+
+/// Redacts all embedded `http(s)://userinfo@host` credential patterns found
+/// anywhere within `text` (e.g. inside git's single-quoted error messages).
+fn redact_urls_in_text(text: &str) -> String {
+    let schemes = ["https://", "http://"];
+    let mut out = String::with_capacity(text.len());
+    let mut pos = 0;
+
+    'outer: while pos < text.len() {
+        for scheme in &schemes {
+            if text[pos..].starts_with(scheme) {
+                let after_scheme = pos + scheme.len();
+                let rest = &text[after_scheme..];
+                if let Some(at_rel) = rest.find('@') {
+                    let userinfo = &rest[..at_rel];
+                    if !userinfo.contains(char::is_whitespace) {
+                        out.push_str(scheme);
+                        out.push_str("***@");
+                        pos = after_scheme + at_rel + 1;
+                        continue 'outer;
+                    }
+                }
+                // No @ or whitespace before @: emit one char and keep scanning
+                let ch = text[pos..].chars().next().unwrap();
+                out.push(ch);
+                pos += ch.len_utf8();
+                continue 'outer;
+            }
+        }
+        let ch = text[pos..].chars().next().unwrap();
+        out.push(ch);
+        pos += ch.len_utf8();
+    }
+    out
+}
+
+/// Sanitizes git command stderr for safe logging and UI display.
+///
+/// First redacts any embedded HTTP/HTTPS credentials in URLs (e.g. git's
+/// `fatal: repository 'https://token@host/repo.git/' not found`), then
+/// applies `sanitize_error` to remove file paths and other sensitive patterns.
+pub fn sanitize_git_error(stderr: &str) -> String {
+    let redacted = redact_urls_in_text(stderr);
+    sanitize_error(&redacted).into_owned()
 }
 
 /// Sanitizes an error string for logging:
@@ -228,5 +276,48 @@ mod tests {
     fn redact_git_url_leaves_plain_https_unchanged() {
         let url = "https://github.com/org/repo.git";
         assert_eq!(redact_git_url(url), url);
+    }
+
+    #[test]
+    fn redact_git_url_hides_http_plain_token() {
+        let result = redact_git_url("http://ghp_secret123@github.com/org/repo.git");
+        assert_eq!(result, "http://***@github.com/org/repo.git");
+    }
+
+    #[test]
+    fn redact_git_url_hides_http_user_pass() {
+        let result = redact_git_url("http://alice:hunter2@github.com/org/repo.git");
+        assert_eq!(result, "http://***@github.com/org/repo.git");
+    }
+
+    #[test]
+    fn redact_git_url_leaves_plain_http_unchanged() {
+        let url = "http://github.com/org/repo.git";
+        assert_eq!(redact_git_url(url), url);
+    }
+
+    #[test]
+    fn sanitize_git_error_redacts_https_token_in_stderr() {
+        let stderr = "fatal: repository 'https://ghp_secret123@github.com/org/repo.git/' not found";
+        let result = sanitize_git_error(stderr);
+        assert!(
+            !result.contains("ghp_secret123"),
+            "credential must not appear in output"
+        );
+        assert!(!result.contains("ghp_secret"), "no partial credential leak");
+    }
+
+    #[test]
+    fn sanitize_git_error_redacts_http_user_pass_in_stderr() {
+        let stderr = "fatal: repository 'http://alice:hunter2@github.com/org/repo.git/' not found";
+        let result = sanitize_git_error(stderr);
+        assert!(
+            !result.contains("alice"),
+            "username must not appear in output"
+        );
+        assert!(
+            !result.contains("hunter2"),
+            "password must not appear in output"
+        );
     }
 }
