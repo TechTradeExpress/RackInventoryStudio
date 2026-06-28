@@ -134,6 +134,10 @@ export function DeviceFormModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const initialFormRef = useRef<FormState>(EMPTY);
+  // Tracks whether the user has manually changed device type.
+  // When false, selecting a model auto-fills the device type field.
+  // Set to true on edit mode open (existing type is intentional).
+  const [deviceTypeTouched, setDeviceTypeTouched] = useState(false);
 
   const isEdit = editing !== null;
 
@@ -146,6 +150,8 @@ export function DeviceFormModal({
       setForm(initial);
       setError(null);
       setSubmitting(false);
+      // In edit mode the existing type is intentional; in add/create-similar it is not.
+      setDeviceTypeTouched(editing !== null);
     }
   }, [open, editing, defaultStatus, prefill]);
 
@@ -154,6 +160,7 @@ export function DeviceFormModal({
     e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>,
   ) {
     const value = e.target.value;
+    if (k === "deviceType") setDeviceTypeTouched(true);
     setForm((f) => {
       const next = { ...f, [k]: value };
       // Clear model selection when device type changes and model no longer matches
@@ -165,9 +172,22 @@ export function DeviceFormModal({
     });
   }
 
-  const filteredModels = form.deviceType
-    ? models.filter((m) => m.device_type === form.deviceType)
-    : models;
+  function handleModelChange(val: string) {
+    setForm((f) => {
+      const next = { ...f, deviceModelId: val };
+      // Auto-fill device type from the selected model unless user has manually chosen a type.
+      if (!deviceTypeTouched && val) {
+        const selectedModel = models.find((m) => m.id === val);
+        if (selectedModel) next.deviceType = selectedModel.device_type;
+      }
+      return next;
+    });
+  }
+
+  const filteredModels =
+    form.deviceType && deviceTypeTouched
+      ? models.filter((m) => m.device_type === form.deviceType)
+      : models;
 
   const missingType = !form.deviceType;
   const missingStatus = !form.status;
@@ -353,7 +373,7 @@ export function DeviceFormModal({
                 })),
               ]}
               value={form.deviceModelId}
-              onChange={(val) => setForm((f) => ({ ...f, deviceModelId: val }))}
+              onChange={handleModelChange}
               disabled={submitting}
               data-testid="field-device-model"
             />
