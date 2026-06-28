@@ -184,9 +184,10 @@ export function DeviceFormModal({
     });
   }
 
-  const filteredModels = form.deviceType
-    ? models.filter((m) => m.device_type === form.deviceType)
-    : models;
+  const filteredModels =
+    form.deviceType && deviceTypeTouched
+      ? models.filter((m) => m.device_type === form.deviceType)
+      : models;
 
   const missingType = !form.deviceType;
   const missingStatus = !form.status;

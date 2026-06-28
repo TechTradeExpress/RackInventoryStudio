@@ -885,4 +885,79 @@ describe("DeviceFormModal — device type auto-fill from model", () => {
       expect((screen.getByTestId("field-device-type") as HTMLSelectElement).value).toBe("server");
     });
   });
+
+  it("add mode: after auto-fill, switching to a different-type model updates type (blocker scenario)", async () => {
+    render(
+      <DeviceFormModal
+        open
+        editing={null}
+        models={MODELS}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+    // pick server model → type auto-fills to "server"
+    fireEvent.click(screen.getByTestId("field-device-model-trigger"));
+    await waitFor(() => screen.getByText("PowerEdge R750"));
+    fireEvent.mouseDown(screen.getByText("PowerEdge R750").closest(".ss-option")!);
+    await waitFor(() => {
+      expect((screen.getByTestId("field-device-type") as HTMLSelectElement).value).toBe("server");
+    });
+
+    // re-open dropdown — all models must still be visible (type is auto-managed, not locked)
+    fireEvent.click(screen.getByTestId("field-device-model-trigger"));
+    await waitFor(() => screen.getByText("Catalyst 9300"));
+
+    // pick network model → type auto-fills to "network"
+    fireEvent.mouseDown(screen.getByText("Catalyst 9300").closest(".ss-option")!);
+    await waitFor(() => {
+      expect((screen.getByTestId("field-device-type") as HTMLSelectElement).value).toBe("network");
+    });
+  });
+
+  it("add mode: after auto-fill the model dropdown still shows all models", async () => {
+    render(
+      <DeviceFormModal
+        open
+        editing={null}
+        models={MODELS}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+    // auto-fill type by picking server model
+    fireEvent.click(screen.getByTestId("field-device-model-trigger"));
+    await waitFor(() => screen.getByText("PowerEdge R750"));
+    fireEvent.mouseDown(screen.getByText("PowerEdge R750").closest(".ss-option")!);
+    await waitFor(() => {
+      expect((screen.getByTestId("field-device-type") as HTMLSelectElement).value).toBe("server");
+    });
+
+    // re-open dropdown — network model must still be listed (type is auto-managed, not a filter lock)
+    fireEvent.click(screen.getByTestId("field-device-model-trigger"));
+    await waitFor(() => screen.getByText("Catalyst 9300"));
+    // Catalyst 9300 is visible even though auto-filled type is "server"
+    expect(screen.getByText("Catalyst 9300")).toBeTruthy();
+  });
+
+  it("add mode: manual type lock filters dropdown — other-type models not visible", async () => {
+    render(
+      <DeviceFormModal
+        open
+        editing={null}
+        models={MODELS}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+    // manually set type to "server" (deviceTypeTouched=true)
+    fireEvent.change(screen.getByTestId("field-device-type"), { target: { value: "server" } });
+
+    // open model dropdown — should only show server models
+    fireEvent.click(screen.getByTestId("field-device-model-trigger"));
+    await waitFor(() => screen.getByText("PowerEdge R750"));
+
+    // network model must NOT be visible
+    expect(screen.queryByText("Catalyst 9300")).toBeNull();
+  });
 });

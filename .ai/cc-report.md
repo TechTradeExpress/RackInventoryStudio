@@ -5,6 +5,13 @@ user has not manually chosen a type. Controlled by a `deviceTypeTouched` flag th
 `false` in add/create-similar mode and `true` in edit mode (or after the user explicitly
 changes the type select).
 
+**Fix (repair commit)**: The initial implementation filtered the model dropdown by
+`form.deviceType` unconditionally. After auto-fill set the type from the first model
+selection, the dropdown narrowed to that type only, preventing the user from switching
+to a model of a different type without manually touching the type select. Fixed by
+gating the filter on `deviceTypeTouched`: only when the user has explicitly set the
+type does the dropdown narrow. Three additional tests added to cover this scenario.
+
 ## Base branch / working branch
 
 - Base: `roadmap/beta3` (includes PR 1–9)
@@ -28,21 +35,46 @@ changes the type select).
   `deviceTypeTouched = true`, locking future model selections from auto-filling the type.
 - **Clear model**: Selecting `— none —` passes `val = ""` to `handleModelChange`; the
   `if (!deviceTypeTouched && val)` guard skips auto-fill, so the type is preserved.
+- **Model filter (repaired)**: `filteredModels` now requires `deviceTypeTouched === true` to
+  apply the type filter. When type is auto-managed (`deviceTypeTouched === false`), all models
+  are shown so the user can freely switch between models of different types.
+
+## Root cause of repair
+
+Original `filteredModels`:
+```tsx
+const filteredModels = form.deviceType
+  ? models.filter((m) => m.device_type === form.deviceType)
+  : models;
+```
+After auto-fill set `form.deviceType = "server"`, the dropdown narrowed to server models
+only, preventing a subsequent switch to a network model without a manual type change.
+
+Fixed `filteredModels`:
+```tsx
+const filteredModels =
+  form.deviceType && deviceTypeTouched
+    ? models.filter((m) => m.device_type === form.deviceType)
+    : models;
+```
+The filter now only activates when the user has explicitly touched the type select
+(`deviceTypeTouched === true`), preserving full model choice when type is auto-managed.
+Edit mode is unaffected because it opens with `deviceTypeTouched = true`.
 
 ## Tests
 
 ```
 vitest run
   Test Files  46 passed (46)
-      Tests  697 passed (697)   (+8 new vs PR 9 baseline of 689)
+      Tests  700 passed (700)   (+11 new vs PR 9 baseline of 689)
 ```
 
-### New tests (8)
+### New tests (11)
 
 **In "DeviceFormModal — edit mode" describe block (1 new):**
 - edit mode: changing model does not auto-fill device type (deviceTypeTouched=true on open)
 
-**In "DeviceFormModal — device type auto-fill from model" describe block (7 new):**
+**In "DeviceFormModal — device type auto-fill from model" describe block (10 new):**
 - add mode: selecting a model with no device type auto-fills the type
 - add mode: selecting a network model auto-fills type to network
 - add mode: manual device type change blocks subsequent model auto-fill
@@ -50,6 +82,9 @@ vitest run
 - edit mode: opening modal initialises type from device, not from model auto-fill
 - add mode: auto-filled device type is sent correctly in the save payload
 - prefill with deviceModelId: type stays empty on open; re-picking model auto-fills type
+- **add mode: after auto-fill, switching to a different-type model updates type (blocker scenario)**
+- **add mode: after auto-fill the model dropdown still shows all models**
+- **add mode: manual type lock filters dropdown — other-type models not visible**
 
 ## Checks
 
@@ -59,7 +94,7 @@ vitest run
 | `node scripts/check-version-consistency.mjs` | ✓ 0.1.0-beta.2 — 4 sources |
 | `node scripts/check-repo-hygiene.mjs` | 8/8 pass |
 | `tsc --noEmit` | clean |
-| Vitest | 697 pass (46 files) |
+| Vitest | 700 pass (46 files) |
 
 Rust checks: skipped — PR is frontend-only, no Tauri/Rust files changed.
 Vite build: `pnpm` unavailable in this environment; TS + Vitest confirm correctness.
