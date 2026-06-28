@@ -1096,6 +1096,43 @@ pub fn write_device_import_sample_csv(path: String) -> Result<(), String> {
         .map_err(|e| format!("Failed to write sample CSV: {e}"))
 }
 
+// ── Export file write ─────────────────────────────────────────────────────────
+
+/// Shared validation + write helper used by the export commands below.
+fn write_export(path: &str, data: &[u8]) -> Result<(), String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err("Path cannot be blank".to_string());
+    }
+    let path_ref = std::path::Path::new(path);
+    if path_ref.is_dir() {
+        return Err(format!(
+            "'{}' is a directory, not a file",
+            basename(path_ref)
+        ));
+    }
+    if let Some(parent) = path_ref.parent() {
+        if !parent.as_os_str().is_empty() && !parent.exists() {
+            return Err("Parent directory does not exist".to_string());
+        }
+    }
+    std::fs::write(path_ref, data).map_err(|e| format!("Failed to write file: {e}"))
+}
+
+/// Write UTF-8 text content (e.g. SVG) to the given path.
+/// The path is supplied by the frontend after the user selects it via the native save dialog.
+#[tauri::command]
+pub fn write_export_file(path: String, content: String) -> Result<(), String> {
+    write_export(&path, content.as_bytes())
+}
+
+/// Write raw bytes (e.g. PNG) to the given path.
+/// The path is supplied by the frontend after the user selects it via the native save dialog.
+#[tauri::command]
+pub fn write_export_bytes(path: String, bytes: Vec<u8>) -> Result<(), String> {
+    write_export(&path, &bytes)
+}
+
 // ── Search ────────────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -1135,7 +1172,9 @@ pub fn search_repository_cmd(
 
 #[cfg(test)]
 mod tests {
-    use super::{read_csv_content, validate_repo_code, DEVICE_IMPORT_SAMPLE_CSV, MAX_CSV_BYTES};
+    use super::{
+        read_csv_content, validate_repo_code, write_export, DEVICE_IMPORT_SAMPLE_CSV, MAX_CSV_BYTES,
+    };
     use std::io::Write;
     use std::path::Path;
 
@@ -1333,6 +1372,46 @@ mod tests {
                 i + 2,
             );
         }
+    }
+
+    // ── write_export ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn write_export_writes_text_to_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("output.svg");
+        write_export(path.to_str().unwrap(), b"<svg/>").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "<svg/>");
+    }
+
+    #[test]
+    fn write_export_writes_bytes_to_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("output.png");
+        let data: Vec<u8> = vec![0x89, 0x50, 0x4e, 0x47]; // PNG magic
+        write_export(path.to_str().unwrap(), &data).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), data);
+    }
+
+    #[test]
+    fn write_export_returns_error_for_empty_path() {
+        assert!(write_export("", b"content").is_err());
+        assert!(write_export("   ", b"content").is_err());
+    }
+
+    #[test]
+    fn write_export_returns_error_when_path_is_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = write_export(dir.path().to_str().unwrap(), b"content").unwrap_err();
+        assert!(err.contains("directory"), "error was: {err}");
+    }
+
+    #[test]
+    fn write_export_returns_error_when_parent_dir_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let bad = dir.path().join("nonexistent").join("file.svg");
+        let err = write_export(bad.to_str().unwrap(), b"content").unwrap_err();
+        assert!(!err.is_empty(), "expected non-empty error");
     }
 
     #[test]

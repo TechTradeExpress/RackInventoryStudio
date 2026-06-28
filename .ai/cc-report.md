@@ -1,65 +1,100 @@
 ## Summary
 
-Added the Clone Repository flow to Rack Inventory Studio. Users can now clone an existing Git repository by providing a Git URL, selecting a parent directory via folder picker, and optionally editing the auto-derived directory name. On success the repository is opened exactly like Create/Open flows.
+PR 12 of beta.3 roadmap. Added rack view export to SVG and PNG. Users can export the currently displayed rack side (Front or Rear) to a vector SVG file or a 2× rasterized PNG, selecting the save location via a native file dialog. Export is driven by real rack data — not a DOM screenshot.
 
-**Repair (fix commit):** Hardened `git clone` invocation and credential redaction in response to code review blockers:
-1. `git clone` now uses `--` before the URL to prevent option injection (a URL starting with `-` or `--` could have been interpreted as a git flag).
-2. `redact_git_url()` extended to cover both `http://` and `https://` (previously only `https://`).
-3. Added `sanitize_git_error()` which first redacts any embedded HTTP/HTTPS credentials in URLs within arbitrary text (e.g. git's single-quoted stderr messages like `fatal: repository 'https://token@host/repo.git/' not found`), then applies the existing `sanitize_error`. This ensures neither logs nor the UI error message ever contain plain credentials from git stderr.
-4. UI flow and frontend unchanged. Version unchanged.
+## Base branch / Working branch
+
+- Base: `roadmap/beta3`
+- Branch: `feature/beta3-rack-export`
+
+## Architecture decision: SVG + PNG
+
+- **SVG**: pure TypeScript helper `buildRackViewSvg()` produces a deterministic, XML-escaped SVG string from rack data. No DOM dependency.
+- **PNG**: DOM rasterization — SVG blob URL → `Image` → canvas at 2× scale → PNG bytes → saved via Rust command. Canvas-dependent code lives in `rackExportDom.ts` (separate file, easily mockable in tests).
+- No external libraries added.
+- Backend writes file content supplied by the frontend via two minimal Rust commands.
+
+## Export flow
+
+1. User clicks **Export SVG** or **Export PNG** in the rack detail header (next to Front/Rear toggle).
+2. `buildRackViewSvg()` is called with the active side's placements from the already-loaded `RackDetailDto`.
+3. For SVG: native save dialog → `write_export_file` Rust command writes text content.
+4. For PNG: SVG is rasterized via canvas (2× scale for retina clarity) → native save dialog → `write_export_bytes` Rust command writes binary content.
+5. Dialog cancel: no error shown. Write error: error banner appears below header.
+
+## Front/Rear isolation
+
+- `activeSide === "front"` → `detail.front` passed to builder; exported filename includes `-front`.
+- `activeSide === "rear"` → `detail.rear` passed to builder; exported filename includes `-rear`.
+- The builder itself is side-agnostic; isolation is enforced in the handler.
+
+## XML/SVG safety
+
+- All user-supplied strings (rack name, rack code, device name, model, serial, asset tag) pass through `escapeXml()` before insertion into SVG.
+- `escapeXml()` replaces `& < > " '` with XML entities.
+- Tests verify `<script>alert(1)</script>` in a device name does not appear as raw XML in output.
+
+## Filename sanitization
+
+- `sanitizeFilename()` removes OS-forbidden chars, replaces spaces with hyphens, lowercases. Falls back to `"rack"` for fully-invalid names.
+- Default filenames: `rack-<code>-front.svg`, `rack-<code>-rear.svg`, `rack-<code>-front.png`, etc.
 
 ## Files changed
 
-### Rust backend (original)
-- `apps/desktop/src-tauri/src/diagnostics.rs` — Added `redact_git_url()` and 5 unit tests.
-- `apps/desktop/src-tauri/src/commands/repository.rs` — Added `clone_repository_cmd` Tauri command. `dir_name_from_url()` helper is test-only.
-- `apps/desktop/src-tauri/src/commands/mod.rs` — Exported `clone_repository_cmd`.
-- `apps/desktop/src-tauri/src/lib.rs` — Registered `clone_repository_cmd`.
+### New files
+- `apps/desktop/src/features/racks/rackExport.ts` — pure helpers: `escapeXml`, `sanitizeFilename`, `buildRackViewSvg`
+- `apps/desktop/src/features/racks/rackExportDom.ts` — DOM helper: `rasterizeSvgToPng` (canvas-based, mockable)
+- `apps/desktop/src/features/racks/rackExport.test.ts` — 31 unit tests for pure helpers
+- `apps/desktop/src/features/racks/RackDetailPanel.export.test.tsx` — 13 component tests for export buttons
 
-### Rust backend (repair)
-- `apps/desktop/src-tauri/src/diagnostics.rs` — Extended `redact_git_url()` to cover `http://`; added private `redact_urls_in_text()` helper; added public `sanitize_git_error()`. Added 5 new tests (`redact_git_url_hides_http_plain_token`, `redact_git_url_hides_http_user_pass`, `redact_git_url_leaves_plain_http_unchanged`, `sanitize_git_error_redacts_https_token_in_stderr`, `sanitize_git_error_redacts_http_user_pass_in_stderr`).
-- `apps/desktop/src-tauri/src/commands/repository.rs` — `git clone` args changed from `["clone", &url, &destination]` to `["clone", "--", &url, &destination]`. stderr now passed through `sanitize_git_error` instead of `sanitize_error`. Added `sanitize_git_error` and `redact_git_url` to top-level imports.
-
-### TypeScript / React frontend (original, unchanged in repair)
-- `apps/desktop/src/api/tauriClient.ts` — Added `cloneRepository(url, destination)` wrapper.
-- `apps/desktop/src/features/repository/cloneHelpers.ts` — New: `dirNameFromUrl()`, `validateCloneDirName()`, `computeClonePath()`.
-- `apps/desktop/src/features/repository/CloneRepositoryForm.tsx` — New component.
-- `apps/desktop/src/features/repository/RepositoryPanel.tsx` — Added Clone panel.
-- `apps/desktop/src/App.tsx` — Added `handleCloneSuccess()`.
-
-### Tests (original)
-- `apps/desktop/src/features/repository/cloneHelpers.test.ts` — 18 unit tests.
-- `apps/desktop/src/features/repository/CloneRepositoryForm.test.tsx` — 15 component tests.
-- `apps/desktop/src/features/repository/RepositoryPanel.test.tsx` — 4 new Clone panel tests.
+### Modified files
+- `apps/desktop/src/features/racks/RackDetailPanel.tsx` — added `handleExportSvg`, `handleExportPng`, export error state, Export SVG/PNG buttons in header actions
+- `apps/desktop/src/api/tauriClient.ts` — added `saveRackViewSvgViaDialog`, `saveRackViewPngViaDialog`
+- `apps/desktop/src-tauri/src/commands/repository.rs` — added `write_export_file`, `write_export_bytes` Tauri commands (shared `write_export` helper); 5 Rust unit tests
+- `apps/desktop/src-tauri/src/commands/mod.rs` — exported new commands
+- `apps/desktop/src-tauri/src/lib.rs` — registered new commands
 
 ## Tests
 
 ```
-cargo test --workspace       → 88 Rust unit tests passed (83 original + 5 new for repair)
+cargo fmt --all --check      → clean
+cargo check --workspace      → clean
+cargo test --workspace       → 93 Rust tests passed (88 prior + 5 new write_export tests)
 cargo clippy -- -D warnings  → clean
 npx tsc --noEmit             → clean
-npx vitest run               → 740 tests passed (48 files), no regressions
+npx vitest run               → 784 tests passed (50 files) [was 740/48]
+npx vite build               → ✓ built (326 kB JS bundle)
 git diff --check             → clean
 node scripts/check-version-consistency.mjs → all versions match 0.1.0-beta.2
 node scripts/check-repo-hygiene.mjs        → all 8 checks passed
 node --test scripts/*.test.mjs             → 19 tests passed
 ```
 
+## Manual smoke
+
+_Not performed in this automated session — manual smoke requires a running desktop app with actual rack data. Checklist for manual verification:_
+- Open a rack with front placements → click Export SVG → open file in browser → verify readable
+- Switch to Rear → Export SVG → verify rear placements shown, front placements absent
+- Export PNG → verify file opens without distortion (2× scale)
+- Cancel save dialog → verify no error banner appears
+- Verify front/rear filenames are distinct
+
 ## Risks
 
-- `git clone` is invoked via `std::process::Command`. If `git` is not on PATH the error is surfaced to the user as "Failed to run git: …". No retry logic.
-- Non-RIS repos clone successfully but then fail to open; the cloned directory is NOT automatically cleaned up (by design).
-- SSH key pairing relies on the system SSH agent; no additional setup is done here.
-- `redact_urls_in_text` scans character-by-character; for very long git output it is O(n) per scheme, which is acceptable.
+- PNG rasterization uses `Image` + `canvas` in Tauri's WebView. Some platforms may have canvas limitations for very large SVGs (e.g. rack with 48U × 2× scale). Unlikely to be a problem in practice.
+- `write_export_bytes` sends PNG as `Vec<u8>` over Tauri IPC (JSON array of numbers). For very large exports (e.g. 48U @ 2×) this may be a few hundred KB. Acceptable for desktop; not suitable for bulk export.
+- No progress indicator during PNG rasterization (fast for typical rack sizes).
+- Overlapping placements in data: the builder renders the first placement at each visual-top U and ignores overlapping ones. This is documented behavior; no data repair is attempted.
 
 ## Not done
 
-- Credential/token management UI (out of scope).
-- Branch selection at clone time (out of scope).
-- Shallow clone option (out of scope).
-- Progress reporting during clone (out of scope).
-- `validate_clone_destination` as a standalone testable helper — left as follow-up; the logic is inlined in `clone_repository_cmd` and is straightforward.
+- PDF export (out of scope per spec).
+- Multi-rack export (out of scope).
+- Progress bar for PNG (not needed for typical rack sizes).
+- Rack diagram labels beyond Name/Model/Serial/Asset (future enhancement).
 
-## Suggested next step
+## Version / tags
 
-Extract `validate_clone_destination(path: &Path) -> Result<(), String>` into a unit-testable helper, covering: non-existent dir → OK, empty dir → OK, non-empty dir → error, existing file → error.
+- Version unchanged: 0.1.0-beta.2
+- No tags created
+- No GitHub Release created

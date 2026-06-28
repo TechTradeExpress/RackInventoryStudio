@@ -18,7 +18,8 @@ use commands::{
     push_git_current_branch, read_csv_file, remove_placement, reset_logs_directory,
     respond_ssh_passphrase, save_current_repository, search_repository_cmd, set_logs_directory,
     update_device_cmd, update_device_model_cmd, update_location_cmd, update_rack_cmd,
-    validate_current_repository, write_device_import_sample_csv, AppState,
+    validate_current_repository, write_device_import_sample_csv, write_export_bytes,
+    write_export_file, AppState,
 };
 use ssh_askpass::AskpassState;
 use std::sync::Mutex;
@@ -101,6 +102,8 @@ pub fn run() {
             get_ssh_diagnostics,
             read_csv_file,
             write_device_import_sample_csv,
+            write_export_file,
+            write_export_bytes,
             search_repository_cmd,
             get_log_settings,
             open_logs_directory,
