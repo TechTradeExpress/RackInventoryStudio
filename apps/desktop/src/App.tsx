@@ -352,6 +352,23 @@ export function App() {
     logInfo(`Repository created: code=${result.summary.repository_code}`);
   }
 
+  function handleCloneSuccess(result: OpenRepositoryResultDto) {
+    setSummary(result.summary);
+    setValidationSummary(result.validation_summary);
+    setRepoPath(result.summary.repo_path);
+    setSelectedRack(null);
+    setSelectedLocationForRacks(null);
+    setHasUnsavedChanges(false);
+    setHighlightedLocationId(null);
+    setHighlightedDeviceId(null);
+    setHighlightedDeviceModelId(null);
+    setPendingRackNavTarget(null);
+    setActiveTab("repository");
+    addRecentRepository(result.summary.repo_path);
+    setRecentRepos(getRecentRepositories());
+    logInfo(`Repository cloned: code=${result.summary.repository_code}`);
+  }
+
   async function handleClose() {
     const action = await guardUnsaved();
     if (action === "cancel") return;
@@ -597,6 +614,7 @@ export function App() {
               onPullSuccess={(s) => setSummary(s)}
               onPullRunning={() => {}}
               onCreateSuccess={handleCreateSuccess}
+              onCloneSuccess={handleCloneSuccess}
               gitRefreshToken={gitRefreshToken}
             />
           </div>

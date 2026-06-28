@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
-use crate::diagnostics::{basename, sanitize_error};
+use crate::diagnostics::{basename, redact_git_url, sanitize_error, sanitize_git_error};
 
 use ris_application::{
     create_repository, open_repository, AddDeviceInput, AddDeviceModelInput, AddLocationInput,
@@ -227,6 +227,86 @@ pub fn create_repository_cmd(
     let summary = build_summary(&session);
     let validation_summary = build_validation_summary(&issues);
     log::info!("create_repository ok: code={}", summary.repository_code);
+
+    let mut guard = lock_session(&state)?;
+    *guard = Some(session);
+
+    Ok(OpenRepositoryResultDto {
+        summary,
+        validation_summary,
+    })
+}
+
+#[tauri::command]
+pub fn clone_repository_cmd(
+    url: String,
+    destination: String,
+    state: State<AppState>,
+) -> Result<OpenRepositoryResultDto, String> {
+    let url = url.trim().to_string();
+    if url.is_empty() {
+        return Err("Git URL cannot be blank".to_string());
+    }
+    let destination = destination.trim().to_string();
+    if destination.is_empty() {
+        return Err("Destination path cannot be blank".to_string());
+    }
+
+    let dest_path = Path::new(&destination);
+
+    // Reject non-empty destination to avoid clobbering existing data.
+    if dest_path.exists() {
+        let is_empty = std::fs::read_dir(dest_path)
+            .map(|mut d| d.next().is_none())
+            .unwrap_or(false);
+        if !is_empty {
+            return Err(format!(
+                "Destination directory already exists and is not empty: {}",
+                basename(dest_path),
+            ));
+        }
+    }
+
+    log::info!(
+        "clone_repository: url={} dest={}",
+        redact_git_url(&url),
+        basename(dest_path),
+    );
+
+    let output = std::process::Command::new("git")
+        .args(["clone", "--", &url, &destination])
+        .output()
+        .map_err(|e| format!("Failed to run git: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let sanitized = sanitize_git_error(&stderr);
+        log::error!("clone_repository failed: {}", sanitized);
+        return Err(format!("git clone failed: {sanitized}"));
+    }
+
+    log::info!(
+        "clone_repository: git clone ok, opening {}",
+        basename(dest_path),
+    );
+
+    // Open the cloned directory through the same path as open_repository_cmd.
+    // If the clone is not a valid RIS repo this returns an error; the cloned
+    // directory is intentionally NOT deleted so the user can inspect it.
+    let session = open_repository(dest_path).map_err(|e| {
+        let msg = format!("Repository cloned but is not a valid RIS repository: {e}");
+        log::error!("clone_repository: open failed: {}", sanitize_error(&msg));
+        msg
+    })?;
+
+    let issues = session.validate();
+    let summary = build_summary(&session);
+    let validation_summary = build_validation_summary(&issues);
+    log::info!(
+        "clone_repository ok: code={} validation_issues={}",
+        summary.repository_code,
+        validation_summary.total,
+    );
 
     let mut guard = lock_session(&state)?;
     *guard = Some(session);
@@ -1058,6 +1138,52 @@ mod tests {
     use super::{read_csv_content, validate_repo_code, DEVICE_IMPORT_SAMPLE_CSV, MAX_CSV_BYTES};
     use std::io::Write;
     use std::path::Path;
+
+    fn dir_name_from_url(url: &str) -> String {
+        let url = url.trim().trim_end_matches('/');
+        let url = url.strip_suffix(".git").unwrap_or(url);
+        url.split(['/', ':'])
+            .filter(|s| !s.is_empty())
+            .last()
+            .unwrap_or("cloned-repo")
+            .to_string()
+    }
+
+    // ── dir_name_from_url ─────────────────────────────────────────────────────
+
+    #[test]
+    fn dir_name_from_https_url_with_git_suffix() {
+        assert_eq!(dir_name_from_url("https://github.com/org/repo.git"), "repo");
+    }
+
+    #[test]
+    fn dir_name_from_ssh_url() {
+        assert_eq!(dir_name_from_url("git@github.com:org/repo.git"), "repo");
+    }
+
+    #[test]
+    fn dir_name_from_ssh_alias() {
+        assert_eq!(dir_name_from_url("github-ris-test:org/repo.git"), "repo");
+    }
+
+    #[test]
+    fn dir_name_from_https_without_git_suffix() {
+        assert_eq!(dir_name_from_url("https://github.com/org/myrepo"), "myrepo");
+    }
+
+    #[test]
+    fn dir_name_from_url_with_trailing_slash() {
+        assert_eq!(dir_name_from_url("https://github.com/org/repo/"), "repo");
+    }
+
+    #[test]
+    fn dir_name_from_url_with_token_at_sign() {
+        // Token should not affect dir extraction
+        assert_eq!(
+            dir_name_from_url("https://token@github.com/org/repo.git"),
+            "repo"
+        );
+    }
 
     // ── validate_repo_code ────────────────────────────────────────────────────
 

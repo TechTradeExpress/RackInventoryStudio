@@ -29,6 +29,7 @@ import {
   type PublishChecklistStep,
 } from "./gitStatusHelpers";
 import { CreateRepositoryWizard } from "./CreateRepositoryWizard";
+import { CloneRepositoryForm } from "./CloneRepositoryForm";
 import { Banner, Badge, Panel, PageHeader, EmptyState } from "../../components/ui";
 import {
   IcFolder,
@@ -69,6 +70,7 @@ interface Props {
   onPullSuccess: (summary: RepositorySummaryDto) => void;
   onPullRunning: (running: boolean) => void;
   onCreateSuccess: (result: OpenRepositoryResultDto) => void;
+  onCloneSuccess: (result: OpenRepositoryResultDto) => void;
   gitRefreshToken?: number;
 }
 
@@ -875,6 +877,7 @@ export function RepositoryPanel({
   onPullSuccess,
   onPullRunning,
   onCreateSuccess,
+  onCloneSuccess,
   gitRefreshToken,
 }: Props) {
   // ── Landing state (no repository open) ──────────────────────────────────────
@@ -965,6 +968,10 @@ export function RepositoryPanel({
                     Open
                   </button>
                 </div>
+              </Panel>
+
+              <Panel title="Clone repository" desc="Clone an existing RIS repository from a Git URL.">
+                <CloneRepositoryForm onSuccess={onCloneSuccess} />
               </Panel>
 
               <Panel title="Create new repository" desc="Scaffold an empty RIS repository on disk.">

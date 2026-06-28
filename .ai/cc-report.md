@@ -1,145 +1,65 @@
 ## Summary
 
-PR 10 of beta.3 roadmap. Auto-fill `device_type` from a selected Device Model when the
-user has not manually chosen a type. Controlled by a `deviceTypeTouched` flag that is
-`false` in add/create-similar mode and `true` in edit mode (or after the user explicitly
-changes the type select).
+Added the Clone Repository flow to Rack Inventory Studio. Users can now clone an existing Git repository by providing a Git URL, selecting a parent directory via folder picker, and optionally editing the auto-derived directory name. On success the repository is opened exactly like Create/Open flows.
 
-**Fix (repair commit)**: The initial implementation filtered the model dropdown by
-`form.deviceType` unconditionally. After auto-fill set the type from the first model
-selection, the dropdown narrowed to that type only, preventing the user from switching
-to a model of a different type without manually touching the type select. Fixed by
-gating the filter on `deviceTypeTouched`: only when the user has explicitly set the
-type does the dropdown narrow. Three additional tests added to cover this scenario.
-
-## Base branch / working branch
-
-- Base: `roadmap/beta3` (includes PR 1–9)
-- Working: `feature/beta3-device-type-autofill`
+**Repair (fix commit):** Hardened `git clone` invocation and credential redaction in response to code review blockers:
+1. `git clone` now uses `--` before the URL to prevent option injection (a URL starting with `-` or `--` could have been interpreted as a git flag).
+2. `redact_git_url()` extended to cover both `http://` and `https://` (previously only `https://`).
+3. Added `sanitize_git_error()` which first redacts any embedded HTTP/HTTPS credentials in URLs within arbitrary text (e.g. git's single-quoted stderr messages like `fatal: repository 'https://token@host/repo.git/' not found`), then applies the existing `sanitize_error`. This ensures neither logs nor the UI error message ever contain plain credentials from git stderr.
+4. UI flow and frontend unchanged. Version unchanged.
 
 ## Files changed
 
-| File | Change |
-|---|---|
-| `apps/desktop/src/features/devices/DeviceFormModal.tsx` | Add `deviceTypeTouched` state, `setDeviceTypeTouched(true)` in `set()` for deviceType changes, `setDeviceTypeTouched(editing !== null)` in useEffect, new `handleModelChange()` function, wire `onChange={handleModelChange}` on the Device Model SearchableSelect |
-| `apps/desktop/src/features/devices/DeviceFormModal.test.tsx` | +8 new tests: 7 in new "device type auto-fill from model" describe block, 1 in edit mode block |
+### Rust backend (original)
+- `apps/desktop/src-tauri/src/diagnostics.rs` — Added `redact_git_url()` and 5 unit tests.
+- `apps/desktop/src-tauri/src/commands/repository.rs` — Added `clone_repository_cmd` Tauri command. `dir_name_from_url()` helper is test-only.
+- `apps/desktop/src-tauri/src/commands/mod.rs` — Exported `clone_repository_cmd`.
+- `apps/desktop/src-tauri/src/lib.rs` — Registered `clone_repository_cmd`.
 
-## Behaviour
+### Rust backend (repair)
+- `apps/desktop/src-tauri/src/diagnostics.rs` — Extended `redact_git_url()` to cover `http://`; added private `redact_urls_in_text()` helper; added public `sanitize_git_error()`. Added 5 new tests (`redact_git_url_hides_http_plain_token`, `redact_git_url_hides_http_user_pass`, `redact_git_url_leaves_plain_http_unchanged`, `sanitize_git_error_redacts_https_token_in_stderr`, `sanitize_git_error_redacts_http_user_pass_in_stderr`).
+- `apps/desktop/src-tauri/src/commands/repository.rs` — `git clone` args changed from `["clone", &url, &destination]` to `["clone", "--", &url, &destination]`. stderr now passed through `sanitize_git_error` instead of `sanitize_error`. Added `sanitize_git_error` and `redact_git_url` to top-level imports.
 
-- **Add mode / create-similar mode**: `deviceTypeTouched = false` on open. Selecting a
-  Device Model calls `handleModelChange` which reads the model's `device_type` and sets
-  `form.deviceType` when `deviceTypeTouched` is false and a model was selected (non-empty value).
-- **Edit mode**: `deviceTypeTouched = true` on open (existing type is intentional). Picking
-  a different model does not override the type.
-- **Manual type change**: Any interaction with the Device Type select sets
-  `deviceTypeTouched = true`, locking future model selections from auto-filling the type.
-- **Clear model**: Selecting `— none —` passes `val = ""` to `handleModelChange`; the
-  `if (!deviceTypeTouched && val)` guard skips auto-fill, so the type is preserved.
-- **Model filter (repaired)**: `filteredModels` now requires `deviceTypeTouched === true` to
-  apply the type filter. When type is auto-managed (`deviceTypeTouched === false`), all models
-  are shown so the user can freely switch between models of different types.
+### TypeScript / React frontend (original, unchanged in repair)
+- `apps/desktop/src/api/tauriClient.ts` — Added `cloneRepository(url, destination)` wrapper.
+- `apps/desktop/src/features/repository/cloneHelpers.ts` — New: `dirNameFromUrl()`, `validateCloneDirName()`, `computeClonePath()`.
+- `apps/desktop/src/features/repository/CloneRepositoryForm.tsx` — New component.
+- `apps/desktop/src/features/repository/RepositoryPanel.tsx` — Added Clone panel.
+- `apps/desktop/src/App.tsx` — Added `handleCloneSuccess()`.
 
-## Root cause of repair
-
-Original `filteredModels`:
-```tsx
-const filteredModels = form.deviceType
-  ? models.filter((m) => m.device_type === form.deviceType)
-  : models;
-```
-After auto-fill set `form.deviceType = "server"`, the dropdown narrowed to server models
-only, preventing a subsequent switch to a network model without a manual type change.
-
-Fixed `filteredModels`:
-```tsx
-const filteredModels =
-  form.deviceType && deviceTypeTouched
-    ? models.filter((m) => m.device_type === form.deviceType)
-    : models;
-```
-The filter now only activates when the user has explicitly touched the type select
-(`deviceTypeTouched === true`), preserving full model choice when type is auto-managed.
-Edit mode is unaffected because it opens with `deviceTypeTouched = true`.
+### Tests (original)
+- `apps/desktop/src/features/repository/cloneHelpers.test.ts` — 18 unit tests.
+- `apps/desktop/src/features/repository/CloneRepositoryForm.test.tsx` — 15 component tests.
+- `apps/desktop/src/features/repository/RepositoryPanel.test.tsx` — 4 new Clone panel tests.
 
 ## Tests
 
 ```
-vitest run
-  Test Files  46 passed (46)
-      Tests  700 passed (700)   (+11 new vs PR 9 baseline of 689)
+cargo test --workspace       → 88 Rust unit tests passed (83 original + 5 new for repair)
+cargo clippy -- -D warnings  → clean
+npx tsc --noEmit             → clean
+npx vitest run               → 740 tests passed (48 files), no regressions
+git diff --check             → clean
+node scripts/check-version-consistency.mjs → all versions match 0.1.0-beta.2
+node scripts/check-repo-hygiene.mjs        → all 8 checks passed
+node --test scripts/*.test.mjs             → 19 tests passed
 ```
-
-### New tests (11)
-
-**In "DeviceFormModal — edit mode" describe block (1 new):**
-- edit mode: changing model does not auto-fill device type (deviceTypeTouched=true on open)
-
-**In "DeviceFormModal — device type auto-fill from model" describe block (10 new):**
-- add mode: selecting a model with no device type auto-fills the type
-- add mode: selecting a network model auto-fills type to network
-- add mode: manual device type change blocks subsequent model auto-fill
-- add mode: clearing the model does not clear an auto-filled device type
-- edit mode: opening modal initialises type from device, not from model auto-fill
-- add mode: auto-filled device type is sent correctly in the save payload
-- prefill with deviceModelId: type stays empty on open; re-picking model auto-fills type
-- **add mode: after auto-fill, switching to a different-type model updates type (blocker scenario)**
-- **add mode: after auto-fill the model dropdown still shows all models**
-- **add mode: manual type lock filters dropdown — other-type models not visible**
-
-## Checks
-
-| Check | Result |
-|---|---|
-| `git diff --check` | clean |
-| `node scripts/check-version-consistency.mjs` | ✓ 0.1.0-beta.2 — 4 sources |
-| `node scripts/check-repo-hygiene.mjs` | 8/8 pass |
-| `tsc --noEmit` | clean |
-| Vitest | 700 pass (46 files) |
-
-Rust checks: skipped — PR is frontend-only, no Tauri/Rust files changed.
-Vite build: `pnpm` unavailable in this environment; TS + Vitest confirm correctness.
-
-## Manual smoke
-
-Not available in sandbox (no browser). The following paths should be verified manually:
-
-- **Add Device modal**: open, leave Device Type empty, pick a Device Model → type should
-  auto-fill to the model's type; confirm the model filter also updates.
-- **Add Device modal**: manually set Device Type first, then pick a model → type must NOT
-  change (lock is in effect).
-- **Edit Device modal**: open an existing device, pick a different same-type model → type
-  must not change (edit mode always has lock set).
-- **Create similar**: open with prefill containing a model → type field starts empty;
-  re-picking the model sets the type.
 
 ## Risks
 
-- `deviceTypeTouched` is a closure-captured state variable in `handleModelChange`. Because
-  `handleModelChange` is redefined each render it reads the correct value. No stale closure
-  risk.
-- If a model's `device_type` is absent or unrecognised by the backend, the auto-filled type
-  might fail validation. The `DEVICE_TYPES` constant is still the source of truth for the
-  select options; any model type not in that list will be auto-filled but the select will
-  show an unmatched value (no visible option selected). This is a pre-existing concern with
-  model data quality, not introduced by this PR.
+- `git clone` is invoked via `std::process::Command`. If `git` is not on PATH the error is surfaced to the user as "Failed to run git: …". No retry logic.
+- Non-RIS repos clone successfully but then fail to open; the cloned directory is NOT automatically cleaned up (by design).
+- SSH key pairing relies on the system SSH agent; no additional setup is done here.
+- `redact_urls_in_text` scans character-by-character; for very long git output it is O(n) per scheme, which is acceptable.
 
 ## Not done
 
-- Auto-fill when the same model is set via prefill (only triggers on explicit user
-  interaction, not on initial form mount). Intentionally left this way to keep behaviour
-  predictable — prefill already supports `deviceType`.
-- Wrapping/circular navigation in SearchableSelect — out of scope.
-- Any backend changes — none required.
+- Credential/token management UI (out of scope).
+- Branch selection at clone time (out of scope).
+- Shallow clone option (out of scope).
+- Progress reporting during clone (out of scope).
+- `validate_clone_destination` as a standalone testable helper — left as follow-up; the logic is inlined in `clone_repository_cmd` and is straightforward.
 
 ## Suggested next step
 
-PR 11 of the beta.3 roadmap (confirm with product what the next item is; likely a UX
-polish or additional field in DeviceFormModal or RackDetailPanel based on beta.2 feedback).
-
-## Version / release confirmation
-
-- Version not bumped: still `0.1.0-beta.2`
-- No tag created
-- No GitHub Release created
-- No installer changes
-- No beta.2 release notes modified
+Extract `validate_clone_destination(path: &Path) -> Result<(), String>` into a unit-testable helper, covering: non-existent dir → OK, empty dir → OK, non-empty dir → error, existing file → error.

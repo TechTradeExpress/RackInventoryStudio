@@ -22,6 +22,12 @@ vi.mock("./CreateRepositoryWizard", () => ({
   CreateRepositoryWizard: () => <div data-testid="create-wizard" />,
 }));
 
+vi.mock("./CloneRepositoryForm", () => ({
+  CloneRepositoryForm: ({ onSuccess }: { onSuccess: (r: OpenRepositoryResultDto) => void }) => (
+    <div data-testid="clone-form-stub" onClick={() => onSuccess({} as OpenRepositoryResultDto)} />
+  ),
+}));
+
 const BASE_PROPS = {
   repoPath: "",
   onRepoPathChange: vi.fn(),
@@ -39,6 +45,7 @@ const BASE_PROPS = {
   onPullSuccess: vi.fn(),
   onPullRunning: vi.fn(),
   onCreateSuccess: vi.fn() as (result: OpenRepositoryResultDto) => void,
+  onCloneSuccess: vi.fn() as (result: OpenRepositoryResultDto) => void,
 };
 
 beforeEach(() => {
@@ -326,5 +333,41 @@ describe("RepositoryPanel — Refresh Git status button", () => {
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: "Refresh Git status" })).toEqual(null),
     );
+  });
+});
+
+describe("RepositoryPanel — Clone repository panel", () => {
+  it("renders the Clone repository panel in landing mode", () => {
+    render(<RepositoryPanel {...BASE_PROPS} />);
+    expect(screen.getByText("Clone repository")).toBeTruthy();
+  });
+
+  it("renders the CloneRepositoryForm inside the Clone panel", () => {
+    render(<RepositoryPanel {...BASE_PROPS} />);
+    expect(screen.getByTestId("clone-form-stub")).toBeTruthy();
+  });
+
+  it("calls onCloneSuccess when clone form reports success", () => {
+    const onCloneSuccess = vi.fn();
+    render(<RepositoryPanel {...BASE_PROPS} onCloneSuccess={onCloneSuccess} />);
+    fireEvent.click(screen.getByTestId("clone-form-stub"));
+    expect(onCloneSuccess).toHaveBeenCalledOnce();
+  });
+
+  it("does not render the Clone panel when a repository is open", () => {
+    const OPEN_SUMMARY = {
+      repo_path: "/repos/test",
+      repository_code: "test",
+      repository_name: "Test",
+      locations_count: 0,
+      racks_count: 0,
+      device_models_count: 0,
+      devices_count: 0,
+      placement_files_count: 0,
+      placements_count: 0,
+      unplaced_devices_count: 0,
+    } as RepositorySummaryDto;
+    render(<RepositoryPanel {...BASE_PROPS} summary={OPEN_SUMMARY} />);
+    expect(screen.queryByText("Clone repository")).toBeNull();
   });
 });

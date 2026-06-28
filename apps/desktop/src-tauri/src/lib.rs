@@ -9,9 +9,9 @@ pub use ssh_askpass::run_as_askpass;
 use app_config::{resolve_app_config_dir_early, resolve_startup_log_dir, ActiveLogState};
 use commands::{
     add_device_cmd, add_device_model_cmd, add_git_remote, add_location_cmd, add_rack_cmd,
-    close_repository, commit_repository_changes, create_repository_cmd, delete_device_cmd,
-    delete_device_model_cmd, delete_location_cmd, delete_rack_cmd, get_git_log, get_git_status,
-    get_log_settings, get_rack_detail, get_repository_summary, get_ssh_diagnostics,
+    clone_repository_cmd, close_repository, commit_repository_changes, create_repository_cmd,
+    delete_device_cmd, delete_device_model_cmd, delete_location_cmd, delete_rack_cmd, get_git_log,
+    get_git_status, get_log_settings, get_rack_detail, get_repository_summary, get_ssh_diagnostics,
     import_device_csv_cmd, init_git_repository, list_device_models, list_devices, list_git_remotes,
     list_locations, list_racks, move_placement, open_logs_directory, open_repository_cmd,
     place_device, place_rack_object, preview_device_csv_import_cmd, pull_git_ff_only,
@@ -59,6 +59,7 @@ pub fn run() {
         .manage(active_log_state)
         .manage(AskpassState::new())
         .invoke_handler(tauri::generate_handler![
+            clone_repository_cmd,
             create_repository_cmd,
             open_repository_cmd,
             get_repository_summary,

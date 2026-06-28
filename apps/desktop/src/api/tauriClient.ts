@@ -111,6 +111,19 @@ export function openRepository(path: string): Promise<OpenRepositoryResultDto> {
   return invoke("open_repository_cmd", { path });
 }
 
+/**
+ * Clone a Git repository from `url` into `destination` (full path),
+ * then open the cloned directory as a RIS repository.
+ * Returns the same `OpenRepositoryResultDto` as `openRepository`.
+ * Throws a string error if git clone fails or if the clone is not a valid RIS repo.
+ */
+export function cloneRepository(
+  url: string,
+  destination: string,
+): Promise<OpenRepositoryResultDto> {
+  return invoke("clone_repository_cmd", { url, destination });
+}
+
 export function getRepositorySummary(): Promise<RepositorySummaryDto> {
   return invoke("get_repository_summary");
 }
