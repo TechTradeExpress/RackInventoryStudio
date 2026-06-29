@@ -256,14 +256,14 @@ describe("SettingsPanel", () => {
     });
   });
 
-  it("shows 'exists, writable' status when dir_exists and dir_writable are true", async () => {
+  it("shows 'accessible' status when dir_exists and dir_writable are true", async () => {
     render(<SettingsPanel />);
     await waitFor(() => {
-      expect(screen.getByText(/exists, writable/)).toBeTruthy();
+      expect(screen.getByText(/accessible/)).toBeTruthy();
     });
   });
 
-  it("shows 'not yet created' status when dir_exists is false", async () => {
+  it("shows 'will be created' status when dir_exists is false", async () => {
     mockGetLogSettings.mockResolvedValue({
       ...DEFAULT_LOG_SETTINGS,
       dir_exists: false,
@@ -271,11 +271,11 @@ describe("SettingsPanel", () => {
     });
     render(<SettingsPanel />);
     await waitFor(() => {
-      expect(screen.getByText(/not yet created/)).toBeTruthy();
+      expect(screen.getByText(/will be created/)).toBeTruthy();
     });
   });
 
-  it("shows 'exists, not writable' status when dir_exists but not dir_writable", async () => {
+  it("shows 'not writable' status when dir_exists but not dir_writable", async () => {
     mockGetLogSettings.mockResolvedValue({
       ...DEFAULT_LOG_SETTINGS,
       dir_exists: true,
@@ -283,7 +283,7 @@ describe("SettingsPanel", () => {
     });
     render(<SettingsPanel />);
     await waitFor(() => {
-      expect(screen.getByText(/exists, not writable/)).toBeTruthy();
+      expect(screen.getByText(/not writable/)).toBeTruthy();
     });
   });
 });

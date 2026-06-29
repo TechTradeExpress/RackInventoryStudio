@@ -122,16 +122,16 @@ export function SettingsPanel() {
                   {logSettings.dir_exists ? (
                     logSettings.dir_writable ? (
                       <span style={{ color: "var(--tx-3)", fontSize: 11 }}>
-                        (exists, writable)
+                        (accessible)
                       </span>
                     ) : (
                       <span style={{ color: "var(--err)", fontSize: 11 }}>
-                        (exists, not writable)
+                        (not writable — check permissions)
                       </span>
                     )
                   ) : (
                     <span style={{ color: "var(--tx-3)", fontSize: 11 }}>
-                      (not yet created)
+                      (will be created on first log write)
                     </span>
                   )}
                 </div>
