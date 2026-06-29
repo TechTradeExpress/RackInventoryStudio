@@ -1,12 +1,18 @@
 ## Summary
 
-PR 15: feat(import): add CSV import for Device Models.
+PR #133: feat(import): add Device Model CSV import — and repair of success banner bug.
 
 Adds a full Device Model CSV import workflow parallel to the existing Device
 CSV import: preview → validate → apply. The feature includes a new validator
 in the `ris-import` crate, application layer methods, three Tauri commands, and
 a type-selector toggle in `CsvImportPanel` so users can switch between Device
 and Device Model import.
+
+**Repair (fix commit c6a7ede):** The success banner after a successful import
+was being cleared immediately because `handleImport()` called the old
+`resetState()` which wiped `importSuccess`. Fixed by splitting into
+`resetPreviewState()` (clears preview/error only) and `resetAllState()` (also
+clears success). Import success now uses `resetPreviewState()`.
 
 ## Files changed
 
@@ -16,7 +22,7 @@ and Device Model import.
 | `crates/ris-import/src/preview.rs` | Added `CsvDeviceModelImportPreviewRow`, `CsvDeviceModelImportPreview` |
 | `crates/ris-import/src/validator_device_model.rs` | New: pure validator implementing VAL-DM-001 through VAL-DM-009 |
 | `crates/ris-import/src/lib.rs` | Exported new module, types, and `preview_device_model_csv_import` |
-| `crates/ris-import/tests/csv_import_device_model_tests.rs` | New: 43 Rust integration tests |
+| `crates/ris-import/tests/csv_import_device_model_tests.rs` | New: 43 Rust integration tests (+ rustfmt fix) |
 | `crates/ris-application/src/session.rs` | Added `DeviceModelCsvImportResult`, `preview_device_models_csv()`, `import_device_models_csv()` |
 | `crates/ris-application/src/lib.rs` | Exported `DeviceModelCsvImportResult` |
 | `apps/desktop/src-tauri/src/dto.rs` | Added `CsvDeviceModelImportPreviewRowDto`, `CsvDeviceModelImportPreviewDto` |
@@ -26,8 +32,8 @@ and Device Model import.
 | `apps/desktop/src/api/tauriClient.ts` | Added `CsvDeviceModelImportPreviewRowDto`, `CsvDeviceModelImportPreviewDto`, `previewDeviceModelCsvImport()`, `importDeviceModelCsv()`, `saveDeviceModelSampleCsvViaDialog()` |
 | `apps/desktop/src/features/csvImport/csvSample.ts` | Added device model sample CSV rows and `saveDeviceModelSampleCsv()` |
 | `apps/desktop/src/features/csvImport/csvImportSummary.ts` | Changed parameter to structural typing (`PreviewLike`) so function works with both preview types |
-| `apps/desktop/src/features/csvImport/CsvImportPanel.tsx` | Added `importType` state, type selector buttons (Devices / Device Models), conditional schema sidebar and preview table, device model–specific import flow |
-| `apps/desktop/src/features/csvImport/CsvImportPanel.test.tsx` | Updated mocks; added 5 new tests for type selector and sample CSV routing |
+| `apps/desktop/src/features/csvImport/CsvImportPanel.tsx` | Added `importType` state, type selector buttons, conditional schema sidebar and preview table, **success banner fix** (splitresetState) |
+| `apps/desktop/src/features/csvImport/CsvImportPanel.test.tsx` | Rewritten mocks; 17 tests including new Devices and Device Models import success regression tests |
 | `docs/BETA3_QA_RUNBOOK.md` | Added section 12 (Device Model CSV import, 16 test cases); renumbered old 12 → 13 |
 
 ## Validation codes (VAL-DM-xxx)
@@ -53,11 +59,14 @@ device models. No `status` column — device models have no status.
 node scripts/check-version-consistency.mjs   → 0.1.0-beta.2, all match
 node scripts/check-repo-hygiene.mjs          → 8/8 checks passed
 pnpm -C apps/desktop exec tsc --noEmit       → 0 errors
-pnpm -C apps/desktop exec vitest run         → 794 passed, 0 failed (was 789)
+pnpm -C apps/desktop exec vitest run         → 800 passed, 0 failed (was 789)
+vite build                                   → success
+cargo fmt --all --check                      → clean
+cargo clippy --workspace -- -D warnings      → clean
 cargo check (ris-import + ris-application)   → Finished, 0 errors
 cargo check (desktop/src-tauri)              → Finished, 0 errors
-cargo test -p ris-import                     → 33 + 43 = 76 passed, 0 failed
-cargo test (desktop/src-tauri)              → 116 passed, 0 failed
+cargo test -p ris-import                     → 76 passed, 0 failed (33 device + 43 device model)
+cargo test (desktop/src-tauri)               → 116 passed, 0 failed
 ```
 
 ## Risks
