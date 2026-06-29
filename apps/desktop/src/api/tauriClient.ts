@@ -659,6 +659,10 @@ export interface LogSettingsDto {
   active_log_dir: string;
   custom_log_dir: string | null;
   restart_required: boolean;
+  dir_exists: boolean;
+  dir_writable: boolean;
+  current_log_filename: string;
+  retention_days: number;
 }
 
 export function getLogSettings(): Promise<LogSettingsDto> {

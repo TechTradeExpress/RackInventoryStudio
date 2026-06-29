@@ -6,7 +6,10 @@ mod ssh_askpass;
 
 pub use ssh_askpass::run_as_askpass;
 
-use app_config::{resolve_app_config_dir_early, resolve_startup_log_dir, ActiveLogState};
+use app_config::{
+    cleanup_old_log_files, daily_log_filename, resolve_app_config_dir_early,
+    resolve_startup_log_dir, ActiveLogState, LOG_RETENTION_DAYS,
+};
 use commands::{
     add_device_cmd, add_device_model_cmd, add_git_remote, add_location_cmd, add_rack_cmd,
     clone_repository_cmd, close_repository, commit_repository_changes, create_repository_cmd,
@@ -34,9 +37,13 @@ pub fn run() {
     let early_config_dir = resolve_app_config_dir_early();
     let log_dir = resolve_startup_log_dir(early_config_dir.as_deref());
 
+    // Clean up log files older than the retention window before opening the log.
+    // Non-fatal: errors are logged as warnings inside cleanup_old_log_files.
+    cleanup_old_log_files(&log_dir, LOG_RETENTION_DAYS);
+
     let log_file_target = tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Folder {
         path: log_dir.clone(),
-        file_name: None,
+        file_name: Some(daily_log_filename()),
     });
 
     // Managed state records which directory this process actually logs to,

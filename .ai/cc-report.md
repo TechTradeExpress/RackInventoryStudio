@@ -1,100 +1,45 @@
 ## Summary
 
-PR 12 of beta.3 roadmap. Added rack view export to SVG and PNG. Users can export the currently displayed rack side (Front or Rear) to a vector SVG file or a 2× rasterized PNG, selecting the save location via a native file dialog. Export is driven by real rack data — not a DOM screenshot.
+PR 13: Improved daily log file rotation, log retention cleanup, and enhanced diagnostics for the Settings panel.
 
-## Base branch / Working branch
-
-- Base: `roadmap/beta3`
-- Branch: `feature/beta3-rack-export`
-
-## Architecture decision: SVG + PNG
-
-- **SVG**: pure TypeScript helper `buildRackViewSvg()` produces a deterministic, XML-escaped SVG string from rack data. No DOM dependency.
-- **PNG**: DOM rasterization — SVG blob URL → `Image` → canvas at 2× scale → PNG bytes → saved via Rust command. Canvas-dependent code lives in `rackExportDom.ts` (separate file, easily mockable in tests).
-- No external libraries added.
-- Backend writes file content supplied by the frontend via two minimal Rust commands.
-
-## Export flow
-
-1. User clicks **Export SVG** or **Export PNG** in the rack detail header (next to Front/Rear toggle).
-2. `buildRackViewSvg()` is called with the active side's placements from the already-loaded `RackDetailDto`.
-3. For SVG: native save dialog → `write_export_file` Rust command writes text content.
-4. For PNG: SVG is rasterized via canvas (2× scale for retina clarity) → native save dialog → `write_export_bytes` Rust command writes binary content.
-5. Dialog cancel: no error shown. Write error: error banner appears below header.
-
-## Front/Rear isolation
-
-- `activeSide === "front"` → `detail.front` passed to builder; exported filename includes `-front`.
-- `activeSide === "rear"` → `detail.rear` passed to builder; exported filename includes `-rear`.
-- The builder itself is side-agnostic; isolation is enforced in the handler.
-
-## XML/SVG safety
-
-- All user-supplied strings (rack name, rack code, device name, model, serial, asset tag) pass through `escapeXml()` before insertion into SVG.
-- `escapeXml()` replaces `& < > " '` with XML entities.
-- Tests verify `<script>alert(1)</script>` in a device name does not appear as raw XML in output.
-
-## Filename sanitization
-
-- `sanitizeFilename()` removes OS-forbidden chars, replaces spaces with hyphens, lowercases. Falls back to `"rack"` for fully-invalid names.
-- Default filenames: `rack-<code>-front.svg`, `rack-<code>-rear.svg`, `rack-<code>-front.png`, etc.
+- **Daily log files**: tauri-plugin-log is now configured with `file_name: Some(daily_log_filename())` producing `ris-YYYY-MM-DD.log` instead of a single unbounded file. Each app session that starts on a new day writes to a fresh file.
+- **Log retention**: On startup, `cleanup_old_log_files()` deletes `ris-YYYY-MM-DD.log` files older than 30 days from the active log directory. Non-RIS files are never touched.
+- **Enhanced diagnostics**: `LogSettingsDto` gained four new fields — `dir_exists`, `dir_writable`, `current_log_filename`, `retention_days` — surfaced in the Settings panel.
+- **No new crate dependencies**: date math is implemented with a pure Rust stdlib algorithm (Gregorian civil calendar), no chrono or time crate required.
 
 ## Files changed
 
-### New files
-- `apps/desktop/src/features/racks/rackExport.ts` — pure helpers: `escapeXml`, `sanitizeFilename`, `buildRackViewSvg`
-- `apps/desktop/src/features/racks/rackExportDom.ts` — DOM helper: `rasterizeSvgToPng` (canvas-based, mockable)
-- `apps/desktop/src/features/racks/rackExport.test.ts` — 31 unit tests for pure helpers
-- `apps/desktop/src/features/racks/RackDetailPanel.export.test.tsx` — 13 component tests for export buttons
-
-### Modified files
-- `apps/desktop/src/features/racks/RackDetailPanel.tsx` — added `handleExportSvg`, `handleExportPng`, export error state, Export SVG/PNG buttons in header actions
-- `apps/desktop/src/api/tauriClient.ts` — added `saveRackViewSvgViaDialog`, `saveRackViewPngViaDialog`
-- `apps/desktop/src-tauri/src/commands/repository.rs` — added `write_export_file`, `write_export_bytes` Tauri commands (shared `write_export` helper); 5 Rust unit tests
-- `apps/desktop/src-tauri/src/commands/mod.rs` — exported new commands
-- `apps/desktop/src-tauri/src/lib.rs` — registered new commands
+| File | Change |
+|---|---|
+| `src-tauri/src/app_config.rs` | Added `LOG_RETENTION_DAYS`, `LOG_FILE_PREFIX` constants; `unix_secs_to_ymd`, `ymd_to_unix_secs`, `daily_log_filename`, `cleanup_old_log_files`, `parse_ris_log_date_secs` helpers; 13 new unit tests |
+| `src-tauri/src/commands/log_settings.rs` | Added `dir_exists`, `dir_writable`, `current_log_filename`, `retention_days` to `LogSettingsDto`; `build_dto` now populates them |
+| `src-tauri/src/lib.rs` | Calls `cleanup_old_log_files` at startup; passes `Some(daily_log_filename())` to Folder target |
+| `src/api/tauriClient.ts` | Added four new fields to `LogSettingsDto` interface |
+| `src/features/settings/SettingsPanel.tsx` | Displays dir status (exists/writable), current log filename, retention days |
+| `src/features/settings/SettingsPanel.test.tsx` | Updated fixture with new fields; 5 new tests for dir status variants, log filename, retention days |
 
 ## Tests
 
 ```
-cargo fmt --all --check      → clean
-cargo check --workspace      → clean
-cargo test --workspace       → 93 Rust tests passed (88 prior + 5 new write_export tests)
-cargo clippy -- -D warnings  → clean
-npx tsc --noEmit             → clean
-npx vitest run               → 784 tests passed (50 files) [was 740/48]
-npx vite build               → ✓ built (326 kB JS bundle)
-git diff --check             → clean
-node scripts/check-version-consistency.mjs → all versions match 0.1.0-beta.2
-node scripts/check-repo-hygiene.mjs        → all 8 checks passed
-node --test scripts/*.test.mjs             → 19 tests passed
+cargo test          → 104 passed, 0 failed
+npx tsc --noEmit    → 0 errors
+npx vitest run      → 789 passed, 0 failed
+npx vite build      → success
+cargo clippy        → 0 warnings
+cargo fmt --check   → clean
 ```
-
-## Manual smoke
-
-_Not performed in this automated session — manual smoke requires a running desktop app with actual rack data. Checklist for manual verification:_
-- Open a rack with front placements → click Export SVG → open file in browser → verify readable
-- Switch to Rear → Export SVG → verify rear placements shown, front placements absent
-- Export PNG → verify file opens without distortion (2× scale)
-- Cancel save dialog → verify no error banner appears
-- Verify front/rear filenames are distinct
 
 ## Risks
 
-- PNG rasterization uses `Image` + `canvas` in Tauri's WebView. Some platforms may have canvas limitations for very large SVGs (e.g. rack with 48U × 2× scale). Unlikely to be a problem in practice.
-- `write_export_bytes` sends PNG as `Vec<u8>` over Tauri IPC (JSON array of numbers). For very large exports (e.g. 48U @ 2×) this may be a few hundred KB. Acceptable for desktop; not suitable for bulk export.
-- No progress indicator during PNG rasterization (fast for typical rack sizes).
-- Overlapping placements in data: the builder renders the first placement at each visual-top U and ignores overlapping ones. This is documented behavior; no data repair is attempted.
+- Daily log filename uses UTC date. A session that spans midnight UTC will write all logs to the file named for the day the session started — this is by design and consistent.
+- Log cleanup runs at startup before the Tauri logger is open. Any errors in cleanup are emitted via `log::warn!` which goes only to stdout on that first message (logger not yet attached). This is acceptable for a non-critical housekeeping step.
+- `cleanup_old_log_files` uses midnight-UTC date comparison. Files from exactly 30 days ago survive; deletion starts at 31 days.
 
 ## Not done
 
-- PDF export (out of scope per spec).
-- Multi-rack export (out of scope).
-- Progress bar for PNG (not needed for typical rack sizes).
-- Rack diagram labels beyond Name/Model/Serial/Asset (future enhancement).
+- Configurable retention period (the 30-day constant is hardcoded; the DTO exposes it read-only for now).
+- Mid-session log rotation (if the app runs past midnight, the date-stamped filename does not change until next restart).
 
-## Version / tags
+## Suggested next step
 
-- Version unchanged: 0.1.0-beta.2
-- No tags created
-- No GitHub Release created
+Add an editable retention field in Settings to let users adjust the window (persisted in `AppConfig`, plumbed through `cleanup_old_log_files`).

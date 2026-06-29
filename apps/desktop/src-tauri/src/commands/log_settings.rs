@@ -2,7 +2,8 @@ use std::path::Path;
 use tauri::{AppHandle, Manager};
 
 use crate::app_config::{
-    get_active_logs_dir, get_default_logs_dir, load_app_config, save_app_config, AppConfig,
+    daily_log_filename, get_active_logs_dir, get_default_logs_dir, is_dir_writable,
+    load_app_config, save_app_config, AppConfig, LOG_RETENTION_DAYS,
 };
 
 // `restart_required` is true when the persisted custom directory differs from
@@ -18,15 +19,19 @@ pub struct LogSettingsDto {
     /// Platform default log directory (where tauri-plugin-log writes on the current run).
     pub default_log_dir: String,
     /// Currently active log directory for this running instance.
-    /// Equal to `default_log_dir` because tauri-plugin-log is initialized at startup
-    /// with the platform default — a custom directory is only applied after restart.
     pub active_log_dir: String,
     /// Persisted custom log directory override, if the user has set one.
     pub custom_log_dir: Option<String>,
     /// True when `custom_log_dir` is set and differs from the currently active dir.
-    /// This is always true when `custom_log_dir` is `Some(...)` because the active
-    /// dir always reflects the startup configuration (platform default).
     pub restart_required: bool,
+    /// True when the active log directory exists on disk.
+    pub dir_exists: bool,
+    /// True when the active log directory is writable.
+    pub dir_writable: bool,
+    /// Name of the log file for the current session (e.g. `ris-2026-06-28.log`).
+    pub current_log_filename: String,
+    /// Number of days after which old log files are cleaned up.
+    pub retention_days: u64,
 }
 
 fn build_dto(app: &AppHandle) -> LogSettingsDto {
@@ -50,11 +55,19 @@ fn build_dto(app: &AppHandle) -> LogSettingsDto {
     let effective_after_restart = persisted_dir.clone().unwrap_or_else(|| default_dir.clone());
     let restart_required = effective_after_restart != active_dir;
 
+    let dir_exists = active_dir.exists();
+    let dir_writable = dir_exists && is_dir_writable(&active_dir);
+    let current_log_filename = format!("{}.log", daily_log_filename());
+
     LogSettingsDto {
         default_log_dir: default_dir.display().to_string(),
         active_log_dir: active_dir.display().to_string(),
         custom_log_dir: cfg.logs_directory,
         restart_required,
+        dir_exists,
+        dir_writable,
+        current_log_filename,
+        retention_days: LOG_RETENTION_DAYS,
     }
 }
 

@@ -3,6 +3,13 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
+/// Number of days to retain log files before cleanup.
+pub const LOG_RETENTION_DAYS: u64 = 30;
+
+/// Prefix used for all daily log files written by this app.
+/// Cleanup only ever deletes files matching `<LOG_FILE_PREFIX>-YYYY-MM-DD.log`.
+pub const LOG_FILE_PREFIX: &str = "ris";
+
 /// Bundle identifier — must match `identifier` in `tauri.conf.json`.
 const BUNDLE_ID: &str = "com.techtradeexpress.rackinventorystudio";
 
@@ -274,6 +281,106 @@ pub fn resolve_app_config_dir_early() -> Option<PathBuf> {
     }
 }
 
+// ── Daily log filename helpers ─────────────────────────────────────────────────
+
+/// Convert a Unix timestamp (seconds since 1970-01-01) to (year, month, day).
+///
+/// Uses the standard "civil" Gregorian calendar algorithm — no external crate.
+pub fn unix_secs_to_ymd(secs: u64) -> (u32, u32, u32) {
+    let days = (secs / 86400) as i64;
+    // Shift epoch to 0000-03-01 for simpler leap-year handling.
+    let z = days + 719_468;
+    let era: i64 = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097; // day-of-era [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365; // year-of-era [0, 399]
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // day-of-year [0, 365]
+    let mp = (5 * doy + 2) / 153; // month-of-year (March = 0) [0, 11]
+    let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
+    let y = if m <= 2 { y + 1 } else { y };
+    (y as u32, m as u32, d as u32)
+}
+
+/// Return the log filename stem for the current UTC date: `ris-YYYY-MM-DD`.
+///
+/// tauri-plugin-log appends `.log` automatically, producing `ris-YYYY-MM-DD.log`.
+/// Using UTC avoids timezone-offset edge cases in file naming while keeping
+/// filenames predictable across deployments.
+pub fn daily_log_filename() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let (y, m, d) = unix_secs_to_ymd(secs);
+    format!("{LOG_FILE_PREFIX}-{y:04}-{m:02}-{d:02}")
+}
+
+/// Delete log files in `log_dir` that are older than `retention_days` days
+/// and whose names match the pattern `{LOG_FILE_PREFIX}-YYYY-MM-DD.log`.
+///
+/// Only files whose names are parseable as a date are touched; any other files
+/// in the directory are left alone. Errors for individual files are logged as
+/// warnings but do not abort the cleanup pass.
+pub fn cleanup_old_log_files(log_dir: &Path, retention_days: u64) {
+    let cutoff_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        .saturating_sub(retention_days * 86_400);
+
+    let entries = match std::fs::read_dir(log_dir) {
+        Ok(e) => e,
+        Err(e) => {
+            log::warn!("log_cleanup: cannot read log dir: {e}");
+            return;
+        }
+    };
+
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if let Some(date_secs) = parse_ris_log_date_secs(&name) {
+            if date_secs < cutoff_secs {
+                let path = entry.path();
+                if let Err(e) = std::fs::remove_file(&path) {
+                    log::warn!("log_cleanup: failed to delete {}: {e}", path.display());
+                } else {
+                    log::info!("log_cleanup: deleted old log {}", path.display());
+                }
+            }
+        }
+    }
+}
+
+/// Parse a file name of the form `ris-YYYY-MM-DD.log` into a Unix timestamp
+/// (midnight UTC of that date). Returns `None` if the name does not match.
+fn parse_ris_log_date_secs(name: &str) -> Option<u64> {
+    // Expected: "ris-YYYY-MM-DD.log"
+    let stem = name.strip_suffix(".log")?;
+    let rest = stem.strip_prefix(LOG_FILE_PREFIX)?.strip_prefix('-')?;
+    let mut parts = rest.splitn(3, '-');
+    let y: i32 = parts.next()?.parse().ok()?;
+    let m: u32 = parts.next()?.parse().ok()?;
+    let d: u32 = parts.next()?.parse().ok()?;
+    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return None;
+    }
+    Some(ymd_to_unix_secs(y, m, d))
+}
+
+/// Convert a UTC calendar date to a Unix timestamp at midnight UTC.
+fn ymd_to_unix_secs(y: i32, m: u32, d: u32) -> u64 {
+    // Shift so that March 1 is the start of the year for simpler leap-year math.
+    let (y, m) = if m <= 2 { (y - 1, m + 9) } else { (y, m - 3) };
+    let era = y / 400;
+    let yoe = y - era * 400; // year-of-era [0, 399]
+    let doy = (153 * m as i32 + 2) / 5 + d as i32 - 1; // day-of-year (Mar=0)
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy; // day-of-era
+    let days = era as i64 * 146_097 + doe as i64 - 719_468;
+    (days * 86_400) as u64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -504,5 +611,101 @@ mod tests {
             dir.starts_with("/mnt/c/ProgramData"),
             "path must be rooted at the given ProgramData value"
         );
+    }
+
+    // ── unix_secs_to_ymd ─────────────────────────────────────────────────────
+
+    #[test]
+    fn unix_epoch_is_1970_01_01() {
+        assert_eq!(unix_secs_to_ymd(0), (1970, 1, 1));
+    }
+
+    #[test]
+    fn known_date_2026_06_28() {
+        // 2026-06-28 00:00:00 UTC = 1782604800
+        assert_eq!(unix_secs_to_ymd(1_782_604_800), (2026, 6, 28));
+    }
+
+    #[test]
+    fn leap_day_2000_02_29() {
+        // 2000-02-29 00:00:00 UTC = 951782400
+        assert_eq!(unix_secs_to_ymd(951_782_400), (2000, 2, 29));
+    }
+
+    #[test]
+    fn non_leap_year_2001_no_feb_29() {
+        // 2001-03-01 00:00:00 UTC = 983404800 (year after leap)
+        let (y, m, d) = unix_secs_to_ymd(983_404_800);
+        assert_eq!((y, m, d), (2001, 3, 1));
+    }
+
+    // ── parse_ris_log_date_secs ───────────────────────────────────────────────
+
+    #[test]
+    fn parse_valid_ris_log_filename() {
+        // 2026-06-28 midnight UTC
+        let secs = parse_ris_log_date_secs("ris-2026-06-28.log");
+        assert!(secs.is_some(), "should parse valid filename");
+        let (y, m, d) = unix_secs_to_ymd(secs.unwrap());
+        assert_eq!((y, m, d), (2026, 6, 28));
+    }
+
+    #[test]
+    fn parse_rejects_non_ris_filename() {
+        assert!(parse_ris_log_date_secs("app-2026-06-28.log").is_none());
+        assert!(parse_ris_log_date_secs("rack-inventory-studio.log").is_none());
+    }
+
+    #[test]
+    fn parse_rejects_invalid_date() {
+        assert!(parse_ris_log_date_secs("ris-2026-13-01.log").is_none()); // month 13
+        assert!(parse_ris_log_date_secs("ris-2026-00-01.log").is_none()); // month 0
+    }
+
+    #[test]
+    fn parse_rejects_no_extension() {
+        assert!(parse_ris_log_date_secs("ris-2026-06-28").is_none());
+    }
+
+    // ── cleanup_old_log_files ────────────────────────────────────────────────
+
+    #[test]
+    fn cleanup_deletes_files_older_than_retention() {
+        let dir = tempfile::tempdir().unwrap();
+        // Create an old log file (timestamp 0 = 1970-01-01)
+        let old = dir.path().join("ris-1970-01-01.log");
+        std::fs::write(&old, b"old log").unwrap();
+        // Create a recent log file (today's date)
+        let today_name = format!("{}.log", daily_log_filename());
+        let recent = dir.path().join(&today_name);
+        std::fs::write(&recent, b"recent log").unwrap();
+        // Create a non-RIS file that must not be touched
+        let other = dir.path().join("other.log");
+        std::fs::write(&other, b"other").unwrap();
+
+        cleanup_old_log_files(dir.path(), LOG_RETENTION_DAYS);
+
+        assert!(!old.exists(), "old log should be deleted");
+        assert!(recent.exists(), "recent log should be kept");
+        assert!(other.exists(), "non-RIS file should be left alone");
+    }
+
+    #[test]
+    fn cleanup_leaves_recent_files_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let recent_name = format!("{}.log", daily_log_filename());
+        let recent = dir.path().join(&recent_name);
+        std::fs::write(&recent, b"today").unwrap();
+
+        cleanup_old_log_files(dir.path(), LOG_RETENTION_DAYS);
+
+        assert!(recent.exists(), "today's log should survive cleanup");
+    }
+
+    #[test]
+    fn cleanup_on_empty_dir_is_a_noop() {
+        let dir = tempfile::tempdir().unwrap();
+        cleanup_old_log_files(dir.path(), LOG_RETENTION_DAYS);
+        // Just assert we don't panic
     }
 }
