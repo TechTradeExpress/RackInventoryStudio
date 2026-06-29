@@ -199,7 +199,30 @@ This runbook covers manual verification of all features introduced in beta.3:
 
 ---
 
-### 12. Final regression
+### 12. Device Model CSV import
+
+| # | Action | Expected |
+|---|--------|----------|
+| 12.1 | Open CSV Import; click "Device Models" type button | Button is active; subtitle changes to Device Models; schema sidebar updates |
+| 12.2 | Click "Devices" button again | Switches back; schema shows device columns |
+| 12.3 | In Device Models mode, click "Download sample CSV" | Save dialog opens; file saved; success message shown |
+| 12.4 | Open saved sample CSV in text editor | Header is `device_type,name,code,vendor,model_number,height_u,description,tags`; 4 data rows |
+| 12.5 | Paste or load the sample CSV; click Preview | Preview shows 4 rows, all with "create" badge; no errors |
+| 12.6 | Click Import | Import succeeds; success banner shows "4 device models created" |
+| 12.7 | Open Device Models list | Four new models appear |
+| 12.8 | Import same sample CSV again (codes already generated, no code column) | Re-import succeeds with 4 new models (codes auto-generated, no conflict) |
+| 12.9 | Add a `code` column to a CSV row; set it to an existing model code; preview | VAL-DM-004 error shown; row marked as skip; import blocked |
+| 12.10 | Two rows with the same non-blank code; preview | VAL-DM-003 error on both rows; import blocked |
+| 12.11 | Row with `device_type=rack_object`; preview | Row marked "create" — rack_object is valid for device models |
+| 12.12 | Row missing `name`; preview | VAL-DM-005 error; row skipped |
+| 12.13 | Row with `device_type=turbojet`; preview | VAL-DM-007 error; row skipped |
+| 12.14 | Row with `height_u=0`; preview | VAL-DM-008 error; row skipped |
+| 12.15 | Row with `tags=tag1;;tag2`; preview | VAL-DM-009 warning; row still shows "create" badge |
+| 12.16 | Cancel Save dialog on "Download sample CSV" | No success message; no error |
+
+---
+
+### 13. Final regression
 
 | # | Action | Expected |
 |---|--------|----------|
