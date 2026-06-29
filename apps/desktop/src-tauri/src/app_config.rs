@@ -21,12 +21,17 @@ const WINDOWS_VENDOR: &str = "TechTradeExpress";
 #[cfg(any(target_os = "windows", test))]
 const WINDOWS_APP_DIR: &str = "RackInventoryStudio";
 
-/// Managed state that records the log directory used by the current running
-/// process. Populated during `lib.rs` startup before Tauri builder completes,
-/// so commands can return the real active path.
+/// Managed state that records the log directory and log filename used by the
+/// current running process. Both values are computed once at startup (before
+/// the Tauri builder runs) and never change during the session, so commands
+/// can return the real active path and the real active log file name even
+/// after midnight UTC changes the calendar date.
 pub struct ActiveLogState {
     /// The actual directory passed to `tauri-plugin-log` at startup.
     pub dir: PathBuf,
+    /// The log filename (with `.log` extension) passed to `tauri-plugin-log`
+    /// at startup, e.g. `ris-2026-06-28.log`.
+    pub filename: String,
 }
 
 /// Persisted application configuration stored at `{app_config_dir}/app_config.json`.
@@ -338,6 +343,10 @@ pub fn cleanup_old_log_files(log_dir: &Path, retention_days: u64) {
     };
 
     for entry in entries.flatten() {
+        // Skip directories even if their name looks like a log file.
+        if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            continue;
+        }
         let name = entry.file_name();
         let name = name.to_string_lossy();
         if let Some(date_secs) = parse_ris_log_date_secs(&name) {
@@ -353,8 +362,35 @@ pub fn cleanup_old_log_files(log_dir: &Path, retention_days: u64) {
     }
 }
 
+/// Validate that (y, m, d) is a real Gregorian calendar date.
+///
+/// Rejects impossible combinations such as February 31 and non-leap February 29.
+pub fn is_valid_ymd(y: i32, m: u32, d: u32) -> bool {
+    if !(1..=12).contains(&m) || d == 0 {
+        return false;
+    }
+    let days_in_month = match m {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            let is_leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+            if is_leap {
+                29
+            } else {
+                28
+            }
+        }
+        _ => return false,
+    };
+    d <= days_in_month
+}
+
 /// Parse a file name of the form `ris-YYYY-MM-DD.log` into a Unix timestamp
-/// (midnight UTC of that date). Returns `None` if the name does not match.
+/// (midnight UTC of that date). Returns `None` if the name does not match or
+/// the date is not a valid Gregorian calendar date.
+///
+/// Only regular files are considered — directories with matching names are
+/// rejected by the caller (cleanup checks `entry.file_type()`).
 fn parse_ris_log_date_secs(name: &str) -> Option<u64> {
     // Expected: "ris-YYYY-MM-DD.log"
     let stem = name.strip_suffix(".log")?;
@@ -363,7 +399,7 @@ fn parse_ris_log_date_secs(name: &str) -> Option<u64> {
     let y: i32 = parts.next()?.parse().ok()?;
     let m: u32 = parts.next()?.parse().ok()?;
     let d: u32 = parts.next()?.parse().ok()?;
-    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+    if !is_valid_ymd(y, m, d) {
         return None;
     }
     Some(ymd_to_unix_secs(y, m, d))
@@ -667,6 +703,48 @@ mod tests {
         assert!(parse_ris_log_date_secs("ris-2026-06-28").is_none());
     }
 
+    // ── is_valid_ymd ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn is_valid_ymd_rejects_feb_31() {
+        assert!(!is_valid_ymd(2026, 2, 31), "Feb 31 is not real");
+    }
+
+    #[test]
+    fn is_valid_ymd_rejects_apr_31() {
+        assert!(!is_valid_ymd(2026, 4, 31), "Apr has only 30 days");
+    }
+
+    #[test]
+    fn is_valid_ymd_accepts_leap_feb_29() {
+        assert!(is_valid_ymd(2024, 2, 29), "2024 is a leap year");
+    }
+
+    #[test]
+    fn is_valid_ymd_rejects_non_leap_feb_29() {
+        assert!(!is_valid_ymd(2025, 2, 29), "2025 is not a leap year");
+    }
+
+    #[test]
+    fn parse_rejects_feb_31_filename() {
+        assert!(parse_ris_log_date_secs("ris-2026-02-31.log").is_none());
+    }
+
+    #[test]
+    fn parse_rejects_apr_31_filename() {
+        assert!(parse_ris_log_date_secs("ris-2026-04-31.log").is_none());
+    }
+
+    #[test]
+    fn parse_accepts_leap_feb_29() {
+        assert!(parse_ris_log_date_secs("ris-2024-02-29.log").is_some());
+    }
+
+    #[test]
+    fn parse_rejects_non_leap_feb_29() {
+        assert!(parse_ris_log_date_secs("ris-2025-02-29.log").is_none());
+    }
+
     // ── cleanup_old_log_files ────────────────────────────────────────────────
 
     #[test]
@@ -707,5 +785,20 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         cleanup_old_log_files(dir.path(), LOG_RETENTION_DAYS);
         // Just assert we don't panic
+    }
+
+    #[test]
+    fn cleanup_ignores_directory_named_like_old_log() {
+        let dir = tempfile::tempdir().unwrap();
+        // A directory whose name matches the pattern must not be deleted.
+        let fake_dir = dir.path().join("ris-1970-01-01.log");
+        std::fs::create_dir(&fake_dir).unwrap();
+
+        cleanup_old_log_files(dir.path(), LOG_RETENTION_DAYS);
+
+        assert!(
+            fake_dir.exists(),
+            "directory named like an old log must not be deleted"
+        );
     }
 }

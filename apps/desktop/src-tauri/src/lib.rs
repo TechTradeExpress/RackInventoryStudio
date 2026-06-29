@@ -41,14 +41,22 @@ pub fn run() {
     // Non-fatal: errors are logged as warnings inside cleanup_old_log_files.
     cleanup_old_log_files(&log_dir, LOG_RETENTION_DAYS);
 
+    // Compute the log filename stem once at startup; tauri-plugin-log appends
+    // ".log" automatically to produce e.g. "ris-2026-06-28.log".
+    let log_filename_stem = daily_log_filename();
+    let log_filename = format!("{log_filename_stem}.log");
+
     let log_file_target = tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Folder {
         path: log_dir.clone(),
-        file_name: Some(daily_log_filename()),
+        file_name: Some(log_filename_stem),
     });
 
-    // Managed state records which directory this process actually logs to,
-    // so `get_active_logs_dir` and the DTO can return the true active path.
-    let active_log_state = ActiveLogState { dir: log_dir };
+    // Managed state records the directory and filename used by this process.
+    // Both are frozen at startup — commands read from here, not from the clock.
+    let active_log_state = ActiveLogState {
+        dir: log_dir,
+        filename: log_filename,
+    };
 
     tauri::Builder::default()
         .plugin(
