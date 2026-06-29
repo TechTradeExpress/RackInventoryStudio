@@ -260,6 +260,26 @@ pub struct CsvImportResultDto {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct CsvDeviceModelImportPreviewRowDto {
+    pub row_number: usize,
+    pub device_type: Option<String>,
+    pub name: Option<String>,
+    pub code: Option<String>,
+    pub vendor: Option<String>,
+    pub model_number: Option<String>,
+    pub height_u: Option<u32>,
+    pub action: String,
+    pub issues: Vec<CsvImportIssueDto>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CsvDeviceModelImportPreviewDto {
+    pub summary: CsvImportSummaryDto,
+    pub file_issues: Vec<CsvImportIssueDto>,
+    pub rows: Vec<CsvDeviceModelImportPreviewRowDto>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateLocationInputDto {
     pub id: String,
     pub name: String,

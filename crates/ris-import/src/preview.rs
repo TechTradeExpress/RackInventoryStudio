@@ -42,3 +42,27 @@ pub struct CsvDeviceImportPreview {
     pub issues: Vec<ValidationIssue>,
     pub summary: CsvImportSummary,
 }
+
+// ── Device model import preview ───────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct CsvDeviceModelImportPreviewRow {
+    pub row_number: usize,
+    pub device_type: Option<String>,
+    pub name: Option<String>,
+    pub code: Option<String>,
+    pub vendor: Option<String>,
+    pub model_number: Option<String>,
+    pub height_u: Option<u32>,
+    pub description: Option<String>,
+    pub tags: Vec<String>,
+    pub action: CsvRowAction,
+    pub issues: Vec<ValidationIssue>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CsvDeviceModelImportPreview {
+    pub rows: Vec<CsvDeviceModelImportPreviewRow>,
+    pub issues: Vec<ValidationIssue>,
+    pub summary: CsvImportSummary,
+}

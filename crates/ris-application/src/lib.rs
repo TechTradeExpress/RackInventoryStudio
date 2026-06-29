@@ -8,7 +8,8 @@ pub use error::ApplicationError;
 pub use search::{SearchNavigation, SearchResult, SearchResultKind};
 pub use session::{
     open_repository, validate_repository, AddDeviceInput, AddDeviceModelInput, AddLocationInput,
-    AddRackInput, DeviceCsvImportResult, MovePlacementInput, MovePlacementToTargetInput,
-    PlaceDeviceInput, PlaceRackObjectInput, RemovePlacementInput, RepositorySession,
-    UpdateDeviceInput, UpdateDeviceModelInput, UpdateLocationInput, UpdateRackInput,
+    AddRackInput, DeviceCsvImportResult, DeviceModelCsvImportResult, MovePlacementInput,
+    MovePlacementToTargetInput, PlaceDeviceInput, PlaceRackObjectInput, RemovePlacementInput,
+    RepositorySession, UpdateDeviceInput, UpdateDeviceModelInput, UpdateLocationInput,
+    UpdateRackInput,
 };

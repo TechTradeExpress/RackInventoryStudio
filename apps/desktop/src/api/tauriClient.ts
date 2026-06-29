@@ -426,6 +426,36 @@ export function importDeviceCsv(
   return invoke("import_device_csv_cmd", { csvContent });
 }
 
+export interface CsvDeviceModelImportPreviewRowDto {
+  row_number: number;
+  device_type: string | null;
+  name: string | null;
+  code: string | null;
+  vendor: string | null;
+  model_number: string | null;
+  height_u: number | null;
+  action: "create" | "skip_due_to_error";
+  issues: CsvImportIssueDto[];
+}
+
+export interface CsvDeviceModelImportPreviewDto {
+  summary: CsvImportSummaryDto;
+  file_issues: CsvImportIssueDto[];
+  rows: CsvDeviceModelImportPreviewRowDto[];
+}
+
+export function previewDeviceModelCsvImport(
+  csvContent: string,
+): Promise<CsvDeviceModelImportPreviewDto> {
+  return invoke("preview_device_model_csv_import_cmd", { csvContent });
+}
+
+export function importDeviceModelCsv(
+  csvContent: string,
+): Promise<CsvImportResultDto> {
+  return invoke("import_device_model_csv_cmd", { csvContent });
+}
+
 // ── Search ────────────────────────────────────────────────────────────────────
 
 export interface SearchNavigationDto {
@@ -582,13 +612,6 @@ export async function selectCsvFile(): Promise<string | null> {
   return result;
 }
 
-/**
- * Open a native save-file dialog and write the built-in device import sample CSV
- * to the chosen path. Content is fixed on the backend — the frontend only supplies
- * the user-selected path.
- * Returns `"saved"` when written, `"cancelled"` if the user dismissed the dialog.
- * Throws a string on write error.
- */
 export async function saveSampleCsvViaDialog(
   defaultFilename: string,
 ): Promise<"saved" | "cancelled"> {
@@ -599,6 +622,19 @@ export async function saveSampleCsvViaDialog(
   });
   if (path === null || path === undefined) return "cancelled";
   await invoke("write_device_import_sample_csv", { path });
+  return "saved";
+}
+
+export async function saveDeviceModelSampleCsvViaDialog(
+  defaultFilename: string,
+): Promise<"saved" | "cancelled"> {
+  const path = await save({
+    title: "Save sample CSV",
+    defaultPath: defaultFilename,
+    filters: [{ name: "CSV Files", extensions: ["csv"] }],
+  });
+  if (path === null || path === undefined) return "cancelled";
+  await invoke("write_device_model_import_sample_csv", { path });
   return "saved";
 }
 

@@ -1,4 +1,5 @@
 export const SAMPLE_CSV_FILENAME = "rack-inventory-studio-device-import-sample.csv";
+export const DEVICE_MODEL_SAMPLE_CSV_FILENAME = "rack-inventory-studio-device-model-import-sample.csv";
 
 /**
  * Wraps a CSV field value in double-quotes if it contains a comma, double-quote,
@@ -31,16 +32,27 @@ const SAMPLE_ROWS: string[][] = [
 export const SAMPLE_CSV_CONTENT: string =
   SAMPLE_ROWS.map(csvRow).join("\n") + "\n";
 
-import { saveSampleCsvViaDialog } from "../../api/tauriClient";
+// Columns mirror DEVICE_MODEL_KNOWN_COLUMNS in crates/ris-import/src/csv_reader.rs.
+// Required: device_type, name
+// Optional: code, vendor, model_number, height_u, description, tags
+// height_u defaults to 1 when omitted. rack_object IS a valid device_type here.
+const DEVICE_MODEL_SAMPLE_ROWS: string[][] = [
+  ["device_type", "name", "code", "vendor", "model_number", "height_u", "description", "tags"],
+  ["server",      "Demo 1U Server",         "", "Acme", "ACM-SRV-1",   "1", "A one-unit server", "demo"],
+  ["network",     "Demo 24-port Switch",    "", "Acme", "ACM-SW-24",   "1", "",                  "access;switch"],
+  ["storage",     "Demo Storage Array",     "", "Acme", "ACM-STR-4",   "4", "",                  ""],
+  ["rack_object", "Demo 1U Blank Panel",    "", "Acme", "ACM-BLANK-1", "1", "",                  ""],
+];
 
-/**
- * Open a native save-file dialog and write the built-in sample CSV to the chosen path.
- * Returns `"saved"` when written, `"cancelled"` if the user dismissed the dialog.
- * Throws a string on write failure.
- *
- * Uses the Tauri save dialog + a narrow backend command that writes only the fixed
- * sample CSV content. The browser Blob download API does not work in the Tauri runtime.
- */
+export const DEVICE_MODEL_SAMPLE_CSV_CONTENT: string =
+  DEVICE_MODEL_SAMPLE_ROWS.map(csvRow).join("\n") + "\n";
+
+import { saveSampleCsvViaDialog, saveDeviceModelSampleCsvViaDialog } from "../../api/tauriClient";
+
 export async function saveSampleCsv(): Promise<"saved" | "cancelled"> {
   return saveSampleCsvViaDialog(SAMPLE_CSV_FILENAME);
+}
+
+export async function saveDeviceModelSampleCsv(): Promise<"saved" | "cancelled"> {
+  return saveDeviceModelSampleCsvViaDialog(DEVICE_MODEL_SAMPLE_CSV_FILENAME);
 }

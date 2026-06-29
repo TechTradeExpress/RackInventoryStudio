@@ -15,13 +15,13 @@ use tauri::State;
 
 use crate::dto::{
     AddDeviceInputDto, AddDeviceModelInputDto, AddLocationInputDto, AddRackInputDto,
-    CreateRepositoryInputDto, CsvImportIssueDto, CsvImportPreviewDto, CsvImportPreviewRowDto,
-    CsvImportResultDto, CsvImportSummaryDto, DeviceDto, DeviceModelDto, LocationDto,
-    MovePlacementInputDto, OpenRepositoryResultDto, PlaceDeviceInputDto, PlaceRackObjectInputDto,
-    PlacementDto, RackDetailDto, RackSummaryDto, RemovePlacementInputDto, RepositorySummaryDto,
-    SaveSummaryDto, SearchNavigationDto, SearchResultDto, UpdateDeviceInputDto,
-    UpdateDeviceModelInputDto, UpdateLocationInputDto, UpdateRackInputDto, ValidationIssueDto,
-    ValidationSummaryDto,
+    CreateRepositoryInputDto, CsvDeviceModelImportPreviewDto, CsvDeviceModelImportPreviewRowDto,
+    CsvImportIssueDto, CsvImportPreviewDto, CsvImportPreviewRowDto, CsvImportResultDto,
+    CsvImportSummaryDto, DeviceDto, DeviceModelDto, LocationDto, MovePlacementInputDto,
+    OpenRepositoryResultDto, PlaceDeviceInputDto, PlaceRackObjectInputDto, PlacementDto,
+    RackDetailDto, RackSummaryDto, RemovePlacementInputDto, RepositorySummaryDto, SaveSummaryDto,
+    SearchNavigationDto, SearchResultDto, UpdateDeviceInputDto, UpdateDeviceModelInputDto,
+    UpdateLocationInputDto, UpdateRackInputDto, ValidationIssueDto, ValidationSummaryDto,
 };
 
 pub struct AppState {
@@ -1047,7 +1047,7 @@ pub fn delete_device_cmd(id: String, state: State<AppState>) -> Result<(), Strin
 
 pub const MAX_CSV_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
 
-/// Fixed sample CSV used for the "Download sample CSV" feature.
+/// Fixed sample CSV for the "Download sample CSV" feature (Device import).
 /// Columns mirror KNOWN_COLUMNS / REQUIRED_COLUMNS in crates/ris-import/src/csv_reader.rs.
 /// Device codes are auto-generated; rack_object is not a valid device_type for CSV import.
 pub const DEVICE_IMPORT_SAMPLE_CSV: &str = "\
@@ -1056,6 +1056,17 @@ server,Demo Server 1,,SN-DEMO-001,ASSET-DEMO-001,REF-DEMO-001,in_stock,productio
 server,Demo Server 2,,,,,planned,staging\n\
 network,Demo Switch 1,,,,,in_stock,access;switch\n\
 other,Demo Other Device,,,,,unknown,\n\
+";
+
+/// Fixed sample CSV for the "Download sample CSV" feature (Device Model import).
+/// Columns mirror DEVICE_MODEL_KNOWN_COLUMNS / DEVICE_MODEL_REQUIRED_COLUMNS.
+/// code is optional; height_u defaults to 1 when omitted. rack_object is allowed.
+pub const DEVICE_MODEL_IMPORT_SAMPLE_CSV: &str = "\
+device_type,name,code,vendor,model_number,height_u,description,tags\n\
+server,Demo 1U Server,,Acme,ACM-SRV-1,1,A one-unit server,demo\n\
+network,Demo 24-port Switch,,Acme,ACM-SW-24,1,,access;switch\n\
+storage,Demo Storage Array,,Acme,ACM-STR-4,4,,\n\
+rack_object,Demo 1U Blank Panel,,Acme,ACM-BLANK-1,1,,\n\
 ";
 
 /// Reads a file as UTF-8 text, enforcing a size limit.
@@ -1093,6 +1104,94 @@ pub fn write_device_import_sample_csv(path: String) -> Result<(), String> {
         return Err(format!("'{}' is a directory, not a file", path));
     }
     std::fs::write(path_ref, DEVICE_IMPORT_SAMPLE_CSV.as_bytes())
+        .map_err(|e| format!("Failed to write sample CSV: {e}"))
+}
+
+#[tauri::command]
+pub fn preview_device_model_csv_import_cmd(
+    csv_content: String,
+    state: State<AppState>,
+) -> Result<CsvDeviceModelImportPreviewDto, String> {
+    log::info!(
+        "preview_device_model_csv_import: bytes={}",
+        csv_content.len()
+    );
+    let guard = lock_session(&state)?;
+    let session = guard.as_ref().ok_or_else(no_session)?;
+    let preview = session.preview_device_models_csv(&csv_content);
+    let rows = preview
+        .rows
+        .iter()
+        .map(|r| CsvDeviceModelImportPreviewRowDto {
+            row_number: r.row_number,
+            device_type: r.device_type.clone(),
+            name: r.name.clone(),
+            code: r.code.clone(),
+            vendor: r.vendor.clone(),
+            model_number: r.model_number.clone(),
+            height_u: r.height_u,
+            action: match r.action {
+                CsvRowAction::Create => "create".to_string(),
+                CsvRowAction::SkipDueToError => "skip_due_to_error".to_string(),
+            },
+            issues: r.issues.iter().map(issue_to_csv_dto).collect(),
+        })
+        .collect();
+    let dto = CsvDeviceModelImportPreviewDto {
+        summary: CsvImportSummaryDto {
+            total_rows: preview.summary.total_rows,
+            valid_rows: preview.summary.valid_rows,
+            error_rows: preview.summary.error_rows,
+            warning_rows: preview.summary.warning_rows,
+        },
+        file_issues: preview.issues.iter().map(issue_to_csv_dto).collect(),
+        rows,
+    };
+    log::info!(
+        "preview_device_model_csv_import ok: total_rows={} valid={} errors={}",
+        dto.summary.total_rows,
+        dto.summary.valid_rows,
+        dto.summary.error_rows,
+    );
+    Ok(dto)
+}
+
+#[tauri::command]
+pub fn import_device_model_csv_cmd(
+    csv_content: String,
+    state: State<AppState>,
+) -> Result<CsvImportResultDto, String> {
+    log::info!("import_device_model_csv: bytes={}", csv_content.len());
+    let mut guard = lock_session(&state)?;
+    let session = guard.as_mut().ok_or_else(no_session)?;
+    session
+        .import_device_models_csv(&csv_content)
+        .map(|r| {
+            log::info!(
+                "import_device_model_csv ok: created={} warnings={}",
+                r.created_count,
+                r.warning_count,
+            );
+            CsvImportResultDto {
+                created_count: r.created_count,
+                warning_count: r.warning_count,
+            }
+        })
+        .map_err(|e| {
+            let msg = e.to_string();
+            log::error!("import_device_model_csv failed: {}", sanitize_error(&msg));
+            msg
+        })
+}
+
+/// Write the built-in device model import sample CSV to the given path.
+#[tauri::command]
+pub fn write_device_model_import_sample_csv(path: String) -> Result<(), String> {
+    let path_ref = std::path::Path::new(&path);
+    if path_ref.is_dir() {
+        return Err(format!("'{}' is a directory, not a file", path));
+    }
+    std::fs::write(path_ref, DEVICE_MODEL_IMPORT_SAMPLE_CSV.as_bytes())
         .map_err(|e| format!("Failed to write sample CSV: {e}"))
 }
 

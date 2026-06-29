@@ -1,103 +1,81 @@
 ## Summary
 
-PR 14: QA runbook for beta.3 and minor wording cleanup.
+PR 15: feat(import): add CSV import for Device Models.
 
-This PR is **docs + copy** — no logic, no new features, no version bump.
-
-### Repair (align QA runbook expectations)
-
-- **Runbook 5.8**: corrected expected behaviour for Device Type auto-fill.
-  The previous text implied that clearing Device Type manually and then
-  selecting a model would re-trigger auto-fill. This contradicts the PR 10
-  implementation, which sets a `deviceTypeTouched` flag on any manual
-  interaction so that subsequent model selections no longer overwrite the
-  field in the same session. Updated text: "Device Type remains manually
-  controlled; model selection does not auto-fill again in this session."
-- **Runbook 10.4**: updated log directory status wording to match the UI
-  labels changed in this PR. Was: `"accessible" or "not yet created"`.
-  Now: `"accessible"`, `"will be created on first log write"`, or
-  `"not writable — check permissions"`.
-- **Roadmap PR 8 description**: clarified that PR 8 added test IDs and
-  component test coverage for the front/rear toggle (not keyboard/ARIA
-  improvements — those were PR 9).
-- No logic, DTO, or Rust changes. Version unchanged.
-
-- Added `docs/BETA3_QA_RUNBOOK.md`: a full manual QA checklist for all
-  beta.3 features (12 sections, ~80 test cases).
-- Updated `docs/BETA3_ROADMAP.md`: all 14 PRs marked complete with one-line
-  summaries; added a "Remaining before beta.3 release" section.
-- Improved three dir-status labels in the Settings panel from cryptic
-  parenthetical phrases to clearer inline text; tests updated to match.
-
-## Base branch / Working branch
-
-- Base: `roadmap/beta3`
-- Branch: `docs/beta3-qa-runbook-wording`
+Adds a full Device Model CSV import workflow parallel to the existing Device
+CSV import: preview → validate → apply. The feature includes a new validator
+in the `ris-import` crate, application layer methods, three Tauri commands, and
+a type-selector toggle in `CsvImportPanel` so users can switch between Device
+and Device Model import.
 
 ## Files changed
 
 | File | Change |
 |---|---|
-| `docs/BETA3_QA_RUNBOOK.md` | New: 12-section manual QA runbook, ~80 test cases |
-| `docs/BETA3_ROADMAP.md` | Updated: all PRs marked done; remaining release steps added |
-| `apps/desktop/src/features/settings/SettingsPanel.tsx` | Wording: `(exists, writable)` → `(accessible)`, `(exists, not writable)` → `(not writable — check permissions)`, `(not yet created)` → `(will be created on first log write)` |
-| `apps/desktop/src/features/settings/SettingsPanel.test.tsx` | Updated three test strings to match new status labels |
+| `crates/ris-import/src/csv_reader.rs` | Added `CsvDeviceModelRowRaw`, `ParsedDeviceModelCsv`, `DEVICE_MODEL_KNOWN_COLUMNS`, `DEVICE_MODEL_REQUIRED_COLUMNS`, `parse_device_model_csv()` |
+| `crates/ris-import/src/preview.rs` | Added `CsvDeviceModelImportPreviewRow`, `CsvDeviceModelImportPreview` |
+| `crates/ris-import/src/validator_device_model.rs` | New: pure validator implementing VAL-DM-001 through VAL-DM-009 |
+| `crates/ris-import/src/lib.rs` | Exported new module, types, and `preview_device_model_csv_import` |
+| `crates/ris-import/tests/csv_import_device_model_tests.rs` | New: 43 Rust integration tests |
+| `crates/ris-application/src/session.rs` | Added `DeviceModelCsvImportResult`, `preview_device_models_csv()`, `import_device_models_csv()` |
+| `crates/ris-application/src/lib.rs` | Exported `DeviceModelCsvImportResult` |
+| `apps/desktop/src-tauri/src/dto.rs` | Added `CsvDeviceModelImportPreviewRowDto`, `CsvDeviceModelImportPreviewDto` |
+| `apps/desktop/src-tauri/src/commands/repository.rs` | Added `preview_device_model_csv_import_cmd`, `import_device_model_csv_cmd`, `write_device_model_import_sample_csv`, `DEVICE_MODEL_IMPORT_SAMPLE_CSV` |
+| `apps/desktop/src-tauri/src/commands/mod.rs` | Exported new commands |
+| `apps/desktop/src-tauri/src/lib.rs` | Registered 3 new Tauri commands |
+| `apps/desktop/src/api/tauriClient.ts` | Added `CsvDeviceModelImportPreviewRowDto`, `CsvDeviceModelImportPreviewDto`, `previewDeviceModelCsvImport()`, `importDeviceModelCsv()`, `saveDeviceModelSampleCsvViaDialog()` |
+| `apps/desktop/src/features/csvImport/csvSample.ts` | Added device model sample CSV rows and `saveDeviceModelSampleCsv()` |
+| `apps/desktop/src/features/csvImport/csvImportSummary.ts` | Changed parameter to structural typing (`PreviewLike`) so function works with both preview types |
+| `apps/desktop/src/features/csvImport/CsvImportPanel.tsx` | Added `importType` state, type selector buttons (Devices / Device Models), conditional schema sidebar and preview table, device model–specific import flow |
+| `apps/desktop/src/features/csvImport/CsvImportPanel.test.tsx` | Updated mocks; added 5 new tests for type selector and sample CSV routing |
+| `docs/BETA3_QA_RUNBOOK.md` | Added section 12 (Device Model CSV import, 16 test cases); renumbered old 12 → 13 |
 
-## QA runbook description
+## Validation codes (VAL-DM-xxx)
 
-`docs/BETA3_QA_RUNBOOK.md` covers:
-
-1. Repository open / create / clone (9 cases)
-2. List views: scroll, pagination, counters (5 cases)
-3. Search, sort, filter (9 cases)
-4. Searchable selects and keyboard navigation (11 cases)
-5. Device form: work mode defaults and Device Type auto-fill (8 cases)
-6. Create similar for Devices and Device Models (6 cases)
-7. Placement flow and Rack Object form (9 cases)
-8. Front/rear rack side view (5 cases)
-9. Export SVG and PNG (9 cases)
-10. Logs and diagnostics (13 cases)
-11. Git operations regression (6 cases)
-12. Final regression (5 cases)
-
-Includes preconditions, expected artifacts table, and known limitations section.
-
-## Wording cleanups
-
-| Location | Before | After |
+| Code | Level | Trigger |
 |---|---|---|
-| Settings: active dir status (accessible) | `(exists, writable)` | `(accessible)` |
-| Settings: active dir status (problem) | `(exists, not writable)` | `(not writable — check permissions)` |
-| Settings: active dir status (new) | `(not yet created)` | `(will be created on first log write)` |
+| VAL-DM-001 | Error | Missing required header (`device_type` or `name`) |
+| VAL-DM-002 | Warning | Unknown column (ignored) |
+| VAL-DM-003 | Error | Duplicate code within the CSV |
+| VAL-DM-004 | Error | Code already exists in repository |
+| VAL-DM-005 | Error | `name` is blank |
+| VAL-DM-006 | Error | `device_type` is blank |
+| VAL-DM-007 | Error | `device_type` is not a known value |
+| VAL-DM-008 | Error | `height_u` is not a positive integer |
+| VAL-DM-009 | Warning | Tags contain empty segments |
 
-No other UI text changed. Clone, export, work mode, create similar, and
-SearchableSelect strings were reviewed and found consistent.
+Key difference from device import: `rack_object` IS a valid `device_type` for
+device models. No `status` column — device models have no status.
 
 ## Tests
 
 ```
-git diff --check                       → clean
-node scripts/check-version-consistency.mjs → 0.1.0-beta.2, all match
-node --test scripts/*.test.mjs         → 19 passed, 0 failed
-node scripts/check-repo-hygiene.mjs    → 8/8 checks passed
-pnpm -C apps/desktop exec tsc --noEmit → 0 errors
-pnpm -C apps/desktop exec vitest run   → 789 passed, 0 failed
-pnpm -C apps/desktop exec vite build   → success
+node scripts/check-version-consistency.mjs   → 0.1.0-beta.2, all match
+node scripts/check-repo-hygiene.mjs          → 8/8 checks passed
+pnpm -C apps/desktop exec tsc --noEmit       → 0 errors
+pnpm -C apps/desktop exec vitest run         → 794 passed, 0 failed (was 789)
+cargo check (ris-import + ris-application)   → Finished, 0 errors
+cargo check (desktop/src-tauri)              → Finished, 0 errors
+cargo test -p ris-import                     → 33 + 43 = 76 passed, 0 failed
+cargo test (desktop/src-tauri)              → 116 passed, 0 failed
 ```
-
-Rust checks skipped: no Rust files changed.
 
 ## Risks
 
-- QA runbook is prose + checklists; no automated enforcement.
-- Dir status wording change is cosmetic only; no logic touched.
+- Device model `code` uniqueness check uses the same `CsvImportContext` (via
+  `get_device_model_by_code` with normalized key). If the index key format ever
+  changes, the lookup silently fails. Covered by test `dm_code_conflict_case_insensitive_reports_val_dm_004`.
+- The UI is not tested end-to-end in a running Tauri window (manual QA runbook
+  section 12 covers this).
 
-## What remains before beta.3 release
+## Not done
 
-1. Run full manual QA from `docs/BETA3_QA_RUNBOOK.md`.
-2. Fix any blockers found.
-3. Prepare a release PR: version bump, CHANGELOG, release notes.
+- PDF export (out of scope for beta.3).
+- Import of Device Models with explicit UUIDs (not needed; IDs are always auto-generated).
 
-## Version / tag / release
+## Suggested next step
 
-Version unchanged (0.1.0-beta.2). No tags created. No GitHub Release created.
+Run manual QA from `docs/BETA3_QA_RUNBOOK.md` section 12 (Device Model CSV
+import), confirm all 16 test cases pass, then prepare the beta.3 release PR
+(version bump from `0.1.0-beta.2` → `0.1.0-beta.3`, CHANGELOG entry, release
+notes).
