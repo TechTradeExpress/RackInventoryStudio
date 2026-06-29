@@ -58,9 +58,7 @@ fn has_code_level(
     issues.iter().any(|i| i.code == code && i.level == level)
 }
 
-fn all_issues(
-    preview: &ris_import::CsvDeviceModelImportPreview,
-) -> Vec<ris_core::ValidationIssue> {
+fn all_issues(preview: &ris_import::CsvDeviceModelImportPreview) -> Vec<ris_core::ValidationIssue> {
     preview
         .issues
         .iter()
@@ -165,7 +163,15 @@ fn dm_rack_object_device_type_is_valid_for_models() {
 
 #[test]
 fn dm_all_valid_device_types_pass() {
-    let types = ["server", "network", "storage", "ups", "appliance", "rack_object", "other"];
+    let types = [
+        "server",
+        "network",
+        "storage",
+        "ups",
+        "appliance",
+        "rack_object",
+        "other",
+    ];
     for dt in &types {
         let csv = format!("device_type,name\n{dt},Test Model\n");
         let preview = ris_import::preview_device_model_csv_import(&csv, &empty_context());
@@ -315,7 +321,10 @@ fn dm_optional_fields_captured() {
     assert_eq!(preview.rows[0].vendor.as_deref(), Some("Acme"));
     assert_eq!(preview.rows[0].model_number.as_deref(), Some("ACM-SRV-1"));
     assert_eq!(preview.rows[0].height_u, Some(2));
-    assert_eq!(preview.rows[0].description.as_deref(), Some("A demo server"));
+    assert_eq!(
+        preview.rows[0].description.as_deref(),
+        Some("A demo server")
+    );
 }
 
 // ── actions ───────────────────────────────────────────────────────────────────

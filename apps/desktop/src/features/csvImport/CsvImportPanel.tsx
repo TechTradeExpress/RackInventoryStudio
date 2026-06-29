@@ -151,17 +151,21 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
 
   const preview = importType === "devices" ? devicePreview : modelPreview;
 
-  function resetState() {
+  function resetPreviewState() {
     setDevicePreview(null);
     setModelPreview(null);
     setPreviewError(null);
     setImportError(null);
+  }
+
+  function resetAllState() {
+    resetPreviewState();
     setImportSuccess(null);
   }
 
   function handleTypeChange(t: ImportType) {
     setImportType(t);
-    resetState();
+    resetAllState();
     setCsvContent("");
     setSelectedFile(null);
     setFileError(null);
@@ -175,7 +179,7 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
       const content = await readCsvFile(path);
       setSelectedFile(path);
       setCsvContent(content);
-      resetState();
+      resetAllState();
     } catch (e) {
       setFileError(String(e));
     }
@@ -188,7 +192,7 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
 
   async function handlePreview(e: FormEvent) {
     e.preventDefault();
-    resetState();
+    resetAllState();
     try {
       if (importType === "devices") {
         const result = await runBusy("Previewing CSV…", () => previewDeviceCsvImport(csvContent));
@@ -233,7 +237,7 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
           (result.warning_count > 0 ? ` (${result.warning_count} warning${result.warning_count > 1 ? "s" : ""})` : ""),
         );
       }
-      resetState(); setCsvContent(""); setSelectedFile(null);
+      resetPreviewState(); setCsvContent(""); setSelectedFile(null);
     } catch (e) {
       setImportError(String(e));
     }
@@ -326,6 +330,7 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
                     className="ri-input"
                     style={{ width: "100%", fontFamily: "var(--font-mono)", fontSize: 11.5, resize: "vertical" }}
                     rows={6}
+                    data-testid="csv-textarea"
                     value={csvContent}
                     placeholder={
                       importType === "devices"
@@ -334,7 +339,7 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
                     }
                     onChange={(e) => {
                       setCsvContent(e.target.value);
-                      resetState();
+                      resetAllState();
                     }}
                     disabled={isBusy}
                   />
