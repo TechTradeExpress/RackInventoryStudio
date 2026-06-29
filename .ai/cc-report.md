@@ -1,72 +1,102 @@
 ## Summary
 
-PR 13 repair: stabilized log diagnostics state, hardened date validation, improved open-logs error messages.
+PR 14: QA runbook for beta.3 and minor wording cleanup.
 
-### Original PR (1d8e61d)
-- Daily log files via `ris-YYYY-MM-DD.log` filename stem.
-- 30-day retention cleanup on startup.
-- Extended `LogSettingsDto` with `dir_exists`, `dir_writable`, `current_log_filename`, `retention_days`.
+This PR is **docs + copy** — no logic, no new features, no version bump.
 
-### Repair commit (this commit)
+### Repair (align QA runbook expectations)
 
-**1. `current_log_filename` — frozen at startup, not recalculated from the clock**
+- **Runbook 5.8**: corrected expected behaviour for Device Type auto-fill.
+  The previous text implied that clearing Device Type manually and then
+  selecting a model would re-trigger auto-fill. This contradicts the PR 10
+  implementation, which sets a `deviceTypeTouched` flag on any manual
+  interaction so that subsequent model selections no longer overwrite the
+  field in the same session. Updated text: "Device Type remains manually
+  controlled; model selection does not auto-fill again in this session."
+- **Runbook 10.4**: updated log directory status wording to match the UI
+  labels changed in this PR. Was: `"accessible" or "not yet created"`.
+  Now: `"accessible"`, `"will be created on first log write"`, or
+  `"not writable — check permissions"`.
+- **Roadmap PR 8 description**: clarified that PR 8 added test IDs and
+  component test coverage for the front/rear toggle (not keyboard/ARIA
+  improvements — those were PR 9).
+- No logic, DTO, or Rust changes. Version unchanged.
 
-Problem: `build_dto()` previously called `daily_log_filename()` on every invocation. After midnight UTC, the Settings panel would show tomorrow's filename while the session still writes to the startup file.
+- Added `docs/BETA3_QA_RUNBOOK.md`: a full manual QA checklist for all
+  beta.3 features (12 sections, ~80 test cases).
+- Updated `docs/BETA3_ROADMAP.md`: all 14 PRs marked complete with one-line
+  summaries; added a "Remaining before beta.3 release" section.
+- Improved three dir-status labels in the Settings panel from cryptic
+  parenthetical phrases to clearer inline text; tests updated to match.
 
-Fix: Added `filename: String` to `ActiveLogState`. In `lib.rs`, `daily_log_filename()` is called once at startup; both `file_name: Some(log_filename_stem)` and `ActiveLogState { filename }` use that single computed value. `build_dto()` now reads `current_log_filename` from managed state via `active_log_filename_from_state()`.
+## Base branch / Working branch
 
-**2. `open_logs_directory` — improved error messages**
-
-Extracted `format_open_logs_error(path, io_err)` helper. All IO errors (not just `NotFound`) now include the folder path in the message. `NotFound` maps to a user-readable "system file manager is not available" message instead of the raw OS error string. Directories and macOS/WSL paths unchanged.
-
-**3. Date validation hardening — `is_valid_ymd`**
-
-Added `is_valid_ymd(y, m, d) -> bool` which validates full Gregorian calendar dates including:
-- Month bounds (1–12)
-- Per-month day counts (31/30/28/29)
-- Leap year check for February 29
-
-`parse_ris_log_date_secs` now uses `is_valid_ymd` instead of the previous loose `1..=31` guard. `cleanup_old_log_files` now skips directories even if their name matches the log pattern.
-
-**4. `reset_logs_directory` — verified correct**
-
-Reviewed: reset clears `custom_log_dir` in `AppConfig`, does not touch any log files, and `build_dto()` correctly reflects `restart_required` based on whether the active session dir matches the newly persisted (default) dir. No changes needed.
+- Base: `roadmap/beta3`
+- Branch: `docs/beta3-qa-runbook-wording`
 
 ## Files changed
 
 | File | Change |
 |---|---|
-| `src-tauri/src/app_config.rs` | `ActiveLogState` gains `filename` field; `is_valid_ymd` helper; `parse_ris_log_date_secs` uses it; `cleanup_old_log_files` skips dirs; 10 new tests |
-| `src-tauri/src/commands/log_settings.rs` | `active_log_filename_from_state()` helper; `build_dto` reads from state; `format_open_logs_error` helper; 3 new tests |
-| `src-tauri/src/lib.rs` | Computes `log_filename_stem` + `log_filename` once; stores both in `ActiveLogState` |
+| `docs/BETA3_QA_RUNBOOK.md` | New: 12-section manual QA runbook, ~80 test cases |
+| `docs/BETA3_ROADMAP.md` | Updated: all PRs marked done; remaining release steps added |
+| `apps/desktop/src/features/settings/SettingsPanel.tsx` | Wording: `(exists, writable)` → `(accessible)`, `(exists, not writable)` → `(not writable — check permissions)`, `(not yet created)` → `(will be created on first log write)` |
+| `apps/desktop/src/features/settings/SettingsPanel.test.tsx` | Updated three test strings to match new status labels |
+
+## QA runbook description
+
+`docs/BETA3_QA_RUNBOOK.md` covers:
+
+1. Repository open / create / clone (9 cases)
+2. List views: scroll, pagination, counters (5 cases)
+3. Search, sort, filter (9 cases)
+4. Searchable selects and keyboard navigation (11 cases)
+5. Device form: work mode defaults and Device Type auto-fill (8 cases)
+6. Create similar for Devices and Device Models (6 cases)
+7. Placement flow and Rack Object form (9 cases)
+8. Front/rear rack side view (5 cases)
+9. Export SVG and PNG (9 cases)
+10. Logs and diagnostics (13 cases)
+11. Git operations regression (6 cases)
+12. Final regression (5 cases)
+
+Includes preconditions, expected artifacts table, and known limitations section.
+
+## Wording cleanups
+
+| Location | Before | After |
+|---|---|---|
+| Settings: active dir status (accessible) | `(exists, writable)` | `(accessible)` |
+| Settings: active dir status (problem) | `(exists, not writable)` | `(not writable — check permissions)` |
+| Settings: active dir status (new) | `(not yet created)` | `(will be created on first log write)` |
+
+No other UI text changed. Clone, export, work mode, create similar, and
+SearchableSelect strings were reviewed and found consistent.
 
 ## Tests
 
 ```
-cargo test          → 116 passed, 0 failed  (+12 vs original PR)
-npx tsc --noEmit    → 0 errors
-npx vitest run      → 789 passed, 0 failed
-npx vite build      → success
-cargo clippy        → 0 warnings
-cargo fmt --check   → clean
+git diff --check                       → clean
 node scripts/check-version-consistency.mjs → 0.1.0-beta.2, all match
-node --test scripts/*.test.mjs             → 19 passed, 0 failed
-node scripts/check-repo-hygiene.mjs        → 8/8 checks passed
+node --test scripts/*.test.mjs         → 19 passed, 0 failed
+node scripts/check-repo-hygiene.mjs    → 8/8 checks passed
+pnpm -C apps/desktop exec tsc --noEmit → 0 errors
+pnpm -C apps/desktop exec vitest run   → 789 passed, 0 failed
+pnpm -C apps/desktop exec vite build   → success
 ```
+
+Rust checks skipped: no Rust files changed.
 
 ## Risks
 
-- `active_log_filename_from_state` returns `""` if no `ActiveLogState` is registered (fallback for tests without a real Tauri runtime). The UI would show an empty current_log_filename in that edge case.
-- Cleanup still runs before the logger is fully open; warn output from cleanup goes to stdout only on that first log.
+- QA runbook is prose + checklists; no automated enforcement.
+- Dir status wording change is cosmetic only; no logic touched.
 
-## Not done
+## What remains before beta.3 release
 
-- Configurable retention period (still hardcoded at 30 days; DTO exposes it read-only).
-- Mid-session log rotation (app must restart to adopt a new date-stamped filename).
-
-## Suggested next step
-
-Consider a follow-up (PR14a) to let users adjust the retention window from the Settings panel (persist in `AppConfig`, validate min 14 days).
+1. Run full manual QA from `docs/BETA3_QA_RUNBOOK.md`.
+2. Fix any blockers found.
+3. Prepare a release PR: version bump, CHANGELOG, release notes.
 
 ## Version / tag / release
 

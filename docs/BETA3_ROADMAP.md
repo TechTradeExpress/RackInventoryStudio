@@ -28,261 +28,156 @@ Post-beta.2 observations identified several non-blocking but important usability
 - UI defaults should help users but not block manual override.
 - Features that touch Git/SSH must reuse the existing Git/SSH handling.
 
-## Planned PR sequence
+## PR sequence — completed
 
-### PR 1 — List views foundation: scroll and pagination correctness
+### PR 1 — List views foundation: scroll and pagination correctness ✅
 
-**Problem:**
-Pagination/scroll behavior does not work correctly on the devices list and likely other lists. The UI can show text like "displaying 53 of 53", while only the rows that fit on screen are visible and there is no usable scroll or pagination.
-
-**Scope:**
-
-- Audit all list/table views.
-- Fix scroll containers and layout constraints.
-- Fix displayed counters so they reflect actual visible/paginated data.
-- Decide whether each list should use scroll, pagination, or both.
-- Prioritize Devices and Device Models.
-- Avoid adding search/filter in this PR unless required by the layout foundation.
-
-**Expected outcome:**
-All major list views can display datasets larger than the viewport without hiding rows.
+Fixed scroll containers and layout constraints for all major list views.
+Fixed displayed counters. Devices and Device Models prioritized.
 
 ---
 
-### PR 2 — Sorting, filtering and search for list views
+### PR 2 — Sorting, filtering, and search for list views ✅
 
-**Problem:**
-Devices and Device Models will quickly become hard to use with real data.
-
-**Scope:**
-
-- Add sorting to key columns.
-- Add search/filter to Devices and Device Models first.
-- Consider filters such as:
-  - device name,
-  - manufacturer,
-  - model/SKU,
-  - device type,
-  - status,
-  - location/rack,
-  - placed/unplaced.
-- Apply the same pattern to other lists where useful.
-
-**Expected outcome:**
-Users can quickly narrow and sort large lists.
+Added search, sort, and filter to Devices and Device Models.
+Applied the same pattern to other lists where useful.
 
 ---
 
-### PR 3 — Searchable selects / comboboxes
+### PR 3 — Searchable selects / comboboxes ✅
 
-**Problem:**
-Plain selects do not scale when there are many models, devices, racks or locations. For example, selecting a model while creating a device should support typing and scrolling.
+Introduced a shared `SearchableSelect` component with:
+- text input,
+- scrollable results,
+- keyboard navigation (ArrowDown/Up/Home/End/Enter/Escape),
+- no-results state.
 
-**Scope:**
-
-- Introduce a shared SearchableSelect/Combobox component.
-- Support:
-  - text input,
-  - scrollable results,
-  - max dropdown height,
-  - keyboard navigation where practical,
-  - no-results state.
-- Apply first to Add/Edit Device model selection.
-- Then apply to placement and relation selectors where useful.
-
-**Expected outcome:**
-Selecting related records remains usable with dozens or hundreds of options.
+Applied to Add/Edit Device model selection.
 
 ---
 
-### PR 4 — Smarter contextual forms
+### PR 4 — Searchable selects applied to placement flow ✅
 
-**Problem:**
-Forms should understand the context from which they were opened.
-
-**Scope:**
-
-- When creating a device and selecting a model, auto-fill the device type from the selected model if the type field is still empty or auto-managed.
-- Do not overwrite a type that the user manually selected.
-- When adding a placement and the user selects "Rack object", the "create new" action should open a contextual Rack Object form.
-- In that flow:
-  - type is set to "Rack object",
-  - type is locked or hidden,
-  - title/wording says "Create rack object",
-  - after save, return to placement modal with the new rack object preselected.
-
-**Expected outcome:**
-Less repeated data entry and fewer semantically wrong objects.
+Applied `SearchableSelect` to the placement modal device picker and rack object
+model picker.
 
 ---
 
-### PR 5 — Planning / On-site work mode
+### PR 5 — Contextual Rack Object form ✅
 
-**Problem:**
-RIS has two natural modes of work: planning future rack state and recording physical on-site state.
-
-**Scope:**
-
-- Add a visible mode switch in the top bar:
-  - Planning,
-  - On-site.
-- In Planning mode, newly created devices default to status "planned".
-- In On-site mode, newly created devices default to status "installed".
-- The mode sets defaults only; users can still manually override status.
-- Store mode as local UI preference/session state, not repository data.
-- Device status remains normal repository data.
-
-**Expected outcome:**
-Users can work naturally in planning or inventory mode without manually changing status on every new device.
+When adding a placement and selecting "Rack object", a "Create new" action opens
+a form with Device Type locked to `rack_object`. After save, the new object is
+preselected in the placement modal.
 
 ---
 
-### PR 6 — Duplicate / create similar
+### PR 6 — Planning / On-site work mode ✅
 
-**Problem:**
-Users often create many similar models or devices.
+Added a mode toggle in the top bar:
+- **Planning** — new devices default to "planned" status.
+- **On-site** — new devices default to "installed" status.
 
-**Scope:**
-
-- Add "Duplicate model" or "Create similar model".
-- Add "Create similar device".
-- Open the normal Add form with selected fields prefilled.
-- Do not save immediately.
-- Do not copy unique fields such as:
-  - serial number,
-  - asset tag,
-  - inventory number,
-  - hostname,
-  - MAC/IP,
-  - placement,
-  - IDs/metadata.
-- For models, do not copy IDs/metadata.
-
-**Expected outcome:**
-Faster data entry without accidental duplicate unique identifiers.
+Mode is local UI state and does not affect repository data. Users can override
+status manually at any time.
 
 ---
 
-### PR 7 — Clone existing repository
+### PR 7 — Create similar for Devices and Device Models ✅
 
-**Problem:**
-Users can create a new repository and open a local repository, but there is no first-class flow to clone an existing Git repository.
-
-**Scope:**
-
-- Add "Clone repository" onboarding flow.
-- User enters Git URL.
-- User selects parent directory.
-- App derives or asks for target folder.
-- App clones into the selected parent directory.
-- App validates that the cloned repository is a valid RIS repository.
-- App opens the cloned repository automatically.
-- Reuse existing Git/SSH credential and askpass behavior.
-- Show clear errors for:
-  - invalid URL,
-  - auth failure,
-  - existing target directory,
-  - clone failure,
-  - non-RIS repository,
-  - missing Git.
-
-**Expected outcome:**
-A new user can onboard from an existing remote repository without using the terminal.
+Added "Create similar" action on Device and Device Model list rows.
+Opens the Add form pre-filled with non-unique fields.
+Unique fields (serial, asset tag, IDs, codes) are not copied.
 
 ---
 
-### PR 8 — Rack view export
+### PR 8 — Front/rear rack side view testability ✅
 
-**Problem:**
-Users need to share rack views outside the app for documentation, tickets, audits and planning.
-
-**Suggested staged scope:**
-
-- First milestone: export current rack view as PNG or SVG.
-- Later milestone: export rack report as PDF.
-
-PDF/report should eventually include:
-
-- location name,
-- rack name,
-- front/rear indicator,
-- rack diagram,
-- optional device/placement summary,
-- export date,
-- app version.
-
-**Expected outcome:**
-Rack state can be shared or archived outside RIS.
+Added `data-testid` attributes and component test coverage for the front/rear
+rack side toggle. The toggle was already functional; this PR made it reliably
+testable.
 
 ---
 
-### PR 9 — Daily logs and diagnostics polish
+### PR 9 — Searchable select keyboard navigation and ARIA ✅
 
-**Problem:**
-Logging should be easier to inspect and manage.
-
-**Scope:**
-
-- Split logs by day.
-- Use filenames containing dates, for example `ris-YYYY-MM-DD.log`.
-- Consider retention cleanup.
-- Make the actual log folder clear in Settings or diagnostics.
-- Ensure "Open logs folder" works on supported platforms.
-- Preserve existing redaction rules:
-  - no full user paths,
-  - no passwords/tokens/secrets,
-  - no raw YAML,
-  - no raw CSV.
-
-**Expected outcome:**
-Diagnostics are easier to use without growing into one large log file.
+Added full ARIA roles (`combobox`, `listbox`, `option`) and keyboard navigation
+coverage for `SearchableSelect`. Improved `aria-label` pass-through.
 
 ---
 
-### PR 10 — QA runbook and wording cleanup
+### PR 10 — Auto-fill Device Type from selected Device Model ✅
 
-**Problem:**
-Some QA expectations and UI wording are inconsistent.
-
-**Scope:**
-
-- Decide and apply final wording for:
-  - "Validate repository",
-  - "Save changes".
-- Update beta QA runbook for beta.3.
-- Remove stale beta.1/beta.2 assumptions from runbooks.
-- Add a clearer manual test for `model_number` read/write compatibility:
-  - create model,
-  - save,
-  - reopen repo,
-  - verify YAML/UI,
-  - edit,
-  - save again.
-
-**Expected outcome:**
-QA documents and UI wording are aligned before beta.3 release.
+When a Device Model is selected in the Add/Edit Device form, Device Type
+auto-fills from the model's type — unless the user has already set the type
+manually.
 
 ---
 
-## Priority recommendation
+### PR 11 — Clone repository flow ✅
 
-Recommended order:
+Added "Clone repository" to the repository panel:
+- user enters a Git URL and selects a parent directory,
+- app derives directory name from URL (editable),
+- app clones, validates the repository as a valid RIS repo, and opens it,
+- credentials and SSH passphrase prompt reuse existing infrastructure,
+- clear errors for: invalid URL, auth failure, non-empty target, non-RIS repo.
 
-1. List views foundation.
-2. Sorting/filtering/search.
-3. Searchable selects.
-4. Smarter contextual forms.
-5. Planning / On-site mode.
-6. Duplicate / create similar.
-7. Clone existing repository.
-8. Rack export.
-9. Daily logs.
-10. QA/runbook/wording cleanup.
+Security: `--` separator prevents URL option injection; credentials redacted
+from logs before writing.
 
-## Out of scope for beta.3 roadmap branch
+---
 
-- No implementation work.
-- No version bump.
-- No release/tag work.
-- No installer changes.
-- No GitHub Release changes.
+### PR 12 — Rack view export: SVG and PNG ✅
+
+Added export buttons to the rack detail view header:
+- **Export SVG** — vector export from rack data (not a DOM screenshot).
+- **Export PNG** — canvas rasterization at 2× scale.
+
+Both use native save dialogs. Front and rear sides are exported separately.
+Filenames include rack name and side. XML/filename sanitization applied.
+
+---
+
+### PR 13 — Daily logs and diagnostics ✅
+
+- Log files now use the filename stem `ris-YYYY-MM-DD`, producing a separate
+  log file per calendar day (UTC). tauri-plugin-log appends `.log`.
+- On startup, log files older than 30 days matching the `ris-YYYY-MM-DD.log`
+  pattern are deleted. Non-RIS files in the log directory are never touched.
+- `LogSettingsDto` extended with: `dir_exists`, `dir_writable`,
+  `current_log_filename`, `retention_days`.
+- Settings panel shows active directory health, current log filename, and
+  retention window.
+- `open_logs_directory` error messages improved: `NotFound` errors map to a
+  user-readable message that always includes the directory path.
+- `ActiveLogState` stores the log filename computed at startup so
+  `current_log_filename` reflects the actual open file, not the clock.
+
+---
+
+### PR 14 — QA runbook and wording cleanup ✅
+
+- Added `docs/BETA3_QA_RUNBOOK.md`: a practical manual QA checklist covering
+  all beta.3 features.
+- Updated this roadmap to reflect completed PRs and remaining release steps.
+- Minor wording cleanup in Settings diagnostics UI.
+
+---
+
+## Remaining before beta.3 release
+
+1. **Run full manual QA** using `docs/BETA3_QA_RUNBOOK.md`.
+2. **Fix any blockers** found during manual QA.
+3. **Prepare release PR**: version bump, CHANGELOG entry, release notes.
+
+Do not tag or publish beta.3 before manual QA is complete.
+
+---
+
+## Out of scope for beta.3
+
+- PDF rack report export (planned for a later milestone).
+- Configurable log retention window.
+- Full localization (UI remains in English).
+- No installer changes beyond what is already present.
+- No GitHub Release until manual QA is signed off.
