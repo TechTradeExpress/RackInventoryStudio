@@ -1006,6 +1006,79 @@ pub fn pull_ff_only(repo_path: &Path, remote: &str) -> Result<(), GitError> {
     pull_ff_only_with_env(repo_path, remote, &[], GitSecurityMode::Normal)
 }
 
+// ── Clone ─────────────────────────────────────────────────────────────────────
+
+/// Run `git` without setting a working directory.
+///
+/// Used by `clone` where no repository directory exists yet. The caller is
+/// responsible for ensuring all paths in `args` are absolute so they are not
+/// interpreted relative to an arbitrary working directory.
+fn run_git_global(args: &[&str]) -> Result<std::process::Output, GitError> {
+    let mut cmd = Command::new("git");
+    cmd.args(args);
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+
+    cmd.output().map_err(GitError::from)
+}
+
+/// Build the git argument list for a hardened clone operation.
+///
+/// The returned vector includes `TRANSPORT_SAFETY` flags, then
+/// `clone -- <url> <destination>`. It does not include the `git` binary
+/// itself. Exposed as a public function so callers can assert the exact
+/// arguments without executing a network operation.
+pub fn build_clone_args(url: &str, destination: &str) -> Vec<String> {
+    let mut args: Vec<String> = Vec::with_capacity(TRANSPORT_SAFETY.len() + 4);
+    for &flag in TRANSPORT_SAFETY {
+        args.push(flag.to_string());
+    }
+    args.push("clone".to_string());
+    args.push("--".to_string());
+    args.push(url.to_string());
+    args.push(destination.to_string());
+    args
+}
+
+/// Clone a Git repository from `url` into `destination`.
+///
+/// Validates `url` through `validate_remote_url` before spawning any
+/// process, so `ext::`, `fd::`, `file://`, and other unsafe transports are
+/// rejected without running git. The subprocess is launched with
+/// `TRANSPORT_SAFETY` flags and the `--` separator — no shell is involved.
+pub fn clone(url: &str, destination: &str) -> Result<(), GitError> {
+    let url = url.trim();
+    let destination = destination.trim();
+
+    if url.is_empty() {
+        return Err(GitError::InvalidInput(
+            "Remote URL cannot be empty".to_string(),
+        ));
+    }
+    if destination.is_empty() {
+        return Err(GitError::InvalidInput(
+            "Destination path cannot be empty".to_string(),
+        ));
+    }
+
+    // Reject unsafe transports before spawning any process.
+    validate_remote_url(url)?;
+
+    let args = build_clone_args(url, destination);
+    let args_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+
+    let output = run_git_global(&args_refs)?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(command_error(&output))
+    }
+}
+
 // ── SSH helpers ───────────────────────────────────────────────────────────────
 
 /// Returns true when `url` looks like an SSH remote.

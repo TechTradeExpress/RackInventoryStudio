@@ -1,4 +1,34 @@
 /**
+ * Validate a Git clone URL for unsafe transports.
+ *
+ * Mirrors the backend `validate_remote_url` logic in `ris-git` as
+ * defense-in-depth. Backend validation remains authoritative.
+ *
+ * Accepted:
+ * - `https://…`
+ * - `ssh://…`
+ * - SCP-like SSH: `[user@]host:path`
+ *
+ * Rejected:
+ * - blank
+ * - `ext::…`, `fd::…`, or any `::` transport helper
+ * - `file://…` or any other `://` scheme
+ */
+export function validateCloneUrl(url: string): string | null {
+  const trimmed = url.trim();
+  if (!trimmed) return "Git URL is required.";
+  if (trimmed.includes("::"))
+    return "Unsupported Git URL. Use HTTPS or SSH clone URLs.";
+  if (trimmed.startsWith("https://") || trimmed.startsWith("ssh://"))
+    return null;
+  if (trimmed.includes("://"))
+    return "Unsupported Git URL. Use HTTPS or SSH clone URLs.";
+  // SCP-like SSH: must contain a colon (e.g. git@github.com:org/repo.git)
+  if (trimmed.includes(":")) return null;
+  return "Unsupported Git URL. Use HTTPS or SSH clone URLs.";
+}
+
+/**
  * Derive a directory name from a Git URL.
  *
  * Strips a trailing `.git` suffix, then returns the last segment after `/` or `:`.

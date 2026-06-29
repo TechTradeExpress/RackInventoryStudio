@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
-use crate::diagnostics::{basename, redact_git_url, sanitize_error, sanitize_git_error};
+use crate::diagnostics::{basename, redact_git_url, sanitize_error};
 
 use ris_application::{
     create_repository, open_repository, AddDeviceInput, AddDeviceModelInput, AddLocationInput,
@@ -273,17 +273,11 @@ pub fn clone_repository_cmd(
         basename(dest_path),
     );
 
-    let output = std::process::Command::new("git")
-        .args(["clone", "--", &url, &destination])
-        .output()
-        .map_err(|e| format!("Failed to run git: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let sanitized = sanitize_git_error(&stderr);
-        log::error!("clone_repository failed: {}", sanitized);
-        return Err(format!("git clone failed: {sanitized}"));
-    }
+    ris_git::clone(&url, &destination).map_err(|e| {
+        let msg = e.to_string();
+        log::error!("clone_repository failed: {}", sanitize_error(&msg));
+        msg
+    })?;
 
     log::info!(
         "clone_repository: git clone ok, opening {}",
