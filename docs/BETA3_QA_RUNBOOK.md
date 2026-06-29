@@ -105,7 +105,7 @@ This runbook covers manual verification of all features introduced in beta.3:
 | 5.5 | Select a Device Model with a known Device Type | Device Type auto-fills from model |
 | 5.6 | Select a model; then manually change Device Type | Manual type stays; is not overwritten |
 | 5.7 | Manually set Device Type; then select a different model | Type stays as manually entered (not overwritten) |
-| 5.8 | Clear Device Type; then select a model | Type auto-fills from model again |
+| 5.8 | Clear Device Type manually; then select a model | Device Type remains manually controlled; model selection does not auto-fill again in this session |
 
 ---
 
@@ -173,7 +173,7 @@ This runbook covers manual verification of all features introduced in beta.3:
 | 10.1 | Launch the app; open Settings → Diagnostics and logs | Active log directory shown |
 | 10.2 | Verify current log file name | Name matches `ris-YYYY-MM-DD.log` for today's date |
 | 10.3 | Verify log retention shown | "30 days" displayed |
-| 10.4 | Check directory status | "accessible" or "not yet created" shown next to path |
+| 10.4 | Check directory status | "accessible", "will be created on first log write", or "not writable — check permissions" shown next to path |
 | 10.5 | Click "Open logs folder" | OS file manager opens on the log directory |
 | 10.6 | Inspect log directory | Contains only `ris-YYYY-MM-DD.log` files; no single unbounded file |
 | 10.7 | Relaunch the app on the same calendar day | Same daily log file used; not a new file |

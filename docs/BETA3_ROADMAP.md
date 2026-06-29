@@ -92,8 +92,9 @@ Unique fields (serial, asset tag, IDs, codes) are not copied.
 
 ### PR 8 — Front/rear rack side view testability ✅
 
-Improved the front/rear toggle so it is fully keyboard-accessible and
-properly covered by component tests.
+Added `data-testid` attributes and component test coverage for the front/rear
+rack side toggle. The toggle was already functional; this PR made it reliably
+testable.
 
 ---
 

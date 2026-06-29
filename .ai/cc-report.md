@@ -4,6 +4,24 @@ PR 14: QA runbook for beta.3 and minor wording cleanup.
 
 This PR is **docs + copy** — no logic, no new features, no version bump.
 
+### Repair (align QA runbook expectations)
+
+- **Runbook 5.8**: corrected expected behaviour for Device Type auto-fill.
+  The previous text implied that clearing Device Type manually and then
+  selecting a model would re-trigger auto-fill. This contradicts the PR 10
+  implementation, which sets a `deviceTypeTouched` flag on any manual
+  interaction so that subsequent model selections no longer overwrite the
+  field in the same session. Updated text: "Device Type remains manually
+  controlled; model selection does not auto-fill again in this session."
+- **Runbook 10.4**: updated log directory status wording to match the UI
+  labels changed in this PR. Was: `"accessible" or "not yet created"`.
+  Now: `"accessible"`, `"will be created on first log write"`, or
+  `"not writable — check permissions"`.
+- **Roadmap PR 8 description**: clarified that PR 8 added test IDs and
+  component test coverage for the front/rear toggle (not keyboard/ARIA
+  improvements — those were PR 9).
+- No logic, DTO, or Rust changes. Version unchanged.
+
 - Added `docs/BETA3_QA_RUNBOOK.md`: a full manual QA checklist for all
   beta.3 features (12 sections, ~80 test cases).
 - Updated `docs/BETA3_ROADMAP.md`: all 14 PRs marked complete with one-line
