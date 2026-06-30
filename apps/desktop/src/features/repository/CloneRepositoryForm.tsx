@@ -5,7 +5,7 @@ import {
   selectRepositoryFolder,
   type OpenRepositoryResultDto,
 } from "../../api/tauriClient";
-import { computeClonePath, dirNameFromUrl, validateCloneDirName } from "./cloneHelpers";
+import { computeClonePath, dirNameFromUrl, validateCloneDirName, validateCloneUrl } from "./cloneHelpers";
 import { IcFolder } from "../../components/ui/Icon";
 
 interface Props {
@@ -43,7 +43,7 @@ export function CloneRepositoryForm({ onSuccess }: Props) {
     }
   }
 
-  const urlError = url.trim() ? null : "Git URL is required.";
+  const urlError = validateCloneUrl(url);
   const parentError = parentPath.trim() ? null : "Parent directory is required.";
   const dirError = validateCloneDirName(dirName);
   const destination = computeClonePath(parentPath, dirName);
@@ -78,7 +78,7 @@ export function CloneRepositoryForm({ onSuccess }: Props) {
           autoComplete="off"
           spellCheck={false}
         />
-        {url.trim() === "" && urlError && (
+        {url.trim() !== "" && urlError && (
           <div className="fld-error" data-testid="clone-url-error">{urlError}</div>
         )}
       </div>

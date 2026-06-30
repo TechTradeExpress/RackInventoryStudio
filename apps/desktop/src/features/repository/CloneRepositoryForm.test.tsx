@@ -270,3 +270,76 @@ describe("CloneRepositoryForm — Browse button", () => {
     expect((screen.getByTestId("clone-parent") as HTMLInputElement).value).toBe("");
   });
 });
+
+describe("CloneRepositoryForm — unsafe URL validation (frontend defense-in-depth)", () => {
+  function fillParentAndDir() {
+    fireEvent.change(screen.getByTestId("clone-parent"), {
+      target: { value: "/home/user/repos" },
+    });
+    fireEvent.change(screen.getByTestId("clone-dirname"), {
+      target: { value: "repo" },
+    });
+  }
+
+  it("submit is disabled and error shown for ext:: URL", () => {
+    render(<CloneRepositoryForm onSuccess={vi.fn()} />);
+    fireEvent.change(screen.getByTestId("clone-url"), {
+      target: { value: "ext::sh -c 'touch /tmp/pwned'" },
+    });
+    fillParentAndDir();
+    expect((screen.getByTestId("clone-submit") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("clone-url-error").textContent).toContain("SSH");
+  });
+
+  it("submit is disabled and error shown for fd:: URL", () => {
+    render(<CloneRepositoryForm onSuccess={vi.fn()} />);
+    fireEvent.change(screen.getByTestId("clone-url"), {
+      target: { value: "fd::4" },
+    });
+    fillParentAndDir();
+    expect((screen.getByTestId("clone-submit") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("clone-url-error")).toBeTruthy();
+  });
+
+  it("submit is disabled and error shown for file:// URL", () => {
+    render(<CloneRepositoryForm onSuccess={vi.fn()} />);
+    fireEvent.change(screen.getByTestId("clone-url"), {
+      target: { value: "file:///tmp/repo.git" },
+    });
+    fillParentAndDir();
+    expect((screen.getByTestId("clone-submit") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("clone-url-error")).toBeTruthy();
+  });
+
+  it("does not invoke cloneRepository for unsafe URL even if form is submitted", async () => {
+    render(<CloneRepositoryForm onSuccess={vi.fn()} />);
+    fireEvent.change(screen.getByTestId("clone-url"), {
+      target: { value: "ext::sh -c 'echo bad'" },
+    });
+    fillParentAndDir();
+    fireEvent.submit(screen.getByTestId("clone-form"));
+    await waitFor(() => {
+      expect(mockClone).not.toHaveBeenCalled();
+    });
+  });
+
+  it("submit is enabled and no URL error for https:// URL", () => {
+    render(<CloneRepositoryForm onSuccess={vi.fn()} />);
+    fireEvent.change(screen.getByTestId("clone-url"), {
+      target: { value: "https://github.com/org/repo.git" },
+    });
+    fillParentAndDir();
+    expect((screen.getByTestId("clone-submit") as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByTestId("clone-url-error")).toBeNull();
+  });
+
+  it("submit is enabled and no URL error for scp-style SSH URL", () => {
+    render(<CloneRepositoryForm onSuccess={vi.fn()} />);
+    fireEvent.change(screen.getByTestId("clone-url"), {
+      target: { value: "git@github.com:org/repo.git" },
+    });
+    fillParentAndDir();
+    expect((screen.getByTestId("clone-submit") as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByTestId("clone-url-error")).toBeNull();
+  });
+});

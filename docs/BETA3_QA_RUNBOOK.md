@@ -45,6 +45,9 @@ This runbook covers manual verification of all features introduced in beta.3:
 | 1.7 | Clone with a blank parent directory | Inline validation prevents submit |
 | 1.8 | After clone: confirm remote origin matches entered URL | Use Settings → Git or terminal `git remote -v` |
 | 1.9 | *(SSH/alias, if SSH key available)* Clone SSH URL | Clone uses SSH; passphrase prompt appears if key is encrypted |
+| 1.10 | Enter an unsafe clone URL such as `ext::sh -c 'echo blocked'` in the Git URL field | URL is rejected by the frontend immediately; submit button is disabled; clone does not start; no command is executed |
+| 1.11 | Enter `fd::4` in the Git URL field | Same as 1.10 — rejected before submit |
+| 1.12 | Enter `file:///tmp/any.git` in the Git URL field | Same as 1.10 — rejected before submit |
 
 ---
 

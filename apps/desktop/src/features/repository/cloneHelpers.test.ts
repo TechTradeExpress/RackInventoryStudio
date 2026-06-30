@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeClonePath, dirNameFromUrl, validateCloneDirName } from "./cloneHelpers";
+import { computeClonePath, dirNameFromUrl, validateCloneDirName, validateCloneUrl } from "./cloneHelpers";
 
 describe("dirNameFromUrl", () => {
   it("extracts name from HTTPS URL with .git suffix", () => {
@@ -57,6 +57,55 @@ describe("validateCloneDirName", () => {
 
   it("returns null for valid name with dots, underscores, hyphens", () => {
     expect(validateCloneDirName("my.repo_name-v2")).toBeNull();
+  });
+});
+
+describe("validateCloneUrl", () => {
+  it("returns error for blank URL", () => {
+    expect(validateCloneUrl("")).not.toBeNull();
+    expect(validateCloneUrl("   ")).not.toBeNull();
+  });
+
+  it("returns error for ext:: transport helper", () => {
+    expect(validateCloneUrl("ext::sh -c 'touch /tmp/pwned'")).not.toBeNull();
+  });
+
+  it("returns error for fd:: transport helper", () => {
+    expect(validateCloneUrl("fd::4")).not.toBeNull();
+  });
+
+  it("returns error for file:// URL", () => {
+    expect(validateCloneUrl("file:///tmp/repo.git")).not.toBeNull();
+  });
+
+  it("returns error for http:// URL", () => {
+    expect(validateCloneUrl("http://github.com/org/repo.git")).not.toBeNull();
+  });
+
+  it("returns error for git:// URL", () => {
+    expect(validateCloneUrl("git://github.com/org/repo.git")).not.toBeNull();
+  });
+
+  it("returns null for https:// URL", () => {
+    expect(validateCloneUrl("https://github.com/org/repo.git")).toBeNull();
+  });
+
+  it("returns null for ssh:// URL", () => {
+    expect(validateCloneUrl("ssh://git@github.com/org/repo.git")).toBeNull();
+  });
+
+  it("returns null for scp-style SSH URL with user", () => {
+    expect(validateCloneUrl("git@github.com:org/repo.git")).toBeNull();
+  });
+
+  it("returns null for scp-style SSH alias (no user)", () => {
+    expect(validateCloneUrl("github-ris-test:org/repo.git")).toBeNull();
+  });
+
+  it("error message mentions HTTPS or SSH", () => {
+    const msg = validateCloneUrl("ext::bad");
+    expect(msg).toContain("HTTPS");
+    expect(msg).toContain("SSH");
   });
 });
 

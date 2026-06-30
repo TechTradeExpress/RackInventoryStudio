@@ -1,90 +1,157 @@
 ## Summary
 
-PR #133: feat(import): add Device Model CSV import — and repair of success banner bug.
+PR: harden(git): route clone through ris-git with transport allowlist
 
-Adds a full Device Model CSV import workflow parallel to the existing Device
-CSV import: preview → validate → apply. The feature includes a new validator
-in the `ris-import` crate, application layer methods, three Tauri commands, and
-a type-selector toggle in `CsvImportPanel` so users can switch between Device
-and Device Model import.
+Branch: `harden/beta3-clone-transport-safety` → base: `roadmap/beta3`
 
-**Repair (fix commit c6a7ede):** The success banner after a successful import
-was being cleared immediately because `handleImport()` called the old
-`resetState()` which wiped `importSuccess`. Fixed by splitting into
-`resetPreviewState()` (clears preview/error only) and `resetAllState()` (also
-clears success). Import success now uses `resetPreviewState()`.
+Audit finding F1: `clone_repository_cmd` shelled out directly to `git clone`
+bypassing ris-git's transport safety and URL validation. Unsafe transports
+(`ext::`, `fd::`, `file://`) were not blocked before process spawn.
+
+Fix: route clone through `ris_git::clone()` which calls `validate_remote_url`
+before spawning any process, and includes `TRANSPORT_SAFETY` flags
+(`-c protocol.ext.allow=never -c protocol.fd.allow=never`) in the git
+invocation. Frontend adds matching defense-in-depth validation.
+
+No version bump. No tags. No GitHub Release.
 
 ## Files changed
 
 | File | Change |
 |---|---|
-| `crates/ris-import/src/csv_reader.rs` | Added `CsvDeviceModelRowRaw`, `ParsedDeviceModelCsv`, `DEVICE_MODEL_KNOWN_COLUMNS`, `DEVICE_MODEL_REQUIRED_COLUMNS`, `parse_device_model_csv()` |
-| `crates/ris-import/src/preview.rs` | Added `CsvDeviceModelImportPreviewRow`, `CsvDeviceModelImportPreview` |
-| `crates/ris-import/src/validator_device_model.rs` | New: pure validator implementing VAL-DM-001 through VAL-DM-009 |
-| `crates/ris-import/src/lib.rs` | Exported new module, types, and `preview_device_model_csv_import` |
-| `crates/ris-import/tests/csv_import_device_model_tests.rs` | New: 43 Rust integration tests (+ rustfmt fix) |
-| `crates/ris-application/src/session.rs` | Added `DeviceModelCsvImportResult`, `preview_device_models_csv()`, `import_device_models_csv()` |
-| `crates/ris-application/src/lib.rs` | Exported `DeviceModelCsvImportResult` |
-| `apps/desktop/src-tauri/src/dto.rs` | Added `CsvDeviceModelImportPreviewRowDto`, `CsvDeviceModelImportPreviewDto` |
-| `apps/desktop/src-tauri/src/commands/repository.rs` | Added `preview_device_model_csv_import_cmd`, `import_device_model_csv_cmd`, `write_device_model_import_sample_csv`, `DEVICE_MODEL_IMPORT_SAMPLE_CSV` |
-| `apps/desktop/src-tauri/src/commands/mod.rs` | Exported new commands |
-| `apps/desktop/src-tauri/src/lib.rs` | Registered 3 new Tauri commands |
-| `apps/desktop/src/api/tauriClient.ts` | Added `CsvDeviceModelImportPreviewRowDto`, `CsvDeviceModelImportPreviewDto`, `previewDeviceModelCsvImport()`, `importDeviceModelCsv()`, `saveDeviceModelSampleCsvViaDialog()` |
-| `apps/desktop/src/features/csvImport/csvSample.ts` | Added device model sample CSV rows and `saveDeviceModelSampleCsv()` |
-| `apps/desktop/src/features/csvImport/csvImportSummary.ts` | Changed parameter to structural typing (`PreviewLike`) so function works with both preview types |
-| `apps/desktop/src/features/csvImport/CsvImportPanel.tsx` | Added `importType` state, type selector buttons, conditional schema sidebar and preview table, **success banner fix** (splitresetState) |
-| `apps/desktop/src/features/csvImport/CsvImportPanel.test.tsx` | Rewritten mocks; 17 tests including new Devices and Device Models import success regression tests |
-| `docs/BETA3_QA_RUNBOOK.md` | Added section 12 (Device Model CSV import, 16 test cases); renumbered old 12 → 13 |
+| `crates/ris-git/src/lib.rs` | Added `run_git_global` (no-cwd runner), `build_clone_args` (pure, testable arg builder), `clone` (public entry point with URL validation + TRANSPORT_SAFETY) |
+| `crates/ris-git/tests/git_remote_tests.rs` | Added 8 new tests: URL rejection for ext/fd/file/http/blank, build_clone_args structure checks, TRANSPORT_SAFETY ordering assertion |
+| `apps/desktop/src-tauri/src/commands/repository.rs` | Replaced raw `std::process::Command::new("git")` clone with `ris_git::clone(&url, &destination)` |
+| `apps/desktop/src-tauri/src/diagnostics.rs` | Removed `redact_urls_in_text` and `sanitize_git_error` (both now dead code; ris_git::GitError::Display handles redaction) and their 2 tests |
+| `apps/desktop/src/features/repository/cloneHelpers.ts` | Added `validateCloneUrl` — mirrors backend logic, rejects `::`, `file://`, unsupported schemes |
+| `apps/desktop/src/features/repository/CloneRepositoryForm.tsx` | Wires `validateCloneUrl` into `urlError`; shows inline error for non-empty invalid URLs |
+| `apps/desktop/src/features/repository/cloneHelpers.test.ts` | Added 12 new `validateCloneUrl` tests |
+| `apps/desktop/src/features/repository/CloneRepositoryForm.test.tsx` | Added 6 new form-level tests for unsafe URL rejection |
+| `docs/BETA3_QA_RUNBOOK.md` | Added cases 1.10–1.12: unsafe transport rejection (ext::, fd::, file://) |
+| `CHANGELOG.md` | Added Security section entry under Unreleased |
 
-## Validation codes (VAL-DM-xxx)
+## Audit finding F1
 
-| Code | Level | Trigger |
+`clone_repository_cmd` previously ran:
+```rust
+std::process::Command::new("git")
+    .args(["clone", "--", &url, &destination])
+    .output()
+```
+The `--` separator prevents option injection but does NOT block `ext::`,
+`fd::`, or `file://` transports which can execute arbitrary commands.
+
+## What changed in ris-git
+
+- `validate_remote_url` (existing): rejects `::`, `file://`, all non-SSH/HTTPS `://` schemes, local paths. Already used by `add_remote`.
+- `TRANSPORT_SAFETY` (existing): `["-c", "protocol.ext.allow=never", "-c", "protocol.fd.allow=never"]`
+- `build_clone_args(url, dest)` (new): returns `[TRANSPORT_SAFETY..., "clone", "--", url, dest]`
+- `run_git_global(args)` (new): like `run_git_impl` but without `current_dir` (clone has no repo yet)
+- `clone(url, dest)` (new): validates URL first, then calls `run_git_global` with hardened args
+
+## What changed in Tauri command
+
+`clone_repository_cmd` in `repository.rs`:
+- Removed: direct `std::process::Command::new("git")` invocation
+- Added: `ris_git::clone(&url, &destination).map_err(|e| { ... })?`
+- Pre-clone destination validation (non-empty dir check) unchanged
+- Log redaction unchanged (`redact_git_url`, `sanitize_error`)
+- Post-clone open/validate behavior unchanged
+
+## Frontend validation
+
+`validateCloneUrl(url: string): string | null` in `cloneHelpers.ts`:
+- Blank → error
+- Contains `::` → error ("Unsupported Git URL. Use HTTPS or SSH clone URLs.")
+- `https://` or `ssh://` → ok
+- Any other `://` (file://, http://, git://) → error
+- SCP-like with `:` (git@github.com:org/repo.git) → ok
+
+Wired into `CloneRepositoryForm.tsx`:
+- `urlError` now uses `validateCloneUrl(url)` instead of blank check
+- Submit button disabled when `urlError != null`
+- Error message shown inline when URL is non-empty but invalid
+
+## Blocked URL schemes
+
+- `ext::sh -c '...'` — rejected by both backend and frontend
+- `fd::4` — rejected by both
+- `file:///any/path` — rejected by both
+- `http://...` — rejected by both
+- `git://...` — rejected by both
+
+## Allowed clone URL examples
+
+- `https://github.com/org/repo.git`
+- `ssh://git@github.com/org/repo.git`
+- `git@github.com:org/repo.git`
+- `github-alias:org/repo.git`
+
+## Tests added
+
+| Location | Count | Type |
 |---|---|---|
-| VAL-DM-001 | Error | Missing required header (`device_type` or `name`) |
-| VAL-DM-002 | Warning | Unknown column (ignored) |
-| VAL-DM-003 | Error | Duplicate code within the CSV |
-| VAL-DM-004 | Error | Code already exists in repository |
-| VAL-DM-005 | Error | `name` is blank |
-| VAL-DM-006 | Error | `device_type` is blank |
-| VAL-DM-007 | Error | `device_type` is not a known value |
-| VAL-DM-008 | Error | `height_u` is not a positive integer |
-| VAL-DM-009 | Warning | Tags contain empty segments |
+| `crates/ris-git/tests/git_remote_tests.rs` | +8 | Rust (clone rejection, build_clone_args structure) |
+| `cloneHelpers.test.ts` | +12 | Vitest (validateCloneUrl unit) |
+| `CloneRepositoryForm.test.tsx` | +6 | Vitest (form-level unsafe URL block) |
 
-Key difference from device import: `rack_object` IS a valid `device_type` for
-device models. No `status` column — device models have no status.
+## Manual QA required
+
+- HTTPS clone from a safe test repo (happy path)
+- Type `ext::sh -c 'echo blocked'` in URL field → submit disabled, error shown
+- Type `fd::4` in URL field → submit disabled
+- Type `file:///tmp/repo.git` in URL field → submit disabled
+- Non-empty destination still rejected before clone starts
+- Clone of non-RIS repo surfaces validation error, no deletion of clone
+- See `docs/BETA3_QA_RUNBOOK.md` cases 1.10–1.12
 
 ## Tests
 
 ```
-node scripts/check-version-consistency.mjs   → 0.1.0-beta.2, all match
-node scripts/check-repo-hygiene.mjs          → 8/8 checks passed
-pnpm -C apps/desktop exec tsc --noEmit       → 0 errors
-pnpm -C apps/desktop exec vitest run         → 800 passed, 0 failed (was 789)
-vite build                                   → success
-cargo fmt --all --check                      → clean
-cargo clippy --workspace -- -D warnings      → clean
-cargo check (ris-import + ris-application)   → Finished, 0 errors
-cargo check (desktop/src-tauri)              → Finished, 0 errors
-cargo test -p ris-import                     → 76 passed, 0 failed (33 device + 43 device model)
-cargo test (desktop/src-tauri)               → 116 passed, 0 failed
+cargo fmt --all --check                       → clean
+cargo clippy --workspace -- -D warnings       → clean
+cargo check --workspace                       → clean
+cargo test -p ris-git                         → 139 passed (82 lib + 45 remote + 12 git_tests)
+cargo test -p ris-import                      → 76 passed
+cargo test --manifest-path src-tauri/Cargo.toml → 114 passed
+vitest run (apps/desktop)                     → 817 passed, 0 failed
+tsc --noEmit                                  → 0 errors
+vite build                                    → success
+node scripts/check-version-consistency.mjs    → 0.1.0-beta.2, all match
+node --test scripts/*.test.mjs                → 19 passed
+node scripts/check-repo-hygiene.mjs           → 8/8 checks passed
 ```
 
 ## Risks
 
-- Device model `code` uniqueness check uses the same `CsvImportContext` (via
-  `get_device_model_by_code` with normalized key). If the index key format ever
-  changes, the lookup silently fails. Covered by test `dm_code_conflict_case_insensitive_reports_val_dm_004`.
-- The UI is not tested end-to-end in a running Tauri window (manual QA runbook
-  section 12 covers this).
+- `run_git_global` does not set `current_dir`. Git resolves the destination
+  path from the process working directory, which is safe because the caller
+  always passes an absolute path (constructed by the frontend from `parentPath
+  + dirName`). If a future caller passes a relative path, this could behave
+  unexpectedly.
+- `sanitize_git_error` / `redact_urls_in_text` removed from `diagnostics.rs`.
+  Error messages for clone failures now rely on `ris_git::GitError::Display`
+  for redaction (which uses `redact_git_error`). This redacts HTTPS credentials
+  but does NOT replace local path tokens. For the clone path this is acceptable:
+  if clone fails, the destination path was chosen by the user (not secret), and
+  the URL is redacted via `ris_git`'s own redaction.
 
 ## Not done
 
-- PDF export (out of scope for beta.3).
-- Import of Device Models with explicit UUIDs (not needed; IDs are always auto-generated).
+- Tauri command unit tests for `clone_repository_cmd` — state setup overhead
+  is high; ris-git tests + frontend validation tests provide adequate coverage.
+  Documented above.
+- SSH passphrase flow for clone (separate issue, separate PR).
+
+## Confirmation
+
+- No version bump ✓
+- No tags created ✓
+- No GitHub Release created ✓
+- No `.ai/review-context-*.md` committed ✓
 
 ## Suggested next step
 
-Run manual QA from `docs/BETA3_QA_RUNBOOK.md` section 12 (Device Model CSV
-import), confirm all 16 test cases pass, then prepare the beta.3 release PR
-(version bump from `0.1.0-beta.2` → `0.1.0-beta.3`, CHANGELOG entry, release
-notes).
+Manual QA of cases 1.10–1.12 in `docs/BETA3_QA_RUNBOOK.md` (unsafe transport
+rejection), then prepare beta.3 release PR (version bump `0.1.0-beta.2` →
+`0.1.0-beta.3`, CHANGELOG finalization, release notes).

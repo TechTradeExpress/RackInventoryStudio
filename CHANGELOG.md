@@ -2,6 +2,14 @@
 
 ## Unreleased — Post-beta 1 follow-up
 
+### Security
+
+- **Hardened repository clone flow**: Clone is now routed through `ris-git` with
+  transport safety checks, rejecting unsafe Git transports (`ext::`, `fd::`,
+  `file://`, and any unsupported `://` scheme) before any process is spawned.
+  Frontend validation provides defense-in-depth; backend validation in `ris-git`
+  is authoritative.
+
 ### Added
 
 - **Auto-generated internal `code` fields**: The `code` field for Location,
