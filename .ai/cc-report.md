@@ -1,137 +1,108 @@
 ## Summary
 
-PR: harden(export): restrict export writes to SVG and PNG
+Three tasks completed in this session:
 
-Branch: `harden/beta3-export-write-allowlist` → base: `roadmap/beta3`
+**PR #136 — roadmap/beta3 → master merge**
+Squash-merged the `roadmap/beta3` integration branch into `master` via PR #136.
+No version bump, no tags, no GitHub Release.
 
-Audit finding F2: `write_export` in `repository.rs` accepted any file extension.
-The path comes from the native Save dialog, so this is low-severity, but
-defense-in-depth requires export commands to only write `.svg` and `.png` files.
+**development branch creation**
+Created permanent `development` branch from master at commit `e1fd3f5cdd72c18546bac079a04ffc0aa34a3d54`
+(merge commit of PR #136). Branch did not exist before this session; it was created fresh.
 
-Fix: added `validate_export_extension` helper that checks the file extension
-(case-insensitively) before `std::fs::write`. Both `write_export_file` (SVG)
-and `write_export_bytes` (PNG) are protected through the shared `write_export`
-private function.
+**Dependabot reconfiguration (this PR)**
+Updated `.github/dependabot.yml` so that all three Dependabot update entries direct their
+pull requests to `development` instead of the now-obsolete `development`-less default.
+No dependencies were changed; no lockfiles were touched; no version numbers were modified.
 
-No version bump. No tags. No GitHub Release.
+---
 
 ## Files changed
 
 | File | Change |
 |---|---|
-| `apps/desktop/src-tauri/src/commands/repository.rs` | Added `validate_export_extension`, called inside `write_export`; added 8 new tests |
-| `docs/BETA3_QA_RUNBOOK.md` | Added cases 9.10–9.11: backend extension rejection |
-| `CHANGELOG.md` | Added security entry under Unreleased |
+| `.github/dependabot.yml` | Added `target-branch: "development"` to all 3 update entries |
+| `.ai/cc-report.md` | This report |
 
-## Audit finding F2
+---
 
-`write_export` previously accepted any path extension. The native Save dialog
-filters reduce the risk in normal usage, but the backend command accepted
-arbitrary extensions (`.txt`, `.exe`, `.yaml`, etc.) and wrote arbitrary bytes.
+## Dependabot config details
 
-## What changed in the export backend
+- **File changed:** `.github/dependabot.yml` (repo root, checked into `chore/dependabot-target-development`)
+- **Ecosystems affected (all 3 active entries):**
+  - `github-actions` (directory `/`) — `target-branch: "development"` ✓
+  - `cargo` (directory `/`) — `target-branch: "development"` ✓
+  - `npm` (directory `/apps/desktop`) — `target-branch: "development"` ✓
+- All other settings preserved: schedules (`weekly`, `monday`), commit-message prefixes (`ci`, `chore(deps)`), groups (`*-minor-patch` with `minor`/`patch` update-types).
 
-Added `validate_export_extension(path: &Path) -> Result<(), String>`:
-```rust
-fn validate_export_extension(path: &std::path::Path) -> Result<(), String> {
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_ascii_lowercase());
-    match ext.as_deref() {
-        Some("svg") | Some("png") => Ok(()),
-        _ => Err("Unsupported export file extension. Use .svg or .png.".to_string()),
-    }
-}
-```
+---
 
-Called inside `write_export` after the blank/dir checks, before `fs::write`.
+## master merge details
 
-Validation order:
-1. Empty path → error (unchanged)
-2. Path is a directory → error (unchanged)
-3. **Extension not .svg or .png → error (NEW)**
-4. Parent directory missing → error (unchanged)
-5. `std::fs::write` (unchanged)
-
-## Allowed extensions
-
-- `.svg` (and `.SVG`, `.Svg`, etc.)
-- `.png` (and `.PNG`, `.Png`, etc.)
-
-## Rejected examples
-
-- `.txt`
-- `.yaml`
-- `.exe`
-- `.json`
-- `.pdf`
-- (no extension)
-
-## Frontend changes
-
-None. Frontend already uses:
-- `filters: [{ name: "SVG Files", extensions: ["svg"] }]` for SVG dialog
-- `filters: [{ name: "PNG Files", extensions: ["png"] }]` for PNG dialog
-- Default filenames `rack-{name}-{side}.svg` and `rack-{name}-{side}.png`
-
-## Tests added
-
-8 new tests in `commands::repository::tests`:
-
-| Test name | What it covers |
+| Field | Value |
 |---|---|
-| `write_export_allows_svg_extension` | `.svg` path accepted, file written |
-| `write_export_allows_png_extension` | `.png` path accepted, file written |
-| `write_export_extension_check_is_case_insensitive` | `.SVG` and `.Png` accepted |
-| `write_export_rejects_unknown_extension` | `.txt`, `.yaml`, `.exe`, `.json`, `.pdf` rejected |
-| `write_export_rejects_missing_extension` | no-extension path rejected |
-| `validate_export_extension_accepts_svg_and_png` | pure helper: all case variants |
-| `validate_export_extension_rejects_other_extensions` | pure helper: rejects 5 extensions |
-| `validate_export_extension_rejects_no_extension` | pure helper: missing ext rejected |
+| PR | #136 — https://github.com/TechTradeExpress/RackInventoryStudio/pull/136 |
+| State | MERGED (squash) |
+| Base | `master` |
+| Head | `roadmap/beta3` |
+| Merge commit | `e1fd3f5cdd72c18546bac079a04ffc0aa34a3d54` |
+| Merge method | Squash (repository only allows squash merges) |
 
-Total src-tauri tests: 122 (was 114).
+---
 
-## Manual QA required
+## development branch details
 
-- Export SVG with default `.svg` filename → succeeds, file readable in browser
-- Export PNG with default `.png` filename → succeeds, image opens correctly
-- In SVG Save dialog: manually type `rack.txt`, confirm → error banner with "Unsupported export file extension"
-- In PNG Save dialog: manually type `rack.json`, confirm → same error
-- Cancel Save dialog → no error banner, no file written
-- See `docs/BETA3_QA_RUNBOOK.md` cases 9.10–9.11
+| Field | Value |
+|---|---|
+| Branch | `development` |
+| Created | Yes — did not exist before this session |
+| Base commit | `e1fd3f5cdd72c18546bac079a04ffc0aa34a3d54` (master after PR #136 merge) |
 
-## Checks
+---
 
-```
-cargo fmt --all --check                          → clean
-cargo clippy --workspace -- -D warnings          → clean
-cargo check --workspace                          → clean
-cargo test --manifest-path src-tauri/Cargo.toml  → 122 passed
-node scripts/check-version-consistency.mjs       → 0.1.0-beta.2, all match
-node --test scripts/*.test.mjs                   → 19 passed
-node scripts/check-repo-hygiene.mjs              → 8/8 checks passed
-Frontend checks skipped locally — no frontend code changed.
-```
+## Confirmations
 
-## Risks
-
-- Native Save dialog filters already restrict to `.svg`/`.png` in normal usage.
-  The backend check adds defense-in-depth but is not reachable via normal UI
-  flows unless the user manually types a different extension in the dialog.
-- Case-insensitive matching (`to_ascii_lowercase`) handles common OS variations.
-  Non-ASCII Unicode in the extension (edge case) would fail the `to_str()` call
-  and be rejected as "missing extension" — this is the correct safe default.
-
-## Confirmation
-
+- No dependency versions changed ✓
+- No lockfile changes ✓
 - No version bump ✓
 - No tags created ✓
 - No GitHub Release created ✓
 - No `.ai/review-context-*.md` committed ✓
+- `roadmap/beta3` not deleted ✓
+
+---
+
+## Risks
+
+- Dependabot PRs will now target `development`. If `development` is ever deleted or renamed,
+  Dependabot will fail to open PRs until the config is updated again.
+- The `target-branch` key requires that the branch exists in the remote at the time Dependabot
+  next runs; `development` has been pushed, so this is satisfied.
+
+---
+
+## Not done
+
+- Auto-merge was intentionally not introduced.
+- Package ecosystems were not changed.
+- No dependency updates were applied in this PR.
+
+---
 
 ## Suggested next step
 
-Manual QA of cases 9.10–9.11 in `docs/BETA3_QA_RUNBOOK.md` (extension
-rejection), then prepare beta.3 release PR (version bump `0.1.0-beta.2` →
-`0.1.0-beta.3`, CHANGELOG finalization, release notes).
+After this Dependabot PR merges into `development`: prepare the beta.3 release PR — bump
+version `0.1.0-beta.2` → `0.1.0-beta.3`, finalize CHANGELOG, generate release notes, and
+open the release PR from `development` → `master`.
+
+---
+
+## Final review-context handoff
+
+After all implementation, checks, and `.ai/cc-report.md` update, generate the review context
+as the last step using a timestamped filename.
+The base branch for this repository is `master` unless explicitly instructed otherwise.
+
+```bash
+bash scripts/ai/build-review-context.sh master .ai/review-context-$(date +%Y%m%d-%H%M).md
+```
