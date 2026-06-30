@@ -62,6 +62,24 @@ pub fn sanitize_paths_in_message(message: &str) -> String {
     out
 }
 
+/// Redact HTTP/HTTPS userinfo credentials from a Git URL for safe logging.
+///
+/// - `https://token@host/path`    → `https://***@host/path`
+/// - `https://user:pass@host/path` → `https://***@host/path`
+/// - `http://token@host/path`     → `http://***@host/path`
+/// - SSH URLs (`git@host:org/repo.git`) have no embedded secrets and are returned unchanged.
+pub fn redact_git_url(url: &str) -> String {
+    for scheme in ["https://", "http://"] {
+        if let Some(rest) = url.strip_prefix(scheme) {
+            if let Some(at_pos) = rest.find('@') {
+                let after_at = &rest[at_pos + 1..];
+                return format!("{scheme}***@{after_at}");
+            }
+        }
+    }
+    url.to_string()
+}
+
 /// Sanitizes an error string for logging:
 /// 1. Redacts the whole string if it matches a credential pattern.
 /// 2. Replaces path-like tokens with `[path:basename]`.
@@ -183,5 +201,53 @@ mod tests {
     fn sanitize_error_preserves_safe_message() {
         let result = sanitize_error("YAML parse error at line 5");
         assert_eq!(result, "YAML parse error at line 5");
+    }
+
+    #[test]
+    fn redact_git_url_hides_plain_token() {
+        let result = redact_git_url("https://ghp_secret123@github.com/org/repo.git");
+        assert_eq!(result, "https://***@github.com/org/repo.git");
+    }
+
+    #[test]
+    fn redact_git_url_hides_user_pass() {
+        let result = redact_git_url("https://alice:hunter2@github.com/org/repo.git");
+        assert_eq!(result, "https://***@github.com/org/repo.git");
+    }
+
+    #[test]
+    fn redact_git_url_leaves_ssh_url_unchanged() {
+        let url = "git@github.com:org/repo.git";
+        assert_eq!(redact_git_url(url), url);
+    }
+
+    #[test]
+    fn redact_git_url_leaves_ssh_alias_unchanged() {
+        let url = "github-ris-test:org/repo.git";
+        assert_eq!(redact_git_url(url), url);
+    }
+
+    #[test]
+    fn redact_git_url_leaves_plain_https_unchanged() {
+        let url = "https://github.com/org/repo.git";
+        assert_eq!(redact_git_url(url), url);
+    }
+
+    #[test]
+    fn redact_git_url_hides_http_plain_token() {
+        let result = redact_git_url("http://ghp_secret123@github.com/org/repo.git");
+        assert_eq!(result, "http://***@github.com/org/repo.git");
+    }
+
+    #[test]
+    fn redact_git_url_hides_http_user_pass() {
+        let result = redact_git_url("http://alice:hunter2@github.com/org/repo.git");
+        assert_eq!(result, "http://***@github.com/org/repo.git");
+    }
+
+    #[test]
+    fn redact_git_url_leaves_plain_http_unchanged() {
+        let url = "http://github.com/org/repo.git";
+        assert_eq!(redact_git_url(url), url);
     }
 }

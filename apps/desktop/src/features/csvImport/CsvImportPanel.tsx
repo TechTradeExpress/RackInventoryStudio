@@ -1,20 +1,26 @@
 import { FormEvent, useState } from "react";
 import {
   importDeviceCsv,
+  importDeviceModelCsv,
   previewDeviceCsvImport,
+  previewDeviceModelCsvImport,
   readCsvFile,
   selectCsvFile,
+  type CsvDeviceModelImportPreviewDto,
+  type CsvDeviceModelImportPreviewRowDto,
   type CsvImportPreviewDto,
   type CsvImportPreviewRowDto,
 } from "../../api/tauriClient";
 import { useBusy } from "../../lib/appBusy";
 import { deriveCsvImportUiSummary } from "./csvImportSummary";
-import { saveSampleCsv } from "./csvSample";
+import { saveSampleCsv, saveDeviceModelSampleCsv } from "./csvSample";
 import { PageHeader } from "../../components/ui/PageHeader";
 import { Panel } from "../../components/ui/Panel";
 import { Badge } from "../../components/ui/Badge";
 import { Banner } from "../../components/ui/Banner";
 import { IcRefresh, IcDownload, IcFolder, IcX } from "../../components/ui/Icon";
+
+type ImportType = "devices" | "device_models";
 
 function fileName(path: string): string {
   return path.split(/[\\/]/).pop() ?? path;
@@ -24,20 +30,20 @@ interface Props {
   onRepositoryMutated: () => void;
 }
 
-function hasErrors(preview: CsvImportPreviewDto): boolean {
+function hasErrors(preview: CsvImportPreviewDto | CsvDeviceModelImportPreviewDto): boolean {
   return (
     preview.file_issues.some((i) => i.level === "error") ||
     preview.rows.some((r) => r.action === "skip_due_to_error")
   );
 }
 
-function rowBadge(row: CsvImportPreviewRowDto) {
+function rowBadge(row: CsvImportPreviewRowDto | CsvDeviceModelImportPreviewRowDto) {
   if (row.action === "skip_due_to_error") return <Badge tone="err" dot>skip</Badge>;
   if (row.issues.some((i) => i.level === "warning")) return <Badge tone="warn" dot>create</Badge>;
   return <Badge tone="ok" dot>create</Badge>;
 }
 
-function issueText(row: CsvImportPreviewRowDto): string {
+function issueText(row: CsvImportPreviewRowDto | CsvDeviceModelImportPreviewRowDto): string {
   if (row.issues.length === 0) return "";
   const errs  = row.issues.filter((i) => i.level === "error").length;
   const warns = row.issues.filter((i) => i.level === "warning").length;
@@ -60,18 +66,110 @@ function SummaryRow({ tone, label, value, desc }: { tone: "ok" | "warn" | "err";
   );
 }
 
+function DevicePreviewTable({ preview }: { preview: CsvImportPreviewDto }) {
+  return (
+    <table className="tbl">
+      <thead>
+        <tr>
+          <th style={{ width: 36 }}>#</th>
+          <th style={{ width: 80 }}>Status</th>
+          <th>Type</th>
+          <th>Name</th>
+          <th className="tbl-mono">Model</th>
+          <th className="tbl-mono">Serial</th>
+          <th>Issues</th>
+        </tr>
+      </thead>
+      <tbody>
+        {preview.rows.map((row) => (
+          <tr key={row.row_number}>
+            <td className="tbl-mono" style={{ color: "var(--tx-3)" }}>{row.row_number}</td>
+            <td>{rowBadge(row)}</td>
+            <td className="tbl-mono">{row.device_type ?? "—"}</td>
+            <td>{row.name ?? <span style={{ color: "var(--tx-4)" }}>—</span>}</td>
+            <td className="tbl-mono">{row.device_model_code ?? "—"}</td>
+            <td className="tbl-mono">{row.serial_number ?? "—"}</td>
+            <td style={{ fontSize: 11, color: row.issues.some((i) => i.level === "error") ? "var(--st-err-tx)" : "var(--st-warn-tx)" }}>
+              {issueText(row)}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function DeviceModelPreviewTable({ preview }: { preview: CsvDeviceModelImportPreviewDto }) {
+  return (
+    <table className="tbl">
+      <thead>
+        <tr>
+          <th style={{ width: 36 }}>#</th>
+          <th style={{ width: 80 }}>Status</th>
+          <th>Type</th>
+          <th>Name</th>
+          <th className="tbl-mono">Code</th>
+          <th>Vendor / Model</th>
+          <th>Issues</th>
+        </tr>
+      </thead>
+      <tbody>
+        {preview.rows.map((row) => (
+          <tr key={row.row_number}>
+            <td className="tbl-mono" style={{ color: "var(--tx-3)" }}>{row.row_number}</td>
+            <td>{rowBadge(row)}</td>
+            <td className="tbl-mono">{row.device_type ?? "—"}</td>
+            <td>{row.name ?? <span style={{ color: "var(--tx-4)" }}>—</span>}</td>
+            <td className="tbl-mono">{row.code ?? <span style={{ color: "var(--tx-4)" }}>auto</span>}</td>
+            <td style={{ fontSize: 11 }}>
+              {[row.vendor, row.model_number].filter(Boolean).join(" / ") || "—"}
+            </td>
+            <td style={{ fontSize: 11, color: row.issues.some((i) => i.level === "error") ? "var(--st-err-tx)" : "var(--st-warn-tx)" }}>
+              {issueText(row)}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 export function CsvImportPanel({ onRepositoryMutated }: Props) {
   const { isBusy, runBusy } = useBusy();
 
-  const [csvContent, setCsvContent]     = useState("");
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [fileError, setFileError]       = useState<string | null>(null);
-  const [preview, setPreview]           = useState<CsvImportPreviewDto | null>(null);
-  const [previewError, setPreviewError] = useState<string | null>(null);
-  const [importError, setImportError]   = useState<string | null>(null);
+  const [importType, setImportType]       = useState<ImportType>("devices");
+  const [csvContent, setCsvContent]       = useState("");
+  const [selectedFile, setSelectedFile]   = useState<string | null>(null);
+  const [fileError, setFileError]         = useState<string | null>(null);
+  const [devicePreview, setDevicePreview] = useState<CsvImportPreviewDto | null>(null);
+  const [modelPreview, setModelPreview]   = useState<CsvDeviceModelImportPreviewDto | null>(null);
+  const [previewError, setPreviewError]   = useState<string | null>(null);
+  const [importError, setImportError]     = useState<string | null>(null);
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
   const [sampleSaveMsg, setSampleSaveMsg] = useState<string | null>(null);
   const [sampleSaveErr, setSampleSaveErr] = useState<string | null>(null);
+
+  const preview = importType === "devices" ? devicePreview : modelPreview;
+
+  function resetPreviewState() {
+    setDevicePreview(null);
+    setModelPreview(null);
+    setPreviewError(null);
+    setImportError(null);
+  }
+
+  function resetAllState() {
+    resetPreviewState();
+    setImportSuccess(null);
+  }
+
+  function handleTypeChange(t: ImportType) {
+    setImportType(t);
+    resetAllState();
+    setCsvContent("");
+    setSelectedFile(null);
+    setFileError(null);
+  }
 
   async function handleChooseFile() {
     setFileError(null);
@@ -81,9 +179,7 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
       const content = await readCsvFile(path);
       setSelectedFile(path);
       setCsvContent(content);
-      setPreview(null);
-      setImportSuccess(null);
-      setImportError(null);
+      resetAllState();
     } catch (e) {
       setFileError(String(e));
     }
@@ -96,11 +192,15 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
 
   async function handlePreview(e: FormEvent) {
     e.preventDefault();
-    setPreview(null); setPreviewError(null);
-    setImportError(null); setImportSuccess(null);
+    resetAllState();
     try {
-      const result = await runBusy("Previewing CSV…", () => previewDeviceCsvImport(csvContent));
-      setPreview(result);
+      if (importType === "devices") {
+        const result = await runBusy("Previewing CSV…", () => previewDeviceCsvImport(csvContent));
+        setDevicePreview(result);
+      } else {
+        const result = await runBusy("Previewing CSV…", () => previewDeviceModelCsvImport(csvContent));
+        setModelPreview(result);
+      }
     } catch (e) {
       setPreviewError(String(e));
     }
@@ -110,11 +210,9 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
     setSampleSaveMsg(null);
     setSampleSaveErr(null);
     try {
-      const result = await saveSampleCsv();
-      if (result === "saved") {
-        setSampleSaveMsg("Sample CSV saved.");
-      }
-      // "cancelled" — user dismissed dialog, no message shown
+      const fn = importType === "devices" ? saveSampleCsv : saveDeviceModelSampleCsv;
+      const result = await fn();
+      if (result === "saved") setSampleSaveMsg("Sample CSV saved.");
     } catch (e) {
       setSampleSaveErr(String(e));
     }
@@ -124,13 +222,22 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
     if (!preview || hasErrors(preview)) return;
     setImportError(null); setImportSuccess(null);
     try {
-      const result = await runBusy("Importing CSV…", () => importDeviceCsv(csvContent));
-      onRepositoryMutated();
-      setImportSuccess(
-        `Import complete: ${result.created_count} device${result.created_count !== 1 ? "s" : ""} created.` +
-        (result.warning_count > 0 ? ` (${result.warning_count} warning${result.warning_count > 1 ? "s" : ""})` : ""),
-      );
-      setPreview(null); setCsvContent(""); setSelectedFile(null);
+      if (importType === "devices") {
+        const result = await runBusy("Importing CSV…", () => importDeviceCsv(csvContent));
+        onRepositoryMutated();
+        setImportSuccess(
+          `Import complete: ${result.created_count} device${result.created_count !== 1 ? "s" : ""} created.` +
+          (result.warning_count > 0 ? ` (${result.warning_count} warning${result.warning_count > 1 ? "s" : ""})` : ""),
+        );
+      } else {
+        const result = await runBusy("Importing CSV…", () => importDeviceModelCsv(csvContent));
+        onRepositoryMutated();
+        setImportSuccess(
+          `Import complete: ${result.created_count} device model${result.created_count !== 1 ? "s" : ""} created.` +
+          (result.warning_count > 0 ? ` (${result.warning_count} warning${result.warning_count > 1 ? "s" : ""})` : ""),
+        );
+      }
+      resetPreviewState(); setCsvContent(""); setSelectedFile(null);
     } catch (e) {
       setImportError(String(e));
     }
@@ -140,15 +247,36 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
   const { totalRows, importableRows, cleanRows, warningRows, skippedRows } =
     deriveCsvImportUiSummary(preview);
 
+  const subtitle = importType === "devices"
+    ? "Import new Device records from a CSV file. Placements and Device Models are not imported."
+    : "Import new Device Model records from a CSV file.";
+
   return (
     <>
-      <PageHeader
-        title="CSV Import"
-        subtitle="Import new Device records from a CSV file. Placements and Device Models are not imported."
-      />
+      <PageHeader title="CSV Import" subtitle={subtitle} />
       <div className="page-content">
         <div className="cols-sidebar">
           <div className="stack-4">
+            {/* Type selector */}
+            <div className="row-4">
+              <button
+                type="button"
+                className={`btn btn-sm ${importType === "devices" ? "btn-primary" : "btn-secondary"}`}
+                onClick={() => handleTypeChange("devices")}
+                data-testid="import-type-devices"
+              >
+                Devices
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${importType === "device_models" ? "btn-primary" : "btn-secondary"}`}
+                onClick={() => handleTypeChange("device_models")}
+                data-testid="import-type-device-models"
+              >
+                Device Models
+              </button>
+            </div>
+
             {/* Source panel */}
             <Panel title="Source" desc="Pick a CSV file or paste contents.">
               <form onSubmit={handlePreview} className="stack-3">
@@ -202,11 +330,16 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
                     className="ri-input"
                     style={{ width: "100%", fontFamily: "var(--font-mono)", fontSize: 11.5, resize: "vertical" }}
                     rows={6}
+                    data-testid="csv-textarea"
                     value={csvContent}
-                    placeholder={"device_type,status,name\nserver,planned,New Server"}
+                    placeholder={
+                      importType === "devices"
+                        ? "device_type,status,name\nserver,planned,New Server"
+                        : "device_type,name\nserver,New Server Model"
+                    }
                     onChange={(e) => {
                       setCsvContent(e.target.value);
-                      setPreview(null); setImportSuccess(null); setImportError(null);
+                      resetAllState();
                     }}
                     disabled={isBusy}
                   />
@@ -279,62 +412,67 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
                     ))}
                   </div>
                 )}
-                <table className="tbl">
-                  <thead>
-                    <tr>
-                      <th style={{ width: 36 }}>#</th>
-                      <th style={{ width: 80 }}>Status</th>
-                      <th>Type</th>
-                      <th>Name</th>
-                      <th className="tbl-mono">Model</th>
-                      <th className="tbl-mono">Serial</th>
-                      <th>Issues</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {preview.rows.map((row) => (
-                      <tr key={row.row_number}>
-                        <td className="tbl-mono" style={{ color: "var(--tx-3)" }}>{row.row_number}</td>
-                        <td>{rowBadge(row)}</td>
-                        <td className="tbl-mono">{row.device_type ?? "—"}</td>
-                        <td>{row.name ?? <span style={{ color: "var(--tx-4)" }}>—</span>}</td>
-                        <td className="tbl-mono">{row.device_model_code ?? "—"}</td>
-                        <td className="tbl-mono">{row.serial_number ?? "—"}</td>
-                        <td style={{ fontSize: 11, color: row.issues.some((i) => i.level === "error") ? "var(--st-err-tx)" : "var(--st-warn-tx)" }}>
-                          {issueText(row)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                {importType === "devices" && devicePreview && (
+                  <DevicePreviewTable preview={devicePreview} />
+                )}
+                {importType === "device_models" && modelPreview && (
+                  <DeviceModelPreviewTable preview={modelPreview} />
+                )}
               </Panel>
             )}
           </div>
 
           {/* Sidebar */}
           <div className="stack-4">
-            <Panel title="Schema">
-              <div className="stack-3">
-                <div>
-                  <div className="eyebrow" style={{ marginBottom: 6 }}>Required columns</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                    {["device_type", "status"].map((c) => <span key={c} className="tag">{c}</span>)}
+            {importType === "devices" ? (
+              <Panel title="Schema">
+                <div className="stack-3">
+                  <div>
+                    <div className="eyebrow" style={{ marginBottom: 6 }}>Required columns</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                      {["device_type", "status"].map((c) => <span key={c} className="tag">{c}</span>)}
+                    </div>
                   </div>
-                </div>
-                <div>
-                  <div className="eyebrow" style={{ marginBottom: 6 }}>Optional columns</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                    {["name", "device_model_code", "serial_number", "asset_tag", "external_ref", "tags"].map((c) => (
-                      <span key={c} className="tag">{c}</span>
-                    ))}
+                  <div>
+                    <div className="eyebrow" style={{ marginBottom: 6 }}>Optional columns</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                      {["name", "device_model_code", "serial_number", "asset_tag", "external_ref", "tags"].map((c) => (
+                        <span key={c} className="tag">{c}</span>
+                      ))}
+                    </div>
                   </div>
+                  <p style={{ fontSize: 11, color: "var(--tx-3)", margin: 0, lineHeight: 1.5 }}>
+                    Tags use <span className="code">;</span> as separator.
+                    Device codes are generated automatically — do not include a <span className="code">code</span> column.
+                  </p>
                 </div>
-                <p style={{ fontSize: 11, color: "var(--tx-3)", margin: 0, lineHeight: 1.5 }}>
-                  Tags use <span className="code">;</span> as separator.
-                  Device codes are generated automatically — do not include a <span className="code">code</span> column.
-                </p>
-              </div>
-            </Panel>
+              </Panel>
+            ) : (
+              <Panel title="Schema">
+                <div className="stack-3">
+                  <div>
+                    <div className="eyebrow" style={{ marginBottom: 6 }}>Required columns</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                      {["device_type", "name"].map((c) => <span key={c} className="tag">{c}</span>)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="eyebrow" style={{ marginBottom: 6 }}>Optional columns</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                      {["code", "vendor", "model_number", "height_u", "description", "tags"].map((c) => (
+                        <span key={c} className="tag">{c}</span>
+                      ))}
+                    </div>
+                  </div>
+                  <p style={{ fontSize: 11, color: "var(--tx-3)", margin: 0, lineHeight: 1.5 }}>
+                    Tags use <span className="code">;</span> as separator.
+                    <span className="code">height_u</span> defaults to 1 when omitted.
+                    <span className="code">code</span> is optional — leave blank to auto-generate.
+                    <span className="code">rack_object</span> is a valid device type for models.
+                  </p>
+                </div>
+              </Panel>
+            )}
 
             {preview && (
               <Panel title="Outcome">

@@ -131,6 +131,7 @@ export function LocationsPanel({
 
         {locations.length > 0 && (
           <Panel flush title={`${locations.length} location${locations.length !== 1 ? "s" : ""}`}>
+            <div className="tbl-wrap">
             <table className="tbl">
               <thead>
                 <tr>
@@ -198,6 +199,7 @@ export function LocationsPanel({
                 ))}
               </tbody>
             </table>
+            </div>
           </Panel>
         )}
       </div>

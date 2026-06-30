@@ -7,4 +7,5 @@ export * from "./Icon";
 export * from "./Modal";
 export * from "./PageHeader";
 export * from "./Panel";
+export * from "./SearchableSelect";
 export * from "./Segmented";

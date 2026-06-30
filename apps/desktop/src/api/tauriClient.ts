@@ -111,6 +111,19 @@ export function openRepository(path: string): Promise<OpenRepositoryResultDto> {
   return invoke("open_repository_cmd", { path });
 }
 
+/**
+ * Clone a Git repository from `url` into `destination` (full path),
+ * then open the cloned directory as a RIS repository.
+ * Returns the same `OpenRepositoryResultDto` as `openRepository`.
+ * Throws a string error if git clone fails or if the clone is not a valid RIS repo.
+ */
+export function cloneRepository(
+  url: string,
+  destination: string,
+): Promise<OpenRepositoryResultDto> {
+  return invoke("clone_repository_cmd", { url, destination });
+}
+
 export function getRepositorySummary(): Promise<RepositorySummaryDto> {
   return invoke("get_repository_summary");
 }
@@ -413,6 +426,36 @@ export function importDeviceCsv(
   return invoke("import_device_csv_cmd", { csvContent });
 }
 
+export interface CsvDeviceModelImportPreviewRowDto {
+  row_number: number;
+  device_type: string | null;
+  name: string | null;
+  code: string | null;
+  vendor: string | null;
+  model_number: string | null;
+  height_u: number | null;
+  action: "create" | "skip_due_to_error";
+  issues: CsvImportIssueDto[];
+}
+
+export interface CsvDeviceModelImportPreviewDto {
+  summary: CsvImportSummaryDto;
+  file_issues: CsvImportIssueDto[];
+  rows: CsvDeviceModelImportPreviewRowDto[];
+}
+
+export function previewDeviceModelCsvImport(
+  csvContent: string,
+): Promise<CsvDeviceModelImportPreviewDto> {
+  return invoke("preview_device_model_csv_import_cmd", { csvContent });
+}
+
+export function importDeviceModelCsv(
+  csvContent: string,
+): Promise<CsvImportResultDto> {
+  return invoke("import_device_model_csv_cmd", { csvContent });
+}
+
 // ── Search ────────────────────────────────────────────────────────────────────
 
 export interface SearchNavigationDto {
@@ -569,13 +612,6 @@ export async function selectCsvFile(): Promise<string | null> {
   return result;
 }
 
-/**
- * Open a native save-file dialog and write the built-in device import sample CSV
- * to the chosen path. Content is fixed on the backend — the frontend only supplies
- * the user-selected path.
- * Returns `"saved"` when written, `"cancelled"` if the user dismissed the dialog.
- * Throws a string on write error.
- */
 export async function saveSampleCsvViaDialog(
   defaultFilename: string,
 ): Promise<"saved" | "cancelled"> {
@@ -586,6 +622,58 @@ export async function saveSampleCsvViaDialog(
   });
   if (path === null || path === undefined) return "cancelled";
   await invoke("write_device_import_sample_csv", { path });
+  return "saved";
+}
+
+export async function saveDeviceModelSampleCsvViaDialog(
+  defaultFilename: string,
+): Promise<"saved" | "cancelled"> {
+  const path = await save({
+    title: "Save sample CSV",
+    defaultPath: defaultFilename,
+    filters: [{ name: "CSV Files", extensions: ["csv"] }],
+  });
+  if (path === null || path === undefined) return "cancelled";
+  await invoke("write_device_model_import_sample_csv", { path });
+  return "saved";
+}
+
+/**
+ * Open a native save-file dialog and write `svgContent` to the chosen path.
+ * Returns `"saved"` when written, `"cancelled"` if the user dismissed the dialog.
+ * Throws on write error.
+ */
+export async function saveRackViewSvgViaDialog(
+  svgContent: string,
+  defaultFilename: string,
+): Promise<"saved" | "cancelled"> {
+  const path = await save({
+    title: "Export rack view — SVG",
+    defaultPath: defaultFilename,
+    filters: [{ name: "SVG Files", extensions: ["svg"] }],
+  });
+  if (path === null || path === undefined) return "cancelled";
+  await invoke("write_export_file", { path, content: svgContent });
+  return "saved";
+}
+
+/**
+ * Open a native save-file dialog and write `pngBytes` (PNG byte array) to the
+ * chosen path.
+ * Returns `"saved"` when written, `"cancelled"` if the user dismissed the dialog.
+ * Throws on write error.
+ */
+export async function saveRackViewPngViaDialog(
+  pngBytes: number[],
+  defaultFilename: string,
+): Promise<"saved" | "cancelled"> {
+  const path = await save({
+    title: "Export rack view — PNG",
+    defaultPath: defaultFilename,
+    filters: [{ name: "PNG Files", extensions: ["png"] }],
+  });
+  if (path === null || path === undefined) return "cancelled";
+  await invoke("write_export_bytes", { path, bytes: pngBytes });
   return "saved";
 }
 
@@ -607,6 +695,10 @@ export interface LogSettingsDto {
   active_log_dir: string;
   custom_log_dir: string | null;
   restart_required: boolean;
+  dir_exists: boolean;
+  dir_writable: boolean;
+  current_log_filename: string;
+  retention_days: number;
 }
 
 export function getLogSettings(): Promise<LogSettingsDto> {

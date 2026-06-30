@@ -183,6 +183,169 @@ describe("DeviceModelFormModal — add mode", () => {
   });
 });
 
+describe("DeviceModelFormModal — locked rack object mode", () => {
+  it("shows 'Create rack object' as title and submit label", () => {
+    render(
+      <DeviceModelFormModal
+        open
+        editing={null}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        forcedDeviceType="rack_object"
+        lockDeviceType
+      />,
+    );
+    // Both the modal title div and the submit button contain this text
+    expect(screen.getAllByText("Create rack object").length).toBeGreaterThan(0);
+  });
+
+  it("hides device type select and shows locked type display", () => {
+    render(
+      <DeviceModelFormModal
+        open
+        editing={null}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        forcedDeviceType="rack_object"
+        lockDeviceType
+      />,
+    );
+    expect(screen.queryByTestId("field-device-type")).toBeNull();
+    const locked = screen.getByTestId("field-device-type-locked");
+    expect(locked.textContent).toContain("rack_object");
+  });
+
+  it("payload contains device_type: rack_object on valid submit", async () => {
+    const onSaved = vi.fn();
+    const onClose = vi.fn();
+    render(
+      <DeviceModelFormModal
+        open
+        editing={null}
+        onClose={onClose}
+        onSaved={onSaved}
+        forcedDeviceType="rack_object"
+        lockDeviceType
+      />,
+    );
+    fireEvent.change(screen.getByTestId("field-name"), { target: { value: "Cable Org 1U" } });
+    fireEvent.change(screen.getByTestId("field-height-u"), { target: { value: "1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create rack object" }));
+
+    await waitFor(() => {
+      expect(mockAdd).toHaveBeenCalledWith(
+        expect.objectContaining({ device_type: "rack_object", name: "Cable Org 1U" }),
+      );
+      expect(onSaved).toHaveBeenCalledWith("new-model-id");
+      expect(onClose).toHaveBeenCalledOnce();
+    });
+  });
+
+  it("normal add mode still shows editable device type select", () => {
+    render(
+      <DeviceModelFormModal open editing={null} onClose={vi.fn()} onSaved={vi.fn()} />,
+    );
+    expect(screen.getByTestId("field-device-type")).toBeTruthy();
+    expect(screen.queryByTestId("field-device-type-locked")).toBeNull();
+  });
+});
+
+describe("DeviceModelFormModal — prefill prop", () => {
+  it("add mode with prefill shows prefilled name", () => {
+    render(
+      <DeviceModelFormModal
+        open
+        editing={null}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        prefill={{ name: "Copy of PowerEdge R750", deviceType: "server", heightU: "2" }}
+      />,
+    );
+    expect((screen.getByTestId("field-name") as HTMLInputElement).value).toBe("Copy of PowerEdge R750");
+    expect((screen.getByTestId("field-height-u") as HTMLInputElement).value).toBe("2");
+  });
+
+  it("add mode with prefill shows prefilled vendor and model SKU", () => {
+    render(
+      <DeviceModelFormModal
+        open
+        editing={null}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        prefill={{ vendor: "Dell", modelNumber: "R750-001", heightU: "2" }}
+      />,
+    );
+    expect((screen.getByTestId("field-model-sku") as HTMLInputElement).value).toBe("R750-001");
+  });
+
+  it("edit mode ignores prefill and uses editing device's values", () => {
+    render(
+      <DeviceModelFormModal
+        open
+        editing={FIXTURE_MODEL}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        prefill={{ name: "Should be ignored", heightU: "99" }}
+      />,
+    );
+    expect((screen.getByTestId("field-name") as HTMLInputElement).value).toBe("PowerEdge R750");
+    expect((screen.getByTestId("field-height-u") as HTMLInputElement).value).toBe("2");
+  });
+
+  it("opening with prefill does not make form immediately dirty (backdrop close not blocked)", () => {
+    const onClose = vi.fn();
+    render(
+      <DeviceModelFormModal
+        open
+        editing={null}
+        onClose={onClose}
+        onSaved={vi.fn()}
+        prefill={{ name: "Copy of PowerEdge R750", deviceType: "server", heightU: "2" }}
+      />,
+    );
+    // Escape should close without being blocked by dirty guard
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("prefill payload is included in create call on save", async () => {
+    const onSaved = vi.fn();
+    const onClose = vi.fn();
+    render(
+      <DeviceModelFormModal
+        open
+        editing={null}
+        onClose={onClose}
+        onSaved={onSaved}
+        prefill={{
+          deviceType: "server",
+          name: "Copy of PowerEdge R750",
+          vendor: "Dell",
+          modelNumber: "R750-001",
+          heightU: "2",
+          description: "Prefilled desc",
+          tags: "production",
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByText("Create model"));
+    await waitFor(() => {
+      expect(mockAdd).toHaveBeenCalledWith(
+        expect.objectContaining({
+          device_type: "server",
+          name: "Copy of PowerEdge R750",
+          vendor: "Dell",
+          model: "R750-001",
+          default_height_u: 2,
+        }),
+      );
+      const call = mockAdd.mock.calls[0][0];
+      expect(call).not.toHaveProperty("id");
+      expect(call).not.toHaveProperty("code");
+    });
+  });
+});
+
 describe("DeviceModelFormModal — edit mode", () => {
   it("shows Edit device model title and pre-populated fields", () => {
     render(

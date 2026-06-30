@@ -1,6 +1,7 @@
-import { useState, useEffect, type ChangeEvent, type FormEvent } from "react";
+import { useState, useEffect, useRef, type ChangeEvent, type FormEvent } from "react";
 import { Modal } from "../../components/ui/Modal";
 import { Field } from "../../components/ui/Field";
+import { SearchableSelect } from "../../components/ui/SearchableSelect";
 import { parseTags, joinTags } from "../../lib/tags";
 import { useBusy } from "../../lib/appBusy";
 import {
@@ -67,18 +68,18 @@ function deviceToForm(dev: DeviceDto): FormState {
   };
 }
 
-function isDirty(form: FormState, editing: DeviceDto | null): boolean {
+function isDirty(form: FormState, editing: DeviceDto | null, initialForm: FormState = EMPTY): boolean {
   if (!editing) {
     return (
-      form.deviceType !== "" ||
-      form.name !== "" ||
-      form.status !== "planned" ||
-      form.deviceModelId !== "" ||
-      form.serialNumber !== "" ||
-      form.assetTag !== "" ||
-      form.externalRef !== "" ||
-      form.description !== "" ||
-      form.tags !== ""
+      form.deviceType !== initialForm.deviceType ||
+      form.name !== initialForm.name ||
+      form.status !== initialForm.status ||
+      form.deviceModelId !== initialForm.deviceModelId ||
+      form.serialNumber !== initialForm.serialNumber ||
+      form.assetTag !== initialForm.assetTag ||
+      form.externalRef !== initialForm.externalRef ||
+      form.description !== initialForm.description ||
+      form.tags !== initialForm.tags
     );
   }
   const orig = deviceToForm(editing);
@@ -95,6 +96,15 @@ function isDirty(form: FormState, editing: DeviceDto | null): boolean {
   );
 }
 
+export interface DevicePrefill {
+  deviceType?: string;
+  name?: string;
+  status?: string;
+  deviceModelId?: string;
+  description?: string;
+  tags?: string;
+}
+
 export interface DeviceFormModalProps {
   open: boolean;
   /** null → add mode, DeviceDto → edit mode */
@@ -104,6 +114,10 @@ export interface DeviceFormModalProps {
   onClose: () => void;
   /** In add mode the newly created device ID is passed; in edit mode no argument is passed. */
   onSaved: (newDeviceId?: string) => void;
+  /** Default status for new devices (add mode only). Ignored in edit mode. */
+  defaultStatus?: string;
+  /** Pre-fill form fields in add mode (ignored in edit mode). Takes priority over defaultStatus for status. */
+  prefill?: DevicePrefill;
 }
 
 export function DeviceFormModal({
@@ -112,27 +126,41 @@ export function DeviceFormModal({
   models,
   onClose,
   onSaved,
+  defaultStatus,
+  prefill,
 }: DeviceFormModalProps) {
   const { runBusy } = useBusy();
   const [form, setForm] = useState<FormState>(EMPTY);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const initialFormRef = useRef<FormState>(EMPTY);
+  // Tracks whether the user has manually changed device type.
+  // When false, selecting a model auto-fills the device type field.
+  // Set to true on edit mode open (existing type is intentional).
+  const [deviceTypeTouched, setDeviceTypeTouched] = useState(false);
 
   const isEdit = editing !== null;
 
   useEffect(() => {
     if (open) {
-      setForm(editing ? deviceToForm(editing) : EMPTY);
+      const initial = editing
+        ? deviceToForm(editing)
+        : { ...EMPTY, status: defaultStatus ?? EMPTY.status, ...prefill };
+      initialFormRef.current = initial;
+      setForm(initial);
       setError(null);
       setSubmitting(false);
+      // In edit mode the existing type is intentional; in add/create-similar it is not.
+      setDeviceTypeTouched(editing !== null);
     }
-  }, [open, editing]);
+  }, [open, editing, defaultStatus, prefill]);
 
   function set(
     k: keyof FormState,
     e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>,
   ) {
     const value = e.target.value;
+    if (k === "deviceType") setDeviceTypeTouched(true);
     setForm((f) => {
       const next = { ...f, [k]: value };
       // Clear model selection when device type changes and model no longer matches
@@ -144,9 +172,22 @@ export function DeviceFormModal({
     });
   }
 
-  const filteredModels = form.deviceType
-    ? models.filter((m) => m.device_type === form.deviceType)
-    : models;
+  function handleModelChange(val: string) {
+    setForm((f) => {
+      const next = { ...f, deviceModelId: val };
+      // Auto-fill device type from the selected model unless user has manually chosen a type.
+      if (!deviceTypeTouched && val) {
+        const selectedModel = models.find((m) => m.id === val);
+        if (selectedModel) next.deviceType = selectedModel.device_type;
+      }
+      return next;
+    });
+  }
+
+  const filteredModels =
+    form.deviceType && deviceTypeTouched
+      ? models.filter((m) => m.device_type === form.deviceType)
+      : models;
 
   const missingType = !form.deviceType;
   const missingStatus = !form.status;
@@ -219,7 +260,7 @@ export function DeviceFormModal({
     }
   }
 
-  const dirty = isDirty(form, editing);
+  const dirty = isDirty(form, editing, initialFormRef.current);
 
   return (
     <Modal
@@ -311,20 +352,31 @@ export function DeviceFormModal({
           </div>
 
           <Field label="Device model">
-            <select
-              className="input"
+            <SearchableSelect
+              options={[
+                { value: "", label: "— none —" },
+                ...filteredModels.map((m) => ({
+                  value: m.id,
+                  label: m.name?.trim() || "Unnamed model",
+                  keywords: [m.vendor, m.model_number, m.device_type]
+                    .filter(Boolean)
+                    .join(" "),
+                  meta:
+                    [
+                      m.vendor,
+                      m.model_number,
+                      m.device_type,
+                      m.default_height_u != null ? `${m.default_height_u}U` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ") || undefined,
+                })),
+              ]}
               value={form.deviceModelId}
-              onChange={(e) => set("deviceModelId", e)}
+              onChange={handleModelChange}
               disabled={submitting}
               data-testid="field-device-model"
-            >
-              <option value="">— none —</option>
-              {filteredModels.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name?.trim() || "Unnamed model"}
-                </option>
-              ))}
-            </select>
+            />
           </Field>
 
           <Field className="col-6" label="Serial number">

@@ -537,6 +537,20 @@ textarea.ri-input { height: auto; padding: 6px 8px; font-family: var(--font-mono
 .step-action { display: flex; gap: var(--sp-2); align-self: center; }
 
 /* ============== Tables ============== */
+
+/*
+ * .tbl-wrap — scroll container for tables inside panels.
+ * Constrains table height to the visible viewport area so rows are always
+ * reachable via scroll, and allows thead th (position: sticky) to work
+ * correctly by making this element — not the outer .panel — the scroll root.
+ */
+.tbl-wrap {
+  overflow-y: auto;
+  /* Reserve space for: topbar (40) + page-header (~70) + panel-hd (~44)
+     + page-content padding (~40) + any banners (~6). Total ≈ 200 px. */
+  max-height: calc(100vh - 200px);
+}
+
 table.tbl { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--fs-12); }
 table.tbl thead th {
   text-align: left;
@@ -557,6 +571,42 @@ table.tbl tbody td {
   vertical-align: middle;
 }
 table.tbl tbody tr:last-child td { border-bottom: 0; }
+
+/* Sortable column headers */
+table.tbl th.tbl-th-sort { cursor: pointer; user-select: none; }
+table.tbl th.tbl-th-sort:hover { background: var(--bg-sunken); color: var(--tx-1); }
+.sort-ic { font-size: 9px; margin-left: 3px; color: var(--ac-text); }
+
+/* Search/filter bar inside a flush panel, above the table */
+.panel-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--bd-1);
+  background: var(--bg-subtle);
+}
+.panel-filter .pf-input-wrap {
+  position: relative;
+  flex: 1;
+  max-width: 280px;
+}
+.panel-filter .pf-input-wrap .pf-icon {
+  position: absolute;
+  left: 7px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--tx-3);
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+}
+.panel-filter .pf-input-wrap .ri-input {
+  width: 100%;
+  padding-left: 26px;
+  height: 24px;
+  font-size: var(--fs-11);
+}
 table.tbl tbody tr:hover td { background: var(--bg-subtle); }
 table.tbl tbody tr.tbl-selected td { background: var(--ac-soft-bg); }
 table.tbl tbody tr.tbl-clickable { cursor: default; }
@@ -670,6 +720,65 @@ textarea.input { height: auto; padding: 6px 8px; resize: vertical; }
 .input::placeholder { color: var(--tx-4); }
 .input.mono { font-family: var(--font-mono); font-size: var(--fs-12); }
 .input:disabled { background: var(--bg-subtle); color: var(--tx-3); cursor: not-allowed; }
+
+/* ============== SearchableSelect / Combobox ============== */
+.ss-wrap { display: block; }
+
+.ss-trigger {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%; height: 28px;
+  padding: 0 var(--sp-2);
+  background: var(--bg-surface);
+  border: 1px solid var(--bd-2);
+  border-radius: var(--r-2);
+  font: inherit; font-size: var(--fs-13);
+  color: var(--tx-1);
+  cursor: pointer;
+  text-align: left;
+  outline: none;
+  box-sizing: border-box;
+}
+.ss-trigger:hover:not(:disabled) { border-color: var(--bd-3); }
+.ss-trigger:focus, .ss-trigger.ss-open { border-color: var(--ac); box-shadow: 0 0 0 1px var(--ac); }
+.ss-trigger:disabled { background: var(--bg-subtle); color: var(--tx-3); cursor: not-allowed; }
+.ss-val { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ss-placeholder { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--tx-4); }
+.ss-caret { font-size: 10px; color: var(--tx-3); margin-left: var(--sp-1); flex-shrink: 0; }
+
+.ss-dropdown {
+  background: var(--bg-surface);
+  border: 1px solid var(--bd-2);
+  border-radius: var(--r-2);
+  box-shadow: var(--sh-3);
+  overflow: hidden;
+}
+.ss-search { padding: var(--sp-1) var(--sp-2); border-bottom: 1px solid var(--bd-1); }
+.ss-search-input {
+  width: 100%; height: 26px;
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--bd-2);
+  border-radius: var(--r-2);
+  font: inherit; font-size: var(--fs-12);
+  color: var(--tx-1);
+  background: var(--bg-surface);
+  outline: none;
+  box-sizing: border-box;
+}
+.ss-search-input:focus { border-color: var(--ac); box-shadow: 0 0 0 1px var(--ac); }
+.ss-search-input::placeholder { color: var(--tx-4); }
+.ss-list { max-height: 200px; overflow-y: auto; }
+.ss-option {
+  padding: 5px var(--sp-3);
+  cursor: pointer;
+  display: flex; flex-direction: column; gap: 1px;
+  user-select: none;
+}
+.ss-option:hover { background: var(--bg-sunken); }
+.ss-option.ss-selected { background: var(--ac-soft-bg); }
+.ss-option.ss-selected .ss-opt-label { color: var(--ac-text); }
+.ss-opt-label { font-size: var(--fs-13); color: var(--tx-1); line-height: 1.3; }
+.ss-opt-meta { font-size: var(--fs-11); color: var(--tx-3); line-height: 1.3; }
+.ss-empty { padding: var(--sp-3); font-size: var(--fs-12); color: var(--tx-4); text-align: center; }
 
 /* ============== Modal / Dialog ============== */
 .modal-backdrop {

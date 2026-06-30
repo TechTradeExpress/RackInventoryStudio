@@ -118,6 +118,22 @@ export function SettingsPanel() {
                   >
                     {logSettings.active_log_dir}
                   </span>
+                  {" "}
+                  {logSettings.dir_exists ? (
+                    logSettings.dir_writable ? (
+                      <span style={{ color: "var(--tx-3)", fontSize: 11 }}>
+                        (accessible)
+                      </span>
+                    ) : (
+                      <span style={{ color: "var(--err)", fontSize: 11 }}>
+                        (not writable — check permissions)
+                      </span>
+                    )
+                  ) : (
+                    <span style={{ color: "var(--tx-3)", fontSize: 11 }}>
+                      (will be created on first log write)
+                    </span>
+                  )}
                 </div>
                 {logSettings.custom_log_dir && (
                   <div>
@@ -132,6 +148,14 @@ export function SettingsPanel() {
                     )}
                   </div>
                 )}
+                <div>
+                  <span style={{ fontWeight: 600 }}>Current log file:</span>{" "}
+                  <span className="code">{logSettings.current_log_filename}</span>
+                </div>
+                <div>
+                  <span style={{ fontWeight: 600 }}>Log retention:</span>{" "}
+                  <span>{logSettings.retention_days} days</span>
+                </div>
               </div>
             ) : (
               <div style={{ marginBottom: 12, color: "var(--tx-3)" }}>

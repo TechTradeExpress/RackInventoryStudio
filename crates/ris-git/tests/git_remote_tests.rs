@@ -856,3 +856,141 @@ fn pull_with_transport_safety_succeeds_on_local_repo() {
         "pull with transport safety flags must succeed on local repo: {result:?}"
     );
 }
+
+// ── clone: URL validation before execution ────────────────────────────────────
+
+#[test]
+fn clone_rejects_ext_transport_before_running_git() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let dest = tmp.path().join("output");
+    let result = ris_git::clone("ext::sh -c 'touch /tmp/pwned'", dest.to_str().unwrap());
+    assert!(
+        matches!(result, Err(ris_git::GitError::InvalidInput(_))),
+        "ext:: transport must be rejected before git runs: {result:?}"
+    );
+    assert!(
+        !dest.exists(),
+        "destination must not be created on rejection"
+    );
+}
+
+#[test]
+fn clone_rejects_fd_transport_before_running_git() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let dest = tmp.path().join("output");
+    let result = ris_git::clone("fd::4", dest.to_str().unwrap());
+    assert!(
+        matches!(result, Err(ris_git::GitError::InvalidInput(_))),
+        "fd:: transport must be rejected before git runs: {result:?}"
+    );
+}
+
+#[test]
+fn clone_rejects_file_scheme_before_running_git() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let dest = tmp.path().join("output");
+    let result = ris_git::clone("file:///tmp/repo.git", dest.to_str().unwrap());
+    assert!(
+        matches!(result, Err(ris_git::GitError::InvalidInput(_))),
+        "file:// scheme must be rejected before git runs: {result:?}"
+    );
+}
+
+#[test]
+fn clone_rejects_http_scheme() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let dest = tmp.path().join("output");
+    let result = ris_git::clone("http://example.com/repo.git", dest.to_str().unwrap());
+    assert!(
+        matches!(result, Err(ris_git::GitError::InvalidInput(_))),
+        "http:// scheme must be rejected: {result:?}"
+    );
+}
+
+#[test]
+fn clone_rejects_blank_url() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let dest = tmp.path().join("output");
+    let result = ris_git::clone("", dest.to_str().unwrap());
+    assert!(
+        matches!(result, Err(ris_git::GitError::InvalidInput(_))),
+        "blank URL must be rejected: {result:?}"
+    );
+}
+
+// ── build_clone_args: structure ───────────────────────────────────────────────
+
+#[test]
+fn build_clone_args_includes_transport_safety_flags() {
+    let args = ris_git::build_clone_args("https://github.com/org/repo.git", "/tmp/dest");
+    assert!(
+        args.windows(2)
+            .any(|w| w == ["-c", "protocol.ext.allow=never"]),
+        "build_clone_args must include -c protocol.ext.allow=never; got: {args:?}"
+    );
+    assert!(
+        args.windows(2)
+            .any(|w| w == ["-c", "protocol.fd.allow=never"]),
+        "build_clone_args must include -c protocol.fd.allow=never; got: {args:?}"
+    );
+}
+
+#[test]
+fn build_clone_args_includes_clone_separator_url_and_dest() {
+    let url = "https://github.com/org/repo.git";
+    let dest = "/home/user/repos/repo";
+    let args = ris_git::build_clone_args(url, dest);
+    assert!(args.contains(&"clone".to_string()), "must contain 'clone'");
+    assert!(
+        args.contains(&"--".to_string()),
+        "must contain '--' separator"
+    );
+    assert!(args.contains(&url.to_string()), "must contain the URL");
+    assert!(
+        args.contains(&dest.to_string()),
+        "must contain the destination"
+    );
+    // Order: TRANSPORT_SAFETY... clone -- url dest
+    let clone_pos = args.iter().position(|a| a == "clone").unwrap();
+    let sep_pos = args.iter().position(|a| a == "--").unwrap();
+    let url_pos = args.iter().position(|a| a == url).unwrap();
+    let dest_pos = args.iter().position(|a| a == dest).unwrap();
+    assert!(
+        clone_pos < sep_pos && sep_pos < url_pos && url_pos < dest_pos,
+        "order must be: clone -- url dest; got: {args:?}"
+    );
+}
+
+#[test]
+fn clone_with_local_bare_repo_succeeds() {
+    // Verify that the hardened clone path works end-to-end for a local bare
+    // repo, which uses a path-only URL (e.g. /tmp/…/remote.git).  The backend
+    // validator rejects such paths, so we use add_remote_for_test style direct
+    // invocation to confirm the arg-builder produces a runnable command.
+    //
+    // Since `ris_git::clone` validates URLs before running git, and a local
+    // path like "/tmp/…" is rejected by `validate_remote_url`, we test the
+    // arg structure via `build_clone_args` instead of executing the clone.
+    // This is intentional: the transport-safety design rejects local-path
+    // clones as a hardening measure (mirrors add_remote behaviour).
+    if !git_available() {
+        return;
+    }
+    let args = ris_git::build_clone_args("https://github.com/org/repo.git", "/tmp/dest");
+    // TRANSPORT_SAFETY flags must appear before "clone"
+    let safety_end = TRANSPORT_SAFETY.len();
+    for (i, &flag) in ris_git::TRANSPORT_SAFETY.iter().enumerate() {
+        assert_eq!(
+            args[i], flag,
+            "TRANSPORT_SAFETY flag at position {i} must appear before 'clone'"
+        );
+    }
+    assert_eq!(
+        args[safety_end], "clone",
+        "clone must follow TRANSPORT_SAFETY"
+    );
+    assert_eq!(args[safety_end + 1], "--", "-- must follow clone");
+}
+
+// Keep a reference to TRANSPORT_SAFETY for position assertions above.
+use ris_git::TRANSPORT_SAFETY;

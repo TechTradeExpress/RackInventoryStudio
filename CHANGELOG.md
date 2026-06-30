@@ -2,6 +2,18 @@
 
 ## Unreleased — Post-beta 1 follow-up
 
+### Security
+
+- **Hardened repository clone flow**: Clone is now routed through `ris-git` with
+  transport safety checks, rejecting unsafe Git transports (`ext::`, `fd::`,
+  `file://`, and any unsupported `://` scheme) before any process is spawned.
+  Frontend validation provides defense-in-depth; backend validation in `ris-git`
+  is authoritative.
+- **Restricted rack export write commands to `.svg` and `.png` targets only**:
+  The export backend now rejects any target path with an unsupported or missing
+  file extension, preventing unsupported file types from being written through
+  the export commands.
+
 ### Added
 
 - **Auto-generated internal `code` fields**: The `code` field for Location,

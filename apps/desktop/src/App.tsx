@@ -54,6 +54,7 @@ import {
 import type { ValidationNavigationTarget } from "./features/validation/navigation";
 import { logError, logInfo, logWarn } from "./lib/diagnosticsLog";
 import { sanitizeErrorForLog, sanitizePathForLog } from "./lib/redact";
+import { useWorkMode } from "./lib/workMode";
 
 type Tab =
   | "repository"
@@ -67,6 +68,7 @@ type Tab =
 
 export function App() {
   const { isBusy, runBusy } = useBusy();
+  const { mode: workMode, setMode: setWorkMode } = useWorkMode();
 
   const [repoPath, setRepoPath] = useState("");
   const [summary, setSummary] = useState<RepositorySummaryDto | null>(null);
@@ -350,6 +352,23 @@ export function App() {
     logInfo(`Repository created: code=${result.summary.repository_code}`);
   }
 
+  function handleCloneSuccess(result: OpenRepositoryResultDto) {
+    setSummary(result.summary);
+    setValidationSummary(result.validation_summary);
+    setRepoPath(result.summary.repo_path);
+    setSelectedRack(null);
+    setSelectedLocationForRacks(null);
+    setHasUnsavedChanges(false);
+    setHighlightedLocationId(null);
+    setHighlightedDeviceId(null);
+    setHighlightedDeviceModelId(null);
+    setPendingRackNavTarget(null);
+    setActiveTab("repository");
+    addRecentRepository(result.summary.repo_path);
+    setRecentRepos(getRecentRepositories());
+    logInfo(`Repository cloned: code=${result.summary.repository_code}`);
+  }
+
   async function handleClose() {
     const action = await guardUnsaved();
     if (action === "cancel") return;
@@ -447,6 +466,35 @@ export function App() {
           ) : (
             <span style={{ color: "var(--tx-4)", fontSize: 12 }}>No repository open</span>
           )}
+        </div>
+        {/* Work mode toggle — grid column 3 (auto) of the titlebar */}
+        <div
+          data-testid="work-mode-toggle"
+          style={{ gridColumn: 3, display: "flex", alignItems: "center", gap: 6, padding: "0 10px" }}
+        >
+          <span style={{ fontSize: 11, color: "var(--tx-4)", flexShrink: 0 }}>Mode</span>
+          <div className="seg" role="group" aria-label="Work mode">
+            <button
+              type="button"
+              className={`seg-btn${workMode === "planning" ? " on" : ""}`}
+              onClick={() => setWorkMode("planning")}
+              aria-pressed={workMode === "planning"}
+              data-testid="work-mode-planning"
+              title="Planning mode — new devices default to 'planned' status"
+            >
+              Planning
+            </button>
+            <button
+              type="button"
+              className={`seg-btn${workMode === "on-site" ? " on" : ""}`}
+              onClick={() => setWorkMode("on-site")}
+              aria-pressed={workMode === "on-site"}
+              data-testid="work-mode-onsite"
+              title="On-site mode — new devices default to 'installed' status"
+            >
+              On-site
+            </button>
+          </div>
         </div>
       </div>
 
@@ -566,6 +614,7 @@ export function App() {
               onPullSuccess={(s) => setSummary(s)}
               onPullRunning={() => {}}
               onCreateSuccess={handleCreateSuccess}
+              onCloneSuccess={handleCloneSuccess}
               gitRefreshToken={gitRefreshToken}
             />
           </div>

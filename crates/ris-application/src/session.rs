@@ -4,7 +4,10 @@ use ris_core::{
     Device, DeviceModel, DeviceStatus, DeviceType, Location, Placement, PlacementFile,
     PlacementRange, PlacementSide, PlacementTargetKind, Rack, ValidationIssue,
 };
-use ris_import::{preview_csv_import, CsvDeviceImportPreview, CsvImportContext, CsvRowAction};
+use ris_import::{
+    preview_csv_import, preview_device_model_csv_import, CsvDeviceImportPreview,
+    CsvDeviceModelImportPreview, CsvImportContext, CsvRowAction,
+};
 use ris_repository::{IndexedPlacement, RepositoryData, RepositoryIndex, WriteReport};
 use ris_validation::ValidationEngine;
 
@@ -120,6 +123,12 @@ pub struct UpdateDeviceInput {
 
 #[derive(Debug)]
 pub struct DeviceCsvImportResult {
+    pub created_count: usize,
+    pub warning_count: usize,
+}
+
+#[derive(Debug)]
+pub struct DeviceModelCsvImportResult {
     pub created_count: usize,
     pub warning_count: usize,
 }
@@ -996,6 +1005,66 @@ impl RepositorySession {
         }
 
         Ok(DeviceCsvImportResult {
+            created_count,
+            warning_count,
+        })
+    }
+
+    pub fn preview_device_models_csv(&self, csv_content: &str) -> CsvDeviceModelImportPreview {
+        let ctx = CsvImportContext::from_index(&self.index);
+        preview_device_model_csv_import(csv_content, &ctx)
+    }
+
+    pub fn import_device_models_csv(
+        &mut self,
+        csv_content: &str,
+    ) -> Result<DeviceModelCsvImportResult, ApplicationError> {
+        let preview = self.preview_device_models_csv(csv_content);
+
+        let has_file_errors = preview
+            .issues
+            .iter()
+            .any(|i| i.level == ris_core::ValidationLevel::Error);
+        let has_row_errors = preview
+            .rows
+            .iter()
+            .any(|r| r.action == CsvRowAction::SkipDueToError);
+
+        if has_file_errors || has_row_errors {
+            return Err(ApplicationError::InvalidInput(
+                "CSV contains validation errors; import rejected. Fix errors and retry.".into(),
+            ));
+        }
+
+        let warning_count = preview.summary.warning_rows;
+        let mut created_count = 0usize;
+
+        for row in &preview.rows {
+            if row.action != CsvRowAction::Create {
+                continue;
+            }
+            let device_type: DeviceType = row
+                .device_type
+                .as_deref()
+                .unwrap_or("")
+                .parse()
+                .map_err(|e: String| ApplicationError::InvalidInput(e))?;
+
+            self.add_device_model(AddDeviceModelInput {
+                id: None,
+                device_type,
+                code: row.code.clone(),
+                name: row.name.clone().unwrap_or_default(),
+                vendor: row.vendor.clone(),
+                model: row.model_number.clone(),
+                default_height_u: row.height_u.unwrap_or(1),
+                description: row.description.clone(),
+                tags: row.tags.clone(),
+            })?;
+            created_count += 1;
+        }
+
+        Ok(DeviceModelCsvImportResult {
             created_count,
             warning_count,
         })

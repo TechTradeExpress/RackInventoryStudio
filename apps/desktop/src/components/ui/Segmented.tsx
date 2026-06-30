@@ -5,6 +5,7 @@ export interface SegmentedOption<T extends string = string> {
   label: ReactNode;
   icon?: ReactNode;
   count?: number;
+  testId?: string;
 }
 
 export interface SegmentedProps<T extends string = string> {
@@ -12,6 +13,7 @@ export interface SegmentedProps<T extends string = string> {
   onChange: (value: T) => void;
   options: SegmentedOption<T>[];
   ariaLabel?: string;
+  testId?: string;
 }
 
 export function Segmented<T extends string = string>({
@@ -19,9 +21,10 @@ export function Segmented<T extends string = string>({
   onChange,
   options,
   ariaLabel,
+  testId,
 }: SegmentedProps<T>) {
   return (
-    <div className="seg" role="tablist" aria-label={ariaLabel}>
+    <div className="seg" role="tablist" aria-label={ariaLabel} data-testid={testId}>
       {options.map((o) => (
         <button
           key={o.value}
@@ -30,6 +33,7 @@ export function Segmented<T extends string = string>({
           aria-selected={value === o.value}
           className={`seg-btn${value === o.value ? " on" : ""}`}
           onClick={() => onChange(o.value)}
+          data-testid={o.testId}
         >
           {o.icon}
           <span>{o.label}</span>

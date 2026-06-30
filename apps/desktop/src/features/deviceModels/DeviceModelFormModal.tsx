@@ -1,4 +1,4 @@
-import { useState, useEffect, type ChangeEvent } from "react";
+import { useState, useEffect, useRef, type ChangeEvent } from "react";
 import { Modal } from "../../components/ui/Modal";
 import { Field } from "../../components/ui/Field";
 import { parseTags, joinTags } from "../../lib/tags";
@@ -51,9 +51,17 @@ function modelToForm(m: DeviceModelDto): FormState {
   };
 }
 
-function isDirty(form: FormState, editing: DeviceModelDto | null): boolean {
+function isDirty(form: FormState, editing: DeviceModelDto | null, initialForm: FormState = EMPTY): boolean {
   if (!editing) {
-    return Object.values(form).some((v) => v !== "");
+    return (
+      form.deviceType !== initialForm.deviceType ||
+      form.name !== initialForm.name ||
+      form.vendor !== initialForm.vendor ||
+      form.modelNumber !== initialForm.modelNumber ||
+      form.heightU !== initialForm.heightU ||
+      form.description !== initialForm.description ||
+      form.tags !== initialForm.tags
+    );
   }
   const orig = modelToForm(editing);
   return (
@@ -67,6 +75,16 @@ function isDirty(form: FormState, editing: DeviceModelDto | null): boolean {
   );
 }
 
+export interface DeviceModelPrefill {
+  deviceType?: string;
+  name?: string;
+  vendor?: string;
+  modelNumber?: string;
+  heightU?: string;
+  description?: string;
+  tags?: string;
+}
+
 export interface DeviceModelFormModalProps {
   open: boolean;
   /** null → add mode, DeviceModelDto → edit mode */
@@ -74,6 +92,12 @@ export interface DeviceModelFormModalProps {
   onClose: () => void;
   /** In add mode, called with the new model's ID. In edit mode, called with no argument. */
   onSaved: (newModelId?: string) => void;
+  /** Pre-initialise device type to this value on open (add mode only). */
+  forcedDeviceType?: string;
+  /** When true, hides the device type selector and locks the type to forcedDeviceType. */
+  lockDeviceType?: boolean;
+  /** Pre-fill form fields in add mode (ignored in edit mode). */
+  prefill?: DeviceModelPrefill;
 }
 
 export function DeviceModelFormModal({
@@ -81,20 +105,28 @@ export function DeviceModelFormModal({
   editing,
   onClose,
   onSaved,
+  forcedDeviceType,
+  lockDeviceType,
+  prefill,
 }: DeviceModelFormModalProps) {
   const [form, setForm] = useState<FormState>(EMPTY);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const initialFormRef = useRef<FormState>(EMPTY);
 
   const isEdit = editing !== null;
 
   useEffect(() => {
     if (open) {
-      setForm(editing ? modelToForm(editing) : EMPTY);
+      const initial = editing
+        ? modelToForm(editing)
+        : { ...EMPTY, deviceType: forcedDeviceType ?? "", ...prefill };
+      initialFormRef.current = initial;
+      setForm(initial);
       setError(null);
       setSubmitting(false);
     }
-  }, [open, editing]);
+  }, [open, editing, forcedDeviceType, prefill]);
 
   const set =
     (k: keyof FormState) =>
@@ -167,12 +199,19 @@ export function DeviceModelFormModal({
     }
   }
 
-  const dirty = isDirty(form, editing);
+  const dirty = isDirty(form, editing, initialFormRef.current);
+  const isLockedRackObject = !!lockDeviceType && !isEdit && forcedDeviceType === "rack_object";
+
+  const title = isLockedRackObject
+    ? "Create rack object"
+    : isEdit
+    ? "Edit device model"
+    : "Add device model";
 
   return (
     <Modal
       open={open}
-      title={isEdit ? "Edit device model" : "Add device model"}
+      title={title}
       subtitle="A hardware template that describes a device type and its physical parameters."
       onClose={onClose}
       size="md"
@@ -190,33 +229,49 @@ export function DeviceModelFormModal({
             disabled={!canSave}
           >
             {submitting
-              ? isEdit
+              ? isLockedRackObject
+                ? "Creating…"
+                : isEdit
                 ? "Saving…"
                 : "Adding…"
+              : isLockedRackObject
+              ? "Create rack object"
               : isEdit
-                ? "Save changes"
-                : "Create model"}
+              ? "Save changes"
+              : "Create model"}
           </button>
         </>
       }
     >
       <div className="form-grid">
-        <Field label="Device type" required>
-          <select
-            className="input"
-            value={form.deviceType}
-            onChange={set("deviceType")}
-            disabled={submitting}
-            data-testid="field-device-type"
-          >
-            <option value="">— select —</option>
-            {DEVICE_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-        </Field>
+        {lockDeviceType ? (
+          <Field label="Device type" required>
+            <div
+              className="input"
+              style={{ color: "var(--tx-3)", pointerEvents: "none", userSelect: "none" }}
+              data-testid="field-device-type-locked"
+            >
+              {forcedDeviceType ?? ""}
+            </div>
+          </Field>
+        ) : (
+          <Field label="Device type" required>
+            <select
+              className="input"
+              value={form.deviceType}
+              onChange={set("deviceType")}
+              disabled={submitting}
+              data-testid="field-device-type"
+            >
+              <option value="">— select —</option>
+              {DEVICE_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         {form.deviceType === "rack_object" && (
           <Field>
             <p

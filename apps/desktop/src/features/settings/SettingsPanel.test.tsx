@@ -28,6 +28,10 @@ const DEFAULT_LOG_SETTINGS = {
   active_log_dir: "/home/user/.local/share/com.test/logs",
   custom_log_dir: null,
   restart_required: false,
+  dir_exists: true,
+  dir_writable: true,
+  current_log_filename: "ris-2026-06-28.log",
+  retention_days: 30,
 };
 
 afterEach(() => {
@@ -235,6 +239,51 @@ describe("SettingsPanel", () => {
       expect(screen.getByText(/Custom directory/)).toBeTruthy();
       expect(screen.getByText("/tmp/custom-logs")).toBeTruthy();
       expect(screen.getByText(/Changes will apply after restart/)).toBeTruthy();
+    });
+  });
+
+  it("shows current log filename from settings", async () => {
+    render(<SettingsPanel />);
+    await waitFor(() => {
+      expect(screen.getByText("ris-2026-06-28.log")).toBeTruthy();
+    });
+  });
+
+  it("shows retention days from settings", async () => {
+    render(<SettingsPanel />);
+    await waitFor(() => {
+      expect(screen.getByText(/30 days/)).toBeTruthy();
+    });
+  });
+
+  it("shows 'accessible' status when dir_exists and dir_writable are true", async () => {
+    render(<SettingsPanel />);
+    await waitFor(() => {
+      expect(screen.getByText(/accessible/)).toBeTruthy();
+    });
+  });
+
+  it("shows 'will be created' status when dir_exists is false", async () => {
+    mockGetLogSettings.mockResolvedValue({
+      ...DEFAULT_LOG_SETTINGS,
+      dir_exists: false,
+      dir_writable: false,
+    });
+    render(<SettingsPanel />);
+    await waitFor(() => {
+      expect(screen.getByText(/will be created/)).toBeTruthy();
+    });
+  });
+
+  it("shows 'not writable' status when dir_exists but not dir_writable", async () => {
+    mockGetLogSettings.mockResolvedValue({
+      ...DEFAULT_LOG_SETTINGS,
+      dir_exists: true,
+      dir_writable: false,
+    });
+    render(<SettingsPanel />);
+    await waitFor(() => {
+      expect(screen.getByText(/not writable/)).toBeTruthy();
     });
   });
 });

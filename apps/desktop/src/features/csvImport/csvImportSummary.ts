@@ -1,4 +1,9 @@
-import type { CsvImportPreviewDto } from "../../api/tauriClient";
+interface PreviewLike {
+  rows: Array<{
+    action: string;
+    issues: Array<{ level: string }>;
+  }>;
+}
 
 export interface CsvImportUiSummary {
   totalRows: number;
@@ -9,7 +14,7 @@ export interface CsvImportUiSummary {
 }
 
 export function deriveCsvImportUiSummary(
-  preview: CsvImportPreviewDto | null,
+  preview: PreviewLike | null,
 ): CsvImportUiSummary {
   if (preview === null) {
     return { totalRows: 0, importableRows: 0, cleanRows: 0, warningRows: 0, skippedRows: 0 };

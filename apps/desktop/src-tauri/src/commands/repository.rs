@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
-use crate::diagnostics::{basename, sanitize_error};
+use crate::diagnostics::{basename, redact_git_url, sanitize_error};
 
 use ris_application::{
     create_repository, open_repository, AddDeviceInput, AddDeviceModelInput, AddLocationInput,
@@ -15,13 +15,13 @@ use tauri::State;
 
 use crate::dto::{
     AddDeviceInputDto, AddDeviceModelInputDto, AddLocationInputDto, AddRackInputDto,
-    CreateRepositoryInputDto, CsvImportIssueDto, CsvImportPreviewDto, CsvImportPreviewRowDto,
-    CsvImportResultDto, CsvImportSummaryDto, DeviceDto, DeviceModelDto, LocationDto,
-    MovePlacementInputDto, OpenRepositoryResultDto, PlaceDeviceInputDto, PlaceRackObjectInputDto,
-    PlacementDto, RackDetailDto, RackSummaryDto, RemovePlacementInputDto, RepositorySummaryDto,
-    SaveSummaryDto, SearchNavigationDto, SearchResultDto, UpdateDeviceInputDto,
-    UpdateDeviceModelInputDto, UpdateLocationInputDto, UpdateRackInputDto, ValidationIssueDto,
-    ValidationSummaryDto,
+    CreateRepositoryInputDto, CsvDeviceModelImportPreviewDto, CsvDeviceModelImportPreviewRowDto,
+    CsvImportIssueDto, CsvImportPreviewDto, CsvImportPreviewRowDto, CsvImportResultDto,
+    CsvImportSummaryDto, DeviceDto, DeviceModelDto, LocationDto, MovePlacementInputDto,
+    OpenRepositoryResultDto, PlaceDeviceInputDto, PlaceRackObjectInputDto, PlacementDto,
+    RackDetailDto, RackSummaryDto, RemovePlacementInputDto, RepositorySummaryDto, SaveSummaryDto,
+    SearchNavigationDto, SearchResultDto, UpdateDeviceInputDto, UpdateDeviceModelInputDto,
+    UpdateLocationInputDto, UpdateRackInputDto, ValidationIssueDto, ValidationSummaryDto,
 };
 
 pub struct AppState {
@@ -227,6 +227,80 @@ pub fn create_repository_cmd(
     let summary = build_summary(&session);
     let validation_summary = build_validation_summary(&issues);
     log::info!("create_repository ok: code={}", summary.repository_code);
+
+    let mut guard = lock_session(&state)?;
+    *guard = Some(session);
+
+    Ok(OpenRepositoryResultDto {
+        summary,
+        validation_summary,
+    })
+}
+
+#[tauri::command]
+pub fn clone_repository_cmd(
+    url: String,
+    destination: String,
+    state: State<AppState>,
+) -> Result<OpenRepositoryResultDto, String> {
+    let url = url.trim().to_string();
+    if url.is_empty() {
+        return Err("Git URL cannot be blank".to_string());
+    }
+    let destination = destination.trim().to_string();
+    if destination.is_empty() {
+        return Err("Destination path cannot be blank".to_string());
+    }
+
+    let dest_path = Path::new(&destination);
+
+    // Reject non-empty destination to avoid clobbering existing data.
+    if dest_path.exists() {
+        let is_empty = std::fs::read_dir(dest_path)
+            .map(|mut d| d.next().is_none())
+            .unwrap_or(false);
+        if !is_empty {
+            return Err(format!(
+                "Destination directory already exists and is not empty: {}",
+                basename(dest_path),
+            ));
+        }
+    }
+
+    log::info!(
+        "clone_repository: url={} dest={}",
+        redact_git_url(&url),
+        basename(dest_path),
+    );
+
+    ris_git::clone(&url, &destination).map_err(|e| {
+        let msg = e.to_string();
+        log::error!("clone_repository failed: {}", sanitize_error(&msg));
+        msg
+    })?;
+
+    log::info!(
+        "clone_repository: git clone ok, opening {}",
+        basename(dest_path),
+    );
+
+    // Open the cloned directory through the same path as open_repository_cmd.
+    // If the clone is not a valid RIS repo this returns an error; the cloned
+    // directory is intentionally NOT deleted so the user can inspect it.
+    let session = open_repository(dest_path).map_err(|e| {
+        let msg = format!("Repository cloned but is not a valid RIS repository: {e}");
+        log::error!("clone_repository: open failed: {}", sanitize_error(&msg));
+        msg
+    })?;
+
+    let issues = session.validate();
+    let summary = build_summary(&session);
+    let validation_summary = build_validation_summary(&issues);
+    log::info!(
+        "clone_repository ok: code={} validation_issues={}",
+        summary.repository_code,
+        validation_summary.total,
+    );
 
     let mut guard = lock_session(&state)?;
     *guard = Some(session);
@@ -967,7 +1041,7 @@ pub fn delete_device_cmd(id: String, state: State<AppState>) -> Result<(), Strin
 
 pub const MAX_CSV_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
 
-/// Fixed sample CSV used for the "Download sample CSV" feature.
+/// Fixed sample CSV for the "Download sample CSV" feature (Device import).
 /// Columns mirror KNOWN_COLUMNS / REQUIRED_COLUMNS in crates/ris-import/src/csv_reader.rs.
 /// Device codes are auto-generated; rack_object is not a valid device_type for CSV import.
 pub const DEVICE_IMPORT_SAMPLE_CSV: &str = "\
@@ -976,6 +1050,17 @@ server,Demo Server 1,,SN-DEMO-001,ASSET-DEMO-001,REF-DEMO-001,in_stock,productio
 server,Demo Server 2,,,,,planned,staging\n\
 network,Demo Switch 1,,,,,in_stock,access;switch\n\
 other,Demo Other Device,,,,,unknown,\n\
+";
+
+/// Fixed sample CSV for the "Download sample CSV" feature (Device Model import).
+/// Columns mirror DEVICE_MODEL_KNOWN_COLUMNS / DEVICE_MODEL_REQUIRED_COLUMNS.
+/// code is optional; height_u defaults to 1 when omitted. rack_object is allowed.
+pub const DEVICE_MODEL_IMPORT_SAMPLE_CSV: &str = "\
+device_type,name,code,vendor,model_number,height_u,description,tags\n\
+server,Demo 1U Server,,Acme,ACM-SRV-1,1,A one-unit server,demo\n\
+network,Demo 24-port Switch,,Acme,ACM-SW-24,1,,access;switch\n\
+storage,Demo Storage Array,,Acme,ACM-STR-4,4,,\n\
+rack_object,Demo 1U Blank Panel,,Acme,ACM-BLANK-1,1,,\n\
 ";
 
 /// Reads a file as UTF-8 text, enforcing a size limit.
@@ -1014,6 +1099,147 @@ pub fn write_device_import_sample_csv(path: String) -> Result<(), String> {
     }
     std::fs::write(path_ref, DEVICE_IMPORT_SAMPLE_CSV.as_bytes())
         .map_err(|e| format!("Failed to write sample CSV: {e}"))
+}
+
+#[tauri::command]
+pub fn preview_device_model_csv_import_cmd(
+    csv_content: String,
+    state: State<AppState>,
+) -> Result<CsvDeviceModelImportPreviewDto, String> {
+    log::info!(
+        "preview_device_model_csv_import: bytes={}",
+        csv_content.len()
+    );
+    let guard = lock_session(&state)?;
+    let session = guard.as_ref().ok_or_else(no_session)?;
+    let preview = session.preview_device_models_csv(&csv_content);
+    let rows = preview
+        .rows
+        .iter()
+        .map(|r| CsvDeviceModelImportPreviewRowDto {
+            row_number: r.row_number,
+            device_type: r.device_type.clone(),
+            name: r.name.clone(),
+            code: r.code.clone(),
+            vendor: r.vendor.clone(),
+            model_number: r.model_number.clone(),
+            height_u: r.height_u,
+            action: match r.action {
+                CsvRowAction::Create => "create".to_string(),
+                CsvRowAction::SkipDueToError => "skip_due_to_error".to_string(),
+            },
+            issues: r.issues.iter().map(issue_to_csv_dto).collect(),
+        })
+        .collect();
+    let dto = CsvDeviceModelImportPreviewDto {
+        summary: CsvImportSummaryDto {
+            total_rows: preview.summary.total_rows,
+            valid_rows: preview.summary.valid_rows,
+            error_rows: preview.summary.error_rows,
+            warning_rows: preview.summary.warning_rows,
+        },
+        file_issues: preview.issues.iter().map(issue_to_csv_dto).collect(),
+        rows,
+    };
+    log::info!(
+        "preview_device_model_csv_import ok: total_rows={} valid={} errors={}",
+        dto.summary.total_rows,
+        dto.summary.valid_rows,
+        dto.summary.error_rows,
+    );
+    Ok(dto)
+}
+
+#[tauri::command]
+pub fn import_device_model_csv_cmd(
+    csv_content: String,
+    state: State<AppState>,
+) -> Result<CsvImportResultDto, String> {
+    log::info!("import_device_model_csv: bytes={}", csv_content.len());
+    let mut guard = lock_session(&state)?;
+    let session = guard.as_mut().ok_or_else(no_session)?;
+    session
+        .import_device_models_csv(&csv_content)
+        .map(|r| {
+            log::info!(
+                "import_device_model_csv ok: created={} warnings={}",
+                r.created_count,
+                r.warning_count,
+            );
+            CsvImportResultDto {
+                created_count: r.created_count,
+                warning_count: r.warning_count,
+            }
+        })
+        .map_err(|e| {
+            let msg = e.to_string();
+            log::error!("import_device_model_csv failed: {}", sanitize_error(&msg));
+            msg
+        })
+}
+
+/// Write the built-in device model import sample CSV to the given path.
+#[tauri::command]
+pub fn write_device_model_import_sample_csv(path: String) -> Result<(), String> {
+    let path_ref = std::path::Path::new(&path);
+    if path_ref.is_dir() {
+        return Err(format!("'{}' is a directory, not a file", path));
+    }
+    std::fs::write(path_ref, DEVICE_MODEL_IMPORT_SAMPLE_CSV.as_bytes())
+        .map_err(|e| format!("Failed to write sample CSV: {e}"))
+}
+
+// ── Export file write ─────────────────────────────────────────────────────────
+
+/// Validate that `path` has an allowed export extension (`.svg` or `.png`).
+///
+/// Matching is case-insensitive: `.SVG`, `.Png`, etc. are accepted.
+/// A missing extension is rejected.
+fn validate_export_extension(path: &std::path::Path) -> Result<(), String> {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase());
+    match ext.as_deref() {
+        Some("svg") | Some("png") => Ok(()),
+        _ => Err("Unsupported export file extension. Use .svg or .png.".to_string()),
+    }
+}
+
+/// Shared validation + write helper used by the export commands below.
+fn write_export(path: &str, data: &[u8]) -> Result<(), String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err("Path cannot be blank".to_string());
+    }
+    let path_ref = std::path::Path::new(path);
+    if path_ref.is_dir() {
+        return Err(format!(
+            "'{}' is a directory, not a file",
+            basename(path_ref)
+        ));
+    }
+    validate_export_extension(path_ref)?;
+    if let Some(parent) = path_ref.parent() {
+        if !parent.as_os_str().is_empty() && !parent.exists() {
+            return Err("Parent directory does not exist".to_string());
+        }
+    }
+    std::fs::write(path_ref, data).map_err(|e| format!("Failed to write file: {e}"))
+}
+
+/// Write UTF-8 text content (e.g. SVG) to the given path.
+/// The path is supplied by the frontend after the user selects it via the native save dialog.
+#[tauri::command]
+pub fn write_export_file(path: String, content: String) -> Result<(), String> {
+    write_export(&path, content.as_bytes())
+}
+
+/// Write raw bytes (e.g. PNG) to the given path.
+/// The path is supplied by the frontend after the user selects it via the native save dialog.
+#[tauri::command]
+pub fn write_export_bytes(path: String, bytes: Vec<u8>) -> Result<(), String> {
+    write_export(&path, &bytes)
 }
 
 // ── Search ────────────────────────────────────────────────────────────────────
@@ -1055,9 +1281,58 @@ pub fn search_repository_cmd(
 
 #[cfg(test)]
 mod tests {
-    use super::{read_csv_content, validate_repo_code, DEVICE_IMPORT_SAMPLE_CSV, MAX_CSV_BYTES};
+    use super::{
+        read_csv_content, validate_export_extension, validate_repo_code, write_export,
+        DEVICE_IMPORT_SAMPLE_CSV, MAX_CSV_BYTES,
+    };
     use std::io::Write;
     use std::path::Path;
+
+    fn dir_name_from_url(url: &str) -> String {
+        let url = url.trim().trim_end_matches('/');
+        let url = url.strip_suffix(".git").unwrap_or(url);
+        url.split(['/', ':'])
+            .filter(|s| !s.is_empty())
+            .last()
+            .unwrap_or("cloned-repo")
+            .to_string()
+    }
+
+    // ── dir_name_from_url ─────────────────────────────────────────────────────
+
+    #[test]
+    fn dir_name_from_https_url_with_git_suffix() {
+        assert_eq!(dir_name_from_url("https://github.com/org/repo.git"), "repo");
+    }
+
+    #[test]
+    fn dir_name_from_ssh_url() {
+        assert_eq!(dir_name_from_url("git@github.com:org/repo.git"), "repo");
+    }
+
+    #[test]
+    fn dir_name_from_ssh_alias() {
+        assert_eq!(dir_name_from_url("github-ris-test:org/repo.git"), "repo");
+    }
+
+    #[test]
+    fn dir_name_from_https_without_git_suffix() {
+        assert_eq!(dir_name_from_url("https://github.com/org/myrepo"), "myrepo");
+    }
+
+    #[test]
+    fn dir_name_from_url_with_trailing_slash() {
+        assert_eq!(dir_name_from_url("https://github.com/org/repo/"), "repo");
+    }
+
+    #[test]
+    fn dir_name_from_url_with_token_at_sign() {
+        // Token should not affect dir extraction
+        assert_eq!(
+            dir_name_from_url("https://token@github.com/org/repo.git"),
+            "repo"
+        );
+    }
 
     // ── validate_repo_code ────────────────────────────────────────────────────
 
@@ -1207,6 +1482,123 @@ mod tests {
                 i + 2,
             );
         }
+    }
+
+    // ── write_export ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn write_export_writes_text_to_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("output.svg");
+        write_export(path.to_str().unwrap(), b"<svg/>").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "<svg/>");
+    }
+
+    #[test]
+    fn write_export_writes_bytes_to_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("output.png");
+        let data: Vec<u8> = vec![0x89, 0x50, 0x4e, 0x47]; // PNG magic
+        write_export(path.to_str().unwrap(), &data).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), data);
+    }
+
+    #[test]
+    fn write_export_returns_error_for_empty_path() {
+        assert!(write_export("", b"content").is_err());
+        assert!(write_export("   ", b"content").is_err());
+    }
+
+    #[test]
+    fn write_export_returns_error_when_path_is_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = write_export(dir.path().to_str().unwrap(), b"content").unwrap_err();
+        assert!(err.contains("directory"), "error was: {err}");
+    }
+
+    #[test]
+    fn write_export_returns_error_when_parent_dir_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let bad = dir.path().join("nonexistent").join("file.svg");
+        let err = write_export(bad.to_str().unwrap(), b"content").unwrap_err();
+        assert!(!err.is_empty(), "expected non-empty error");
+    }
+
+    // ── validate_export_extension ─────────────────────────────────────────────
+
+    #[test]
+    fn write_export_allows_svg_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rack.svg");
+        write_export(path.to_str().unwrap(), b"<svg/>").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "<svg/>");
+    }
+
+    #[test]
+    fn write_export_allows_png_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rack.png");
+        let data: Vec<u8> = vec![0x89, 0x50, 0x4e, 0x47];
+        write_export(path.to_str().unwrap(), &data).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), data);
+    }
+
+    #[test]
+    fn write_export_extension_check_is_case_insensitive() {
+        let dir = tempfile::tempdir().unwrap();
+        let svg_upper = dir.path().join("rack.SVG");
+        write_export(svg_upper.to_str().unwrap(), b"<svg/>").unwrap();
+        let png_mixed = dir.path().join("rack.Png");
+        write_export(png_mixed.to_str().unwrap(), &[0u8]).unwrap();
+    }
+
+    #[test]
+    fn write_export_rejects_unknown_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        for ext in &["txt", "yaml", "exe", "json", "pdf"] {
+            let path = dir.path().join(format!("rack.{ext}"));
+            let err = write_export(path.to_str().unwrap(), b"data").unwrap_err();
+            assert!(
+                err.contains("Unsupported export file extension"),
+                "expected extension rejection for .{ext}, got: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn write_export_rejects_missing_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rack-no-ext");
+        let err = write_export(path.to_str().unwrap(), b"data").unwrap_err();
+        assert!(
+            err.contains("Unsupported export file extension"),
+            "expected extension rejection for no-ext path, got: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_export_extension_accepts_svg_and_png() {
+        assert!(validate_export_extension(Path::new("file.svg")).is_ok());
+        assert!(validate_export_extension(Path::new("file.png")).is_ok());
+        assert!(validate_export_extension(Path::new("file.SVG")).is_ok());
+        assert!(validate_export_extension(Path::new("file.PNG")).is_ok());
+        assert!(validate_export_extension(Path::new("file.Svg")).is_ok());
+        assert!(validate_export_extension(Path::new("file.pNg")).is_ok());
+    }
+
+    #[test]
+    fn validate_export_extension_rejects_other_extensions() {
+        assert!(validate_export_extension(Path::new("file.txt")).is_err());
+        assert!(validate_export_extension(Path::new("file.yaml")).is_err());
+        assert!(validate_export_extension(Path::new("file.exe")).is_err());
+        assert!(validate_export_extension(Path::new("file.json")).is_err());
+        assert!(validate_export_extension(Path::new("file.pdf")).is_err());
+    }
+
+    #[test]
+    fn validate_export_extension_rejects_no_extension() {
+        let err = validate_export_extension(Path::new("rack-no-ext")).unwrap_err();
+        assert!(err.contains("Unsupported export file extension"), "{err}");
     }
 
     #[test]

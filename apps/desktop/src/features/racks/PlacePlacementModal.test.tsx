@@ -72,6 +72,22 @@ const DEVICE_1: DeviceDto = {
   tags: [],
 };
 
+const DEVICE_2: DeviceDto = {
+  id: "dev-2",
+  code: "sw-02",
+  device_type: "network",
+  name: "Switch 02",
+  serial_number: "SW002",
+  asset_tag: "AT-SW-002",
+  external_ref: null,
+  status: "planned",
+  device_model_code: null,
+  device_model_id: null,
+  is_placed: false,
+  description: null,
+  tags: [],
+};
+
 const RACK_OBJ_1: DeviceModelDto = {
   id: "model-2",
   code: "blank-1u",
@@ -79,6 +95,18 @@ const RACK_OBJ_1: DeviceModelDto = {
   name: "Blank 1U",
   vendor: null,
   model_number: null,
+  default_height_u: 1,
+  description: null,
+  tags: [],
+};
+
+const RACK_OBJ_2: DeviceModelDto = {
+  id: "model-3",
+  code: "panel-24",
+  device_type: "rack_object",
+  name: "Patch Panel 24",
+  vendor: "Legrand",
+  model_number: "PP24",
   default_height_u: 1,
   description: null,
   tags: [],
@@ -141,6 +169,36 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+// ── Helpers to interact with the SearchableSelect dropdowns ────────────────────
+
+/** Opens the device dropdown and selects the option whose label contains `label`. */
+async function selectDevice(label: string) {
+  fireEvent.click(screen.getByTestId("device-select-trigger"));
+  await waitFor(() => {
+    const opts = document.querySelectorAll(".ss-dropdown .ss-option");
+    const match = Array.from(opts).find((o) => o.textContent?.includes(label));
+    if (!match) throw new Error(`Device option "${label}" not found`);
+  });
+  const opts = document.querySelectorAll(".ss-dropdown .ss-option");
+  const opt = Array.from(opts).find((o) => o.textContent?.includes(label))!;
+  fireEvent.mouseDown(opt);
+}
+
+/** Opens the rack-object dropdown and selects the option whose label contains `label`. */
+async function selectRackObject(label: string) {
+  fireEvent.click(screen.getByTestId("rack-object-select-trigger"));
+  await waitFor(() => {
+    const opts = document.querySelectorAll(".ss-dropdown .ss-option");
+    const match = Array.from(opts).find((o) => o.textContent?.includes(label));
+    if (!match) throw new Error(`Rack object option "${label}" not found`);
+  });
+  const opts = document.querySelectorAll(".ss-dropdown .ss-option");
+  const opt = Array.from(opts).find((o) => o.textContent?.includes(label))!;
+  fireEvent.mouseDown(opt);
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
 describe("PlacePlacementModal — closed", () => {
   it("does not render when open=false", () => {
     render(<PlacePlacementModal {...BASE_PROPS} open={false} />);
@@ -177,13 +235,12 @@ describe("PlacePlacementModal — open", () => {
     expect(btn.disabled).toBe(true);
   });
 
-  it("Place button is enabled after selecting a device", () => {
+  it("Place button is enabled after selecting a device", async () => {
     render(<PlacePlacementModal {...BASE_PROPS} />);
-    fireEvent.change(screen.getByTestId("device-select"), {
-      target: { value: "dev-1" },
+    await selectDevice("Server 01");
+    await waitFor(() => {
+      expect((screen.getByTestId("place-btn") as HTMLButtonElement).disabled).toBe(false);
     });
-    const btn = screen.getByTestId("place-btn") as HTMLButtonElement;
-    expect(btn.disabled).toBe(false);
   });
 
   it("calls placeDevice with correct payload on valid submit", async () => {
@@ -193,9 +250,7 @@ describe("PlacePlacementModal — open", () => {
       <PlacePlacementModal {...BASE_PROPS} onPlaced={onPlaced} onClose={onClose} />,
     );
 
-    fireEvent.change(screen.getByTestId("device-select"), {
-      target: { value: "dev-1" },
-    });
+    await selectDevice("Server 01");
     fireEvent.click(screen.getByTestId("place-btn"));
 
     await waitFor(() => {
@@ -217,9 +272,7 @@ describe("PlacePlacementModal — open", () => {
 
     // Switch to rack_object mode
     fireEvent.click(screen.getByDisplayValue("rack_object") ?? screen.getAllByRole("radio")[1]);
-    fireEvent.change(screen.getByTestId("rack-object-select"), {
-      target: { value: "model-2" },
-    });
+    await selectRackObject("Blank 1U");
     fireEvent.click(screen.getByTestId("place-btn"));
 
     await waitFor(() => {
@@ -239,9 +292,7 @@ describe("PlacePlacementModal — open", () => {
     mockPlaceDevice.mockRejectedValueOnce(new Error("U slot occupied"));
     render(<PlacePlacementModal {...BASE_PROPS} />);
 
-    fireEvent.change(screen.getByTestId("device-select"), {
-      target: { value: "dev-1" },
-    });
+    await selectDevice("Server 01");
     fireEvent.click(screen.getByTestId("place-btn"));
 
     await waitFor(() => {
@@ -252,17 +303,11 @@ describe("PlacePlacementModal — open", () => {
   it("shows validation error when start U is missing", async () => {
     render(<PlacePlacementModal {...BASE_PROPS} startU={null} />);
 
-    fireEvent.change(screen.getByTestId("device-select"), {
-      target: { value: "dev-1" },
-    });
-    // Place btn disabled when no startU, manually trigger via form validation
-    const btn = screen.getByTestId("place-btn") as HTMLButtonElement;
-    // Enable by typing a bad value then clicking
+    await selectDevice("Server 01");
     fireEvent.change(screen.getByTestId("start-u-input"), {
       target: { value: "" },
     });
-    // Simulate click even though disabled — implementation prevents submit via validate()
-    // Instead verify the button is disabled (no device selected implies no submit)
+    const btn = screen.getByTestId("place-btn") as HTMLButtonElement;
     expect(btn.disabled).toBe(false); // device is selected
     fireEvent.click(btn);
 
@@ -281,7 +326,7 @@ describe("PlacePlacementModal — open", () => {
 });
 
 describe("PlacePlacementModal — DnD drop prefill", () => {
-  it("device kind+id+startU prefilled via DnD → Place button enabled", () => {
+  it("device kind+id+startU prefilled via DnD → trigger shows device, Place button enabled", () => {
     render(
       <PlacePlacementModal
         {...BASE_PROPS}
@@ -290,15 +335,13 @@ describe("PlacePlacementModal — DnD drop prefill", () => {
         startU={7}
       />,
     );
-    const startUInput = screen.getByTestId("start-u-input") as HTMLInputElement;
-    expect(startUInput.value).toBe("7");
-    const select = screen.getByTestId("device-select") as HTMLSelectElement;
-    expect(select.value).toBe("dev-1");
-    const btn = screen.getByTestId("place-btn") as HTMLButtonElement;
-    expect(btn.disabled).toBe(false);
+    expect((screen.getByTestId("start-u-input") as HTMLInputElement).value).toBe("7");
+    // SearchableSelect trigger shows the preselected device name
+    expect(screen.getByTestId("device-select-trigger").textContent).toContain("Server 01");
+    expect((screen.getByTestId("place-btn") as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it("rack_object kind+id+startU prefilled via DnD → Place button enabled", () => {
+  it("rack_object kind+id+startU prefilled via DnD → trigger shows model, Place button enabled", () => {
     render(
       <PlacePlacementModal
         {...BASE_PROPS}
@@ -307,12 +350,166 @@ describe("PlacePlacementModal — DnD drop prefill", () => {
         startU={3}
       />,
     );
-    const startUInput = screen.getByTestId("start-u-input") as HTMLInputElement;
-    expect(startUInput.value).toBe("3");
-    const select = screen.getByTestId("rack-object-select") as HTMLSelectElement;
-    expect(select.value).toBe("model-2");
-    const btn = screen.getByTestId("place-btn") as HTMLButtonElement;
-    expect(btn.disabled).toBe(false);
+    expect((screen.getByTestId("start-u-input") as HTMLInputElement).value).toBe("3");
+    expect(screen.getByTestId("rack-object-select-trigger").textContent).toContain("Blank 1U");
+    expect((screen.getByTestId("place-btn") as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+describe("PlacePlacementModal — device SearchableSelect search", () => {
+  it("search by device name narrows the list", async () => {
+    render(
+      <PlacePlacementModal
+        {...BASE_PROPS}
+        availableDevices={[DEVICE_1, DEVICE_2]}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("device-select-trigger"));
+    await waitFor(() => {
+      const opts = document.querySelectorAll(".ss-dropdown .ss-option");
+      expect(opts.length).toBeGreaterThan(0);
+    });
+
+    fireEvent.change(screen.getByTestId("device-select-search"), {
+      target: { value: "Server 01" },
+    });
+
+    await waitFor(() => {
+      const opts = document.querySelectorAll(".ss-dropdown .ss-option");
+      const labels = Array.from(opts).map((o) => o.textContent);
+      expect(labels.some((l) => l?.includes("Server 01"))).toBe(true);
+      expect(labels.some((l) => l?.includes("Switch 02"))).toBe(false);
+    });
+  });
+
+  it("search by serial number narrows the list", async () => {
+    render(
+      <PlacePlacementModal
+        {...BASE_PROPS}
+        availableDevices={[DEVICE_1, DEVICE_2]}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("device-select-trigger"));
+    await waitFor(() => {
+      const opts = document.querySelectorAll(".ss-dropdown .ss-option");
+      expect(opts.length).toBeGreaterThan(0);
+    });
+
+    // DEVICE_1 has serial_number "SRV001", DEVICE_2 has "SW002"
+    fireEvent.change(screen.getByTestId("device-select-search"), {
+      target: { value: "SRV001" },
+    });
+
+    await waitFor(() => {
+      const opts = document.querySelectorAll(".ss-dropdown .ss-option");
+      const labels = Array.from(opts).map((o) => o.textContent);
+      expect(labels.some((l) => l?.includes("Server 01"))).toBe(true);
+      expect(labels.some((l) => l?.includes("Switch 02"))).toBe(false);
+    });
+  });
+
+  it("search with no match shows 'No results'", async () => {
+    render(<PlacePlacementModal {...BASE_PROPS} />);
+    fireEvent.click(screen.getByTestId("device-select-trigger"));
+    await waitFor(() => {
+      const opts = document.querySelectorAll(".ss-dropdown .ss-option");
+      expect(opts.length).toBeGreaterThan(0);
+    });
+
+    fireEvent.change(screen.getByTestId("device-select-search"), {
+      target: { value: "zzz-no-match" },
+    });
+
+    await waitFor(() => {
+      expect(document.querySelector(".ss-empty")?.textContent).toBe("No results");
+    });
+  });
+
+  it("search is case-insensitive", async () => {
+    render(<PlacePlacementModal {...BASE_PROPS} />);
+    fireEvent.click(screen.getByTestId("device-select-trigger"));
+    await waitFor(() => {
+      expect(document.querySelectorAll(".ss-dropdown .ss-option").length).toBeGreaterThan(0);
+    });
+
+    fireEvent.change(screen.getByTestId("device-select-search"), {
+      target: { value: "SERVER" },
+    });
+
+    await waitFor(() => {
+      const opts = document.querySelectorAll(".ss-dropdown .ss-option");
+      expect(Array.from(opts).some((o) => o.textContent?.includes("Server 01"))).toBe(true);
+    });
+  });
+});
+
+describe("PlacePlacementModal — rack object SearchableSelect search", () => {
+  it("search by name narrows the rack object list", async () => {
+    render(
+      <PlacePlacementModal
+        {...BASE_PROPS}
+        initialTargetKind="rack_object"
+        availableRackObjects={[RACK_OBJ_1, RACK_OBJ_2]}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("rack-object-select-trigger"));
+    await waitFor(() => {
+      const opts = document.querySelectorAll(".ss-dropdown .ss-option");
+      expect(opts.length).toBeGreaterThan(0);
+    });
+
+    fireEvent.change(screen.getByTestId("rack-object-select-search"), {
+      target: { value: "Patch Panel" },
+    });
+
+    await waitFor(() => {
+      const opts = document.querySelectorAll(".ss-dropdown .ss-option");
+      const labels = Array.from(opts).map((o) => o.textContent);
+      expect(labels.some((l) => l?.includes("Patch Panel 24"))).toBe(true);
+      expect(labels.some((l) => l?.includes("Blank 1U"))).toBe(false);
+    });
+  });
+
+  it("search by vendor narrows the rack object list", async () => {
+    render(
+      <PlacePlacementModal
+        {...BASE_PROPS}
+        initialTargetKind="rack_object"
+        availableRackObjects={[RACK_OBJ_1, RACK_OBJ_2]}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("rack-object-select-trigger"));
+    await waitFor(() => {
+      expect(document.querySelectorAll(".ss-dropdown .ss-option").length).toBeGreaterThan(0);
+    });
+
+    // RACK_OBJ_2 has vendor "Legrand"
+    fireEvent.change(screen.getByTestId("rack-object-select-search"), {
+      target: { value: "legrand" },
+    });
+
+    await waitFor(() => {
+      const opts = document.querySelectorAll(".ss-dropdown .ss-option");
+      const labels = Array.from(opts).map((o) => o.textContent);
+      expect(labels.some((l) => l?.includes("Patch Panel 24"))).toBe(true);
+      expect(labels.some((l) => l?.includes("Blank 1U"))).toBe(false);
+    });
+  });
+
+  it("search with no match shows 'No results'", async () => {
+    render(<PlacePlacementModal {...BASE_PROPS} initialTargetKind="rack_object" />);
+    fireEvent.click(screen.getByTestId("rack-object-select-trigger"));
+    await waitFor(() => {
+      expect(document.querySelectorAll(".ss-dropdown .ss-option").length).toBeGreaterThan(0);
+    });
+
+    fireEvent.change(screen.getByTestId("rack-object-select-search"), {
+      target: { value: "zzz-no-match" },
+    });
+
+    await waitFor(() => {
+      expect(document.querySelector(".ss-empty")?.textContent).toBe("No results");
+    });
   });
 });
 
@@ -353,8 +550,9 @@ describe("PlacePlacementModal — Create new device flow", () => {
     });
     // StartU preserved
     expect((screen.getByTestId("start-u-input") as HTMLInputElement).value).toBe("7");
-    // Device selector still showing nothing (no device was created)
-    expect((screen.getByTestId("device-select") as HTMLSelectElement).value).toBe("");
+    // Device trigger shows placeholder (no device selected)
+    const trigger = screen.getByTestId("device-select-trigger");
+    expect(trigger.querySelector(".ss-placeholder")).not.toBeNull();
   });
 
   it("successful device creation refreshes devices and preselects new device", async () => {
@@ -388,10 +586,9 @@ describe("PlacePlacementModal — Create new device flow", () => {
       expect(screen.getByText("Place equipment")).toBeTruthy();
     });
 
-    // New device ID is preselected in device selector
+    // New device is preselected — trigger shows its name
     await waitFor(() => {
-      const select = screen.getByTestId("device-select") as HTMLSelectElement;
-      expect(select.value).toBe(CREATED_DEVICE_ID);
+      expect(screen.getByTestId("device-select-trigger").textContent).toContain("New Server");
     });
 
     // Place button is enabled
@@ -436,10 +633,9 @@ describe("PlacePlacementModal — Create new device flow", () => {
       expect(screen.queryByText("Add device")).toBeNull();
     });
 
-    // Wait for device preselection
+    // Wait for device preselection (trigger shows new device name)
     await waitFor(() => {
-      const select = screen.getByTestId("device-select") as HTMLSelectElement;
-      expect(select.value).toBe(CREATED_DEVICE_ID);
+      expect(screen.getByTestId("device-select-trigger").textContent).toContain("New Server");
     });
 
     // Click Place
@@ -467,8 +663,8 @@ describe("PlacePlacementModal — Create new device flow", () => {
       />,
     );
     expect(screen.queryByTestId("create-device-btn")).toBeNull();
-    // Rack object selector is present
-    expect(screen.getByTestId("rack-object-select")).toBeTruthy();
+    // Rack object SearchableSelect trigger is present
+    expect(screen.getByTestId("rack-object-select-trigger")).toBeTruthy();
   });
 });
 
@@ -481,11 +677,10 @@ describe("PlacePlacementModal — initialTargetKind / initialTargetId preselecti
         initialTargetId="dev-1"
       />,
     );
-    const select = screen.getByTestId("device-select") as HTMLSelectElement;
-    expect(select.value).toBe("dev-1");
-    // Place button should be enabled since a device is selected
-    const btn = screen.getByTestId("place-btn") as HTMLButtonElement;
-    expect(btn.disabled).toBe(false);
+    // Trigger shows the device name
+    expect(screen.getByTestId("device-select-trigger").textContent).toContain("Server 01");
+    // Place button should be enabled
+    expect((screen.getByTestId("place-btn") as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("preselects a rack object model when opened with initialTargetKind='rack_object' and initialTargetId", () => {
@@ -496,11 +691,8 @@ describe("PlacePlacementModal — initialTargetKind / initialTargetId preselecti
         initialTargetId="model-2"
       />,
     );
-    const select = screen.getByTestId("rack-object-select") as HTMLSelectElement;
-    expect(select.value).toBe("model-2");
-    // Place button should be enabled since a model is selected
-    const btn = screen.getByTestId("place-btn") as HTMLButtonElement;
-    expect(btn.disabled).toBe(false);
+    expect(screen.getByTestId("rack-object-select-trigger").textContent).toContain("Blank 1U");
+    expect((screen.getByTestId("place-btn") as HTMLButtonElement).disabled).toBe(false);
   });
 });
 
@@ -514,31 +706,46 @@ describe("PlacePlacementModal — Create new rack object flow", () => {
     expect(screen.getByTestId("create-rack-object-btn")).toBeTruthy();
   });
 
-  it("clicking 'Create new rack object…' opens the DeviceModelFormModal", async () => {
+  it("clicking 'Create new rack object…' opens the form with contextual title", async () => {
     render(<PlacePlacementModal {...BASE_PROPS} initialTargetKind="rack_object" />);
     fireEvent.click(screen.getByTestId("create-rack-object-btn"));
+    // Both the title div and the submit button contain "Create rack object"
     await waitFor(() => {
-      expect(screen.getByText("Add device model")).toBeTruthy();
+      expect(screen.getAllByText("Create rack object").length).toBeGreaterThan(0);
     });
   });
 
-  it("canceling DeviceModelFormModal returns to unchanged Place equipment modal", async () => {
+  it("rack object creation form locks device type to rack_object", async () => {
+    render(<PlacePlacementModal {...BASE_PROPS} initialTargetKind="rack_object" />);
+    fireEvent.click(screen.getByTestId("create-rack-object-btn"));
+    await waitFor(() => expect(screen.getAllByText("Create rack object").length).toBeGreaterThan(0));
+
+    // Editable device type select must not exist
+    expect(screen.queryByTestId("field-device-type")).toBeNull();
+    // Locked type display must show rack_object
+    const locked = screen.getByTestId("field-device-type-locked");
+    expect(locked.textContent).toContain("rack_object");
+  });
+
+  it("canceling rack object creation form returns to unchanged Place equipment modal", async () => {
     render(<PlacePlacementModal {...BASE_PROPS} initialTargetKind="rack_object" startU={7} />);
     fireEvent.click(screen.getByTestId("create-rack-object-btn"));
-    await waitFor(() => expect(screen.getByText("Add device model")).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText("Create rack object").length).toBeGreaterThan(0));
 
     const cancelBtns = screen.getAllByText("Cancel");
     cancelBtns[cancelBtns.length - 1].click();
 
     await waitFor(() => {
-      expect(screen.queryByText("Add device model")).toBeNull();
+      expect(screen.queryAllByText("Create rack object")).toHaveLength(0);
       expect(screen.getByText("Place equipment")).toBeTruthy();
     });
     expect((screen.getByTestId("start-u-input") as HTMLInputElement).value).toBe("7");
-    expect((screen.getByTestId("rack-object-select") as HTMLSelectElement).value).toBe("");
+    // Rack object trigger shows placeholder (no model selected)
+    const trigger = screen.getByTestId("rack-object-select-trigger");
+    expect(trigger.querySelector(".ss-placeholder")).not.toBeNull();
   });
 
-  it("successful rack object creation refreshes list and preselects new model", async () => {
+  it("successful rack object creation sends rack_object type and preselects new model", async () => {
     const onRackObjectCreated = vi.fn();
     render(
       <PlacePlacementModal
@@ -550,22 +757,20 @@ describe("PlacePlacementModal — Create new rack object flow", () => {
     );
 
     fireEvent.click(screen.getByTestId("create-rack-object-btn"));
-    await waitFor(() => expect(screen.getByText("Add device model")).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText("Create rack object").length).toBeGreaterThan(0));
 
-    // Fill minimal form: device_type (rack_object), name, height
-    fireEvent.change(screen.getByTestId("field-device-type"), { target: { value: "rack_object" } });
+    // Type is pre-locked — only fill name and height
     fireEvent.change(screen.getByTestId("field-name"), { target: { value: "New Rack Object" } });
     fireEvent.change(screen.getByTestId("field-height-u"), { target: { value: "1" } });
-    fireEvent.click(screen.getByText("Create model"));
+    fireEvent.click(screen.getByRole("button", { name: "Create rack object" }));
 
     await waitFor(() => {
-      expect(screen.queryByText("Add device model")).toBeNull();
+      expect(screen.queryAllByText("Create rack object")).toHaveLength(0);
       expect(screen.getByText("Place equipment")).toBeTruthy();
     });
 
     await waitFor(() => {
-      const select = screen.getByTestId("rack-object-select") as HTMLSelectElement;
-      expect(select.value).toBe(CREATED_MODEL_ID);
+      expect(screen.getByTestId("rack-object-select-trigger").textContent).toContain("New Rack Object");
     });
 
     expect((screen.getByTestId("place-btn") as HTMLButtonElement).disabled).toBe(false);
@@ -574,13 +779,13 @@ describe("PlacePlacementModal — Create new rack object flow", () => {
 });
 
 describe("PlacePlacementModal — Edit device button", () => {
-  it("shows 'Edit device…' button only when a device is selected", () => {
+  it("shows 'Edit device…' button only when a device is selected", async () => {
     render(<PlacePlacementModal {...BASE_PROPS} />);
     // No device selected — no edit button
     expect(screen.queryByTestId("edit-device-btn")).toBeNull();
-    // Select a device
-    fireEvent.change(screen.getByTestId("device-select"), { target: { value: "dev-1" } });
-    expect(screen.getByTestId("edit-device-btn")).toBeTruthy();
+    // Select a device via SearchableSelect
+    await selectDevice("Server 01");
+    await waitFor(() => expect(screen.getByTestId("edit-device-btn")).toBeTruthy());
   });
 
   it("clicking 'Edit device…' opens DeviceFormModal in edit mode", async () => {
@@ -601,7 +806,6 @@ describe("PlacePlacementModal — Edit device button", () => {
     await waitFor(() => expect(screen.getByText("Edit device")).toBeTruthy());
 
     // Save with no changes (form opens in edit mode, auto-filled)
-    // Find and click Save changes
     const saveBtns = screen.getAllByText("Save changes");
     fireEvent.click(saveBtns[saveBtns.length - 1]);
 
@@ -609,20 +813,21 @@ describe("PlacePlacementModal — Edit device button", () => {
       expect(screen.queryByText("Edit device")).toBeNull();
       expect(screen.getByText("Place equipment")).toBeTruthy();
     });
-    // Device still selected after edit
-    const select = screen.getByTestId("device-select") as HTMLSelectElement;
-    expect(select.value).toBe("dev-1");
+    // Device still selected after edit — trigger still shows device name
+    await waitFor(() => {
+      expect(screen.getByTestId("device-select-trigger").textContent).toContain("Server 01");
+    });
   });
 });
 
 describe("PlacePlacementModal — Edit rack object button", () => {
-  it("shows 'Edit rack object…' button only when a rack object model is selected", () => {
+  it("shows 'Edit rack object…' button only when a rack object model is selected", async () => {
     render(<PlacePlacementModal {...BASE_PROPS} initialTargetKind="rack_object" />);
     // No model selected — no edit button
     expect(screen.queryByTestId("edit-rack-object-btn")).toBeNull();
-    // Select a model
-    fireEvent.change(screen.getByTestId("rack-object-select"), { target: { value: "model-2" } });
-    expect(screen.getByTestId("edit-rack-object-btn")).toBeTruthy();
+    // Select a model via SearchableSelect
+    await selectRackObject("Blank 1U");
+    await waitFor(() => expect(screen.getByTestId("edit-rack-object-btn")).toBeTruthy());
   });
 
   it("clicking 'Edit rack object…' opens DeviceModelFormModal in edit mode", async () => {
@@ -637,5 +842,21 @@ describe("PlacePlacementModal — Edit rack object button", () => {
     await waitFor(() => {
       expect(screen.getByText("Edit device model")).toBeTruthy();
     });
+  });
+});
+
+describe("PlacePlacementModal — defaultDeviceStatus prop", () => {
+  it("inline Create Device inherits defaultDeviceStatus='installed'", async () => {
+    render(<PlacePlacementModal {...BASE_PROPS} defaultDeviceStatus="installed" />);
+    fireEvent.click(screen.getByTestId("create-device-btn"));
+    await waitFor(() => expect(screen.getByText("Add device")).toBeTruthy());
+    expect((screen.getByTestId("field-status") as HTMLSelectElement).value).toBe("installed");
+  });
+
+  it("inline Create Device defaults to 'planned' when defaultDeviceStatus is not set", async () => {
+    render(<PlacePlacementModal {...BASE_PROPS} />);
+    fireEvent.click(screen.getByTestId("create-device-btn"));
+    await waitFor(() => expect(screen.getByText("Add device")).toBeTruthy());
+    expect((screen.getByTestId("field-status") as HTMLSelectElement).value).toBe("planned");
   });
 });
