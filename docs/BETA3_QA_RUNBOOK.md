@@ -166,6 +166,8 @@ This runbook covers manual verification of all features introduced in beta.3:
 | 9.7 | Repeat for Rear side | Both front and rear SVG/PNG are distinct |
 | 9.8 | Cancel save dialog (no path chosen) | No error banner shown |
 | 9.9 | Verify default filenames | Front and rear filenames include the rack name and side |
+| 9.10 | In the SVG Save dialog, manually type a filename ending in `.txt` (e.g. `rack.txt`) and confirm | Export is rejected with "Unsupported export file extension. Use .svg or .png." error; no file is written |
+| 9.11 | In the PNG Save dialog, manually type a filename ending in `.json` (e.g. `rack.json`) and confirm | Export is rejected with the same unsupported extension error; no file is written |
 
 ---
 
