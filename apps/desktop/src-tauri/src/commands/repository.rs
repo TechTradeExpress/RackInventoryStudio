@@ -1191,6 +1191,21 @@ pub fn write_device_model_import_sample_csv(path: String) -> Result<(), String> 
 
 // ── Export file write ─────────────────────────────────────────────────────────
 
+/// Validate that `path` has an allowed export extension (`.svg` or `.png`).
+///
+/// Matching is case-insensitive: `.SVG`, `.Png`, etc. are accepted.
+/// A missing extension is rejected.
+fn validate_export_extension(path: &std::path::Path) -> Result<(), String> {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase());
+    match ext.as_deref() {
+        Some("svg") | Some("png") => Ok(()),
+        _ => Err("Unsupported export file extension. Use .svg or .png.".to_string()),
+    }
+}
+
 /// Shared validation + write helper used by the export commands below.
 fn write_export(path: &str, data: &[u8]) -> Result<(), String> {
     let path = path.trim();
@@ -1204,6 +1219,7 @@ fn write_export(path: &str, data: &[u8]) -> Result<(), String> {
             basename(path_ref)
         ));
     }
+    validate_export_extension(path_ref)?;
     if let Some(parent) = path_ref.parent() {
         if !parent.as_os_str().is_empty() && !parent.exists() {
             return Err("Parent directory does not exist".to_string());
@@ -1266,7 +1282,8 @@ pub fn search_repository_cmd(
 #[cfg(test)]
 mod tests {
     use super::{
-        read_csv_content, validate_repo_code, write_export, DEVICE_IMPORT_SAMPLE_CSV, MAX_CSV_BYTES,
+        read_csv_content, validate_export_extension, validate_repo_code, write_export,
+        DEVICE_IMPORT_SAMPLE_CSV, MAX_CSV_BYTES,
     };
     use std::io::Write;
     use std::path::Path;
@@ -1505,6 +1522,83 @@ mod tests {
         let bad = dir.path().join("nonexistent").join("file.svg");
         let err = write_export(bad.to_str().unwrap(), b"content").unwrap_err();
         assert!(!err.is_empty(), "expected non-empty error");
+    }
+
+    // ── validate_export_extension ─────────────────────────────────────────────
+
+    #[test]
+    fn write_export_allows_svg_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rack.svg");
+        write_export(path.to_str().unwrap(), b"<svg/>").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "<svg/>");
+    }
+
+    #[test]
+    fn write_export_allows_png_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rack.png");
+        let data: Vec<u8> = vec![0x89, 0x50, 0x4e, 0x47];
+        write_export(path.to_str().unwrap(), &data).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), data);
+    }
+
+    #[test]
+    fn write_export_extension_check_is_case_insensitive() {
+        let dir = tempfile::tempdir().unwrap();
+        let svg_upper = dir.path().join("rack.SVG");
+        write_export(svg_upper.to_str().unwrap(), b"<svg/>").unwrap();
+        let png_mixed = dir.path().join("rack.Png");
+        write_export(png_mixed.to_str().unwrap(), &[0u8]).unwrap();
+    }
+
+    #[test]
+    fn write_export_rejects_unknown_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        for ext in &["txt", "yaml", "exe", "json", "pdf"] {
+            let path = dir.path().join(format!("rack.{ext}"));
+            let err = write_export(path.to_str().unwrap(), b"data").unwrap_err();
+            assert!(
+                err.contains("Unsupported export file extension"),
+                "expected extension rejection for .{ext}, got: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn write_export_rejects_missing_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rack-no-ext");
+        let err = write_export(path.to_str().unwrap(), b"data").unwrap_err();
+        assert!(
+            err.contains("Unsupported export file extension"),
+            "expected extension rejection for no-ext path, got: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_export_extension_accepts_svg_and_png() {
+        assert!(validate_export_extension(Path::new("file.svg")).is_ok());
+        assert!(validate_export_extension(Path::new("file.png")).is_ok());
+        assert!(validate_export_extension(Path::new("file.SVG")).is_ok());
+        assert!(validate_export_extension(Path::new("file.PNG")).is_ok());
+        assert!(validate_export_extension(Path::new("file.Svg")).is_ok());
+        assert!(validate_export_extension(Path::new("file.pNg")).is_ok());
+    }
+
+    #[test]
+    fn validate_export_extension_rejects_other_extensions() {
+        assert!(validate_export_extension(Path::new("file.txt")).is_err());
+        assert!(validate_export_extension(Path::new("file.yaml")).is_err());
+        assert!(validate_export_extension(Path::new("file.exe")).is_err());
+        assert!(validate_export_extension(Path::new("file.json")).is_err());
+        assert!(validate_export_extension(Path::new("file.pdf")).is_err());
+    }
+
+    #[test]
+    fn validate_export_extension_rejects_no_extension() {
+        let err = validate_export_extension(Path::new("rack-no-ext")).unwrap_err();
+        assert!(err.contains("Unsupported export file extension"), "{err}");
     }
 
     #[test]
