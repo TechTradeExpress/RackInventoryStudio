@@ -56,6 +56,7 @@ This is a bug in the published upstream package. The override is minimal and mus
 | `apps/desktop/package.json` | Added `test:e2e:wdio` script; WDIO devDependencies added by pnpm |
 | `package.json` (root) | Added `pnpm.overrides["@wdio/native-utils"]: "2.5.0"` |
 | `pnpm-lock.yaml` | Updated by pnpm install |
+| `Cargo.lock` | Updated: `plist 1.9.0 → 1.10.0`, `quick-xml 0.39.3 → 0.41.0` (fixes RUSTSEC-2026-0194, RUSTSEC-2026-0195) |
 | `docs/E2E_WDIO_PLAN.md` | PR-1 section marked implemented; deps, config path, driver choice, local run result documented |
 | `.ai/cc-report.md` | This report |
 
@@ -142,8 +143,30 @@ pnpm -C apps/desktop exec playwright test   → BLOCKED (pre-existing: Firefox
                                               unrelated to our changes)
 pnpm -C apps/desktop run test:e2e:wdio      → BLOCKED (environment prerequisites;
                                               see above)
-Rust checks skipped — no Rust/app code changed.
+cargo fmt --check                           → clean
+cargo check                                 → clean
+cargo clippy --workspace -- -D warnings     → clean (matches CI flags)
+cargo test                                  → 663 passed, 0 failed (all crates)
+cargo audit (local)                         → not installed; CI verifies
 ```
+
+---
+
+## Rust audit repair (commit 3 — after original foundation + audit fix)
+
+**Advisories fixed:**
+- RUSTSEC-2026-0194 (HIGH): `quick-xml` 0.39.3 — quadratic runtime on duplicate attributes
+- RUSTSEC-2026-0195 (HIGH): `quick-xml` 0.39.3 — unbounded namespace allocation DoS
+
+**Root cause:** `quick-xml` 0.39.3 was a transitive dependency via `plist 1.9.0` → used by
+`tauri`, `tauri-codegen`, `tauri-plugin`, `tauri-utils`. Both advisories published 2026-06-29,
+after the base branch was created.
+
+**Fix:** `cargo update plist` → `plist 1.9.0 → 1.10.0`, which pulled `quick-xml 0.39.3 → 0.41.0`.
+No Cargo.toml change required; only `Cargo.lock` updated. No audit ignore entries added.
+
+**Pre-existing vs introduced:** Pre-existing on base branch (`roadmap/e2e-wdio`); advisories
+published after the branch was created. Not related to WDIO or any code in this PR.
 
 ---
 
@@ -155,6 +178,9 @@ Rust checks skipped — no Rust/app code changed.
   Linux. Switch to `embedded` provider (with `tauri-plugin-wdio-webdriver`) to remove these.
 - Selectors use Panel `h2` heading text; if UI text changes, selectors need updating.
 - Xvfb not available in this environment; service handles it gracefully (warns, continues).
+- Remaining `cargo audit` warnings (19 total) are all pre-existing: GTK3 unmaintained,
+  `proc-macro-error`, `unic-*`, `anyhow` unsound, `glib` unsound, `serde_yml` — CI
+  treats these as `allowed` warnings and they do not fail the audit job.
 
 ---
 
