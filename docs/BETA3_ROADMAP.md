@@ -181,3 +181,10 @@ Do not tag or publish beta.3 before manual QA is complete.
 - Full localization (UI remains in English).
 - No installer changes beyond what is already present.
 - No GitHub Release until manual QA is signed off.
+
+---
+
+## Post-beta.3: E2E testing roadmap
+
+Desktop E2E work (WebdriverIO + `@wdio/tauri-service`) is tracked separately on branch
+`roadmap/e2e-wdio`. See `docs/E2E_WDIO_PLAN.md` for the staged implementation plan.
