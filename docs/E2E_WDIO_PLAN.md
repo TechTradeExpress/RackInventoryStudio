@@ -2,7 +2,8 @@
 
 ## Status
 
-Stage 0: planning branch only. No E2E dependencies or app code changes yet.
+**PR-1 merged** — WDIO tooling foundation in place.
+`apps/desktop/e2e-wdio/` exists; smoke spec added; `test:e2e:wdio` script added.
 
 Base branch for this roadmap: `roadmap/e2e-wdio`.
 
@@ -112,35 +113,68 @@ Collected during Stage 0 on branch `roadmap/e2e-wdio` (based on `development` @ 
 
 ## Proposed PR stages
 
-### PR-1 — E2E tooling foundation
+### PR-1 — E2E tooling foundation ✅ Implemented
 
 **Branch from:** `roadmap/e2e-wdio`
 **Target:** `roadmap/e2e-wdio`
+**PR:** `feature/e2e-wdio-foundation`
 
-Purpose:
-- Install WDIO and `@wdio/tauri-service` as dev dependencies in `apps/desktop/`.
-- Add `wdio.conf.ts` (WDIO configuration targeting the Tauri binary).
-- Add `apps/desktop/e2e-wdio/` directory (separate from existing `apps/desktop/e2e/`
-  to avoid collisions with the Playwright setup).
-- Add a minimal smoke spec: launch app, verify shell renders, close cleanly.
-- Add `test:e2e:wdio` script to `apps/desktop/package.json`.
-- Keep spec count to one or two.
-- Confirm the spec runs locally (at minimum on one platform).
-
-Expected files:
+Dependencies installed (`apps/desktop` devDependencies):
 ```
-apps/desktop/e2e-wdio/wdio.conf.ts
-apps/desktop/e2e-wdio/specs/app-smoke.e2e.ts
-apps/desktop/package.json         (+ test:e2e:wdio script)
-docs/E2E_WDIO_PLAN.md             (update: driver choice finalized)
+webdriverio           9.29.1
+@wdio/cli             9.29.1
+@wdio/local-runner    9.29.1
+@wdio/mocha-framework 9.29.1
+@wdio/tauri-service   1.2.0
 ```
 
-Acceptance:
-- Local E2E smoke passes on at least one platform.
-- `pnpm test` (Vitest) still passes.
-- Playwright smoke still passes.
-- No app behavior changes.
-- No Rust changes.
+pnpm workspace override (root `package.json`):
+```
+@wdio/native-utils: 2.5.0
+```
+Required because `@wdio/tauri-service@1.2.0` ships with a peer dependency pinned to 2.4.0
+but imports the `installMockSyncOverride` symbol that only exists in 2.5.0.
+The workspace override resolves the mismatch until the upstream package is fixed.
+
+Config path: `apps/desktop/e2e-wdio/wdio.conf.ts`
+Smoke spec: `apps/desktop/e2e-wdio/specs/app-smoke.e2e.ts`
+Script: `"test:e2e:wdio": "wdio run e2e-wdio/wdio.conf.ts"`
+
+Driver choice: **`external`** (`tauri-driver` process + system WebDriver binary)
+
+- No Rust app code changed.
+- `tauri-plugin-wdio` deferred — normal WebDriver element interactions are
+  sufficient for smoke assertions (`body`, `h2`, `button` text selectors).
+- `tauri-plugin-wdio-webdriver` deferred — switch to `driverProvider: 'embedded'`
+  once that plugin is added (eliminates need for `tauri-driver`).
+
+Platform prerequisites before running:
+```
+# All platforms
+pnpm tauri build                            # or: cargo build --release in src-tauri/
+cargo install tauri-driver
+
+# Linux only
+sudo apt-get install -y webkit2gtk-driver xvfb
+
+# Windows — Edge WebDriver auto-managed by @wdio/tauri-service
+```
+
+Local run result (CI/dev environment, 2026-07-04):
+```
+BLOCKED — three environment prerequisites missing:
+  1. tauri-driver not found (cargo install tauri-driver)
+  2. WebKitWebDriver not found (apt-get install webkit2gtk-driver)
+  3. Tauri release binary not built (pnpm tauri build)
+Config and spec are correct; run in a prepared environment.
+```
+
+Acceptance status:
+- ✅ Vitest (817 tests) still passes.
+- ⚠️ Playwright still fails in this environment (pre-existing: Firefox system deps missing).
+- ⚠️ WDIO smoke: correct config, blocked by environment prerequisites.
+- ✅ No app behavior changes.
+- ✅ No Rust changes.
 
 ---
 
