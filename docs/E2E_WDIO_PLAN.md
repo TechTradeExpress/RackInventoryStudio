@@ -2,7 +2,7 @@
 
 ## Status
 
-**PR-1 merged** — WDIO tooling foundation in place.
+**PR-1 in review** — WDIO tooling foundation implemented; real desktop smoke validation pending.
 `apps/desktop/e2e-wdio/` exists; smoke spec added; `test:e2e:wdio` script added.
 
 Base branch for this roadmap: `roadmap/e2e-wdio`.
@@ -113,7 +113,7 @@ Collected during Stage 0 on branch `roadmap/e2e-wdio` (based on `development` @ 
 
 ## Proposed PR stages
 
-### PR-1 — E2E tooling foundation ✅ Implemented
+### PR-1 — E2E tooling foundation 🚧 In review
 
 **Branch from:** `roadmap/e2e-wdio`
 **Target:** `roadmap/e2e-wdio`
@@ -144,14 +144,14 @@ Driver choice: **`external`** (`tauri-driver` process + system WebDriver binary)
 
 - No Rust app code changed.
 - `tauri-plugin-wdio` deferred — normal WebDriver element interactions are
-  sufficient for smoke assertions (`body`, `h2`, `button` text selectors).
+  sufficient for smoke assertions (`body`, `h1`, `h2`, `button` text selectors).
 - `tauri-plugin-wdio-webdriver` deferred — switch to `driverProvider: 'embedded'`
   once that plugin is added (eliminates need for `tauri-driver`).
 
 Platform prerequisites before running:
 ```
-# All platforms
-pnpm tauri build                            # or: cargo build --release in src-tauri/
+# All platforms — build with Tauri CLI (not bare cargo build) to embed frontend assets
+pnpm tauri build --no-bundle               # embeds frontendDist correctly
 cargo install tauri-driver
 
 # Linux only
@@ -160,19 +160,38 @@ sudo apt-get install -y webkit2gtk-driver xvfb
 # Windows — Edge WebDriver auto-managed by @wdio/tauri-service
 ```
 
-Local run result (CI/dev environment, 2026-07-04):
+**Important:** `cargo build --release` alone does NOT produce a working binary for E2E tests.
+The Tauri CLI (`pnpm tauri build --no-bundle`) must be used so that the frontend assets are
+embedded into the binary via `frontendDist`.  Without this, the WebView loads `devUrl`
+(`http://localhost:1420`) and shows "Connection refused".
+
+Binary path default: `../../target/release/rack-inventory-studio-desktop`
+(two levels up from `apps/desktop/`, where the Cargo workspace places the output).
+Override: `TAURI_BINARY_PATH=/abs/path/to/binary`
+
+Service hook overhead note: `@wdio/tauri-service` runs a plugin-availability check
+(`window.wdioTauri`) before every WebDriver command.  Without `tauri-plugin-wdio` installed
+in the Rust app, this check always returns `false` and adds ~100 ms per command.
+On Linux with Xvfb, the cold-start + hook overhead causes the full smoke scenario to take
+~75 s — within the 3 min Mocha timeout but significantly above 60 s.
+Adding `tauri-plugin-wdio` to the Rust app (deferred to a later PR) would eliminate this.
+
+Local run result (Linux / ubuntu-24.04-equivalent, 2026-07-12):
 ```
-BLOCKED — three environment prerequisites missing:
-  1. tauri-driver not found (cargo install tauri-driver)
-  2. WebKitWebDriver not found (apt-get install webkit2gtk-driver)
-  3. Tauri release binary not built (pnpm tauri build)
-Config and spec are correct; run in a prepared environment.
+Platform   : Linux x86_64, WebKitGTK / Xvfb
+Binary     : pnpm tauri build --no-bundle → target/release/rack-inventory-studio-desktop
+Run command: TAURI_BINARY_PATH=... xvfb-run -a pnpm -C apps/desktop run test:e2e:wdio
+Result     : 1 passed, 1 total (100% completed) in 00:01:17 — exit 0
 ```
 
-Acceptance status:
+Selectors fixed during validation:
+- `h2=Open a repository` → `h1=Open a repository` (title rendered by `PageHeader` as `<h1>`,
+  not `Panel` which uses `<h2>`)
+
+Acceptance status (2026-07-12):
 - ✅ Vitest (817 tests) still passes.
+- ✅ WDIO smoke: all 4 assertions pass against the real compiled Tauri binary.
 - ⚠️ Playwright still fails in this environment (pre-existing: Firefox system deps missing).
-- ⚠️ WDIO smoke: correct config, blocked by environment prerequisites.
 - ✅ No app behavior changes.
 - ✅ No Rust changes.
 

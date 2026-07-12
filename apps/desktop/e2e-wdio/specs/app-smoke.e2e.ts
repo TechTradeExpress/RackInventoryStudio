@@ -6,41 +6,29 @@
  * the app shell starts without crash and the expected landing UI is visible.
  * Repository workflow flows belong to PR-3 and later stages.
  *
- * Selectors use stable heading text (h2 from Panel component) and button text
- * that have been stable across the beta releases.  No data-testid additions are
- * needed for these top-level landmark elements — that work belongs to PR-2.
+ * Selectors:
+ *   h1=Open a repository  — PageHeader component renders the page title as <h1>
+ *   h2=Clone repository   — Panel component renders its title as <h2>
+ *   h2=Create new repository
+ *   button=Create repository
+ * data-testid additions are deferred to PR-2.
  *
  * Running this suite requires:
- *   - Compiled Tauri release binary (pnpm tauri build)
+ *   - Compiled Tauri release binary via CLI: pnpm tauri build --no-bundle
+ *     (bare cargo build --release does NOT embed frontendDist assets)
  *   - tauri-driver installed  (cargo install tauri-driver)
- *   - Linux: webkit2gtk-driver  (apt-get install -y webkit2gtk-driver)
- * See e2e-wdio/wdio.conf.ts for full prerequisites.
+ *   - Linux: webkit2gtk-driver + xvfb  (apt-get install -y webkit2gtk-driver xvfb)
+ * See e2e-wdio/wdio.conf.ts for full prerequisites and run command.
  */
 import { browser, expect } from "@wdio/globals";
 
 describe("Rack Inventory Studio — desktop smoke", () => {
-  it("app shell renders", async () => {
-    const body = await browser.$("body");
-    await expect(body).toExist();
-  });
+  it("launches and shows repository landing actions", async () => {
+    await expect(await browser.$("body")).toExist();
 
-  it("repository landing screen shows Open a repository heading", async () => {
-    const heading = await browser.$("h2=Open a repository");
-    await expect(heading).toBeDisplayed();
-  });
-
-  it("repository landing screen shows Clone repository section", async () => {
-    const heading = await browser.$("h2=Clone repository");
-    await expect(heading).toBeDisplayed();
-  });
-
-  it("repository landing screen shows Create new repository section", async () => {
-    const heading = await browser.$("h2=Create new repository");
-    await expect(heading).toBeDisplayed();
-  });
-
-  it("Create repository button is visible", async () => {
-    const btn = await browser.$("button=Create repository");
-    await expect(btn).toBeDisplayed();
+    await expect(await browser.$("h1=Open a repository")).toBeDisplayed();
+    await expect(await browser.$("h2=Clone repository")).toBeDisplayed();
+    await expect(await browser.$("h2=Create new repository")).toBeDisplayed();
+    await expect(await browser.$("button=Create repository")).toBeDisplayed();
   });
 });

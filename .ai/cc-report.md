@@ -1,9 +1,12 @@
 ## Summary
 
-PR-1: WebdriverIO + Tauri smoke foundation added.
+PR-1: WebdriverIO + Tauri smoke foundation — validated against real compiled binary.
 
 Branch `feature/e2e-wdio-foundation` off `roadmap/e2e-wdio`.
 WDIO dependencies installed, config and smoke spec added, package script added.
+Smoke spec validated against the actual compiled Tauri binary on Linux with Xvfb.
+Config bug fixed (binary path pointed to wrong location); selector bug fixed (`h1` vs `h2`
+for the page title); Mocha timeout increased to accommodate startup + service overhead.
 No app behavior changes. No Rust changes. No version bump.
 
 ---
@@ -47,18 +50,55 @@ This is a bug in the published upstream package. The override is minimal and mus
 
 ---
 
-## Files added / changed
+## Files changed
 
 | File | Change |
 |------|--------|
-| `apps/desktop/e2e-wdio/wdio.conf.ts` | New: WDIO config with `@wdio/tauri-service`, `external` driver, cross-platform binary path |
-| `apps/desktop/e2e-wdio/specs/app-smoke.e2e.ts` | New: 5-assertion smoke spec (body, 3 h2 headings, Create repository button) |
+| `apps/desktop/e2e-wdio/wdio.conf.ts` | Config: fixed binary path (workspace root `../../target/release/`), removed redundant capability, updated docs, increased Mocha timeout to 180 s |
+| `apps/desktop/e2e-wdio/specs/app-smoke.e2e.ts` | Fixed selector (`h1` for page title, not `h2`); consolidated into single `it()` scenario |
 | `apps/desktop/package.json` | Added `test:e2e:wdio` script; WDIO devDependencies added by pnpm |
 | `package.json` (root) | Added `pnpm.overrides["@wdio/native-utils"]: "2.5.0"` |
 | `pnpm-lock.yaml` | Updated by pnpm install |
 | `Cargo.lock` | Updated: `plist 1.9.0 → 1.10.0`, `quick-xml 0.39.3 → 0.41.0` (fixes RUSTSEC-2026-0194, RUSTSEC-2026-0195) |
-| `docs/E2E_WDIO_PLAN.md` | PR-1 section marked implemented; deps, config path, driver choice, local run result documented |
+| `docs/E2E_WDIO_PLAN.md` | PR-1 section updated with validated run results, platform notes, selector fix, build prerequisite clarification |
 | `.ai/cc-report.md` | This report |
+
+---
+
+## Bugs fixed during validation
+
+### 1. Binary path pointed at per-crate `src-tauri/target/release/`
+
+`wdio.conf.ts` `defaultBinaryPath()` used `path.resolve(process.cwd(), "src-tauri", "target", "release")`.
+A Cargo workspace puts the binary at the workspace root `target/release/`, two levels above
+`apps/desktop/`.
+
+**Fix:** `path.resolve(process.cwd(), "..", "..", "target", "release")`.
+
+### 2. Wrong selector for page title heading
+
+Smoke spec used `h2=Open a repository`.  The landing page title "Open a repository" is
+rendered by the `PageHeader` component as `<h1>`, not `<h2>` (which is used by `Panel`).
+
+**Fix:** Changed selector to `h1=Open a repository`.
+
+### 3. `cargo build --release` produces a `devUrl` binary
+
+Running `cargo build --release` directly does NOT embed `frontendDist` assets.  Tauri requires
+the CLI toolchain (`pnpm tauri build --no-bundle`) to set the build-mode env vars that switch
+the WebView from `devUrl` (`http://localhost:1420`) to the embedded custom protocol
+(`tauri://localhost`).  Without this, the app shows "Connection refused".
+
+**Fix:** Binary must be built with `pnpm tauri build --no-bundle` (or equivalent CLI command).
+Documented in `wdio.conf.ts` comments and `docs/E2E_WDIO_PLAN.md`.
+
+### 4. Mocha timeout (60 s) too tight for Linux/Xvfb environment
+
+`@wdio/tauri-service` runs a plugin-availability `executeAsyncScript` before every WebDriver
+command (~100 ms per call).  Tauri app startup on Linux with Xvfb takes ~15 s.
+Total smoke scenario: ~75 s — exceeding the 60 s Mocha timeout.
+
+**Fix:** Increased `mochaOpts.timeout` to `180_000` (3 min).
 
 ---
 
@@ -69,9 +109,9 @@ This is a bug in the published upstream package. The override is minimal and mus
 Key settings:
 - `runner: 'local'`
 - `specs: ['./specs/**/*.e2e.ts']`
-- `framework: 'mocha'`, timeout 60 s
+- `framework: 'mocha'`, timeout 180 s
 - `services: [['@wdio/tauri-service', { appBinaryPath, driverProvider: 'external' }]]`
-- Binary path: `TAURI_BINARY_PATH` env var, or auto-derived from `process.cwd()/src-tauri/target/release/`
+- Binary path default: `TAURI_BINARY_PATH` env var, or `../../target/release/rack-inventory-studio-desktop`
 - `browserName: 'tauri'` in capabilities
 
 ---
@@ -80,107 +120,72 @@ Key settings:
 
 `apps/desktop/e2e-wdio/specs/app-smoke.e2e.ts`
 
-5 assertions:
+Single `it()` scenario with 4 assertions:
 1. `body` exists (app launched, WebView connected)
-2. `h2=Open a repository` is displayed
-3. `h2=Clone repository` is displayed
-4. `h2=Create new repository` is displayed
-5. `button=Create repository` is displayed
-
-Selectors use stable heading text (`h2` from `Panel` component) and button text.
-No `data-testid` additions required for these top-level elements.
-
----
-
-## Package script added
-
-`apps/desktop/package.json`:
-```json
-"test:e2e:wdio": "wdio run e2e-wdio/wdio.conf.ts"
-```
-
-Existing `test:e2e` (Playwright) unchanged.
-
----
-
-## tauri-plugin-wdio decision
-
-**Deferred.** Normal WebDriver element interactions are sufficient for the PR-1 smoke spec.
-`tauri-plugin-wdio` (advanced IPC: mocking, log capture) is not needed for visibility assertions.
-`tauri-plugin-wdio-webdriver` (embedded driver provider) is also deferred — the `external`
-driver provider (`tauri-driver`) is used instead, avoiding any Rust app code changes.
+2. `h1=Open a repository` is displayed (PageHeader `<h1>` title)
+3. `h2=Clone repository` is displayed (Panel `<h2>` heading)
+4. `h2=Create new repository` is displayed (Panel `<h2>` heading)
+5. `button=Create repository` is displayed (submit button in Create form)
 
 ---
 
 ## Local WDIO run result
 
-Environment: Ubuntu Linux (CI/dev), 2026-07-04.
+Environment: Linux x86_64, ubuntu-24.04-equivalent, 2026-07-12.
+
+Prerequisites installed in this session:
+- `tauri-driver` (via `cargo install tauri-driver`)
+- `webkit2gtk-driver` (via `apt-get install -y webkit2gtk-driver`)
+- `xvfb` (via `apt-get install -y xvfb`)
+- Binary built with `pnpm tauri build --no-bundle`
 
 ```
-BLOCKED — 3 environment prerequisites missing:
-  1. tauri-driver not installed  →  cargo install tauri-driver
-  2. WebKitWebDriver not installed  →  apt-get install -y webkit2gtk-driver
-  3. Tauri release binary not built  →  pnpm tauri build
-Config and spec are syntactically correct; run in a prepared environment.
-```
+Run: TAURI_BINARY_PATH=.../target/release/rack-inventory-studio-desktop \
+     xvfb-run -a pnpm -C apps/desktop run test:e2e:wdio
 
-The service itself initialized correctly after the `@wdio/native-utils` override.
-Assertions and selectors are based on confirmed UI structure from Playwright smoke tests.
+Diagnostics: 10 checks passed, 1 warning
+  (warning: libgtk-3-0 listed as missing — false alarm, ubuntu-24.04
+   uses t64-suffixed packages which are present)
+
+Result: 1 passed, 1 total (100% completed) in 00:01:17 — exit 0
+```
 
 ---
 
-## Checks run
+## Checks run (2026-07-12)
 
 ```
 git diff --check                            → clean
 node scripts/check-version-consistency.mjs  → 0.1.0-beta.2, all match
-node --test scripts/*.test.mjs              → 19 passed, 0 failed
 node scripts/check-repo-hygiene.mjs         → 8/8 checks passed
-pnpm -C apps/desktop exec tsc --noEmit      → clean (no TypeScript errors)
+node scripts/check-capabilities.test.mjs    → all passed
+pnpm -C apps/desktop exec tsc --noEmit      → clean
 pnpm -C apps/desktop exec vitest run        → 817 passed (50 test files)
-pnpm -C apps/desktop exec playwright test   → BLOCKED (pre-existing: Firefox
-                                              system deps missing in this env;
-                                              unrelated to our changes)
-pnpm -C apps/desktop run test:e2e:wdio      → BLOCKED (environment prerequisites;
-                                              see above)
 cargo fmt --check                           → clean
 cargo check                                 → clean
-cargo clippy --workspace -- -D warnings     → clean (matches CI flags)
-cargo test                                  → 663 passed, 0 failed (all crates)
-cargo audit (local)                         → not installed; CI verifies
+cargo clippy -- -D warnings                 → clean
+cargo test                                  → all passed
+cargo audit                                 → not installed in this env; CI verifies
+pnpm audit --audit-level=high               → 1 low (below threshold, not blocking)
+pnpm -C apps/desktop run test:e2e:wdio      → 1 passed, exit 0 (1 min 17 s)
 ```
-
----
-
-## Rust audit repair (commit 3 — after original foundation + audit fix)
-
-**Advisories fixed:**
-- RUSTSEC-2026-0194 (HIGH): `quick-xml` 0.39.3 — quadratic runtime on duplicate attributes
-- RUSTSEC-2026-0195 (HIGH): `quick-xml` 0.39.3 — unbounded namespace allocation DoS
-
-**Root cause:** `quick-xml` 0.39.3 was a transitive dependency via `plist 1.9.0` → used by
-`tauri`, `tauri-codegen`, `tauri-plugin`, `tauri-utils`. Both advisories published 2026-06-29,
-after the base branch was created.
-
-**Fix:** `cargo update plist` → `plist 1.9.0 → 1.10.0`, which pulled `quick-xml 0.39.3 → 0.41.0`.
-No Cargo.toml change required; only `Cargo.lock` updated. No audit ignore entries added.
-
-**Pre-existing vs introduced:** Pre-existing on base branch (`roadmap/e2e-wdio`); advisories
-published after the branch was created. Not related to WDIO or any code in this PR.
 
 ---
 
 ## Risks
 
 - `@wdio/native-utils` workspace override must be kept until `@wdio/tauri-service` fixes its
-  peer dep range. If WDIO ecosystem releases break the override, update the version.
-- `external` driver provider requires `cargo install tauri-driver` + `webkit2gtk-driver` on
-  Linux. Switch to `embedded` provider (with `tauri-plugin-wdio-webdriver`) to remove these.
-- Selectors use Panel `h2` heading text; if UI text changes, selectors need updating.
-- Xvfb not available in this environment; service handles it gracefully (warns, continues).
-- Remaining `cargo audit` warnings (19 total) are all pre-existing: GTK3 unmaintained,
-  `proc-macro-error`, `unic-*`, `anyhow` unsound, `glib` unsound, `serde_yml` — CI
-  treats these as `allowed` warnings and they do not fail the audit job.
+  peer dep range.
+- Binary MUST be built with Tauri CLI (`pnpm tauri build --no-bundle`), not bare `cargo build`.
+  The `defaultBinaryPath()` function correctly resolves the workspace `target/release/`, but
+  the binary must exist and embed the correct assets.
+- `@wdio/tauri-service` `beforeCommand` overhead (~100 ms/command) is significant on Linux.
+  Adding `tauri-plugin-wdio` would remove this (deferred to a later PR).
+- Mocha timeout set to 3 min — adequate for current overhead, but may need tuning if
+  assertions increase significantly.
+- Selectors use heading text (`h1`, `h2`) and button text; stable for current UI,
+  fragile if text changes. `data-testid` additions deferred to PR-2.
+- Playwright smoke still blocked in this environment (pre-existing: Firefox deps missing).
 
 ---
 
@@ -189,8 +194,7 @@ published after the branch was created. Not related to WDIO or any code in this 
 - CI job for WDIO (PR-7).
 - `data-testid` additions for stable selectors (PR-2).
 - `tauri-plugin-wdio` or `tauri-plugin-wdio-webdriver` Rust integration (deferred).
-- Actual end-to-end confirmation that smoke passes on a prepared machine.
-- WDIO build script (`test:e2e:wdio:build`): run `pnpm tauri build` first if needed.
+- WDIO build script (`test:e2e:wdio:build`) or pre-test hook to ensure binary is fresh.
 
 ---
 
@@ -210,4 +214,5 @@ published after the branch was created. Not related to WDIO or any code in this 
 ## Suggested next step
 
 PR-2: `feature/e2e-wdio-selectors` → `roadmap/e2e-wdio`
-Add minimal `data-testid` attributes to components where text selectors are fragile.
+Add minimal `data-testid` attributes to components where text selectors are fragile,
+and update the smoke spec to use them.

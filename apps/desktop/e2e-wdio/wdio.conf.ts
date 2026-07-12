@@ -2,23 +2,26 @@
  * WebdriverIO configuration for Tauri desktop E2E tests.
  *
  * Prerequisites before running:
- *   1. Build the Tauri release binary (from apps/desktop/):
- *        pnpm tauri build
- *      or: cargo build --release  (from apps/desktop/src-tauri/)
+ *   1. Build the Tauri release binary (from repo root):
+ *        cargo build --release --manifest-path apps/desktop/src-tauri/Cargo.toml
+ *      or: pnpm -C apps/desktop run tauri build
  *
  *   2. Install tauri-driver (one-time, requires Rust):
  *        cargo install tauri-driver
  *
- *   3. Linux only — install the WebKit WebDriver system package:
- *        sudo apt-get install -y webkit2gtk-driver
+ *   3. Linux only — install the WebKit WebDriver and virtual display packages:
+ *        sudo apt-get install -y webkit2gtk-driver xvfb
  *
  *   4. Windows only — Edge WebDriver is auto-downloaded by @wdio/tauri-service.
  *
- * Run after prerequisites:
+ * Run after prerequisites (Linux):
+ *   xvfb-run -a pnpm -C apps/desktop run test:e2e:wdio
+ *
+ * Run after prerequisites (Windows):
  *   pnpm -C apps/desktop run test:e2e:wdio
  *
  * Override binary path:
- *   TAURI_BINARY_PATH=/abs/path/to/binary pnpm -C apps/desktop run test:e2e:wdio
+ *   TAURI_BINARY_PATH=/abs/path/to/binary xvfb-run -a pnpm -C apps/desktop run test:e2e:wdio
  *
  * tauri-plugin-wdio: NOT required for PR-1 smoke.
  * Normal WebDriver element interactions are enough for basic visibility assertions.
@@ -28,7 +31,9 @@ import type { Options } from "@wdio/types";
 import path from "path";
 
 function defaultBinaryPath(): string {
-  const base = path.resolve(process.cwd(), "src-tauri", "target", "release");
+  // This project is a Cargo workspace: the shared target/ dir is at the repo root,
+  // two levels above apps/desktop/ (where pnpm -C apps/desktop sets cwd).
+  const base = path.resolve(process.cwd(), "..", "..", "target", "release");
   const name = "rack-inventory-studio-desktop";
   return process.platform === "win32"
     ? path.join(base, `${name}.exe`)
@@ -53,7 +58,11 @@ export const config: Options.Testrunner = {
   framework: "mocha",
   mochaOpts: {
     ui: "bdd",
-    timeout: 60_000,
+    // The @wdio/tauri-service beforeCommand hook runs a plugin-availability
+    // check before every WebDriver command (~100ms per command).  Combined with
+    // the Tauri app's ~15 s cold-start time, the full smoke scenario needs
+    // well above 60 s.  Set 3 min so CI has headroom without being infinite.
+    timeout: 180_000,
   },
 
   services: [
@@ -61,15 +70,11 @@ export const config: Options.Testrunner = {
       "@wdio/tauri-service",
       {
         appBinaryPath,
-        /**
-         * driverProvider: 'external'
-         * Uses the standalone tauri-driver process (cargo install tauri-driver).
-         * Linux: also needs webkit2gtk-driver system package.
-         * Windows: Edge WebDriver is auto-downloaded.
-         *
-         * Switch to 'embedded' once tauri-plugin-wdio-webdriver is added to the
-         * Rust app (eliminates the external tauri-driver dependency).
-         */
+        // Uses the standalone tauri-driver process (cargo install tauri-driver).
+        // Linux: also needs webkit2gtk-driver + Xvfb system packages.
+        // Windows: Edge WebDriver is auto-downloaded.
+        // Switch to 'embedded' once tauri-plugin-wdio-webdriver is added to the
+        // Rust app (eliminates the external tauri-driver dependency).
         driverProvider: "external",
       },
     ],
@@ -78,9 +83,6 @@ export const config: Options.Testrunner = {
   capabilities: [
     {
       browserName: "tauri",
-      "tauri:options": {
-        application: appBinaryPath,
-      },
     },
   ],
 };
