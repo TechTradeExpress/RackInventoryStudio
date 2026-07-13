@@ -6,7 +6,12 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild"
-    ]
+    ],
+    "overrides": {
+      "@wdio/native-utils": "2.5.0",
+      "serialize-javascript": ">=7.0.5",
+      "ws": ">=8.21.0"
+    }
   },
   "scripts": {
     "dev": "pnpm --filter @rack-inventory-studio/desktop dev",
