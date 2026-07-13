@@ -113,7 +113,7 @@ Collected during Stage 0 on branch `roadmap/e2e-wdio` (based on `development` @ 
 
 ## Proposed PR stages
 
-### PR-1 — E2E tooling foundation 🚧 In review
+### PR-1 — E2E tooling foundation ✅ Merged
 
 **Branch from:** `roadmap/e2e-wdio`
 **Target:** `roadmap/e2e-wdio`
@@ -201,21 +201,38 @@ Acceptance status (2026-07-12):
 
 ---
 
-### PR-2 — Test-only selectors and stable test hooks
+### PR-2 — Stable repository landing selectors 🚧 In review
 
 **Branch from:** `roadmap/e2e-wdio`
 **Target:** `roadmap/e2e-wdio`
+**Branch:** `feature/e2e-wdio-selectors`
 
-Purpose:
-- Add minimal stable `data-testid` attributes to components that need
-  reliable WDIO selectors.
-- Avoid changing visual UI or component behaviour.
-- Avoid selectors based on fragile text strings when a stable test id is available.
-- Document selector conventions (`docs/E2E_SELECTOR_CONVENTIONS.md` or inline).
+Stable `data-testid` contract for the repository landing screen:
+
+| Selector ID | Element | Location |
+|-------------|---------|----------|
+| `repository-landing-title` | `<h1>` — page title | `PageHeader` via `testId` prop |
+| `repository-clone-title` | `<h2>` — Clone section | `Panel` via `testId` prop |
+| `repository-create-title` | `<h2>` — Create section | `Panel` via `testId` prop |
+| `repository-create-submit` | `<button type="submit">` | `CreateRepositoryWizard` directly |
+
+Changes:
+- `PageHeader` and `Panel` accept an optional `testId?: string` prop forwarded to the
+  heading element. No caller is required to provide it.
+- WDIO smoke updated to use `[data-testid="..."]` CSS selectors (text selectors removed).
+- No visible UI change. No accessibility change. No behavior change.
+- No dependency changes. No Rust changes. No CI workflow changes.
+
+Local WDIO validation (Linux / ubuntu-24.04-equivalent, 2026-07-13):
+```
+Platform   : Linux x86_64, WebKitGTK / Xvfb
+Binary     : tauri build --no-bundle → target/release/rack-inventory-studio-desktop
+Run command: TAURI_BINARY_PATH=... xvfb-run -a wdio run e2e-wdio/wdio.conf.ts
+Result     : 1 passed, 1 total (100% completed) in 00:01:17 — exit 0
+```
 
 Acceptance:
 - No behaviour changes.
-- Vitest component tests updated only if the test-id addition requires it.
 - No new Rust code.
 
 ---
