@@ -2,9 +2,10 @@
  * WebdriverIO configuration for Tauri desktop E2E tests.
  *
  * Prerequisites before running:
- *   1. Build the Tauri release binary (from repo root):
- *        cargo build --release --manifest-path apps/desktop/src-tauri/Cargo.toml
- *      or: pnpm -C apps/desktop run tauri build
+ *   1. Build the Tauri release binary using the Tauri CLI (from repo root):
+ *        pnpm -C apps/desktop tauri build --no-bundle
+ *      IMPORTANT: bare `cargo build --release` does NOT embed frontendDist assets.
+ *      Without the CLI build, the WebView loads devUrl and shows "Connection refused".
  *
  *   2. Install tauri-driver (one-time, requires Rust):
  *        cargo install tauri-driver

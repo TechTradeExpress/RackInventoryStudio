@@ -2,7 +2,7 @@
 
 ## Status
 
-**PR-1 in review** — WDIO tooling foundation implemented; real desktop smoke validation pending.
+**PR-1 in review** — WDIO tooling foundation implemented and validated locally on Linux.
 `apps/desktop/e2e-wdio/` exists; smoke spec added; `test:e2e:wdio` script added.
 
 Base branch for this roadmap: `roadmap/e2e-wdio`.
@@ -151,7 +151,8 @@ Driver choice: **`external`** (`tauri-driver` process + system WebDriver binary)
 Platform prerequisites before running:
 ```
 # All platforms — build with Tauri CLI (not bare cargo build) to embed frontend assets
-pnpm tauri build --no-bundle               # embeds frontendDist correctly
+# Run from the repository root:
+pnpm -C apps/desktop tauri build --no-bundle   # embeds frontendDist correctly
 cargo install tauri-driver
 
 # Linux only
@@ -179,7 +180,7 @@ Adding `tauri-plugin-wdio` to the Rust app (deferred to a later PR) would elimin
 Local run result (Linux / ubuntu-24.04-equivalent, 2026-07-12):
 ```
 Platform   : Linux x86_64, WebKitGTK / Xvfb
-Binary     : pnpm tauri build --no-bundle → target/release/rack-inventory-studio-desktop
+Binary     : pnpm -C apps/desktop tauri build --no-bundle → target/release/rack-inventory-studio-desktop
 Run command: TAURI_BINARY_PATH=... xvfb-run -a pnpm -C apps/desktop run test:e2e:wdio
 Result     : 1 passed, 1 total (100% completed) in 00:01:17 — exit 0
 ```
@@ -190,7 +191,10 @@ Selectors fixed during validation:
 
 Acceptance status (2026-07-12):
 - ✅ Vitest (817 tests) still passes.
-- ✅ WDIO smoke: all 4 assertions pass against the real compiled Tauri binary.
+- ✅ WDIO smoke: 1 scenario, 5 assertions — all pass against the real compiled Tauri binary.
+  - Real compiled Tauri binary launched (tauri-driver + WebKitWebDriver).
+  - WebDriver connected successfully; landing screen loaded at `tauri://localhost`.
+  - All 5 assertions passed; process exited with code 0.
 - ⚠️ Playwright still fails in this environment (pre-existing: Firefox system deps missing).
 - ✅ No app behavior changes.
 - ✅ No Rust changes.

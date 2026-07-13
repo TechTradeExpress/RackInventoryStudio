@@ -120,12 +120,34 @@ Key settings:
 
 `apps/desktop/e2e-wdio/specs/app-smoke.e2e.ts`
 
-Single `it()` scenario with 4 assertions:
-1. `body` exists (app launched, WebView connected)
+Single `it()` scenario with 5 assertions:
+1. `body` exists (app launched, WebDriver connected)
 2. `h1=Open a repository` is displayed (PageHeader `<h1>` title)
 3. `h2=Clone repository` is displayed (Panel `<h2>` heading)
 4. `h2=Create new repository` is displayed (Panel `<h2>` heading)
 5. `button=Create repository` is displayed (submit button in Create form)
+
+---
+
+## Final WDIO validation
+
+- Platform: Linux x86_64 / Ubuntu 24.04-equivalent
+- Build command: `pnpm -C apps/desktop tauri build --no-bundle`
+- Binary: `target/release/rack-inventory-studio-desktop`
+- Runtime: Xvfb + tauri-driver + WebKitWebDriver
+- Result: `1 passed, 1 total, exit 0`
+- Scenario: 1 scenario, 5 assertions
+
+---
+
+## Documentation repair
+
+- Removed invalid `cargo build --release` instruction from `wdio.conf.ts` and documentation.
+  Bare cargo build does not embed frontendDist; the Tauri CLI build is required.
+- Updated PR-1 status from "validation pending" to "validated locally on Linux".
+- Corrected assertion count from 4 to 5 (body + h1 + h2×2 + button).
+- Working-directory context made explicit: `pnpm -C apps/desktop tauri build --no-bundle`.
+- PR remains "in review"; not marked merged.
 
 ---
 
