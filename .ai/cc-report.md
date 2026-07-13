@@ -77,8 +77,9 @@ A Cargo workspace puts the binary at the workspace root `target/release/`, two l
 
 ### 2. Wrong selector for page title heading
 
-Smoke spec used `h2=Open a repository`.  The landing page title "Open a repository" is
-rendered by the `PageHeader` component as `<h1>`, not `<h2>` (which is used by `Panel`).
+Smoke spec used the wrong heading level for the page title selector.
+The landing page title "Open a repository" is rendered by the `PageHeader` component
+as `<h1>`, not `<h2>` (which is the level used by `Panel` for its own title).
 
 **Fix:** Changed selector to `h1=Open a repository`.
 
@@ -144,7 +145,7 @@ Single `it()` scenario with 5 assertions:
 
 - Removed invalid `cargo build --release` instruction from `wdio.conf.ts` and documentation.
   Bare cargo build does not embed frontendDist; the Tauri CLI build is required.
-- Updated PR-1 status from "validation pending" to "validated locally on Linux".
+- Updated PR-1 status line: replaced the unvalidated placeholder with "validated locally on Linux".
 - Corrected assertion count from 4 to 5 (body + h1 + h2×2 + button).
 - Working-directory context made explicit: `pnpm -C apps/desktop tauri build --no-bundle`.
 - PR remains "in review"; not marked merged.
