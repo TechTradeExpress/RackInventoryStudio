@@ -254,9 +254,16 @@ Tauri binary, with a fully isolated temp environment and filesystem assertions.
 | `repository-create-code-input` | Code `<input>` | `CreateRepositoryWizard` |
 | `repository-create-name-input` | Name `<input>` | `CreateRepositoryWizard` |
 | `repository-active-root` | Open-repo `<h1>` via PageHeader `testId` | `RepositoryPanel` |
+| `repository-active-path` | Repo path `<span>` in PageHeader subtitle | `RepositoryPanel` |
 | `repository-close-action` | Close `<button>` | `RepositoryPanel` |
 | `repository-open-path-input` | Open-by-path `<input>` | `RepositoryPanel` |
 | `repository-open-path-submit` | Open `<button>` | `RepositoryPanel` |
+
+`repository-active-path` carries the exact `summary.repo_path` string rendered in
+the page header subtitle.  The lifecycle spec reads its text, applies
+`realpathSync.native(resolve(...))` to both the displayed and expected values,
+and asserts canonical equality.  This assertion runs immediately after creation
+and again after reopening.
 
 #### Temp environment design
 
@@ -266,15 +273,31 @@ Tauri binary, with a fully isolated temp environment and filesystem assertions.
 | Env var | Purpose |
 |---------|---------|
 | `XDG_CONFIG_HOME / XDG_DATA_HOME / XDG_CACHE_HOME` | Isolate WebKit localStorage and Tauri app data |
-| `APPDATA / LOCALAPPDATA` | Windows equivalents (no-op on Linux) |
+| `APPDATA / LOCALAPPDATA / HOME` | Windows equivalents + home isolation (no-op on Linux for APPDATA/LOCALAPPDATA) |
 | `GIT_CONFIG_GLOBAL` | Minimal e2e-only git identity (user.name + user.email) |
 | `GIT_CONFIG_NOSYSTEM` | Prevent reading system git config |
+| `RIS_E2E_RUN_ROOT` | Path of the generated run root (internal, read by workers for validation) |
+| `RIS_E2E_ENV_INITIALIZED=1` | Internal marker that isolation is configured (set by launcher; checked by workers) |
 | `RIS_E2E_REPOSITORY_PARENT` | Isolated parent dir for repos created during the spec |
 
-Workers also load `wdio.conf.ts`; `initTestEnvironment()` skips if
-`RIS_E2E_REPOSITORY_PARENT` is already set so only the launcher creates a temp
-dir. Cleanup is guarded by prefix check + ownership sentinel and is skipped when
-`RIS_E2E_KEEP_TEMP=1`.
+`RIS_E2E_ENV_INITIALIZED` is the initialization marker — not
+`RIS_E2E_REPOSITORY_PARENT`.  This separation means a pre-existing
+`RIS_E2E_REPOSITORY_PARENT` from the developer's shell is detected and rejected
+before any app launch (error: "Refusing to bypass the isolated WDIO test
+environment").
+
+Workers also load `wdio.conf.ts`; they detect `RIS_E2E_ENV_INITIALIZED=1` and
+validate the inherited `RIS_E2E_RUN_ROOT` + `RIS_E2E_REPOSITORY_PARENT` before
+returning a no-op cleanup.  Invalid inherited state throws immediately.
+
+Cleanup guards (all must pass before `rmSync`):
+- path-aware containment: `runRoot` is a strict descendant of `tmpdir()` (not just `startsWith`)
+- `repoParent` is a strict descendant of `runRoot`
+- `basename(runRoot)` starts with `ris-wdio-`
+- ownership sentinel file `ownership-sentinel` is present
+
+Cleanup is skipped (run root preserved) when `RIS_E2E_KEEP_TEMP=1`.
+`cleanupOwnedRunRoot()` and `validateOwnedRunRoot()` are exported and tested directly.
 
 #### Lifecycle route (no native dialogs required)
 
@@ -305,15 +328,31 @@ takes ~210 s due to the `@wdio/tauri-service` beforeCommand hook overhead
 Platform    : Linux x86_64, WebKitGTK / Xvfb
 Binary      : tauri build --no-bundle → target/release/rack-inventory-studio-desktop
 Run command : TAURI_BINARY_PATH=... xvfb-run -a wdio run e2e-wdio/wdio.conf.ts
-Result      : 2 passed, 2 total (100% completed) in 00:04:47 — exit 0
+Result      : 2 passed, 2 total (100% completed) in 00:05:35 — exit 0
 Specs       : app-smoke.e2e.ts ✅   repository-lifecycle.e2e.ts ✅
+
+Active path after create : /tmp/ris-wdio-zuwtYu/repositories/e2emrjoajpv ✅
+Active path after reopen : /tmp/ris-wdio-zuwtYu/repositories/e2emrjoajpv ✅
+Cleanup (normal run)     : owned run root deleted ✅
+Cleanup (RIS_E2E_KEEP_TEMP=1) : run root preserved, sentinel present, repo visible ✅
+Cleanup after failure    : onComplete ran and deleted run root ✅
+Foreign RIS_E2E_REPOSITORY_PARENT : rejected at config-load time before app launch ✅
+```
+
+Focused helper tests (Vitest):
+```
+e2e-wdio/support/test-environment.test.ts — 22 tests pass
+Total Vitest: 839 tests pass (up from 817)
 ```
 
 Acceptance:
 - E2E creates a new RIS repository in an isolated temp path.
 - Filesystem scaffold verified (inventory/repo.yaml, .git/).
+- Exact canonical repository path verified in the app after create and reopen.
+- Active-path element not displayed after close.
 - Close → reopen via text-input path works end-to-end.
 - Test is deterministic across runs; temp dir cleaned up after each run.
+- Foreign `RIS_E2E_REPOSITORY_PARENT` rejected before app launch.
 - No hidden production-only behavior. No dependency changes. No Rust changes.
 
 ---

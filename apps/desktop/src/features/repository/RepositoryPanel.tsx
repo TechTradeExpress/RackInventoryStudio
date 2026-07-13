@@ -1021,7 +1021,15 @@ export function RepositoryPanel({
       <PageHeader
         title="Repository"
         testId="repository-active-root"
-        subtitle={<span className="mono" style={{ fontSize: 12, color: "var(--tx-3)" }}>{summary.repo_path}</span>}
+        subtitle={
+          <span
+            data-testid="repository-active-path"
+            className="mono"
+            style={{ fontSize: 12, color: "var(--tx-3)" }}
+          >
+            {summary.repo_path}
+          </span>
+        }
         actions={
           <>
             <button className="btn" onClick={onBrowse} disabled={working}>
