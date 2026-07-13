@@ -887,6 +887,7 @@ export function RepositoryPanel({
         <PageHeader
           title="Open a repository"
           subtitle="Rack Inventory Studio stores its data as YAML files in a Git repository on disk."
+          testId="repository-landing-title"
         />
         <div className="page-content">
           <div className="cols-sidebar">
@@ -970,11 +971,11 @@ export function RepositoryPanel({
                 </div>
               </Panel>
 
-              <Panel title="Clone repository" desc="Clone an existing RIS repository from a Git URL.">
+              <Panel title="Clone repository" desc="Clone an existing RIS repository from a Git URL." testId="repository-clone-title">
                 <CloneRepositoryForm onSuccess={onCloneSuccess} />
               </Panel>
 
-              <Panel title="Create new repository" desc="Scaffold an empty RIS repository on disk.">
+              <Panel title="Create new repository" desc="Scaffold an empty RIS repository on disk." testId="repository-create-title">
                 <CreateRepositoryWizard onSuccess={onCreateSuccess} />
               </Panel>
             </div>

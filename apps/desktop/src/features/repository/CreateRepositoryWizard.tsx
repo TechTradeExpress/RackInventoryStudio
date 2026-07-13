@@ -121,6 +121,7 @@ export function CreateRepositoryWizard({ onSuccess }: Props) {
         type="submit"
         style={common.btn}
         disabled={isBusy || formHasErrors}
+        data-testid="repository-create-submit"
       >
         Create repository
       </button>
