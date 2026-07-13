@@ -201,7 +201,7 @@ Acceptance status (2026-07-12):
 
 ---
 
-### PR-2 — Stable repository landing selectors 🚧 In review
+### PR-2 — Stable repository landing selectors ✅ Merged
 
 **Branch from:** `roadmap/e2e-wdio`
 **Target:** `roadmap/e2e-wdio`
@@ -237,21 +237,84 @@ Acceptance:
 
 ---
 
-### PR-3 — Repository lifecycle E2E
+### PR-3 — Repository lifecycle E2E 🚧 In review
 
 **Branch from:** `roadmap/e2e-wdio`
 **Target:** `roadmap/e2e-wdio`
+**Branch:** `feature/e2e-wdio-repo-lifecycle`
 
-Purpose:
-- Cover create/open repository flow using temp directories.
-- Verify basic repository summary loads (location list, rack list visible).
-- No external Git or network access.
-- Clean up temp test data after each run.
+Purpose: cover the full create → open → close → reopen lifecycle against a real
+Tauri binary, with a fully isolated temp environment and filesystem assertions.
+
+#### Selector contract (PR-3 additions)
+
+| Selector ID | Element | Location |
+|-------------|---------|----------|
+| `repository-create-parent-input` | Parent directory `<input>` | `CreateRepositoryWizard` |
+| `repository-create-code-input` | Code `<input>` | `CreateRepositoryWizard` |
+| `repository-create-name-input` | Name `<input>` | `CreateRepositoryWizard` |
+| `repository-active-root` | Open-repo `<h1>` via PageHeader `testId` | `RepositoryPanel` |
+| `repository-close-action` | Close `<button>` | `RepositoryPanel` |
+| `repository-open-path-input` | Open-by-path `<input>` | `RepositoryPanel` |
+| `repository-open-path-submit` | Open `<button>` | `RepositoryPanel` |
+
+#### Temp environment design
+
+`apps/desktop/e2e-wdio/support/test-environment.ts` creates a fresh
+`ris-wdio-*` dir under `os.tmpdir()` once per WDIO launcher, then sets:
+
+| Env var | Purpose |
+|---------|---------|
+| `XDG_CONFIG_HOME / XDG_DATA_HOME / XDG_CACHE_HOME` | Isolate WebKit localStorage and Tauri app data |
+| `APPDATA / LOCALAPPDATA` | Windows equivalents (no-op on Linux) |
+| `GIT_CONFIG_GLOBAL` | Minimal e2e-only git identity (user.name + user.email) |
+| `GIT_CONFIG_NOSYSTEM` | Prevent reading system git config |
+| `RIS_E2E_REPOSITORY_PARENT` | Isolated parent dir for repos created during the spec |
+
+Workers also load `wdio.conf.ts`; `initTestEnvironment()` skips if
+`RIS_E2E_REPOSITORY_PARENT` is already set so only the launcher creates a temp
+dir. Cleanup is guarded by prefix check + ownership sentinel and is skipped when
+`RIS_E2E_KEEP_TEMP=1`.
+
+#### Lifecycle route (no native dialogs required)
+
+Repository path on disk: `{RIS_E2E_REPOSITORY_PARENT}/{code}` — derived from
+Rust `create_repository_cmd` in `crates/ris-application/src/create.rs`.
+
+Reopen path: the "Open by path" `<input>` on the landing screen + "Open"
+`<button>` (`data-testid="repository-open-path-submit"`).  No native OS dialog
+is involved.
+
+#### React controlled-input workaround
+
+`setValue()` does not reliably trigger React's `onChange` for controlled inputs
+in WebKitWebDriver.  The spec uses a `reactSetValue()` helper that calls
+`browser.execute()` with the native `HTMLInputElement.prototype.value` setter +
+a bubbling `input` event, which React's synthetic event system picks up
+correctly.
+
+#### Mocha timeout
+
+Increased from 180 s to 300 s.  The full lifecycle scenario on Linux with Xvfb
+takes ~210 s due to the `@wdio/tauri-service` beforeCommand hook overhead
+(~600 ms per WebDriver command while `tauri-plugin-wdio` is not installed).
+
+#### Local WDIO validation (Linux, 2026-07-13)
+
+```
+Platform    : Linux x86_64, WebKitGTK / Xvfb
+Binary      : tauri build --no-bundle → target/release/rack-inventory-studio-desktop
+Run command : TAURI_BINARY_PATH=... xvfb-run -a wdio run e2e-wdio/wdio.conf.ts
+Result      : 2 passed, 2 total (100% completed) in 00:04:47 — exit 0
+Specs       : app-smoke.e2e.ts ✅   repository-lifecycle.e2e.ts ✅
+```
 
 Acceptance:
 - E2E creates a new RIS repository in an isolated temp path.
-- App opens it and shows expected UI elements.
-- Test is deterministic across runs.
+- Filesystem scaffold verified (inventory/repo.yaml, .git/).
+- Close → reopen via text-input path works end-to-end.
+- Test is deterministic across runs; temp dir cleaned up after each run.
+- No hidden production-only behavior. No dependency changes. No Rust changes.
 
 ---
 

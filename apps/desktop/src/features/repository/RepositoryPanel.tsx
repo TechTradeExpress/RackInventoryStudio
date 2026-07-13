@@ -954,6 +954,7 @@ export function RepositoryPanel({
                         onKeyDown={(e) => e.key === "Enter" && onOpen()}
                         placeholder="e.g. examples/example-repository"
                         disabled={working}
+                        data-testid="repository-open-path-input"
                       />
                       <button className="btn" onClick={onBrowse} disabled={working}>
                         <IcFolder size={12} /> Browse…
@@ -965,6 +966,7 @@ export function RepositoryPanel({
                     className="btn btn-primary"
                     onClick={onOpen}
                     disabled={working || !repoPath.trim()}
+                    data-testid="repository-open-path-submit"
                   >
                     Open
                   </button>
@@ -1018,13 +1020,14 @@ export function RepositoryPanel({
     <>
       <PageHeader
         title="Repository"
+        testId="repository-active-root"
         subtitle={<span className="mono" style={{ fontSize: 12, color: "var(--tx-3)" }}>{summary.repo_path}</span>}
         actions={
           <>
             <button className="btn" onClick={onBrowse} disabled={working}>
               <IcFolder size={12} /> Switch…
             </button>
-            <button className="btn btn-danger" onClick={onClose} disabled={working}>
+            <button className="btn btn-danger" onClick={onClose} disabled={working} data-testid="repository-close-action">
               <IcX size={12} /> Close
             </button>
           </>
