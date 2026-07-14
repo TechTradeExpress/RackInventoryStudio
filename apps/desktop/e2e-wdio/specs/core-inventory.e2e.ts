@@ -1,16 +1,20 @@
 /**
- * Core inventory E2E — Stage 1
+ * Core inventory E2E
  *
- * Creates its own isolated repository, then exercises the end-to-end
- * creation flow for each core inventory entity:
+ * Creates its own isolated repository and exercises the full end-to-end
+ * inventory flow through the real UI (no direct YAML manipulation, no Tauri
+ * command injection):
  *
- *   Repository → Location → Rack → Device Model → Device (unplaced)
+ *   Repository → Location → Rack → Device Model → Device
+ *   → Placement at U1 → Save and close → Reopen by path → Persistence verification
  *
- * Each entity is created through the real UI (no direct YAML manipulation,
- * no Tauri command injection).  The test asserts that each created record
- * appears in the corresponding panel list after creation.
+ * Stage 1 assertions: each created entity appears in the corresponding panel
+ * list; the device row carries an "unplaced" badge.
  *
- * Stage 2 (placement + close/reopen persistence) is deferred to a follow-up.
+ * Stage 2 assertions: the device is placed at rack U1 via PlacePlacementModal;
+ * the placed card's title attribute references the device model name; after
+ * saving, closing, and reopening the repository the placement is still present
+ * at U1 with the correct model title.
  *
  * Isolation:
  *   RIS_E2E_REPOSITORY_PARENT — set by test-environment in wdio.conf.ts
@@ -50,9 +54,13 @@ async function waitForModal(submitTestId: string): Promise<void> {
     .waitForDisplayed({ timeout: 10_000 });
 }
 
+function isPlacementFailure(err: unknown): err is Error {
+  return err instanceof Error && err.message.startsWith("Placement failed");
+}
+
 // ── Suite ─────────────────────────────────────────────────────────────────────
 
-describe("Rack Inventory Studio — core inventory creation (Stage 1)", () => {
+describe("Rack Inventory Studio — core inventory placement", () => {
   before(() => {
     if (!process.env["RIS_E2E_REPOSITORY_PARENT"]) {
       throw new Error(
@@ -62,7 +70,7 @@ describe("Rack Inventory Studio — core inventory creation (Stage 1)", () => {
     }
   });
 
-  it("creates repository, location, rack, device model, and unplaced device", async () => {
+  it("creates inventory, places a device, and verifies persistence after reopen", async () => {
     const repoParent = process.env["RIS_E2E_REPOSITORY_PARENT"] as string;
 
     // Unique suffix per run — lowercase alphanumeric, safe for codes.
@@ -350,18 +358,21 @@ describe("Rack Inventory Studio — core inventory creation (Stage 1)", () => {
     log("step 16: rack detail panel loaded, palette visible");
 
     // ── 17. Click Place… for our device in the palette ────────────────────────
+    // Scope to `button[data-testid^="place-btn-device-"]` so the selector cannot
+    // collide with placed-card divs that also carry data-device-code.
     log("step 17: clicking Place… for device in palette");
+    const paletteBtnSel = `button[data-testid^="place-btn-device-"][data-device-code="${deviceCode}"]`;
     await browser.waitUntil(
       async () => {
         try {
-          return await browser.$(`[data-device-code="${deviceCode}"]`).isDisplayed();
+          return await browser.$(paletteBtnSel).isDisplayed();
         } catch {
           return false;
         }
       },
       { timeout: 15_000, timeoutMsg: `Palette Place button for device "${deviceCode}" never appeared` },
     );
-    await browser.$(`[data-device-code="${deviceCode}"]`).click();
+    await browser.$(paletteBtnSel).click();
     log("step 17: Place… clicked, waiting for modal");
 
     // ── 18. PlacePlacementModal — device pre-selected, fill start U ───────────
@@ -413,11 +424,11 @@ describe("Rack Inventory Studio — core inventory creation (Stage 1)", () => {
               throw new Error(`Placement failed — modal error: "${errText}"`);
             }
           } catch (inner) {
-            if (String(inner).startsWith("Placement failed")) throw inner;
+            if (isPlacementFailure(inner)) throw inner;
           }
           return false;
         } catch (e) {
-          if (String(e).startsWith("Placement failed")) throw e;
+          if (isPlacementFailure(e)) throw e;
           return false;
         }
       },

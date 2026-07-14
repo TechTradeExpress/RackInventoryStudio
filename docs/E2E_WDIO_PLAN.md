@@ -447,7 +447,52 @@ Increased from 900 s (15 min) to 1 800 s (30 min).
 
 #### Local WDIO validation (Linux, 2026-07-14)
 
-(Results to be recorded after E2E run completes.)
+**Platform:** Linux (Ubuntu 24.04 LTS), Tauri v2 desktop binary, `xvfb-run` virtual display  
+**Binary:** built with `PATH=".../pnpm-local/node_modules/.bin:$PATH" pnpm -C apps/desktop exec tauri build --no-bundle` (46 s)
+
+##### Isolated spec run 1 (17:42–18:05 UTC)
+
+```bash
+TAURI_BINARY_PATH="$(realpath target/release/rack-inventory-studio-desktop)" \
+  xvfb-run -a pnpm -C apps/desktop exec wdio run \
+  e2e-wdio/wdio.conf.ts --spec e2e-wdio/specs/core-inventory.e2e.ts
+```
+
+**PASSED** — 1/1 specs (100%) in **00:22:44** — exit 0  
+All Stage 1 assertions passed (17:56 UTC); all Stage 2 assertions passed, placement
+persisted at U1 after reopen (18:05 UTC). Temp repo `/tmp/ris-wdio-rkX2DO` removed
+by `after()` hook.
+
+##### Isolated spec run 2 (18:05–18:28 UTC)
+
+Same command, independent data (suffix `mrkyp200`).
+
+**PASSED** — 1/1 specs (100%) in **00:22:53** — exit 0  
+All Stage 1 and Stage 2 assertions passed; persistence verified at U1 after reopen.
+Temp repo `/tmp/ris-wdio-q9Y6fT` removed by `after()` hook.
+
+##### Full WDIO suite (post-repair)
+
+```bash
+xvfb-run -a pnpm -C apps/desktop run test:e2e:wdio
+```
+
+**PASSED** — 3/3 specs (100%) in **00:28:38** — exit 0
+
+##### Unit tests (Vitest)
+
+`pnpm -C apps/desktop run test:unit` — **844/844 passed**, 0 failures.
+
+##### Playwright
+
+Blocked: system dependency `libasound2t64` absent —
+`browserType.launch` error: "Host system is missing dependencies to run browsers.
+Please install: `sudo apt-get install libasound2t64`". 21/21 tests fail.
+Pre-existing condition, unrelated to this PR.
+
+##### TypeScript
+
+`pnpm tsc --noEmit` (repo root) — **0 errors**.
 
 Acceptance:
 - Covers the central RIS creation workflow end-to-end.
