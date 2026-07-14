@@ -225,6 +225,7 @@ export function DeviceModelFormModal({
           </button>
           <button
             className="btn btn-primary"
+            data-testid="model-form-submit"
             onClick={handleSave}
             disabled={!canSave}
           >

@@ -106,7 +106,7 @@ export function LocationsPanel({
         title="Locations"
         subtitle="Physical sites that contain racks."
         actions={
-          <button className="btn btn-primary" onClick={openAdd}>
+          <button className="btn btn-primary" data-testid="location-add-btn" onClick={openAdd}>
             <IcPlus size={12} /> Add location
           </button>
         }
@@ -148,6 +148,7 @@ export function LocationsPanel({
                   <tr
                     key={loc.id}
                     data-loc-id={loc.id}
+                    data-location-code={loc.code}
                     role="button"
                     tabIndex={0}
                     aria-label={`Open racks for ${loc.name}`}

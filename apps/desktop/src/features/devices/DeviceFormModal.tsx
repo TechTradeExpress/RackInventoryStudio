@@ -279,6 +279,7 @@ export function DeviceFormModal({
           </button>
           <button
             className="btn btn-primary"
+            data-testid="device-form-submit"
             type="submit"
             form="device-form"
             disabled={!canSave}

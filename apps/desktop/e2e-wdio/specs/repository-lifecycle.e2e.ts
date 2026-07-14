@@ -15,70 +15,13 @@
  * Running this suite requires the same prerequisites as app-smoke.e2e.ts.
  * See e2e-wdio/wdio.conf.ts for the full run command.
  */
-import { existsSync, realpathSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { browser, expect } from "@wdio/globals";
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-/**
- * Returns a canonical absolute path suitable for comparison across symlinks
- * and case differences (Windows lowercase).
- */
-function canonicalPath(value: string): string {
-  const canonical = realpathSync.native(resolve(value.trim()));
-  return process.platform === "win32" ? canonical.toLowerCase() : canonical;
-}
-
-/**
- * Set a value on a React controlled <input> via the native HTMLInputElement
- * value setter + a bubbling input event.  This bypasses React's internal
- * tracked-value guard that otherwise prevents programmatic value changes from
- * triggering onChange.
- */
-async function reactSetValue(testId: string, value: string): Promise<void> {
-  const el = await browser.$(`[data-testid="${testId}"]`);
-  await el.waitForDisplayed({ timeout: 10_000 });
-  await browser.execute(
-    function (inputEl: HTMLInputElement, val: string) {
-      const proto = Object.getPrototypeOf(inputEl);
-      const descriptor = Object.getOwnPropertyDescriptor(proto, "value");
-      if (descriptor && descriptor.set) {
-        descriptor.set.call(inputEl, val);
-      } else {
-        inputEl.value = val;
-      }
-      inputEl.dispatchEvent(new Event("input", { bubbles: true }));
-      inputEl.dispatchEvent(new Event("change", { bubbles: true }));
-    },
-    el as unknown as HTMLInputElement,
-    value,
-  );
-}
-
-/**
- * Waits until the repository-active-path element is displayed and its text
- * matches the canonical form of expectedPath.
- */
-async function expectActiveRepositoryPath(expectedPath: string): Promise<void> {
-  const pathElement = browser.$('[data-testid="repository-active-path"]');
-  await pathElement.waitForDisplayed({ timeout: 30_000 });
-
-  await browser.waitUntil(
-    async () => {
-      const displayedPath = await pathElement.getText();
-      try {
-        return canonicalPath(displayedPath) === canonicalPath(expectedPath);
-      } catch {
-        return false;
-      }
-    },
-    {
-      timeout: 30_000,
-      timeoutMsg: `Active repository path did not become "${expectedPath}"`,
-    },
-  );
-}
+import {
+  reactSetValue,
+  expectActiveRepositoryPath,
+} from "../support/repository-ui";
 
 function log(msg: string) {
   const ts = new Date().toISOString().substring(11, 23);
@@ -113,7 +56,7 @@ describe("Rack Inventory Studio — repository lifecycle", () => {
     log("step 1: waiting for landing title");
     await expect(
       browser.$('[data-testid="repository-landing-title"]'),
-    ).toBeDisplayed();
+    ).toBeDisplayed({ timeout: 30_000 });
     log("step 1: landing title visible");
 
     // ── 2. Target path must not exist yet ─────────────────────────────────────

@@ -2,8 +2,10 @@
 
 ## Status
 
-**PR-1 in review** — WDIO tooling foundation implemented and validated locally on Linux.
-`apps/desktop/e2e-wdio/` exists; smoke spec added; `test:e2e:wdio` script added.
+**PR-1 ✅ Merged** — WDIO tooling foundation implemented and validated locally on Linux.
+**PR-2 ✅ Merged** — Stable repository landing selectors.
+**PR-3 ✅ Merged** — Repository lifecycle E2E (create → open → close → reopen).
+**PR-4 Stage 1 🚧 Draft** — Core inventory creation flow (branch: `feature/e2e-wdio-core-inventory`).
 
 Base branch for this roadmap: `roadmap/e2e-wdio`.
 
@@ -237,7 +239,7 @@ Acceptance:
 
 ---
 
-### PR-3 — Repository lifecycle E2E 🚧 In review
+### PR-3 — Repository lifecycle E2E ✅ Merged
 
 **Branch from:** `roadmap/e2e-wdio`
 **Target:** `roadmap/e2e-wdio`
@@ -357,24 +359,54 @@ Acceptance:
 
 ---
 
-### PR-4 — Core inventory E2E
+### PR-4 — Core inventory E2E 🚧 Draft (Stage 1)
 
 **Branch from:** `roadmap/e2e-wdio`
 **Target:** `roadmap/e2e-wdio`
+**Branch:** `feature/e2e-wdio-core-inventory`
 
-Purpose:
-- Add happy-path flow:
-  1. Create location
-  2. Create rack
-  3. Create device model
-  4. Create device
-  5. Place device in rack
-  6. Verify rack view shows placement
-- Uses isolated repo fixture from PR-3 infrastructure.
+Stage 1 (this PR) — creation flow only:
+- Creates its own isolated repository (no fixture dependency on PR-3 repos).
+- Happy-path flow: Repository → Location → Rack → Device Model → Device (unplaced).
+- Asserts each created entity appears in the corresponding panel list.
+- Asserts the device row shows an "unplaced" badge.
+
+Stage 2 (deferred) — placement + persistence:
+- Place device in rack via Rack detail view.
+- Verify placement appears in rack view.
+- Close repository and reopen; verify all records persist.
+
+#### Selector contract (PR-4 additions)
+
+| Selector | Element | Location |
+|----------|---------|----------|
+| `nav-{tab}` | Nav item div for each tab (`nav-locations`, `nav-racks`, `nav-devices`, `nav-device_models`) | `App.tsx` navItem |
+| `location-add-btn` | "Add location" button | `LocationsPanel` |
+| `location-form-submit` | Submit button in location modal | `LocationFormModal` |
+| `rack-add-btn` | "Add rack" button | `RacksPanel` |
+| `rack-form-submit` | Submit button in rack modal | `RackFormModal` |
+| `model-add-btn` | "Add model" button | `DeviceModelsPanel` |
+| `model-form-submit` | Submit button in device model modal | `DeviceModelFormModal` |
+| `device-add-btn` | "Add device" button | `DevicesPanel` |
+| `device-form-submit` | Submit button in device modal | `DeviceFormModal` |
+
+| Data attribute | Purpose | Location |
+|----------------|---------|----------|
+| `data-location-code` | Stable row identifier for locations | `LocationsPanel` |
+| `data-rack-code` | Stable row identifier for racks | `RacksPanel` |
+| `data-model-code` | Stable row identifier for device models | `DeviceModelsPanel` |
+| `data-device-code` | Stable row identifier for devices | `DevicesPanel` |
+
+#### Shared helpers
+
+`apps/desktop/e2e-wdio/support/repository-ui.ts` — extracted from the lifecycle spec:
+- `canonicalPath()`, `reactSetValue()`, `reactSelectValue()`, `waitForEnabled()`,
+  `expectActiveRepositoryPath()`, `createRepositoryThroughUi()`
 
 Acceptance:
-- Covers the central RIS workflow end-to-end.
-- No dependency on test order unless explicitly isolated.
+- Covers the central RIS creation workflow end-to-end.
+- Spec is self-contained; creates its own repo per run.
+- No dependency on test order with other specs.
 - No network access.
 
 ---

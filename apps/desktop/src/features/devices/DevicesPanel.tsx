@@ -238,7 +238,7 @@ export function DevicesPanel({
         title="Devices"
         subtitle="Concrete device records — placed and unplaced."
         actions={
-          <button className="btn btn-primary" onClick={openAdd}>
+          <button className="btn btn-primary" data-testid="device-add-btn" onClick={openAdd}>
             <IcPlus size={12} /> Add device
           </button>
         }
@@ -353,6 +353,7 @@ export function DevicesPanel({
                       <tr
                         key={dev.id}
                         data-dev-id={dev.id}
+                        data-device-code={dev.code}
                         className={
                           dev.id === highlightedDeviceId ? "tbl-selected" : undefined
                         }
