@@ -21,7 +21,6 @@
  *
  * Running this suite requires the same prerequisites as repository-lifecycle.e2e.ts.
  */
-import { join } from "node:path";
 import { browser, expect } from "@wdio/globals";
 import {
   reactSetValue,

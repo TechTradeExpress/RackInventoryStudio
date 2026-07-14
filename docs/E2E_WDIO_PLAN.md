@@ -448,7 +448,9 @@ Increased from 900 s (15 min) to 1 800 s (30 min).
 #### Local WDIO validation (Linux, 2026-07-14)
 
 **Platform:** Linux (Ubuntu 24.04 LTS), Tauri v2 desktop binary, `xvfb-run` virtual display  
-**Binary:** built with `PATH=".../pnpm-local/node_modules/.bin:$PATH" pnpm -C apps/desktop exec tauri build --no-bundle` (46 s)
+**Binary:** built with `pnpm -C apps/desktop tauri build --no-bundle` (46 s)
+_(Local environment required `PATH` prepended with the pnpm bin directory;
+the project-standard command is `pnpm -C apps/desktop tauri build --no-bundle`.)_
 
 ##### Isolated spec run 1 (17:42–18:05 UTC)
 
@@ -460,8 +462,8 @@ TAURI_BINARY_PATH="$(realpath target/release/rack-inventory-studio-desktop)" \
 
 **PASSED** — 1/1 specs (100%) in **00:22:44** — exit 0  
 All Stage 1 assertions passed (17:56 UTC); all Stage 2 assertions passed, placement
-persisted at U1 after reopen (18:05 UTC). Temp repo `/tmp/ris-wdio-rkX2DO` removed
-by `after()` hook.
+persisted at U1 after reopen (18:05 UTC). Owned root `/tmp/ris-wdio-rkX2DO` removed
+by the WDIO `onComplete` hook (guarded test-environment cleanup).
 
 ##### Isolated spec run 2 (18:05–18:28 UTC)
 
@@ -469,7 +471,8 @@ Same command, independent data (suffix `mrkyp200`).
 
 **PASSED** — 1/1 specs (100%) in **00:22:53** — exit 0  
 All Stage 1 and Stage 2 assertions passed; persistence verified at U1 after reopen.
-Temp repo `/tmp/ris-wdio-q9Y6fT` removed by `after()` hook.
+Owned root `/tmp/ris-wdio-q9Y6fT` removed by the WDIO `onComplete` hook (guarded
+test-environment cleanup).
 
 ##### Full WDIO suite (post-repair)
 
