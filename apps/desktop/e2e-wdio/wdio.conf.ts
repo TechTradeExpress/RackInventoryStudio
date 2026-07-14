@@ -1,6 +1,11 @@
 /**
  * WebdriverIO configuration for Tauri desktop E2E tests.
  *
+ * Test environment isolation (repository-lifecycle suite):
+ * The test-environment helper is initialized at module-load time so that the
+ * XDG and git isolation env vars are in process.env before the WDIO launcher
+ * spawns workers and before tauri-driver launches the Tauri binary.
+ *
  * Prerequisites before running:
  *   1. Build the Tauri release binary using the Tauri CLI (from repo root):
  *        pnpm -C apps/desktop tauri build --no-bundle
@@ -30,6 +35,11 @@
  */
 import type { Options } from "@wdio/types";
 import path from "path";
+import { initTestEnvironment } from "./support/test-environment";
+
+// Initialize isolated temp environment before any WDIO process starts.
+// Returns cleanup function registered in onComplete below.
+const cleanupTestEnvironment = initTestEnvironment();
 
 function defaultBinaryPath(): string {
   // This project is a Cargo workspace: the shared target/ dir is at the repo root,
@@ -61,9 +71,9 @@ export const config: Options.Testrunner = {
     ui: "bdd",
     // The @wdio/tauri-service beforeCommand hook runs a plugin-availability
     // check before every WebDriver command (~100ms per command).  Combined with
-    // the Tauri app's ~15 s cold-start time, the full smoke scenario needs
-    // well above 60 s.  Set 3 min so CI has headroom without being infinite.
-    timeout: 180_000,
+    // the Tauri app's ~15 s cold-start time and the full repository lifecycle
+    // scenario, 3 min is not enough.  Set 5 min so CI has headroom.
+    timeout: 300_000,
   },
 
   services: [
@@ -86,4 +96,8 @@ export const config: Options.Testrunner = {
       browserName: "tauri",
     },
   ],
+
+  onComplete: () => {
+    cleanupTestEnvironment();
+  },
 };
