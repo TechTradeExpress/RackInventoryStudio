@@ -5,9 +5,16 @@
 **PR-1 ✅ Merged** — WDIO tooling foundation implemented and validated locally on Linux.
 **PR-2 ✅ Merged** — Stable repository landing selectors.
 **PR-3 ✅ Merged** — Repository lifecycle E2E (create → open → close → reopen).
-**PR-4 🔍 In Review** — Core inventory creation + placement + persistence (branch: `feature/e2e-wdio-core-inventory`).
+**PR-4 ✅ Merged** — Core inventory creation + placement + persistence (PR #142).
 
 Base branch for this roadmap: `roadmap/e2e-wdio`.
+
+**Integration status:** The completed roadmap (`roadmap/e2e-wdio`) is proposed for
+merge into `development` via a draft integration PR. Head: `roadmap/e2e-wdio`,
+Base: `development`. Status: Draft / In review.
+
+Further roadmap work (PR-5 and beyond) will be decided after the integration
+review is complete. Import/export and clone coverage are deferred.
 
 Future E2E PRs should target `roadmap/e2e-wdio`, not `development` or `master`.
 
@@ -359,7 +366,7 @@ Acceptance:
 
 ---
 
-### PR-4 — Core inventory E2E 🔍 In Review
+### PR-4 — Core inventory E2E ✅ Merged (PR #142)
 
 **Branch from:** `roadmap/e2e-wdio`
 **Target:** `roadmap/e2e-wdio`
