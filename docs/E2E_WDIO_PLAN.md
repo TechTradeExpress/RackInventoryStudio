@@ -5,7 +5,7 @@
 **PR-1 ✅ Merged** — WDIO tooling foundation implemented and validated locally on Linux.
 **PR-2 ✅ Merged** — Stable repository landing selectors.
 **PR-3 ✅ Merged** — Repository lifecycle E2E (create → open → close → reopen).
-**PR-4 Stage 1 🚧 Draft** — Core inventory creation flow (branch: `feature/e2e-wdio-core-inventory`).
+**PR-4 🔍 In Review** — Core inventory creation + placement + persistence (branch: `feature/e2e-wdio-core-inventory`).
 
 Base branch for this roadmap: `roadmap/e2e-wdio`.
 
@@ -359,24 +359,32 @@ Acceptance:
 
 ---
 
-### PR-4 — Core inventory E2E 🚧 Draft (Stage 1)
+### PR-4 — Core inventory E2E 🔍 In Review
 
 **Branch from:** `roadmap/e2e-wdio`
 **Target:** `roadmap/e2e-wdio`
 **Branch:** `feature/e2e-wdio-core-inventory`
 
-Stage 1 (this PR) — creation flow only:
+Full implementation (Stage 1 + Stage 2) in a single PR:
+
+**Stage 1 — creation flow:**
 - Creates its own isolated repository (no fixture dependency on PR-3 repos).
 - Happy-path flow: Repository → Location → Rack → Device Model → Device (unplaced).
 - Asserts each created entity appears in the corresponding panel list.
 - Asserts the device row shows an "unplaced" badge.
 
-Stage 2 (deferred) — placement + persistence:
-- Place device in rack via Rack detail view.
-- Verify placement appears in rack view.
-- Close repository and reopen; verify all records persist.
+**Stage 2 — placement + persistence:**
+- Navigate to Racks, open rack detail view.
+- Use PlacementPalettePanel "Place…" button to open `PlacePlacementModal` with device pre-selected.
+- Fill start U (U1) and click Place; verify placed card appears with model name.
+- Close repository — UnsavedChangesDialog fires; click "Save and continue".
+- Reopen via "Open by path" input; verify `expectActiveRepositoryPath`.
+- Navigate Locations → click location row → Racks → click rack row.
+- Verify placed card (`data-device-code` + `data-start-u`) present and model name correct after reopen.
 
 #### Selector contract (PR-4 additions)
+
+**Stage 1 testid selectors:**
 
 | Selector | Element | Location |
 |----------|---------|----------|
@@ -389,6 +397,25 @@ Stage 2 (deferred) — placement + persistence:
 | `model-form-submit` | Submit button in device model modal | `DeviceModelFormModal` |
 | `device-add-btn` | "Add device" button | `DevicesPanel` |
 | `device-form-submit` | Submit button in device modal | `DeviceFormModal` |
+
+**Stage 2 testid selectors (new):**
+
+| Selector | Element | Location |
+|----------|---------|----------|
+| `palette-drop-zone` | PlacementPalettePanel drop zone; presence signals rack detail loaded | `PlacementPalettePanel` |
+| `place-btn` | "Place" submit button in placement modal | `PlacePlacementModal` |
+| `start-u-input` | Start U `<input>` in placement modal | `PlacePlacementModal` |
+| `unsaved-changes-save` | "Save and continue" button in unsaved-changes dialog | `UnsavedChangesDialog` |
+
+**Stage 2 data attributes (new):**
+
+| Data attribute | Purpose | Location |
+|----------------|---------|----------|
+| `data-device-code` on Place button | Stable selector for palette Place… button by device code | `PlacementPalettePanel` |
+| `data-device-code` on placed card | Stable selector for placed card by device code | `RackUnitDiagram` |
+| `data-start-u` on placed card | Distinguishes placed card from palette button; verifies U position | `RackUnitDiagram` |
+
+**Stage 1 data attributes:**
 
 | Data attribute | Purpose | Location |
 |----------------|---------|----------|
@@ -403,8 +430,29 @@ Stage 2 (deferred) — placement + persistence:
 - `canonicalPath()`, `reactSetValue()`, `reactSelectValue()`, `waitForEnabled()`,
   `expectActiveRepositoryPath()`, `createRepositoryThroughUi()`
 
+#### Placement flow details
+
+1. `createRepositoryThroughUi()` returns `repoPath` (captured in Stage 2 for reopen).
+2. Device `data-device-code` captured from the devices list row after creation.
+3. Rack `<tr>` rows require JS click (`browser.execute((el) => el.click(), el)`) — WebKitGTK marks `<tr>` as not interactable.
+4. Composite selector `[data-device-code="${code}"][data-start-u="1"]` uniquely identifies the placed card without colliding with the palette Place button.
+5. State reset on reopen: `selectedLocationForRacks` is cleared by `doOpen()` in `App.tsx`. Stage 2 re-navigates via Locations → click location row → Racks → click rack row.
+
+#### Mocha timeout
+
+Increased from 900 s (15 min) to 1 800 s (30 min).
+- Stage 1: ~12 min (14 steps, 5 entity types, 4 modal cycles).
+- Stage 2: ~13 min (~24 additional modal/nav actions).
+- Total estimated: ~25 min → 30 min with margin.
+
+#### Local WDIO validation (Linux, 2026-07-14)
+
+(Results to be recorded after E2E run completes.)
+
 Acceptance:
 - Covers the central RIS creation workflow end-to-end.
+- Covers placement: device placed in rack, model name visible in placed card.
+- Covers persistence: close → reopen → placed card still present with correct U position.
 - Spec is self-contained; creates its own repo per run.
 - No dependency on test order with other specs.
 - No network access.

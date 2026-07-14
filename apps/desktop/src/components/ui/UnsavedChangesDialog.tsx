@@ -36,7 +36,7 @@ export function UnsavedChangesDialog({
           <button className="btn" onClick={onDiscard} disabled={saving}>
             Continue without saving
           </button>
-          <button className="btn btn-primary" onClick={onSave} disabled={saving}>
+          <button className="btn btn-primary" onClick={onSave} disabled={saving} data-testid="unsaved-changes-save">
             {saving ? "Saving…" : "Save and continue"}
           </button>
         </>

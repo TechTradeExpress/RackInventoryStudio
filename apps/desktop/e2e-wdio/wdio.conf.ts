@@ -70,11 +70,11 @@ export const config: Options.Testrunner = {
   mochaOpts: {
     ui: "bdd",
     // The @wdio/tauri-service beforeCommand hook adds ~600ms overhead per
-    // WebDriver command.  The core inventory spec exercises 14 steps across
-    // five entity types (~4 modal open/close cycles, 4 nav jumps).  In a
-    // headless Xvfb environment each cycle takes 40-80 s, pushing total
-    // wall-clock time to ~10 min.  Set 15 min so CI has a comfortable margin.
-    timeout: 900_000,
+    // WebDriver command.  Stage 1 (14 steps, 5 entity types, 4 modal cycles)
+    // takes ~12 min in headless Xvfb.  Stage 2 adds placement, save/close/reopen,
+    // and persistence verification (~13 min, ~24 additional modal/nav actions).
+    // Total estimated wall-clock: ~25 min → 30 min timeout with margin.
+    timeout: 1_800_000,
   },
 
   services: [

@@ -17,11 +17,13 @@
  *
  * Running this suite requires the same prerequisites as repository-lifecycle.e2e.ts.
  */
+import { join } from "node:path";
 import { browser, expect } from "@wdio/globals";
 import {
   reactSetValue,
   reactSelectValue,
   waitForEnabled,
+  expectActiveRepositoryPath,
   createRepositoryThroughUi,
 } from "../support/repository-ui";
 
@@ -84,7 +86,7 @@ describe("Rack Inventory Studio — core inventory creation (Stage 1)", () => {
 
     // ── 2. Create repository ──────────────────────────────────────────────────
     log("step 2: creating repository");
-    await createRepositoryThroughUi({ repoParent, repoCode, repoName });
+    const repoPath = await createRepositoryThroughUi({ repoParent, repoCode, repoName });
     log("step 2: repository open");
 
     // ── 3. Navigate to Locations ──────────────────────────────────────────────
@@ -252,6 +254,33 @@ describe("Rack Inventory Studio — core inventory creation (Stage 1)", () => {
     await reactSetValue("field-name", deviceName);
     // status defaults to "planned" — satisfies the required status field.
 
+    // Assign the device model so that placeDevice can resolve effective_height_u
+    // from the model's default_height_u (backend requires height_u or a model default).
+    log("step 13: assigning device model");
+    await browser.$('[data-testid="field-device-model-trigger"]').waitForDisplayed({ timeout: 10_000 });
+    await browser.$('[data-testid="field-device-model-trigger"]').click();
+    await browser.$('[data-testid="field-device-model-search"]').waitForDisplayed({ timeout: 10_000 });
+    await browser.$('[data-testid="field-device-model-search"]').addValue(modelName);
+    await browser.waitUntil(
+      async () => {
+        try {
+          const opts = await browser.$$('[role="option"]');
+          for (const opt of opts) {
+            const text = await opt.getText();
+            if (text.includes(modelName)) {
+              await opt.click();
+              return true;
+            }
+          }
+          return false;
+        } catch {
+          return false;
+        }
+      },
+      { timeout: 15_000, timeoutMsg: `Model option "${modelName}" not found in device form dropdown` },
+    );
+    log("step 13: device model assigned");
+
     log("step 13: submitting device form");
     await (await waitForEnabled("device-form-submit")).click();
 
@@ -287,7 +316,251 @@ describe("Rack Inventory Studio — core inventory creation (Stage 1)", () => {
       );
     }
     log("step 14: unplaced badge confirmed");
+    if (!deviceRow) throw new Error("deviceRow reference lost before code extraction");
+    const deviceCode = await (deviceRow as WebdriverIO.Element).getAttribute("data-device-code");
+    if (!deviceCode) throw new Error("data-device-code attribute missing from device row");
+    log(`step 14: device code = ${deviceCode}`);
 
     log("all Stage 1 assertions passed");
+
+    // ── 15. Navigate back to Racks for placement ──────────────────────────────
+    log("step 15: navigating to Racks for placement");
+    await clickNav("racks");
+    await browser.$('[data-testid="rack-add-btn"]').waitForDisplayed({ timeout: 10_000 });
+
+    // ── 16. Open the Rack detail view ─────────────────────────────────────────
+    log("step 16: opening rack detail view");
+    const rackRowsForDetail = await browser.$$("[data-rack-code]");
+    let targetRackRowForDetail: WebdriverIO.Element | null = null;
+    for (const row of rackRowsForDetail) {
+      const text = await row.getText();
+      if (text.includes(rackName)) {
+        targetRackRowForDetail = row;
+        break;
+      }
+    }
+    if (!targetRackRowForDetail) throw new Error(`Rack row for "${rackName}" not found for detail`);
+    // WebKit's WebDriver marks <tr> elements as not-interactable; use JS click.
+    await browser.execute(
+      (el: HTMLElement) => el.click(),
+      targetRackRowForDetail as unknown as HTMLElement,
+    );
+    // Palette drop zone is the reliable signal that RackDetailPanel has loaded.
+    await browser.$('[data-testid="palette-drop-zone"]').waitForDisplayed({ timeout: 15_000 });
+    log("step 16: rack detail panel loaded, palette visible");
+
+    // ── 17. Click Place… for our device in the palette ────────────────────────
+    log("step 17: clicking Place… for device in palette");
+    await browser.waitUntil(
+      async () => {
+        try {
+          return await browser.$(`[data-device-code="${deviceCode}"]`).isDisplayed();
+        } catch {
+          return false;
+        }
+      },
+      { timeout: 15_000, timeoutMsg: `Palette Place button for device "${deviceCode}" never appeared` },
+    );
+    await browser.$(`[data-device-code="${deviceCode}"]`).click();
+    log("step 17: Place… clicked, waiting for modal");
+
+    // ── 18. PlacePlacementModal — device pre-selected, fill start U ───────────
+    log("step 18: waiting for Place modal device preselection");
+    // place-btn is disabled until PlacePlacementModal's useEffect sets deviceId from
+    // initialTargetId.  Waiting for enabled confirms the initialization effect has
+    // settled and startUStr is in its reset-empty state before we fill it.
+    await browser.waitUntil(
+      async () => {
+        try {
+          return await browser.$('[data-testid="place-btn"]').isEnabled();
+        } catch {
+          return false;
+        }
+      },
+      { timeout: 30_000, timeoutMsg: "PlacePlacementModal place-btn never became enabled" },
+    );
+    log("step 18: filling placement start U");
+    // addValue() sends trusted WebDriver keyboard events that React 18 flushes
+    // synchronously, avoiding the state-batching race that reactSetValue can trigger.
+    const suInput = browser.$('[data-testid="start-u-input"]');
+    await suInput.waitForDisplayed({ timeout: 10_000 });
+    await suInput.addValue("1");
+
+    // ── 19. Submit placement ───────────────────────────────────────────────────
+    log("step 19: submitting placement");
+    await (await waitForEnabled("place-btn")).click();
+
+    // Wait for modal to close; surface any error from the modal footer (.ft-msg.err)
+    // so failures produce a meaningful message instead of a generic timeout.
+    // Stale element reference means the modal DOM node was removed → success.
+    await browser.waitUntil(
+      async () => {
+        try {
+          const btn = browser.$('[data-testid="place-btn"]');
+          let isShown: boolean;
+          try {
+            isShown = await btn.isDisplayed();
+          } catch {
+            // Stale element reference or element not found → modal is gone → success
+            return true;
+          }
+          if (!isShown) return true; // modal closed → success
+          // Check for placement error shown in the modal footer
+          const errEl = browser.$('.ft-msg.err');
+          try {
+            if (await errEl.isDisplayed()) {
+              const errText = await errEl.getText();
+              throw new Error(`Placement failed — modal error: "${errText}"`);
+            }
+          } catch (inner) {
+            if (String(inner).startsWith("Placement failed")) throw inner;
+          }
+          return false;
+        } catch (e) {
+          if (String(e).startsWith("Placement failed")) throw e;
+          return false;
+        }
+      },
+      { timeout: 60_000, timeoutMsg: "place-btn still displayed after 60000ms (modal did not close)" },
+    );
+
+    // ── 20. Verify placed card appears in rack diagram at U1 ──────────────────
+    log("step 20: waiting for placed device card at U1");
+    await browser.waitUntil(
+      async () => {
+        try {
+          return await browser
+            .$(`[data-device-code="${deviceCode}"][data-start-u="1"]`)
+            .isDisplayed();
+        } catch {
+          return false;
+        }
+      },
+      { timeout: 30_000, timeoutMsg: `Placed card for device "${deviceCode}" at U1 never appeared` },
+    );
+    const placedCard = await browser.$(`[data-device-code="${deviceCode}"][data-start-u="1"]`);
+    // Use getAttribute("title") — the card div's title attribute contains the full label
+    // (primary · model · uRange). WebKit's innerText algorithm returns "" for flex children
+    // with overflow:hidden, so getText() is unreliable here.
+    const placedCardTitle = await placedCard.getAttribute("title");
+    if (!placedCardTitle?.includes(modelName)) {
+      throw new Error(
+        `Expected placed card title to reference model "${modelName}", got: "${placedCardTitle}"`,
+      );
+    }
+    log(`step 20: device placed at U1, model "${modelName}" referenced — placement assertions passed`);
+
+    // ── 21. Save and close the repository ─────────────────────────────────────
+    log("step 21: navigating to Repository tab to save and close");
+    await clickNav("repository");
+    await browser.$('[data-testid="repository-active-root"]').waitForDisplayed({ timeout: 10_000 });
+
+    log("step 21: clicking Close");
+    await browser.$('[data-testid="repository-close-action"]').click();
+
+    // UnsavedChangesDialog opens (created entities + placement = unsaved changes)
+    log("step 21: waiting for Save and continue in UnsavedChangesDialog");
+    await (await waitForEnabled("unsaved-changes-save")).click();
+
+    // Wait for save + close to complete and landing screen to appear
+    await browser
+      .$('[data-testid="repository-landing-title"]')
+      .waitForDisplayed({ timeout: 60_000 });
+    await browser
+      .$('[data-testid="repository-active-path"]')
+      .waitForDisplayed({ timeout: 5_000, reverse: true });
+    log("step 21: repository saved and closed, landing screen visible");
+
+    // ── 22. Reopen repository via Open by path ────────────────────────────────
+    log(`step 22: reopening repository at ${repoPath}`);
+    await reactSetValue("repository-open-path-input", repoPath);
+    await (await waitForEnabled("repository-open-path-submit")).click();
+    await browser
+      .$('[data-testid="repository-active-root"]')
+      .waitForDisplayed({ timeout: 30_000 });
+    await expectActiveRepositoryPath(repoPath);
+    log("step 22: repository reopened, active path verified");
+
+    // ── 23. Navigate to Location → Rack → Rack detail after reopen ────────────
+    log("step 23: verifying Location persisted after reopen");
+    await clickNav("locations");
+    await browser.waitUntil(
+      async () => {
+        try {
+          const rows = await browser.$$("[data-location-code]");
+          for (const row of rows) {
+            const text = await row.getText();
+            if (text.includes(locationName)) return true;
+          }
+          return false;
+        } catch {
+          return false;
+        }
+      },
+      { timeout: 15_000, timeoutMsg: `Location "${locationName}" not found after reopen` },
+    );
+    log("step 23: location still exists after reopen");
+
+    // Click location row to navigate to Racks
+    const locationRowsReopen = await browser.$$("[data-location-code]");
+    let locationRowForReopen: WebdriverIO.Element | null = null;
+    for (const row of locationRowsReopen) {
+      const text = await row.getText();
+      if (text.includes(locationName)) {
+        locationRowForReopen = row;
+        break;
+      }
+    }
+    if (!locationRowForReopen) throw new Error(`Location row not found after reopen`);
+    await browser.execute(
+      (el: HTMLElement) => el.click(),
+      locationRowForReopen as unknown as HTMLElement,
+    );
+    await browser.$('[data-testid="nav-racks"]').waitForDisplayed({ timeout: 10_000 });
+    log("step 23: navigated to Racks after reopen");
+
+    // Click the rack row to open the rack detail view
+    await browser.$('[data-testid="rack-add-btn"]').waitForDisplayed({ timeout: 10_000 });
+    const rackRowsReopen = await browser.$$("[data-rack-code]");
+    let rackRowForReopen: WebdriverIO.Element | null = null;
+    for (const row of rackRowsReopen) {
+      const text = await row.getText();
+      if (text.includes(rackName)) {
+        rackRowForReopen = row;
+        break;
+      }
+    }
+    if (!rackRowForReopen) throw new Error(`Rack row "${rackName}" not found after reopen`);
+    await browser.execute(
+      (el: HTMLElement) => el.click(),
+      rackRowForReopen as unknown as HTMLElement,
+    );
+    await browser.$('[data-testid="palette-drop-zone"]').waitForDisplayed({ timeout: 15_000 });
+    log("step 23: rack detail loaded after reopen");
+
+    // ── 24. Verify placement persisted after close/reopen ─────────────────────
+    log("step 24: verifying placement persisted at U1 after reopen");
+    await browser.waitUntil(
+      async () => {
+        try {
+          return await browser
+            .$(`[data-device-code="${deviceCode}"][data-start-u="1"]`)
+            .isDisplayed();
+        } catch {
+          return false;
+        }
+      },
+      { timeout: 15_000, timeoutMsg: `Placed device "${deviceCode}" at U1 not found after reopen` },
+    );
+    const persistedCard = await browser.$(`[data-device-code="${deviceCode}"][data-start-u="1"]`);
+    const persistedTitle = await persistedCard.getAttribute("title");
+    if (!persistedTitle?.includes(modelName)) {
+      throw new Error(
+        `Model "${modelName}" not referenced in persisted placement card title after reopen; got: "${persistedTitle}"`,
+      );
+    }
+    log(`step 24: placement persisted at U1, model "${modelName}" verified after reopen`);
+
+    log("all Stage 2 assertions passed");
   });
 });

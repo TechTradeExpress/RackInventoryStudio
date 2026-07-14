@@ -377,6 +377,19 @@ describe("PlacementPalettePanel — DnD place behavior", () => {
     fireEvent.click(screen.getByTestId("place-btn-device-place-me"));
     expect(onPlace).toHaveBeenCalledWith("place-me");
   });
+
+  it("Place… button carries data-device-code matching the device code", async () => {
+    vi.mocked(listDevices).mockResolvedValue([makeDevice("coded-dev")]);
+
+    render(<PlacementPalettePanel {...BASE_PROPS} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("place-btn-device-coded-dev")).toBeTruthy();
+    });
+
+    const btn = screen.getByTestId("place-btn-device-coded-dev");
+    expect(btn.getAttribute("data-device-code")).toBe("device-coded-dev");
+  });
 });
 
 // ── Code-leakage regression ────────────────────────────────────────────────────
