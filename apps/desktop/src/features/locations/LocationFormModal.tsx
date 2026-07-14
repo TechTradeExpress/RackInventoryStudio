@@ -122,6 +122,7 @@ export function LocationFormModal({ open, editing, onClose, onSaved }: LocationF
           </button>
           <button
             className="btn btn-primary"
+            data-testid="location-form-submit"
             onClick={handleSave}
             disabled={!canSave}
           >

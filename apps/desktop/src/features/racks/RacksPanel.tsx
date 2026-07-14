@@ -259,7 +259,7 @@ export function RacksPanel({
         title="Racks"
         subtitle={`Racks in ${selectedLocation.name}`}
         actions={
-          <button className="btn btn-primary" onClick={openAdd}>
+          <button className="btn btn-primary" data-testid="rack-add-btn" onClick={openAdd}>
             <IcPlus size={12} /> Add rack
           </button>
         }
@@ -317,6 +317,7 @@ export function RacksPanel({
                   return (
                     <tr
                       key={rack.id}
+                      data-rack-code={rack.code}
                       className={`tbl-clickable${isNavHighlight ? " tbl-selected" : ""}`}
                       onClick={() => handleRowClick(rack)}
                     >

@@ -2,8 +2,10 @@
 
 ## Status
 
-**PR-1 in review** — WDIO tooling foundation implemented and validated locally on Linux.
-`apps/desktop/e2e-wdio/` exists; smoke spec added; `test:e2e:wdio` script added.
+**PR-1 ✅ Merged** — WDIO tooling foundation implemented and validated locally on Linux.
+**PR-2 ✅ Merged** — Stable repository landing selectors.
+**PR-3 ✅ Merged** — Repository lifecycle E2E (create → open → close → reopen).
+**PR-4 🔍 In Review** — Core inventory creation + placement + persistence (branch: `feature/e2e-wdio-core-inventory`).
 
 Base branch for this roadmap: `roadmap/e2e-wdio`.
 
@@ -237,7 +239,7 @@ Acceptance:
 
 ---
 
-### PR-3 — Repository lifecycle E2E 🚧 In review
+### PR-3 — Repository lifecycle E2E ✅ Merged
 
 **Branch from:** `roadmap/e2e-wdio`
 **Target:** `roadmap/e2e-wdio`
@@ -357,24 +359,150 @@ Acceptance:
 
 ---
 
-### PR-4 — Core inventory E2E
+### PR-4 — Core inventory E2E 🔍 In Review
 
 **Branch from:** `roadmap/e2e-wdio`
 **Target:** `roadmap/e2e-wdio`
+**Branch:** `feature/e2e-wdio-core-inventory`
 
-Purpose:
-- Add happy-path flow:
-  1. Create location
-  2. Create rack
-  3. Create device model
-  4. Create device
-  5. Place device in rack
-  6. Verify rack view shows placement
-- Uses isolated repo fixture from PR-3 infrastructure.
+Full implementation (Stage 1 + Stage 2) in a single PR:
+
+**Stage 1 — creation flow:**
+- Creates its own isolated repository (no fixture dependency on PR-3 repos).
+- Happy-path flow: Repository → Location → Rack → Device Model → Device (unplaced).
+- Asserts each created entity appears in the corresponding panel list.
+- Asserts the device row shows an "unplaced" badge.
+
+**Stage 2 — placement + persistence:**
+- Navigate to Racks, open rack detail view.
+- Use PlacementPalettePanel "Place…" button to open `PlacePlacementModal` with device pre-selected.
+- Fill start U (U1) and click Place; verify placed card appears with model name.
+- Close repository — UnsavedChangesDialog fires; click "Save and continue".
+- Reopen via "Open by path" input; verify `expectActiveRepositoryPath`.
+- Navigate Locations → click location row → Racks → click rack row.
+- Verify placed card (`data-device-code` + `data-start-u`) present and model name correct after reopen.
+
+#### Selector contract (PR-4 additions)
+
+**Stage 1 testid selectors:**
+
+| Selector | Element | Location |
+|----------|---------|----------|
+| `nav-{tab}` | Nav item div for each tab (`nav-locations`, `nav-racks`, `nav-devices`, `nav-device_models`) | `App.tsx` navItem |
+| `location-add-btn` | "Add location" button | `LocationsPanel` |
+| `location-form-submit` | Submit button in location modal | `LocationFormModal` |
+| `rack-add-btn` | "Add rack" button | `RacksPanel` |
+| `rack-form-submit` | Submit button in rack modal | `RackFormModal` |
+| `model-add-btn` | "Add model" button | `DeviceModelsPanel` |
+| `model-form-submit` | Submit button in device model modal | `DeviceModelFormModal` |
+| `device-add-btn` | "Add device" button | `DevicesPanel` |
+| `device-form-submit` | Submit button in device modal | `DeviceFormModal` |
+
+**Stage 2 testid selectors (new):**
+
+| Selector | Element | Location |
+|----------|---------|----------|
+| `palette-drop-zone` | PlacementPalettePanel drop zone; presence signals rack detail loaded | `PlacementPalettePanel` |
+| `place-btn` | "Place" submit button in placement modal | `PlacePlacementModal` |
+| `start-u-input` | Start U `<input>` in placement modal | `PlacePlacementModal` |
+| `unsaved-changes-save` | "Save and continue" button in unsaved-changes dialog | `UnsavedChangesDialog` |
+
+**Stage 2 data attributes (new):**
+
+| Data attribute | Purpose | Location |
+|----------------|---------|----------|
+| `data-device-code` on Place button | Stable selector for palette Place… button by device code | `PlacementPalettePanel` |
+| `data-device-code` on placed card | Stable selector for placed card by device code | `RackUnitDiagram` |
+| `data-start-u` on placed card | Distinguishes placed card from palette button; verifies U position | `RackUnitDiagram` |
+
+**Stage 1 data attributes:**
+
+| Data attribute | Purpose | Location |
+|----------------|---------|----------|
+| `data-location-code` | Stable row identifier for locations | `LocationsPanel` |
+| `data-rack-code` | Stable row identifier for racks | `RacksPanel` |
+| `data-model-code` | Stable row identifier for device models | `DeviceModelsPanel` |
+| `data-device-code` | Stable row identifier for devices | `DevicesPanel` |
+
+#### Shared helpers
+
+`apps/desktop/e2e-wdio/support/repository-ui.ts` — extracted from the lifecycle spec:
+- `canonicalPath()`, `reactSetValue()`, `reactSelectValue()`, `waitForEnabled()`,
+  `expectActiveRepositoryPath()`, `createRepositoryThroughUi()`
+
+#### Placement flow details
+
+1. `createRepositoryThroughUi()` returns `repoPath` (captured in Stage 2 for reopen).
+2. Device `data-device-code` captured from the devices list row after creation.
+3. Rack `<tr>` rows require JS click (`browser.execute((el) => el.click(), el)`) — WebKitGTK marks `<tr>` as not interactable.
+4. Composite selector `[data-device-code="${code}"][data-start-u="1"]` uniquely identifies the placed card without colliding with the palette Place button.
+5. State reset on reopen: `selectedLocationForRacks` is cleared by `doOpen()` in `App.tsx`. Stage 2 re-navigates via Locations → click location row → Racks → click rack row.
+
+#### Mocha timeout
+
+Increased from 900 s (15 min) to 1 800 s (30 min).
+- Stage 1: ~12 min (14 steps, 5 entity types, 4 modal cycles).
+- Stage 2: ~13 min (~24 additional modal/nav actions).
+- Total estimated: ~25 min → 30 min with margin.
+
+#### Local WDIO validation (Linux, 2026-07-14)
+
+**Platform:** Linux (Ubuntu 24.04 LTS), Tauri v2 desktop binary, `xvfb-run` virtual display  
+**Binary:** built with `pnpm -C apps/desktop tauri build --no-bundle` (46 s)
+_(Local environment required `PATH` prepended with the pnpm bin directory;
+the project-standard command is `pnpm -C apps/desktop tauri build --no-bundle`.)_
+
+##### Isolated spec run 1 (17:42–18:05 UTC)
+
+```bash
+TAURI_BINARY_PATH="$(realpath target/release/rack-inventory-studio-desktop)" \
+  xvfb-run -a pnpm -C apps/desktop exec wdio run \
+  e2e-wdio/wdio.conf.ts --spec e2e-wdio/specs/core-inventory.e2e.ts
+```
+
+**PASSED** — 1/1 specs (100%) in **00:22:44** — exit 0  
+All Stage 1 assertions passed (17:56 UTC); all Stage 2 assertions passed, placement
+persisted at U1 after reopen (18:05 UTC). Owned root `/tmp/ris-wdio-rkX2DO` removed
+by the WDIO `onComplete` hook (guarded test-environment cleanup).
+
+##### Isolated spec run 2 (18:05–18:28 UTC)
+
+Same command, independent data (suffix `mrkyp200`).
+
+**PASSED** — 1/1 specs (100%) in **00:22:53** — exit 0  
+All Stage 1 and Stage 2 assertions passed; persistence verified at U1 after reopen.
+Owned root `/tmp/ris-wdio-q9Y6fT` removed by the WDIO `onComplete` hook (guarded
+test-environment cleanup).
+
+##### Full WDIO suite (post-repair)
+
+```bash
+xvfb-run -a pnpm -C apps/desktop run test:e2e:wdio
+```
+
+**PASSED** — 3/3 specs (100%) in **00:28:38** — exit 0
+
+##### Unit tests (Vitest)
+
+`pnpm -C apps/desktop run test:unit` — **844/844 passed**, 0 failures.
+
+##### Playwright
+
+Blocked: system dependency `libasound2t64` absent —
+`browserType.launch` error: "Host system is missing dependencies to run browsers.
+Please install: `sudo apt-get install libasound2t64`". 21/21 tests fail.
+Pre-existing condition, unrelated to this PR.
+
+##### TypeScript
+
+`pnpm tsc --noEmit` (repo root) — **0 errors**.
 
 Acceptance:
-- Covers the central RIS workflow end-to-end.
-- No dependency on test order unless explicitly isolated.
+- Covers the central RIS creation workflow end-to-end.
+- Covers placement: device placed in rack, model name visible in placed card.
+- Covers persistence: close → reopen → placed card still present with correct U position.
+- Spec is self-contained; creates its own repo per run.
+- No dependency on test order with other specs.
 - No network access.
 
 ---

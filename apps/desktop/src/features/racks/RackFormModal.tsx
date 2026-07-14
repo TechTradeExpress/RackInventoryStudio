@@ -169,6 +169,7 @@ export function RackFormModal({
           </button>
           <button
             className="btn btn-primary"
+            data-testid="rack-form-submit"
             onClick={handleSave}
             disabled={!canSave}
           >

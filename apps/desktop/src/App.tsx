@@ -400,6 +400,7 @@ export function App() {
     return (
       <div
         key={tab}
+        data-testid={`nav-${tab}`}
         className={`nav-item${active ? " active" : ""}${disabled ? " nav-disabled" : ""}`}
         onClick={() => { if (!disabled) setActiveTab(tab); }}
         role="button"

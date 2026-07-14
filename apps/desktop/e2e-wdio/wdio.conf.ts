@@ -69,11 +69,12 @@ export const config: Options.Testrunner = {
   framework: "mocha",
   mochaOpts: {
     ui: "bdd",
-    // The @wdio/tauri-service beforeCommand hook runs a plugin-availability
-    // check before every WebDriver command (~100ms per command).  Combined with
-    // the Tauri app's ~15 s cold-start time and the full repository lifecycle
-    // scenario, 3 min is not enough.  Set 5 min so CI has headroom.
-    timeout: 300_000,
+    // The @wdio/tauri-service beforeCommand hook adds ~600ms overhead per
+    // WebDriver command.  Stage 1 (14 steps, 5 entity types, 4 modal cycles)
+    // takes ~12 min in headless Xvfb.  Stage 2 adds placement, save/close/reopen,
+    // and persistence verification (~13 min, ~24 additional modal/nav actions).
+    // Total estimated wall-clock: ~25 min → 30 min timeout with margin.
+    timeout: 1_800_000,
   },
 
   services: [

@@ -168,7 +168,7 @@ export function DeviceModelsPanel({
         title="Device Models"
         subtitle="Hardware templates referenced by devices and placements."
         actions={
-          <button className="btn btn-primary" onClick={openAdd}>
+          <button className="btn btn-primary" data-testid="model-add-btn" onClick={openAdd}>
             <IcPlus size={12} /> Add model
           </button>
         }
@@ -269,6 +269,7 @@ export function DeviceModelsPanel({
                       <tr
                         key={m.id}
                         data-model-id={m.id}
+                        data-model-code={m.code}
                         className={
                           m.id === highlightedDeviceModelId
                             ? "tbl-selected"
