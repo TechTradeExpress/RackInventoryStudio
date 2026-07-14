@@ -1,22 +1,58 @@
-# E2E Testing Plan — WebdriverIO + Tauri
+# Desktop E2E Program — WebdriverIO + Tauri
 
-## Status
+## Program status
 
-**PR-1 ✅ Merged** — WDIO tooling foundation implemented and validated locally on Linux.
-**PR-2 ✅ Merged** — Stable repository landing selectors.
-**PR-3 ✅ Merged** — Repository lifecycle E2E (create → open → close → reopen).
-**PR-4 ✅ Merged** — Core inventory creation + placement + persistence (PR #142).
+| Item | Detail |
+|------|--------|
+| Integration branch | `roadmap/e2e-wdio` (long-lived) |
+| Current stage | Stage 1 completed; Stage 2 scope not yet selected |
+| Integration PR to development | None open — PR #143 was closed without merge |
+| Decision | Further stages continue on `roadmap/e2e-wdio`; integration into `development` only after whole-program review |
 
-Base branch for this roadmap: `roadmap/e2e-wdio`.
+`roadmap/e2e-wdio` is a long-lived integration branch.  It is not expected to be
+merged into `development` after every stage.  It may contain incomplete intermediate
+stages.  A new integration PR to `development` will be created only after the program
+reaches an agreed completion point.
 
-**Integration status:** The completed roadmap (`roadmap/e2e-wdio`) is proposed for
-merge into `development` via a draft integration PR. Head: `roadmap/e2e-wdio`,
-Base: `development`. Status: Draft / In review.
+---
 
-Further roadmap work (PR-5 and beyond) will be decided after the integration
-review is complete. Import/export and clone coverage are deferred.
+## Governance and branching
 
-Future E2E PRs should target `roadmap/e2e-wdio`, not `development` or `master`.
+### Branch flow
+
+```
+feature/e2e-*
+  → PR → roadmap/e2e-wdio
+
+roadmap/e2e-wdio
+  → (whole-program review)
+  → PR → development
+  → merge only after explicit approval
+```
+
+### Rules
+
+- Never modify `development` or `master` directly from E2E work.
+- Each feature PR targets `roadmap/e2e-wdio`, not `development`.
+- Each feature PR must be independently reviewable.
+- The roadmap branch may hold intermediate stages that are not yet suitable for integration.
+- No new stage starts automatically from the previous one; stage priority is chosen
+  based on product risk and testing value.
+
+### Working model
+
+For each substantial E2E change:
+
+1. Define the problem and desired coverage.
+2. Draft a stage plan.
+3. Open a NSP (new-stage proposal) if scope is non-trivial.
+4. Create `feature/e2e-*` branching from `roadmap/e2e-wdio`.
+5. Implement.
+6. Open a PR targeting `roadmap/e2e-wdio`.
+7. Review.
+8. Open a RP (review proposal) for cross-team sign-off if needed.
+9. Merge to `roadmap/e2e-wdio`.
+10. Update this document.
 
 ---
 
@@ -27,27 +63,34 @@ Future E2E PRs should target `roadmap/e2e-wdio`, not `development` or `master`.
 | Unit / component | Vitest + Testing Library | `apps/desktop/src/**/*.test.{ts,tsx}` | React components, helpers, Tauri command handlers (mocked) |
 | Rust unit | `cargo test` | `apps/desktop/src-tauri/`, `crates/*/` | Backend logic, git helpers, CSV import, export validation |
 | Browser smoke | Playwright | `apps/desktop/e2e/smoke.spec.ts` | App shell in browser mode; Tauri APIs replaced by local mocks |
+| Desktop E2E | WebdriverIO | `apps/desktop/e2e-wdio/` | Real compiled Tauri binary; real IPC, filesystem, native UI |
 
 The Playwright smoke suite (`test:e2e`) launches the app as a **plain web app** via Vite
-(`vite.config.e2e.ts`) with all Tauri packages aliased to mock implementations in
-`apps/desktop/e2e/mocks/`. It exercises UI flows but does **not** launch or communicate with a
-real Tauri binary.
+(`vite.config.e2e.ts`) with all Tauri packages aliased to mock implementations.  It
+exercises UI flows but does **not** launch or communicate with a real Tauri binary.
 
-The WDIO roadmap adds a **fourth layer**: true desktop E2E that launches the compiled Tauri
-binary, drives it through WebDriver, and tests real IPC commands, file system writes, and
-native dialog flows.
+The WDIO layer is additive — it complements, not replaces, the existing Playwright suite.
 
 ---
 
-## Goals
+## Program goals
 
 - Add a maintainable E2E test layer for the compiled Tauri desktop app.
-- Cover the most important user journeys that are not sufficiently covered by
-  unit/component tests or the browser-mode Playwright suite.
-- Keep the first E2E suite small, deterministic, and CI-friendly.
+- Cover important user journeys not sufficiently covered by unit/component tests or
+  the browser-mode Playwright suite.
+- Keep each stage small, deterministic, and independently reviewable.
 - Avoid network-dependent tests by default.
 - Avoid real user home-directory writes; use isolated temporary directories.
 - Keep E2E tests separate from release and version changes.
+
+## Non-goals
+
+- No visual regression testing in Stage 1.
+- No PDF export testing in Stage 1.
+- No real GitHub/network clone tests by default.
+- No destructive filesystem tests outside temporary directories.
+- No broad refactor of app architecture or existing test setup.
+- No replacement of the existing Playwright browser-mode smoke suite.
 
 ---
 
@@ -63,7 +106,7 @@ native dialog flows.
 
 ### Why WDIO + `@wdio/tauri-service`
 
-`@wdio/tauri-service` supports Tauri app testing on Windows, Linux, and macOS. It provides:
+`@wdio/tauri-service` supports Tauri app testing on Windows, Linux, and macOS.  It provides:
 
 - Automatic binary detection and driver setup
 - WebView2 (Windows) and WebKitGTK (Linux) driver management
@@ -71,32 +114,20 @@ native dialog flows.
 - `browser.executeScript` access to the WebView context
 - A `browser.pause` / `browser.waitForExist` API familiar to anyone who has used Selenium
 
-The service targets the **real compiled binary**, complementing (not replacing) the existing
-browser-mode Playwright suite.
+The service targets the **real compiled binary**, complementing (not replacing) the
+existing browser-mode Playwright suite.
 
 ### Advanced Tauri APIs
 
-If deep Tauri-specific IPC access is needed in tests (invoking backend commands directly from
-specs, reading app state, triggering events), `tauri-plugin-wdio` can be added in a later
-stage. It requires:
+If deep Tauri-specific IPC access is needed (invoking backend commands directly from
+specs, reading app state, triggering events), `tauri-plugin-wdio` can be added in a
+later stage.  It requires:
 
 - Registering the Rust plugin in the Tauri app
 - Granting the plugin in `capabilities/default.json`
 - Importing `@wdio/tauri-plugin` in test setup
 
-We will decide whether the plugin is needed in PR-1 after examining what can be tested via
-normal WebDriver interactions.
-
----
-
-## Non-goals
-
-- No visual regression testing in the first iteration.
-- No PDF export testing in the first iteration.
-- No real GitHub/network clone tests by default.
-- No destructive filesystem tests outside temporary directories.
-- No broad refactor of app architecture or existing test setup.
-- No replacement of the existing Playwright browser-mode smoke suite.
+Deferred until needed.  Normal WebDriver element interactions are sufficient for Stage 1.
 
 ---
 
@@ -115,18 +146,59 @@ Collected during Stage 0 on branch `roadmap/e2e-wdio` (based on `development` @ 
 | Existing e2e script | `pnpm --filter @rack-inventory-studio/desktop test:e2e` (Playwright, browser mode) |
 | CI Linux job | ubuntu-24.04 (`ci.yml`) |
 | CI Windows job | windows-latest (`windows-installer.yml`) |
-| WDIO present | No |
+| WDIO present | No (at Stage 0) |
 | Playwright present | Yes — browser-mode only, `@playwright/test ^1.60.0` |
 
 ---
 
-## Proposed PR stages
+## Stage 1 — Foundation and core workflow
 
-### PR-1 — E2E tooling foundation ✅ Merged
+**Status: COMPLETED**
 
-**Branch from:** `roadmap/e2e-wdio`
-**Target:** `roadmap/e2e-wdio`
-**PR:** `feature/e2e-wdio-foundation`
+Delivered through feature branches merged into `roadmap/e2e-wdio` via PRs #138,
+#140, #141 and #142.
+
+### Scope delivered
+
+- WDIO + `@wdio/tauri-service` dependency foundation
+- WDIO configuration (`e2e-wdio/wdio.conf.ts`)
+- Real compiled Tauri binary execution (not browser-mode)
+- Isolated test environment with guarded cleanup
+- App smoke spec: binary launch and landing screen assertions
+- Stable `data-testid` selector contract for repository and inventory screens
+- Repository lifecycle spec: create → open → close → reopen, canonical path verification
+- Core inventory spec:
+  - Location creation
+  - Rack creation
+  - Device Model creation (1U)
+  - Device creation with that model
+  - Unplaced device verification
+  - Placement at U1 via `PlacePlacementModal`
+  - Save through `UnsavedChangesDialog`
+  - Close and reopen by exact path
+  - Placement and model relationship verified after reopen
+
+### Completed validation (Linux, 2026-07-14)
+
+**Platform:** Linux (Ubuntu 24.04 LTS), Tauri v2 binary, `xvfb-run` virtual display
+
+**Binary build:** `pnpm -C apps/desktop tauri build --no-bundle`
+
+| Run | Result | Duration | Exit |
+|-----|--------|----------|------|
+| Isolated core spec run 1 | PASSED 1/1 | 00:22:44 | 0 |
+| Isolated core spec run 2 (independent data) | PASSED 1/1 | 00:22:53 | 0 |
+| Full WDIO suite (3 specs) | PASSED 3/3 | 00:28:38 | 0 |
+| Vitest | 844/844 passed | — | 0 |
+| TypeScript | 0 errors | — | 0 |
+| GitHub checks | All green | — | — |
+
+**Playwright:** blocked in the local Linux validation environment by a missing
+`libasound2t64` system dependency.  Pre-existing condition; unrelated to Stage 1.
+
+### Stage 1 history
+
+#### Foundation (PR #138 — `feature/e2e-wdio-foundation`)
 
 Dependencies installed (`apps/desktop` devDependencies):
 ```
@@ -141,26 +213,21 @@ pnpm workspace override (root `package.json`):
 ```
 @wdio/native-utils: 2.5.0
 ```
-Required because `@wdio/tauri-service@1.2.0` ships with a peer dependency pinned to 2.4.0
-but imports the `installMockSyncOverride` symbol that only exists in 2.5.0.
+Required because `@wdio/tauri-service@1.2.0` ships with a peer dependency pinned to
+2.4.0 but imports the `installMockSyncOverride` symbol that only exists in 2.5.0.
 The workspace override resolves the mismatch until the upstream package is fixed.
 
 Config path: `apps/desktop/e2e-wdio/wdio.conf.ts`
+
 Smoke spec: `apps/desktop/e2e-wdio/specs/app-smoke.e2e.ts`
+
 Script: `"test:e2e:wdio": "wdio run e2e-wdio/wdio.conf.ts"`
 
 Driver choice: **`external`** (`tauri-driver` process + system WebDriver binary)
 
-- No Rust app code changed.
-- `tauri-plugin-wdio` deferred — normal WebDriver element interactions are
-  sufficient for smoke assertions (`body`, `h1`, `h2`, `button` text selectors).
-- `tauri-plugin-wdio-webdriver` deferred — switch to `driverProvider: 'embedded'`
-  once that plugin is added (eliminates need for `tauri-driver`).
-
 Platform prerequisites before running:
-```
+```bash
 # All platforms — build with Tauri CLI (not bare cargo build) to embed frontend assets
-# Run from the repository root:
 pnpm -C apps/desktop tauri build --no-bundle   # embeds frontendDist correctly
 cargo install tauri-driver
 
@@ -170,21 +237,20 @@ sudo apt-get install -y webkit2gtk-driver xvfb
 # Windows — Edge WebDriver auto-managed by @wdio/tauri-service
 ```
 
-**Important:** `cargo build --release` alone does NOT produce a working binary for E2E tests.
-The Tauri CLI (`pnpm tauri build --no-bundle`) must be used so that the frontend assets are
-embedded into the binary via `frontendDist`.  Without this, the WebView loads `devUrl`
+**Important:** `cargo build --release` alone does NOT produce a working binary for E2E
+tests.  The Tauri CLI (`pnpm tauri build --no-bundle`) must be used so that frontend
+assets are embedded via `frontendDist`.  Without this, the WebView loads `devUrl`
 (`http://localhost:1420`) and shows "Connection refused".
 
 Binary path default: `../../target/release/rack-inventory-studio-desktop`
-(two levels up from `apps/desktop/`, where the Cargo workspace places the output).
+
 Override: `TAURI_BINARY_PATH=/abs/path/to/binary`
 
 Service hook overhead note: `@wdio/tauri-service` runs a plugin-availability check
-(`window.wdioTauri`) before every WebDriver command.  Without `tauri-plugin-wdio` installed
-in the Rust app, this check always returns `false` and adds ~100 ms per command.
-On Linux with Xvfb, the cold-start + hook overhead causes the full smoke scenario to take
-~75 s — within the 3 min Mocha timeout but significantly above 60 s.
-Adding `tauri-plugin-wdio` to the Rust app (deferred to a later PR) would eliminate this.
+(`window.wdioTauri`) before every WebDriver command.  Without `tauri-plugin-wdio`
+installed in the Rust app, this check always returns `false` and adds ~100 ms per
+command.  On Linux with Xvfb, cold-start + hook overhead causes the full smoke
+scenario to take ~75 s.  Adding `tauri-plugin-wdio` (deferred) would eliminate this.
 
 Local run result (Linux / ubuntu-24.04-equivalent, 2026-07-12):
 ```
@@ -194,27 +260,7 @@ Run command: TAURI_BINARY_PATH=... xvfb-run -a pnpm -C apps/desktop run test:e2e
 Result     : 1 passed, 1 total (100% completed) in 00:01:17 — exit 0
 ```
 
-Selectors fixed during validation:
-- `h2=Open a repository` → `h1=Open a repository` (title rendered by `PageHeader` as `<h1>`,
-  not `Panel` which uses `<h2>`)
-
-Acceptance status (2026-07-12):
-- ✅ Vitest (817 tests) still passes.
-- ✅ WDIO smoke: 1 scenario, 5 assertions — all pass against the real compiled Tauri binary.
-  - Real compiled Tauri binary launched (tauri-driver + WebKitWebDriver).
-  - WebDriver connected successfully; landing screen loaded at `tauri://localhost`.
-  - All 5 assertions passed; process exited with code 0.
-- ⚠️ Playwright still fails in this environment (pre-existing: Firefox system deps missing).
-- ✅ No app behavior changes.
-- ✅ No Rust changes.
-
----
-
-### PR-2 — Stable repository landing selectors ✅ Merged
-
-**Branch from:** `roadmap/e2e-wdio`
-**Target:** `roadmap/e2e-wdio`
-**Branch:** `feature/e2e-wdio-selectors`
+#### Stable selectors (PR #140 — `feature/e2e-wdio-selectors`)
 
 Stable `data-testid` contract for the repository landing screen:
 
@@ -225,37 +271,17 @@ Stable `data-testid` contract for the repository landing screen:
 | `repository-create-title` | `<h2>` — Create section | `Panel` via `testId` prop |
 | `repository-create-submit` | `<button type="submit">` | `CreateRepositoryWizard` directly |
 
-Changes:
-- `PageHeader` and `Panel` accept an optional `testId?: string` prop forwarded to the
-  heading element. No caller is required to provide it.
-- WDIO smoke updated to use `[data-testid="..."]` CSS selectors (text selectors removed).
-- No visible UI change. No accessibility change. No behavior change.
-- No dependency changes. No Rust changes. No CI workflow changes.
+`PageHeader` and `Panel` accept an optional `testId?: string` prop forwarded to the
+heading element.  No visible UI change.  No accessibility change.  No behavior change.
 
-Local WDIO validation (Linux / ubuntu-24.04-equivalent, 2026-07-13):
+Local WDIO validation (Linux, 2026-07-13):
 ```
-Platform   : Linux x86_64, WebKitGTK / Xvfb
-Binary     : tauri build --no-bundle → target/release/rack-inventory-studio-desktop
-Run command: TAURI_BINARY_PATH=... xvfb-run -a wdio run e2e-wdio/wdio.conf.ts
-Result     : 1 passed, 1 total (100% completed) in 00:01:17 — exit 0
+Result : 1 passed, 1 total (100% completed) in 00:01:17 — exit 0
 ```
 
-Acceptance:
-- No behaviour changes.
-- No new Rust code.
+#### Repository lifecycle (PR #141 — `feature/e2e-wdio-repo-lifecycle`)
 
----
-
-### PR-3 — Repository lifecycle E2E ✅ Merged
-
-**Branch from:** `roadmap/e2e-wdio`
-**Target:** `roadmap/e2e-wdio`
-**Branch:** `feature/e2e-wdio-repo-lifecycle`
-
-Purpose: cover the full create → open → close → reopen lifecycle against a real
-Tauri binary, with a fully isolated temp environment and filesystem assertions.
-
-#### Selector contract (PR-3 additions)
+##### Selector contract (PR-3 additions)
 
 | Selector ID | Element | Location |
 |-------------|---------|----------|
@@ -270,128 +296,97 @@ Tauri binary, with a fully isolated temp environment and filesystem assertions.
 
 `repository-active-path` carries the exact `summary.repo_path` string rendered in
 the page header subtitle.  The lifecycle spec reads its text, applies
-`realpathSync.native(resolve(...))` to both the displayed and expected values,
-and asserts canonical equality.  This assertion runs immediately after creation
-and again after reopening.
+`realpathSync.native(resolve(...))` to both displayed and expected values, and asserts
+canonical equality — immediately after creation and again after reopening.
 
-#### Temp environment design
+##### Isolated test environment
 
-`apps/desktop/e2e-wdio/support/test-environment.ts` creates a fresh
-`ris-wdio-*` dir under `os.tmpdir()` once per WDIO launcher, then sets:
+`apps/desktop/e2e-wdio/support/test-environment.ts` creates a fresh `ris-wdio-*`
+dir under `os.tmpdir()` once per WDIO launcher, then sets:
 
 | Env var | Purpose |
 |---------|---------|
 | `XDG_CONFIG_HOME / XDG_DATA_HOME / XDG_CACHE_HOME` | Isolate WebKit localStorage and Tauri app data |
-| `APPDATA / LOCALAPPDATA / HOME` | Windows equivalents + home isolation (no-op on Linux for APPDATA/LOCALAPPDATA) |
+| `APPDATA / LOCALAPPDATA / HOME` | Windows equivalents + home isolation |
 | `GIT_CONFIG_GLOBAL` | Minimal e2e-only git identity (user.name + user.email) |
 | `GIT_CONFIG_NOSYSTEM` | Prevent reading system git config |
-| `RIS_E2E_RUN_ROOT` | Path of the generated run root (internal, read by workers for validation) |
-| `RIS_E2E_ENV_INITIALIZED=1` | Internal marker that isolation is configured (set by launcher; checked by workers) |
+| `RIS_E2E_RUN_ROOT` | Path of the generated run root (internal) |
+| `RIS_E2E_ENV_INITIALIZED=1` | Initialization marker (set by launcher; checked by workers) |
 | `RIS_E2E_REPOSITORY_PARENT` | Isolated parent dir for repos created during the spec |
 
-`RIS_E2E_ENV_INITIALIZED` is the initialization marker — not
-`RIS_E2E_REPOSITORY_PARENT`.  This separation means a pre-existing
-`RIS_E2E_REPOSITORY_PARENT` from the developer's shell is detected and rejected
-before any app launch (error: "Refusing to bypass the isolated WDIO test
-environment").
-
-Workers also load `wdio.conf.ts`; they detect `RIS_E2E_ENV_INITIALIZED=1` and
-validate the inherited `RIS_E2E_RUN_ROOT` + `RIS_E2E_REPOSITORY_PARENT` before
-returning a no-op cleanup.  Invalid inherited state throws immediately.
+`RIS_E2E_ENV_INITIALIZED` is the initialization marker — not `RIS_E2E_REPOSITORY_PARENT`.
+A pre-existing `RIS_E2E_REPOSITORY_PARENT` from the developer's shell is detected and
+rejected before any app launch ("Refusing to bypass the isolated WDIO test environment").
 
 Cleanup guards (all must pass before `rmSync`):
-- path-aware containment: `runRoot` is a strict descendant of `tmpdir()` (not just `startsWith`)
+- `runRoot` is a strict descendant of `tmpdir()` (containment, not just `startsWith`)
 - `repoParent` is a strict descendant of `runRoot`
 - `basename(runRoot)` starts with `ris-wdio-`
-- ownership sentinel file `ownership-sentinel` is present
+- `ownership-sentinel` file is present
 
-Cleanup is skipped (run root preserved) when `RIS_E2E_KEEP_TEMP=1`.
-`cleanupOwnedRunRoot()` and `validateOwnedRunRoot()` are exported and tested directly.
+Cleanup is performed by the WDIO `onComplete` hook (guarded test-environment cleanup).
 
-#### Lifecycle route (no native dialogs required)
+Set `RIS_E2E_KEEP_TEMP=1` to preserve the run root for inspection.
 
-Repository path on disk: `{RIS_E2E_REPOSITORY_PARENT}/{code}` — derived from
-Rust `create_repository_cmd` in `crates/ris-application/src/create.rs`.
+Focused helper tests (Vitest):
+```
+e2e-wdio/support/test-environment.test.ts — 22 tests pass
+```
 
-Reopen path: the "Open by path" `<input>` on the landing screen + "Open"
-`<button>` (`data-testid="repository-open-path-submit"`).  No native OS dialog
-is involved.
+##### Lifecycle route
 
-#### React controlled-input workaround
+Repository path on disk: `{RIS_E2E_REPOSITORY_PARENT}/{code}` (derived from
+`create_repository_cmd`).  Reopen uses the "Open by path" `<input>` +
+`data-testid="repository-open-path-submit"` — no native OS dialog.
 
-`setValue()` does not reliably trigger React's `onChange` for controlled inputs
-in WebKitWebDriver.  The spec uses a `reactSetValue()` helper that calls
-`browser.execute()` with the native `HTMLInputElement.prototype.value` setter +
-a bubbling `input` event, which React's synthetic event system picks up
-correctly.
+##### React controlled-input workaround
 
-#### Mocha timeout
+`setValue()` does not reliably trigger React's `onChange` for controlled inputs in
+WebKitWebDriver.  The `reactSetValue()` helper calls `browser.execute()` with the
+native `HTMLInputElement.prototype.value` setter + a bubbling `input` event, which
+React's synthetic event system picks up correctly.
 
-Increased from 180 s to 300 s.  The full lifecycle scenario on Linux with Xvfb
-takes ~210 s due to the `@wdio/tauri-service` beforeCommand hook overhead
-(~600 ms per WebDriver command while `tauri-plugin-wdio` is not installed).
+##### Mocha timeout
 
-#### Local WDIO validation (Linux, 2026-07-13)
+Increased from 180 s to 300 s.  Full lifecycle on Linux with Xvfb takes ~210 s due
+to `@wdio/tauri-service` beforeCommand hook overhead (~600 ms per command while
+`tauri-plugin-wdio` is not installed).
 
+Local WDIO validation (Linux, 2026-07-13):
 ```
 Platform    : Linux x86_64, WebKitGTK / Xvfb
-Binary      : tauri build --no-bundle → target/release/rack-inventory-studio-desktop
-Run command : TAURI_BINARY_PATH=... xvfb-run -a wdio run e2e-wdio/wdio.conf.ts
 Result      : 2 passed, 2 total (100% completed) in 00:05:35 — exit 0
 Specs       : app-smoke.e2e.ts ✅   repository-lifecycle.e2e.ts ✅
 
 Active path after create : /tmp/ris-wdio-zuwtYu/repositories/e2emrjoajpv ✅
 Active path after reopen : /tmp/ris-wdio-zuwtYu/repositories/e2emrjoajpv ✅
 Cleanup (normal run)     : owned run root deleted ✅
-Cleanup (RIS_E2E_KEEP_TEMP=1) : run root preserved, sentinel present, repo visible ✅
+Cleanup (RIS_E2E_KEEP_TEMP=1) : run root preserved, sentinel present ✅
 Cleanup after failure    : onComplete ran and deleted run root ✅
-Foreign RIS_E2E_REPOSITORY_PARENT : rejected at config-load time before app launch ✅
+Foreign RIS_E2E_REPOSITORY_PARENT : rejected before app launch ✅
 ```
 
-Focused helper tests (Vitest):
-```
-e2e-wdio/support/test-environment.test.ts — 22 tests pass
-Total Vitest: 839 tests pass (up from 817)
-```
+#### Core inventory (PR #142 — `feature/e2e-wdio-core-inventory`)
 
-Acceptance:
-- E2E creates a new RIS repository in an isolated temp path.
-- Filesystem scaffold verified (inventory/repo.yaml, .git/).
-- Exact canonical repository path verified in the app after create and reopen.
-- Active-path element not displayed after close.
-- Close → reopen via text-input path works end-to-end.
-- Test is deterministic across runs; temp dir cleaned up after each run.
-- Foreign `RIS_E2E_REPOSITORY_PARENT` rejected before app launch.
-- No hidden production-only behavior. No dependency changes. No Rust changes.
+Full creation and placement flow in a single spec:
 
----
+**Creation flow:**
+- Repository → Location → Rack → Device Model (1U) → Device
+- Each entity verified in the corresponding panel list after creation
+- Device row shows "unplaced" badge
 
-### PR-4 — Core inventory E2E ✅ Merged (PR #142)
+**Placement + persistence:**
+- Navigate to Racks → rack detail → `PlacementPalettePanel`
+- Click Place… button for device → `PlacePlacementModal` pre-selects device
+- Fill start U (U1) → submit → verify placed card at U1 with model name in `title`
+- Close repository → `UnsavedChangesDialog` → "Save and continue"
+- Reopen via "Open by path" input → verify `expectActiveRepositoryPath`
+- Navigate Locations → click location row → Racks → click rack row
+- Verify placed card (`data-device-code` + `data-start-u="1"`) with correct model after reopen
 
-**Branch from:** `roadmap/e2e-wdio`
-**Target:** `roadmap/e2e-wdio`
-**Branch:** `feature/e2e-wdio-core-inventory`
+##### Selector contract (PR-4 additions)
 
-Full implementation (Stage 1 + Stage 2) in a single PR:
-
-**Stage 1 — creation flow:**
-- Creates its own isolated repository (no fixture dependency on PR-3 repos).
-- Happy-path flow: Repository → Location → Rack → Device Model → Device (unplaced).
-- Asserts each created entity appears in the corresponding panel list.
-- Asserts the device row shows an "unplaced" badge.
-
-**Stage 2 — placement + persistence:**
-- Navigate to Racks, open rack detail view.
-- Use PlacementPalettePanel "Place…" button to open `PlacePlacementModal` with device pre-selected.
-- Fill start U (U1) and click Place; verify placed card appears with model name.
-- Close repository — UnsavedChangesDialog fires; click "Save and continue".
-- Reopen via "Open by path" input; verify `expectActiveRepositoryPath`.
-- Navigate Locations → click location row → Racks → click rack row.
-- Verify placed card (`data-device-code` + `data-start-u`) present and model name correct after reopen.
-
-#### Selector contract (PR-4 additions)
-
-**Stage 1 testid selectors:**
+**Creation testid selectors:**
 
 | Selector | Element | Location |
 |----------|---------|----------|
@@ -405,227 +400,187 @@ Full implementation (Stage 1 + Stage 2) in a single PR:
 | `device-add-btn` | "Add device" button | `DevicesPanel` |
 | `device-form-submit` | Submit button in device modal | `DeviceFormModal` |
 
-**Stage 2 testid selectors (new):**
+**Placement testid selectors:**
 
 | Selector | Element | Location |
 |----------|---------|----------|
-| `palette-drop-zone` | PlacementPalettePanel drop zone; presence signals rack detail loaded | `PlacementPalettePanel` |
+| `palette-drop-zone` | Presence signals rack detail loaded | `PlacementPalettePanel` |
 | `place-btn` | "Place" submit button in placement modal | `PlacePlacementModal` |
 | `start-u-input` | Start U `<input>` in placement modal | `PlacePlacementModal` |
-| `unsaved-changes-save` | "Save and continue" button in unsaved-changes dialog | `UnsavedChangesDialog` |
+| `unsaved-changes-save` | "Save and continue" button | `UnsavedChangesDialog` |
 
-**Stage 2 data attributes (new):**
-
-| Data attribute | Purpose | Location |
-|----------------|---------|----------|
-| `data-device-code` on Place button | Stable selector for palette Place… button by device code | `PlacementPalettePanel` |
-| `data-device-code` on placed card | Stable selector for placed card by device code | `RackUnitDiagram` |
-| `data-start-u` on placed card | Distinguishes placed card from palette button; verifies U position | `RackUnitDiagram` |
-
-**Stage 1 data attributes:**
+**Data attributes:**
 
 | Data attribute | Purpose | Location |
 |----------------|---------|----------|
-| `data-location-code` | Stable row identifier for locations | `LocationsPanel` |
-| `data-rack-code` | Stable row identifier for racks | `RacksPanel` |
-| `data-model-code` | Stable row identifier for device models | `DeviceModelsPanel` |
-| `data-device-code` | Stable row identifier for devices | `DevicesPanel` |
+| `data-location-code` | Stable row identifier | `LocationsPanel` |
+| `data-rack-code` | Stable row identifier | `RacksPanel` |
+| `data-model-code` | Stable row identifier | `DeviceModelsPanel` |
+| `data-device-code` | Stable row identifier for devices list | `DevicesPanel` |
+| `data-device-code` on Place button | Palette Place button scoped to device | `PlacementPalettePanel` |
+| `data-device-code` on placed card | Placed card scoped to device | `RackUnitDiagram` |
+| `data-start-u` on placed card | U-position verification | `RackUnitDiagram` |
 
-#### Shared helpers
+##### Shared helpers
 
-`apps/desktop/e2e-wdio/support/repository-ui.ts` — extracted from the lifecycle spec:
+`apps/desktop/e2e-wdio/support/repository-ui.ts`:
 - `canonicalPath()`, `reactSetValue()`, `reactSelectValue()`, `waitForEnabled()`,
   `expectActiveRepositoryPath()`, `createRepositoryThroughUi()`
 
-#### Placement flow details
+##### Placement implementation notes
 
-1. `createRepositoryThroughUi()` returns `repoPath` (captured in Stage 2 for reopen).
-2. Device `data-device-code` captured from the devices list row after creation.
-3. Rack `<tr>` rows require JS click (`browser.execute((el) => el.click(), el)`) — WebKitGTK marks `<tr>` as not interactable.
-4. Composite selector `[data-device-code="${code}"][data-start-u="1"]` uniquely identifies the placed card without colliding with the palette Place button.
-5. State reset on reopen: `selectedLocationForRacks` is cleared by `doOpen()` in `App.tsx`. Stage 2 re-navigates via Locations → click location row → Racks → click rack row.
+- `createRepositoryThroughUi()` returns `repoPath` captured for reopen.
+- Device `data-device-code` captured from the devices list row after creation.
+- Rack `<tr>` rows require JS click (`browser.execute((el) => el.click(), el)`) —
+  WebKitGTK marks `<tr>` as not interactable.
+- Palette Place button selector scoped to
+  `button[data-testid^="place-btn-device-"][data-device-code="${code}"]` to avoid
+  collision with placed-card `div`s that also carry `data-device-code`.
+- `getText()` returns `""` for placed cards in WebKit because flex children use
+  `overflow:hidden`; `getAttribute("title")` reliably contains the full label.
+- Placement error propagation uses `isPlacementFailure()` type guard
+  (`err instanceof Error && err.message.startsWith("Placement failed")`) instead of
+  `String(err).startsWith(…)` which is always `false` for `Error` objects.
+- State reset on reopen: `selectedLocationForRacks` cleared by `doOpen()` in `App.tsx`.
+  Stage 2 re-navigates via Locations → click location row → Racks → click rack row.
 
-#### Mocha timeout
+##### Mocha timeout
 
-Increased from 900 s (15 min) to 1 800 s (30 min).
-- Stage 1: ~12 min (14 steps, 5 entity types, 4 modal cycles).
-- Stage 2: ~13 min (~24 additional modal/nav actions).
-- Total estimated: ~25 min → 30 min with margin.
+Increased from 900 s (15 min) to 1 800 s (30 min).  Stage 1: ~12 min.
+Stage 2: ~13 min.  Total estimated ~25 min → 30 min with margin.
 
-#### Local WDIO validation (Linux, 2026-07-14)
+##### Full validation results (Linux, 2026-07-14)
 
-**Platform:** Linux (Ubuntu 24.04 LTS), Tauri v2 desktop binary, `xvfb-run` virtual display  
-**Binary:** built with `pnpm -C apps/desktop tauri build --no-bundle` (46 s)
-_(Local environment required `PATH` prepended with the pnpm bin directory;
-the project-standard command is `pnpm -C apps/desktop tauri build --no-bundle`.)_
+**Binary:** `pnpm -C apps/desktop tauri build --no-bundle` (46 s)
 
-##### Isolated spec run 1 (17:42–18:05 UTC)
-
+Isolated spec run 1 (17:42–18:05 UTC):
 ```bash
 TAURI_BINARY_PATH="$(realpath target/release/rack-inventory-studio-desktop)" \
   xvfb-run -a pnpm -C apps/desktop exec wdio run \
   e2e-wdio/wdio.conf.ts --spec e2e-wdio/specs/core-inventory.e2e.ts
 ```
+**PASSED** — 1/1 specs (100%) in **00:22:44** — exit 0
 
-**PASSED** — 1/1 specs (100%) in **00:22:44** — exit 0  
-All Stage 1 assertions passed (17:56 UTC); all Stage 2 assertions passed, placement
-persisted at U1 after reopen (18:05 UTC). Owned root `/tmp/ris-wdio-rkX2DO` removed
-by the WDIO `onComplete` hook (guarded test-environment cleanup).
+Stage 1 passed at 17:56 UTC; Stage 2 passed, placement persisted at U1 (18:05 UTC).
+Owned root `/tmp/ris-wdio-rkX2DO` removed by the WDIO `onComplete` hook.
 
-##### Isolated spec run 2 (18:05–18:28 UTC)
+Isolated spec run 2 (18:05–18:28 UTC, independent data, suffix `mrkyp200`):
 
-Same command, independent data (suffix `mrkyp200`).
+**PASSED** — 1/1 specs (100%) in **00:22:53** — exit 0
 
-**PASSED** — 1/1 specs (100%) in **00:22:53** — exit 0  
-All Stage 1 and Stage 2 assertions passed; persistence verified at U1 after reopen.
-Owned root `/tmp/ris-wdio-q9Y6fT` removed by the WDIO `onComplete` hook (guarded
-test-environment cleanup).
+Owned root `/tmp/ris-wdio-q9Y6fT` removed by the WDIO `onComplete` hook.
 
-##### Full WDIO suite (post-repair)
-
+Full WDIO suite:
 ```bash
 xvfb-run -a pnpm -C apps/desktop run test:e2e:wdio
 ```
-
 **PASSED** — 3/3 specs (100%) in **00:28:38** — exit 0
 
-##### Unit tests (Vitest)
+Unit tests: `pnpm -C apps/desktop run test:unit` — **844/844 passed**.
 
-`pnpm -C apps/desktop run test:unit` — **844/844 passed**, 0 failures.
+TypeScript: `pnpm tsc --noEmit` — **0 errors**.
 
-##### Playwright
-
-Blocked: system dependency `libasound2t64` absent —
-`browserType.launch` error: "Host system is missing dependencies to run browsers.
-Please install: `sudo apt-get install libasound2t64`". 21/21 tests fail.
-Pre-existing condition, unrelated to this PR.
-
-##### TypeScript
-
-`pnpm tsc --noEmit` (repo root) — **0 errors**.
-
-Acceptance:
-- Covers the central RIS creation workflow end-to-end.
-- Covers placement: device placed in rack, model name visible in placed card.
-- Covers persistence: close → reopen → placed card still present with correct U position.
-- Spec is self-contained; creates its own repo per run.
-- No dependency on test order with other specs.
-- No network access.
+Playwright: blocked — `libasound2t64` absent (pre-existing, unrelated to Stage 1).
 
 ---
 
-### PR-5 — Import/export E2E
+## Stage 2 — To be prioritized
 
-**Branch from:** `roadmap/e2e-wdio`
-**Target:** `roadmap/e2e-wdio`
+**Status: PLANNING — scope not yet selected**
 
-Purpose:
-- Cover Device Model CSV import smoke: paste/load CSV, preview, import, verify list.
-- Cover rack SVG/PNG export where feasible without native dialog fragility.
-- Test unsupported extension rejection if Save dialog control is reliable.
+Stage 2 scope will be chosen after a separate planning discussion.  The old PR-5 /
+PR-6 / PR-7 ordering from the initial roadmap is no longer binding.
 
-Acceptance:
-- Import flow verified at E2E level.
-- Export happy path verified if stable on CI.
-- Native dialog automation deferred if unreliable.
+### Candidate problem areas
 
----
+The following areas are candidates for Stage 2 work.  They are not committed tasks
+and are not listed in priority order:
 
-### PR-6 — Git/clone safety E2E smoke
-
-**Branch from:** `roadmap/e2e-wdio`
-**Target:** `roadmap/e2e-wdio`
-
-Purpose:
-- Verify unsafe clone URLs are rejected in the UI before clone starts.
-- Cover at minimum: `ext::`, `fd::`, `file://`.
-- Do not execute any real clone or network call.
-- Backend validation remains covered by Rust unit tests.
-
-Acceptance:
-- Frontend URL validation fires and disables Submit for unsafe inputs.
-- No actual git command executed.
-
----
-
-### PR-7 — CI integration
-
-**Branch from:** `roadmap/e2e-wdio`
-**Target:** `roadmap/e2e-wdio`
-
-Purpose:
-- Add optional (manual or branch-scoped) CI job for WDIO E2E.
-- Linux headless feasibility evaluated (WebKitGTK driver availability on ubuntu-24.04).
-- Windows feasibility evaluated (WebView2 driver, Tauri binary build time).
-- Document platform limitations discovered.
-- Keep required CI checks stable; E2E job non-blocking until stable.
-
-Acceptance:
-- CI job triggerable manually (`workflow_dispatch`) or on `roadmap/e2e-wdio` pushes.
-- Does not block PRs to `development` or `master`.
+- **CI execution** — Add an optional (non-blocking) WDIO job to CI; evaluate Linux
+  runner feasibility with WebKitGTK driver.
+- **Windows validation** — Validate the suite on Windows with WebView2 driver.
+- **Linux runner reproducibility** — Identify whether webkit2gtk-driver is available
+  on ubuntu-24.04 GitHub-hosted runners.
+- **Runtime reduction** — Evaluate `tauri-plugin-wdio` to eliminate the 100 ms/cmd
+  hook overhead; consider helper refactoring to reduce test duration.
+- **Import workflows** — Device Model CSV import smoke (paste/load, preview, import,
+  verify list).
+- **Export workflows** — Rack SVG/PNG export where stable without native dialog
+  fragility.
+- **Clone safety** — Verify unsafe clone URLs (`ext::`, `fd::`, `file://`) are
+  rejected in the UI before any git command executes.
+- **Extended inventory workflows** — Additional entity relationships, bulk actions,
+  or destructive-operation guards.
+- **Corruption and cleanup recovery** — Behavior when a repository directory is
+  missing or partially corrupt on open.
+- **Cross-platform path behavior** — Non-ASCII paths, symlinked temp directories,
+  UNC paths on Windows.
 
 ---
 
-### Integration PR — roadmap/e2e-wdio → development
+## Future stages
 
-After PR-1 through PR-7 are reviewed and stable:
+Placeholder areas for stages beyond Stage 2.  Scope and order will be decided during
+program planning.
 
-- Open a single integration PR from `roadmap/e2e-wdio` into `development`.
-- Review accumulated changes as a unit.
-- Squash-merge into `development` following repository merge policy.
+- Desktop CI and platform validation
+- Import/export workflows
+- Repository and clone safety
+- Extended inventory workflows
+- Performance and reliability hardening
 
 ---
 
-## Candidate first E2E smoke (PR-1 target)
+## Integration criteria
 
-1. Launch compiled Tauri binary.
-2. Verify main app shell renders (window title or header visible).
-3. Verify repository landing screen shows Open / Create / Clone actions.
-4. Close app cleanly.
+Conditions to consider before opening a future integration PR from `roadmap/e2e-wdio`
+into `development`:
+
+- Agreed program scope reached and all intended stages reviewed
+- No known unsafe cleanup behavior
+- Repeatable desktop validation across at least two independent runs
+- Supported-platform strategy decided (Linux runner, Windows runner, macOS)
+- Runtime acceptable for CI without blocking required checks
+- Dependency overrides reviewed for resolution status
+- Documentation current with actual behavior
+- Final branch comparison audited (no stale files, no review contexts committed)
+- Explicit human decision to integrate
 
 ---
 
 ## Test data policy
 
-- Use temporary directories (OS temp or `$TMPDIR`).
+- Use temporary directories under `os.tmpdir()`.
 - Never write into the user home directory except via system temp.
 - Use unique run IDs to prevent cross-run pollution.
-- Clean up after test when the framework supports it.
-- Keep fixture repositories minimal (single location, single rack is sufficient).
+- Clean up owned run roots via the WDIO `onComplete` hook (guarded cleanup).
+- Keep fixture repositories minimal.
+- Set `RIS_E2E_KEEP_TEMP=1` to preserve temp dirs for inspection on failure.
 
 ---
 
 ## CI policy
 
-Initial WDIO E2E CI should be non-blocking / manually triggered until the suite is stable.
+WDIO E2E CI is not yet configured.  When added it should be non-blocking initially.
 
 Progressive promotion path:
-1. `workflow_dispatch` only (PR-7)
+1. `workflow_dispatch` only
 2. Auto-triggered on PRs to `roadmap/e2e-wdio`
 3. Auto-triggered on PRs to `development`
 4. Required check (only after repeated stability)
 
 ---
 
-## Risks and unknowns
+## Risks and open questions
 
 | Risk | Notes |
 |------|-------|
-| Linux WebKitGTK driver | ubuntu-24.04 may require installing `libwebkit2gtk-4.1-dev` and a WebDriver binary; unknown whether it ships in the runner |
-| Windows WebView2 driver | Needs version matching; `@wdio/tauri-service` may handle auto-download but CI cache strategy needed |
-| Native dialogs | Save/open dialogs driven by the OS are difficult to automate; may need app-level bypass in test builds |
-| Tauri plugin/capability scope | Adding `tauri-plugin-wdio` touches `capabilities/default.json`; must be kept narrow |
+| Linux WebKitGTK driver | ubuntu-24.04 runner availability of `webkit2gtk-driver` not yet confirmed for CI |
+| Windows WebView2 driver | Version matching; `@wdio/tauri-service` may handle auto-download but CI cache strategy needed |
+| Native dialogs | OS save/open dialogs difficult to automate; may need app-level bypass in test builds |
+| Tauri plugin scope | Adding `tauri-plugin-wdio` touches `capabilities/default.json`; scope must remain narrow |
 | Binary build time | Tauri binary must be compiled before WDIO tests; adds significant CI time |
 | Non-ASCII paths | Temp directory paths with non-ASCII characters may break on some platforms |
-| Test isolation | Each spec must start from a clean repo state; shared state between specs causes flakiness |
-
----
-
-## Stage 0 acceptance criteria
-
-- [x] `roadmap/e2e-wdio` exists and is pushed.
-- [x] This plan document is committed on `roadmap/e2e-wdio`.
-- [x] No E2E dependencies installed.
-- [x] No app code changed.
-- [x] No version bump.
-- [x] Future PR targets are clear (`roadmap/e2e-wdio`).
+| `@wdio/native-utils` override | Workspace override to 2.5.0 works around a peer-dep mismatch; upstream fix not yet released |
+| Test isolation | Each spec must start from a clean state; shared state between specs causes flakiness |
+| `tauri-plugin-wdio` hook overhead | ~100 ms per WebDriver command while plugin absent; acceptable for Stage 1, reassess for CI |
