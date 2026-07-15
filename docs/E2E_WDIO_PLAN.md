@@ -486,7 +486,7 @@ Playwright: blocked — `libasound2t64` absent (pre-existing, unrelated to Stage
 
 ## Stage 2 — Safety, recovery and CSV import
 
-**Overall status: IN PROGRESS**
+**Overall status: IN REVIEW**
 
 The old PR-5 / PR-6 / PR-7 ordering from the initial roadmap is non-binding.
 Stage 2 is complete only after Stage 2A and Stage 2B are both merged into
@@ -494,9 +494,9 @@ Stage 2 is complete only after Stage 2A and Stage 2B are both merged into
 
 ### Stage 2A — Safety and recovery
 
-**Status: IN REVIEW**
+**Status: COMPLETED**
 
-Delivered through feature branch `feature/e2e-wdio-safety-recovery`.
+Delivered through `feature/e2e-wdio-safety-recovery` — merged as PR #144.
 
 **Scope:**
 
@@ -510,14 +510,46 @@ Delivered through feature branch `feature/e2e-wdio-safety-recovery`.
 
 **Spec:** `apps/desktop/e2e-wdio/specs/safety-recovery.e2e.ts`
 
+**Validation (Linux, 2026-07-15):**
+
+| Run | Result | Duration | Exit |
+|-----|--------|----------|------|
+| Isolated run 1 | PASSED 1/1 | 00:09:38 | 0 |
+| Isolated run 2 (independent data) | PASSED 1/1 | 00:09:36 | 0 |
+| Full WDIO suite (4 specs) | PASSED 4/4 | 00:38:19 | 0 |
+| TypeScript | 0 errors | — | 0 |
+| Vitest | 844/844 passed | — | 0 |
+| GitHub checks | All green | — | — |
+
 ### Stage 2B — CSV import
 
-**Status: PLANNED**
+**Status: IN REVIEW**
 
-Scope: CSV device paste → preview → import → verify list.
-Uses the textarea path — no native file-dialog required.
-Intentionally excluded from Stage 2A to keep each stage small and independently
-reviewable.
+Delivered through feature branch `feature/e2e-wdio-csv-import`.
+
+**Spec:** `apps/desktop/e2e-wdio/specs/csv-import.e2e.ts`
+
+**Scope:**
+
+- Device CSV import via the textarea path — no native file dialog
+- Preview workflow: paste → preview → assert row count and device names
+- Successful import: click Import → assert success banner → verify both devices in Devices panel
+- Persistence: save + close + reopen by exact path → assert devices still present, no duplicates
+- Negative validation: CSV with missing required `status` column → preview runs, import remains blocked
+
+**New selectors (Stage 2B additions):**
+
+| Selector | Element | Location |
+|----------|---------|----------|
+| `csv-preview-btn` | Preview `<button type="submit">` | `CsvImportPanel` |
+| `csv-import-btn` | "Import N rows" `<button>` | `CsvImportPanel` |
+| `csv-import-success` | Wrapper `<div>` around import success `Banner` | `CsvImportPanel` |
+| `csv-device-preview-table` | `<table>` in device preview | `DevicePreviewTable` |
+
+Existing selectors reused: `nav-csv_import`, `import-type-devices`, `csv-textarea`,
+`device-add-btn`, `[data-device-code]`, `repository-close-action`, `unsaved-changes-save`,
+`repository-open-path-input`, `repository-open-path-submit`, `repository-active-root`,
+`repository-active-path`.
 
 ### Remaining candidate areas (unordered)
 
