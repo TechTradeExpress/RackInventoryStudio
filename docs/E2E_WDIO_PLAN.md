@@ -5,14 +5,16 @@
 | Item | Detail |
 |------|--------|
 | Integration branch | `roadmap/e2e-wdio` (long-lived) |
-| Current stage | Stage 1 completed; Stage 2 scope not yet selected |
-| Integration PR to development | None open — PR #143 was closed without merge |
+| Current stage | Stage 2 COMPLETED — all stages merged into `roadmap/e2e-wdio` |
+| Integration PR to development | None open |
 | Decision | Further stages continue on `roadmap/e2e-wdio`; integration into `development` only after whole-program review |
 
 `roadmap/e2e-wdio` is a long-lived integration branch.  It is not expected to be
-merged into `development` after every stage.  It may contain incomplete intermediate
-stages.  A new integration PR to `development` will be created only after the program
-reaches an agreed completion point.
+merged into `development` after every stage.  Ordinary completed stages do not
+automatically trigger an integration PR.  A new integration PR to `development` will
+be created only after the program reaches an agreed completion point and receives
+explicit whole-program review approval.  No current integration PR to `development`
+exists.
 
 ---
 
@@ -486,11 +488,43 @@ Playwright: blocked — `libasound2t64` absent (pre-existing, unrelated to Stage
 
 ## Stage 2 — Safety, recovery and CSV import
 
-**Overall status: IN REVIEW**
+**Overall status: COMPLETED**
 
-The old PR-5 / PR-6 / PR-7 ordering from the initial roadmap is non-binding.
-Stage 2 is complete only after Stage 2A and Stage 2B are both merged into
-`roadmap/e2e-wdio`.
+Stage 2A (PR #144) and Stage 2B (PR #145) are both merged into `roadmap/e2e-wdio`.
+
+### Stage 2 scope summary
+
+**Stage 2A — Safety and recovery:**
+- Unsafe clone URL validation (`ext::`, `fd::`, `file://` prefixes, and one HTTPS control)
+- Missing repository path recovery (path does not exist)
+- Existing non-RIS directory recovery (path exists but is not a RIS repository)
+- No network access; no real clone operation
+
+**Stage 2B — CSV import:**
+- Device CSV import through the textarea path — no native file dialog
+- Preview: paste CSV → preview → assert row count and device names visible
+- Successful import: click Import → assert success banner → verify both devices in Devices panel
+- Persistence: save + close + reopen by exact path → assert devices still present, no duplicates
+- Negative validation: missing required `status` column → preview runs, import button remains blocked
+
+### Stage 2 final validation (Linux, 2026-07-15)
+
+| Stage | Run | Result | Duration | Exit |
+|-------|-----|--------|----------|------|
+| 2A | Isolated run 1 | PASSED 1/1 | 00:09:38 | 0 |
+| 2A | Isolated run 2 | PASSED 1/1 | 00:09:36 | 0 |
+| 2A | Full suite (4 specs) | PASSED 4/4 | 00:38:19 | 0 |
+| 2B | Isolated run 1 | PASSED 1/1 | 00:12:46 | 0 |
+| 2B | Isolated run 2 | PASSED 1/1 | 00:12:41 | 0 |
+| 2B | Final full suite (5 specs) | **PASSED 5/5** | **00:51:12** | 0 |
+
+Additional checks (Stage 2B):
+- TypeScript: 0 errors
+- Vitest: 844/844 passed
+- All GitHub checks green
+
+**Playwright:** blocked locally by missing `libasound2t64`. Pre-existing condition;
+unrelated to Stage 2. Playwright was not run as part of Stage 2 validation.
 
 ### Stage 2A — Safety and recovery
 
@@ -523,9 +557,9 @@ Delivered through `feature/e2e-wdio-safety-recovery` — merged as PR #144.
 
 ### Stage 2B — CSV import
 
-**Status: IN REVIEW**
+**Status: COMPLETED**
 
-Delivered through feature branch `feature/e2e-wdio-csv-import`.
+Delivered through `feature/e2e-wdio-csv-import` — merged as PR #145.
 
 **Spec:** `apps/desktop/e2e-wdio/specs/csv-import.e2e.ts`
 
@@ -551,6 +585,17 @@ Existing selectors reused: `nav-csv_import`, `import-type-devices`, `csv-textare
 `repository-open-path-input`, `repository-open-path-submit`, `repository-active-root`,
 `repository-active-path`.
 
+**Validation (Linux, 2026-07-15):**
+
+| Run | Result | Duration | Exit |
+|-----|--------|----------|------|
+| Isolated run 1 | PASSED 1/1 | 00:12:46 | 0 |
+| Isolated run 2 | PASSED 1/1 | 00:12:41 | 0 |
+| Final full suite (5 specs) | PASSED 5/5 | 00:51:12 | 0 |
+| TypeScript | 0 errors | — | 0 |
+| Vitest | 844/844 passed | — | 0 |
+| GitHub checks | All green | — | — |
+
 ### Remaining candidate areas (unordered)
 
 The following areas are candidates for stages beyond Stage 2B.  They are not
@@ -572,16 +617,39 @@ committed tasks and are not listed in priority order:
 
 ---
 
+## Stage 3 — CRUD workflows
+
+**Status: PLANNING**
+
+### Candidate scope
+
+- Edit existing inventory objects
+- Delete inventory objects
+- ConfirmDialog behavior
+- Delete guards and relationship constraints
+- Remove placement
+- Move placement when justified
+
+### Planning notes
+
+Stage 3 scope is not yet finalized. No implementation branch has been created. A
+separate planning run will decide which entity types and destructive paths provide
+the highest value. Git workflows remain outside Stage 3. CI implementation remains
+a separate future stage.
+
+Do not mark Stage 3 as IN PROGRESS until the planning run is complete and scope
+is agreed.
+
 ## Future stages
 
-Placeholder areas for stages beyond Stage 2.  Scope and order will be decided during
+Placeholder areas for stages beyond Stage 3. Scope and order will be decided during
 program planning.
 
 - Desktop CI and platform validation
 - Import/export workflows
-- Repository and clone safety
-- Extended inventory workflows
+- Git workflow coverage
 - Performance and reliability hardening
+- Windows and cross-platform validation
 
 ---
 
@@ -613,15 +681,98 @@ into `development`:
 
 ---
 
-## CI policy
+## Desktop E2E execution policy
 
-WDIO E2E CI is not yet configured.  When added it should be non-blocking initially.
+Full desktop E2E is an integration and release gate, not a test that must run
+before every small PR.
 
-Progressive promotion path:
-1. `workflow_dispatch` only
-2. Auto-triggered on PRs to `roadmap/e2e-wdio`
-3. Auto-triggered on PRs to `development`
-4. Required check (only after repeated stability)
+### Ordinary feature PRs
+
+For normal `feature/*` pull requests the required fast CI checks are:
+
+- TypeScript
+- Vitest
+- Rust tests
+- Repository scripts and hygiene
+- Dependency audits
+- Workflow lint
+- Playwright browser-mode tests when the CI environment supports them
+
+Full WDIO desktop E2E is **not required** on ordinary PRs. It is not run
+automatically on every push and must not become a required check for changes
+unrelated to E2E infrastructure. The full desktop suite currently takes
+approximately 51 minutes; executing it for every small PR would create excessive
+feedback time and CI cost.
+
+### PRs targeting `roadmap/e2e-wdio`
+
+For `feature/e2e-*` → `roadmap/e2e-wdio` pull requests, the following are
+required before review:
+
+- The changed or new WDIO spec must be run independently (isolated spec run)
+- The independent spec run should be repeated at least twice when practical
+- The full WDIO suite must be run locally once after successful isolated validation
+- Results must be documented in the PR body
+- Cleanup and contamination checks must be documented
+
+CI policy for these PRs:
+
+- Normal fast checks remain required
+- Full WDIO CI is optional or manually triggered
+- Full WDIO is not yet a blocking check for each roadmap feature PR
+
+### Integration PR (`roadmap/e2e-wdio` → `development`)
+
+When an integration PR is eventually opened, full desktop E2E in CI must be:
+
+- Automatic
+- Mandatory
+- Blocking
+- Executed against the exact integration commit
+- Accompanied by retained logs and diagnostic artifacts
+
+The integration PR must not merge when:
+
+- WDIO fails
+- Cleanup safety fails
+- The exact tested commit differs from the PR head
+- Required platform validation is missing from the agreed integration criteria
+
+### Release validation
+
+Before a release candidate is merged or promoted:
+
+- Full WDIO must run against the exact release commit
+- Windows validation is mandatory (Windows is the primary distributed platform)
+- Linux validation is recommended and may be mandatory once stable CI exists
+- Logs and artifacts should be retained
+
+For `release/*` → `master`:
+- Do not rerun the full suite when the exact commit was already validated as a
+  release candidate
+- Reuse the release-candidate result only when the commit SHA is unchanged
+
+### Future WDIO CI design
+
+Initial WDIO CI should:
+
+- Start as `workflow_dispatch` or explicitly invoked integration validation
+- Run on Linux first
+- Remain non-blocking while runner reproducibility is evaluated
+- Retain Tauri logs, WDIO logs and failure diagnostics
+- Verify guarded cleanup
+- Measure total runtime
+- Use the exact built Tauri binary from the tested commit
+
+Promotion path:
+
+1. Manual `workflow_dispatch`
+2. Automatic non-blocking run for roadmap integration candidates
+3. Required blocking check for `roadmap/e2e-wdio` → `development`
+4. Release candidate validation
+5. Windows matrix after the Linux path is stable
+
+No CI workflow file is added in this update.
 
 ---
 
