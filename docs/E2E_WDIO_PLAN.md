@@ -51,10 +51,54 @@ For each substantial E2E change:
 4. Create `feature/e2e-*` branching from `roadmap/e2e-wdio`.
 5. Implement.
 6. Open a PR targeting `roadmap/e2e-wdio`.
-7. Review.
-8. Open a RP (review proposal) for cross-team sign-off if needed.
-9. Merge to `roadmap/e2e-wdio`.
-10. Update this document.
+7. Generate review context against `roadmap/e2e-wdio` (the direct PR base — see §Review-context base policy below).
+8. Review.
+9. Open a RP (review proposal) for cross-team sign-off if needed.
+10. Merge to `roadmap/e2e-wdio`.
+11. Update this document.
+
+---
+
+## Review-context base policy
+
+Generate every review context against the **direct base branch of the current
+pull request**, not the eventual integration target of the program.
+
+| Head branch | Direct PR base | Review-context base |
+|-------------|----------------|---------------------|
+| `feature/*` | `development` | `development` |
+| `feature/e2e-*` | `roadmap/e2e-wdio` | `roadmap/e2e-wdio` |
+| `feature/cmdb-*` | `roadmap/cmdb` | `roadmap/cmdb` |
+| `roadmap/e2e-wdio` | `development` | `development` |
+| `release/*` | `master` | `master` |
+
+Never select `development` merely because it is the eventual integration target.
+`roadmap/e2e-wdio` is a long-lived branch that accumulates many earlier commits;
+comparing a feature PR directly to `development` produces a misleading and
+unnecessarily large diff that includes all prior E2E stages. RP and review
+findings must remain scoped to the current PR.
+
+For `feature/e2e-*` PRs the correct base is always `roadmap/e2e-wdio`:
+
+```bash
+BASE_BRANCH="$(gh pr view --json baseRefName --jq '.baseRefName')"
+test -n "$BASE_BRANCH"
+bash scripts/ai/build-review-context.sh \
+  "$BASE_BRANCH" \
+  ".ai/review-context-$(date +%Y%m%d-%H%M).md"
+```
+
+For direct documentation maintenance on `roadmap/e2e-wdio` (no PR), review only
+the new commit — use its parent as the base:
+
+```bash
+REVIEW_BASE="$(git rev-parse HEAD^)"
+bash scripts/ai/build-review-context.sh \
+  "$REVIEW_BASE" \
+  ".ai/review-context-$(date +%Y%m%d-%H%M).md"
+```
+
+The full policy is documented in `CLAUDE.md` (Final review-context handoff).
 
 ---
 
