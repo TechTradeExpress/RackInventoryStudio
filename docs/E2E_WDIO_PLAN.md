@@ -484,17 +484,45 @@ Playwright: blocked — `libasound2t64` absent (pre-existing, unrelated to Stage
 
 ---
 
-## Stage 2 — To be prioritized
+## Stage 2 — Safety, recovery and CSV import
 
-**Status: PLANNING — scope not yet selected**
+**Overall status: IN PROGRESS**
 
-Stage 2 scope will be chosen after a separate planning discussion.  The old PR-5 /
-PR-6 / PR-7 ordering from the initial roadmap is no longer binding.
+The old PR-5 / PR-6 / PR-7 ordering from the initial roadmap is non-binding.
+Stage 2 is complete only after Stage 2A and Stage 2B are both merged into
+`roadmap/e2e-wdio`.
 
-### Candidate problem areas
+### Stage 2A — Safety and recovery
 
-The following areas are candidates for Stage 2 work.  They are not committed tasks
-and are not listed in priority order:
+**Status: IN REVIEW**
+
+Delivered through feature branch `feature/e2e-wdio-safety-recovery`.
+
+**Scope:**
+
+- Unsafe clone URL rejection in the real Tauri binary UI
+  (`ext::`, `fd::`, `file://` and one HTTPS control)
+- Missing repository path recovery (path does not exist)
+- Existing non-RIS directory recovery (path exists but is not a RIS repository)
+- No network access; no real clone operation
+- One new selector: `global-error` added to App.tsx error banner (no previous
+  stable testid existed for this element)
+
+**Spec:** `apps/desktop/e2e-wdio/specs/safety-recovery.e2e.ts`
+
+### Stage 2B — CSV import
+
+**Status: PLANNED**
+
+Scope: CSV device paste → preview → import → verify list.
+Uses the textarea path — no native file-dialog required.
+Intentionally excluded from Stage 2A to keep each stage small and independently
+reviewable.
+
+### Remaining candidate areas (unordered)
+
+The following areas are candidates for stages beyond Stage 2B.  They are not
+committed tasks and are not listed in priority order:
 
 - **CI execution** — Add an optional (non-blocking) WDIO job to CI; evaluate Linux
   runner feasibility with WebKitGTK driver.
@@ -503,16 +531,10 @@ and are not listed in priority order:
   on ubuntu-24.04 GitHub-hosted runners.
 - **Runtime reduction** — Evaluate `tauri-plugin-wdio` to eliminate the 100 ms/cmd
   hook overhead; consider helper refactoring to reduce test duration.
-- **Import workflows** — Device Model CSV import smoke (paste/load, preview, import,
-  verify list).
 - **Export workflows** — Rack SVG/PNG export where stable without native dialog
   fragility.
-- **Clone safety** — Verify unsafe clone URLs (`ext::`, `fd::`, `file://`) are
-  rejected in the UI before any git command executes.
-- **Extended inventory workflows** — Additional entity relationships, bulk actions,
-  or destructive-operation guards.
-- **Corruption and cleanup recovery** — Behavior when a repository directory is
-  missing or partially corrupt on open.
+- **Extended inventory workflows** — Edit and delete entity operations, full CRUD.
+- **Git workflow** — init → validate → commit cycle in the real Tauri binary.
 - **Cross-platform path behavior** — Non-ASCII paths, symlinked temp directories,
   UNC paths on Windows.
 
