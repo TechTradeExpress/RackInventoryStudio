@@ -649,25 +649,56 @@ committed tasks and are not listed in priority order:
 
 ---
 
-## Stage 3 — CRUD workflows
+## Stage 3 — Next stage (pending coverage-gap decision)
 
 **Status: PLANNING**
 
-### Candidate scope
+A coverage gap analysis was completed on 2026-07-15.  The full matrix is in
+[`docs/E2E_WDIO_COVERAGE_GAPS.md`](E2E_WDIO_COVERAGE_GAPS.md).
 
-- Edit existing inventory objects
-- Delete inventory objects
-- ConfirmDialog behavior
-- Delete guards and relationship constraints
-- Remove placement
-- Move placement when justified
+### Gap summary (from gap analysis)
+
+| Status | Count |
+|--------|-------|
+| COVERED | 20 |
+| MISSING (selectors in place) | 15 |
+| NEEDS SELECTOR (selectors absent) | 15 |
+| DEFERRED | 9 |
+| NOT JUSTIFIED | 7 |
+| Total workflows inventoried | 66 |
+
+Current E2E coverage: **20 / 66 workflows (30%)**.
+
+### Recommended next scope
+
+The gap analysis identified three tiers based on selector readiness:
+
+**Tier 1 — No new selectors required (highest ROI):**
+1. Edit placement (`open-edit-modal-btn`, `start-u-input`, `save-btn`)
+2. Remove placement (`remove-from-rack-btn` in PlacementInspectorPanel)
+3. Edit device, device model, location, rack (form modals; all testids in place)
+4. Work mode toggle (`work-mode-planning`, `work-mode-onsite`)
+
+**Tier 2 — One selector per entity type needed:**
+5. Delete device, delete location (requires `ConfirmDialog` confirm button testid)
+6. Delete with relationship constraint (backend guard + error display)
+
+**Tier 3 — Multiple new selectors needed:**
+7. Device Model CSV import (needs `csv-device-model-preview-table` testid)
+8. Validation panel (needs testids on validate/save buttons and issue rows)
+
+**Deferred to Stage 4+:**
+- Global search (no testids; scope uncertain for E2E)
+- Git workflow (no testids; network-dependent sub-flows)
+- Rack export SVG/PNG (native file dialog blocks automation)
+- Windows / CI validation (separate infrastructure stage)
 
 ### Planning notes
 
-Stage 3 scope is not yet finalized. No implementation branch has been created. A
-separate planning run will decide which entity types and destructive paths provide
-the highest value. Git workflows remain outside Stage 3. CI implementation remains
-a separate future stage.
+Stage 3 scope is not yet finalized. No implementation branch has been created.
+The recommended starting point is Tier 1 (edit and remove placement + entity edits)
+because it requires no application source changes and covers unique update IPC paths.
+Git workflows and rack export remain outside Stage 3.
 
 Do not mark Stage 3 as IN PROGRESS until the planning run is complete and scope
 is agreed.
