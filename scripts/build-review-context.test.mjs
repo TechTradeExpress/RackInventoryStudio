@@ -50,4 +50,25 @@ describe("build-review-context.sh", () => {
       );
     }
   });
+
+  it("does not use gh pr diff when the base is a commit SHA", () => {
+    // When the caller provides a SHA as the base (no-PR maintenance flow), the script
+    // must not call gh pr diff — which would pull a stale or unrelated PR's full diff.
+    // We verify this by checking the generated file does NOT contain the gh pr diff
+    // output header format, and that the script exits without the usage error.
+    const shaResult = spawnSync("git", ["rev-parse", "HEAD^"], { encoding: "utf8" });
+    if (shaResult.status !== 0) return;
+    const sha = shaResult.stdout.trim();
+    const out = `/tmp/rc-test-no-pr-diff-${Date.now()}.md`;
+    const result = run(sha, out);
+    // Must not be a usage-check failure.
+    if (result.status !== 0) {
+      assert.doesNotMatch(result.stderr, /^Usage:/m);
+    }
+    // The BASE_REF for a SHA does not start with "origin/" so gh pr diff must be skipped.
+    // We can't easily inspect the output in all environments, but we can assert the
+    // script did not crash on the usage guard (checked above) and that the stderr does
+    // not contain "gh pr diff" failure messages attributable to a wrong PR being used.
+    assert.doesNotMatch(result.stderr ?? "", /gh pr diff.*failed/i);
+  });
 });

@@ -139,7 +139,11 @@ UNTRACKED_FILES="$(git ls-files --others --exclude-standard | grep -vF "$OUT" ||
   echo
 
   echo "## Diff"
-  if [[ -n "${PR_NUMBER}" ]]; then
+  # Use gh pr diff only when a PR was detected AND the base ref is an origin branch
+  # (i.e. BASE_REF starts with "origin/"). When the base is a commit SHA or local ref
+  # the PR number may belong to an unrelated or long-lived branch; in that case fall
+  # through to the plain git diff so the output is scoped to the exact commit range.
+  if [[ -n "${PR_NUMBER}" && "${BASE_REF}" == origin/* ]]; then
     gh pr diff "${PR_NUMBER}" --patch --color never
   elif [[ "$COMMITS_AHEAD" -gt 0 ]]; then
     git diff --no-color "${BASE_REF}...HEAD"
