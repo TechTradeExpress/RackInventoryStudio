@@ -3,7 +3,7 @@
 You are working in this repository as an implementation agent.
 
 Rules:
-- Work on a feature branch, never directly on master/main. The standard base branch for this repository is `master`.
+- Work on a feature branch appropriate to the change: `feature/*` targeting `development` for ordinary changes, `feature/e2e-*` (or similar) targeting `roadmap/*` for roadmap initiative work. See Development workflow below.
 - Keep the scope minimal and aligned with the issue.
 - Do not perform unrelated refactors.
 - Do not remove tests unless explicitly asked.
@@ -31,6 +31,103 @@ Anything intentionally left out.
 
 ## Suggested next step
 One concrete next step.
+
+## Development workflow
+
+### Small changes
+
+```
+feature/*
+  → problem definition
+  → NSP
+  → implementation
+  → PR to direct base
+  → review context against direct PR base
+  → review
+  → RP when required
+  → merge
+```
+
+Typical target: `development`
+
+Rules:
+- small changes must be complete and independently releasable,
+- no partial large initiative should enter `development`,
+- the direct PR base determines the review-context base.
+
+### Large initiatives
+
+```
+roadmap/*
+  → program plan
+  → stage planning
+  → feature branch from roadmap/*
+  → NSP
+  → implementation
+  → PR to roadmap/*
+  → review context against roadmap/*
+  → review
+  → RP when required
+  → merge to roadmap/*
+  → next stage
+  → whole-program review
+  → integration PR to development
+```
+
+Rules:
+- `roadmap/*` branches may live for months and contain many merged PRs,
+- they may hold incomplete intermediate stages not yet releasable,
+- completed stages do not automatically trigger integration to `development`,
+- integration happens only after explicit whole-program review.
+
+## Branch responsibilities
+
+### `master`
+
+Production/release branch. Changed only through the approved release flow.
+
+### `development`
+
+Integration branch for completed work. Should remain as releasable as practical.
+Receives completed features and completed roadmap programs. Does not receive
+partial roadmap stages.
+
+### `roadmap/*`
+
+Long-lived integration branches for large initiatives. Target for `feature/*`
+branches belonging to that initiative. May hold incomplete intermediate stages.
+Must not be deleted merely because one stage is complete.
+
+### `feature/*`
+
+Short-lived implementation branches. Must target the immediate integration branch:
+`development` for ordinary features, `roadmap/*` for roadmap work.
+
+### `release/*`
+
+Release preparation branches. Target `master` after release validation.
+
+## NSP / RP model
+
+```
+problem → planning → NSP → implementation → PR → review context → review → RP when required → merge
+```
+
+- **NSP** (new-stage proposal): defines intended scope before coding begins.
+- **RP** (review proposal): addresses review findings on the same branch and PR.
+- Reviews must remain scoped to the current PR.
+- Code is the execution phase, not the planning phase.
+
+## Desktop E2E execution
+
+Full WDIO desktop E2E is an **integration and release gate**, not a per-commit gate.
+
+- **Ordinary `feature/*` PRs:** fast CI only (TypeScript, Vitest, Rust tests, hygiene, Playwright browser-mode).
+- **`feature/e2e-*` PRs:** local isolated spec run × 2 + full local WDIO suite, results documented in the PR body.
+- **`roadmap/e2e-wdio` → `development`:** automatic, mandatory, blocking WDIO in CI.
+- **Release validation:** full WDIO against the exact release commit; Windows validation mandatory once the CI path exists.
+
+See `docs/E2E_WDIO_PLAN.md` for implementation details, stage history and CI design assumptions.
 
 ## Final review-context handoff
 

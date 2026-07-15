@@ -18,9 +18,13 @@ exists.
 
 ---
 
-## Governance and branching
+## E2E Program governance
 
-### Branch flow
+> General project branching, NSP/RP workflow, review-context rules and branch
+> responsibilities are defined in `CLAUDE.md`. This document covers Desktop E2E
+> Program-specific policy only.
+
+### E2E branch flow
 
 ```
 feature/e2e-*
@@ -32,28 +36,28 @@ roadmap/e2e-wdio
   → merge only after explicit approval
 ```
 
-### Rules
+### E2E-specific rules
 
 - Never modify `development` or `master` directly from E2E work.
-- Each feature PR targets `roadmap/e2e-wdio`, not `development`.
+- Each `feature/e2e-*` PR targets `roadmap/e2e-wdio`, not `development`.
 - Each feature PR must be independently reviewable.
-- The roadmap branch may hold intermediate stages that are not yet suitable for integration.
+- The roadmap branch may hold intermediate stages not yet suitable for integration.
 - No new stage starts automatically from the previous one; stage priority is chosen
   based on product risk and testing value.
 
-### Working model
+### E2E working model
 
 For each substantial E2E change:
 
 1. Define the problem and desired coverage.
 2. Draft a stage plan.
-3. Open a NSP (new-stage proposal) if scope is non-trivial.
+3. Open a NSP if scope is non-trivial.
 4. Create `feature/e2e-*` branching from `roadmap/e2e-wdio`.
-5. Implement.
+5. Implement spec and selectors.
 6. Open a PR targeting `roadmap/e2e-wdio`.
-7. Generate review context against `roadmap/e2e-wdio` (the direct PR base — see §Review-context base policy below).
+7. Generate review context against `roadmap/e2e-wdio` (the direct PR base).
 8. Review.
-9. Open a RP (review proposal) for cross-team sign-off if needed.
+9. Open a RP when required.
 10. Merge to `roadmap/e2e-wdio`.
 11. Update this document.
 
@@ -61,24 +65,11 @@ For each substantial E2E change:
 
 ## Review-context base policy
 
-Generate every review context against the **direct base branch of the current
-pull request**, not the eventual integration target of the program.
+> The full review-context base policy is defined in `CLAUDE.md`
+> (§ Review-context base policy). For Desktop E2E work the rule is: always use
+> the direct PR base.
 
-| Head branch | Direct PR base | Review-context base |
-|-------------|----------------|---------------------|
-| `feature/*` | `development` | `development` |
-| `feature/e2e-*` | `roadmap/e2e-wdio` | `roadmap/e2e-wdio` |
-| `feature/cmdb-*` | `roadmap/cmdb` | `roadmap/cmdb` |
-| `roadmap/e2e-wdio` | `development` | `development` |
-| `release/*` | `master` | `master` |
-
-Never select `development` merely because it is the eventual integration target.
-`roadmap/e2e-wdio` is a long-lived branch that accumulates many earlier commits;
-comparing a feature PR directly to `development` produces a misleading and
-unnecessarily large diff that includes all prior E2E stages. RP and review
-findings must remain scoped to the current PR.
-
-For `feature/e2e-*` PRs the correct base is always `roadmap/e2e-wdio`:
+For `feature/e2e-*` PRs the direct base is always `roadmap/e2e-wdio`:
 
 ```bash
 BASE_BRANCH="$(gh pr view --json baseRefName --jq '.baseRefName')"
@@ -88,8 +79,7 @@ bash scripts/ai/build-review-context.sh \
   ".ai/review-context-$(date +%Y%m%d-%H%M).md"
 ```
 
-For direct documentation maintenance on `roadmap/e2e-wdio` (no PR), review only
-the new commit — use its parent as the base:
+For direct maintenance on `roadmap/e2e-wdio` without a PR, use the parent commit:
 
 ```bash
 REVIEW_BASE="$(git rev-parse HEAD^)"
@@ -97,8 +87,6 @@ bash scripts/ai/build-review-context.sh \
   "$REVIEW_BASE" \
   ".ai/review-context-$(date +%Y%m%d-%H%M).md"
 ```
-
-The full policy is documented in `CLAUDE.md` (Final review-context handoff).
 
 ---
 
