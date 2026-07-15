@@ -31,8 +31,8 @@ git fetch origin "$BASE_BRANCH" --quiet 2>/dev/null || true
 
 # Determine the comparison ref: prefer origin/<branch> when it exists, else use the
 # value directly (allows commit SHAs and local refs as the base).
-if git rev-parse --verify "${BASE_REF}" >/dev/null 2>&1; then
-  BASE_REF="${BASE_REF}"
+if git rev-parse --verify "origin/${BASE_BRANCH}" >/dev/null 2>&1; then
+  BASE_REF="origin/${BASE_BRANCH}"
 else
   BASE_REF="$BASE_BRANCH"
 fi
