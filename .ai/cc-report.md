@@ -5,10 +5,10 @@ Fix Rust Clippy `manual_filter` lint in `crates/ris-import/src/csv_reader.rs`.
 Branch: `fix/rust-clippy-manual-filter` → base: `roadmap/e2e-wdio`
 
 This is an independent CI fix on the integration branch — not part of Stage 3A.
-The lint `clippy::manual_filter` was introduced in Rust 1.97.0 (released 2026-07).
-CI uses floating `stable` Rust, so jobs that previously passed began failing after
-the toolchain update. The affected code was already present on `roadmap/e2e-wdio`
-before Stage 3A work began.
+Aktualna wersja stable Clippy zgłasza `clippy::manual_filter` dla trzech istniejących
+wcześniej konstrukcji w `csv_reader.rs`. Ponieważ CI korzysta z pływającego toolchainu
+stable, wcześniej akceptowany kod zaczął powodować błąd bez zmiany samego pliku.
+The affected code was already present on `roadmap/e2e-wdio` before Stage 3A work began.
 
 ## Root cause
 
@@ -18,14 +18,19 @@ before Stage 3A work began.
 .and_then(|v| if v.is_empty() { None } else { Some(v) })
 ```
 
-Clippy (≥1.97.0) suggests replacing this manual `Option` filtering closure with
-the idiomatic `Option::filter`. The change is semantically equivalent.
+The current stable Clippy reports `clippy::manual_filter` for three existing closures
+in `csv_reader.rs`. CI uses a floating stable Rust toolchain, so previously accepted
+code began failing without a change to this file.
+
+The idiomatic replacement is `Option::filter` (available since Rust 1.27.0).
+The change is semantically equivalent.
 
 ## Files changed
 
 | File | Change |
 |---|---|
-| `crates/ris-import/src/csv_reader.rs` | Replace 3 × `and_then(|v| if v.is_empty() { None } else { Some(v) })` with `.filter(|v| !v.is_empty())` |
+| `crates/ris-import/src/csv_reader.rs` | Replace 3 × `and_then(|v| if v.is_empty() { None } else { Some(v) })` with `.filter(|v| !v.is_empty())` — only production code change |
+| `.ai/cc-report.md` | Review report for this PR |
 
 ## Occurrences fixed (3 total)
 
@@ -64,8 +69,12 @@ cargo check --workspace          → clean
 
 ```
 git diff roadmap/e2e-wdio...HEAD --name-status
+M .ai/cc-report.md
 M crates/ris-import/src/csv_reader.rs
 ```
+
+The only production code change is `crates/ris-import/src/csv_reader.rs`.
+`.ai/cc-report.md` is the review report for this PR.
 
 Not changed:
 - Cargo.toml / Cargo.lock ✓
@@ -84,13 +93,16 @@ including PR #147 (`feature/e2e-wdio-placement-lifecycle`).
 
 ## Risks
 
-None. The refactor is a direct Clippy suggestion with equivalent semantics;
-all existing tests pass.
+Risks are minimal. The change is a direct semantic refactor from manual Option
+filtering to `Option::filter`. Existing workspace tests and CI pass. The remaining
+integration risk is limited to compatibility with the project's supported Rust
+toolchain. The replacement uses `Option::filter`, available since Rust 1.27.0.
+The repository does not currently document an explicit MSRV.
 
 ## Not done
 
 - Stage 3B work (separate initiative)
-- Toolchain pinning (not required; fix is correct for any Rust version ≥1.0)
+- Toolchain pinning (not required; not in scope)
 
 ## Suggested next step
 
