@@ -80,7 +80,7 @@ buttons (Init, Validate, Commit, Add remote, Push, Pull).
 | Workflow | Status | Notes |
 |----------|--------|-------|
 | Create location | COVERED | `core-inventory` |
-| Edit location | MISSING | `LocationFormModal` opens in edit mode; `location-form-submit` present |
+| Edit location | COVERED | `entity-updates-work-mode` Stage 3B.1 |
 | Delete location — no racks (confirm dialog) | NEEDS SELECTOR | `ConfirmDialog` has no `data-testid` on confirm button |
 | Delete location — racks exist (constraint error) | NEEDS SELECTOR | Same; backend likely returns an error |
 
@@ -92,7 +92,7 @@ buttons (Init, Validate, Commit, Add remote, Push, Pull).
 |----------|--------|-------|
 | Create rack | COVERED | `core-inventory` |
 | Navigate to rack via location row click | COVERED | `core-inventory` |
-| Edit rack | MISSING | `RackFormModal` edit path; `rack-form-submit` present |
+| Edit rack | COVERED | `entity-updates-work-mode` Stage 3B.1 |
 | Delete rack — no placements (confirm dialog) | NEEDS SELECTOR | `ConfirmDialog` has no `data-testid` on confirm button |
 | Delete rack — placements exist (constraint error) | NEEDS SELECTOR | Same; backend constraint |
 
@@ -103,7 +103,7 @@ buttons (Init, Validate, Commit, Add remote, Push, Pull).
 | Workflow | Status | Notes |
 |----------|--------|-------|
 | Create device model (server, 1U) | COVERED | `core-inventory` |
-| Edit device model | MISSING | `DeviceModelFormModal` edit path; `model-form-submit` present |
+| Edit device model | COVERED | `entity-updates-work-mode` Stage 3B.1 |
 | Delete device model — no devices (confirm dialog) | NEEDS SELECTOR | `ConfirmDialog` has no testid |
 | Delete device model — devices exist (constraint error) | NEEDS SELECTOR | Same; backend constraint |
 
@@ -115,7 +115,7 @@ buttons (Init, Validate, Commit, Add remote, Push, Pull).
 |----------|--------|-------|
 | Create device (with model, planned status) | COVERED | `core-inventory` |
 | Unplaced badge after creation | COVERED | `core-inventory` |
-| Edit device | MISSING | `DeviceFormModal` edit path; `device-form-submit` present |
+| Edit device | COVERED | `entity-updates-work-mode` Stage 3B.1 |
 | Delete device — unplaced (confirm dialog) | NEEDS SELECTOR | `ConfirmDialog` has no testid |
 | Delete placed device — must unplace first | NEEDS SELECTOR | Same; backend guard |
 
@@ -171,8 +171,8 @@ All validation panel action buttons lack `data-testid` attributes.
 
 | Workflow | Status | Notes |
 |----------|--------|-------|
-| Toggle to onsite mode | MISSING | `work-mode-onsite` testid present |
-| Toggle to planning mode | MISSING | `work-mode-planning` testid present |
+| Toggle to onsite mode | COVERED | `entity-updates-work-mode` Stage 3B.1 |
+| Toggle to planning mode | COVERED | `entity-updates-work-mode` Stage 3B.1 |
 | Work mode affects device status defaults | NOT JUSTIFIED | Unit test coverage in `DevicesPanel.test.tsx` |
 
 Work mode toggle is wired but the `work-mode-planning` and `work-mode-onsite`
@@ -306,24 +306,27 @@ Suggested selector additions:
 
 ## Summary counts
 
-Counts updated after Stage 3A (placement lifecycle) — 2026-07-16.
+Counts updated after Stage 3B.1 (entity updates and work mode) — 2026-07-16.
 
 Stage 3A changed three existing MISSING workflows to COVERED:
 edit placement (start U), remove placement via inspector, open edit modal via inspector.
 One new workflow was added as COVERED: removed-placement persistence (previously implicit
 in the "remove" row but now tracked separately as a distinct persistence check).
-
 Net effect: COVERED +4 (three promoted from MISSING + one new row), MISSING −3, total +1.
+
+Stage 3B.1 changed six existing MISSING workflows to COVERED:
+edit location, edit rack, edit device model, edit device, toggle to on-site, toggle to planning.
+Net effect: COVERED +6, MISSING −6, total unchanged.
 
 | Status | Count |
 |--------|-------|
-| COVERED | 24 |
+| COVERED | 30 |
 | PARTIAL | 0 |
-| MISSING | 12 |
+| MISSING | 6 |
 | NEEDS SELECTOR | 15 |
 | DEFERRED | 9 |
 | NOT JUSTIFIED | 7 |
-| **Total workflows inventoried** | **67** (one row added vs. original 66) |
+| **Total workflows inventoried** | **67** |
 
-Current E2E coverage: **24 / 67 workflows** (36%).
-Stage 3B target (entity edits + Tier 1 remainder): estimated **30 / 67** (45%).
+Current E2E coverage: **30 / 67 workflows** (45%).
+Stage 3B.2 target (delete flows): estimated further reduction of MISSING count.
