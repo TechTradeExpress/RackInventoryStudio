@@ -87,7 +87,8 @@ All parts A–I complete; all persistence assertions passed.
 ### Full WDIO suite (all 7 specs)
 
 ```
-<to be filled after run>
+Spec Files:  7 passed, 7 total (100% completed) in 02:16:28
+run root /tmp/ris-wdio-hp5ww2 (cleaned up)
 ```
 
 ## Risks
