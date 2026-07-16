@@ -1,137 +1,111 @@
 ## Summary
 
-PR: harden(export): restrict export writes to SVG and PNG
+Fix Rust Clippy `manual_filter` lint in `crates/ris-import/src/csv_reader.rs`.
 
-Branch: `harden/beta3-export-write-allowlist` → base: `roadmap/beta3`
+Branch: `fix/rust-clippy-manual-filter` → base: `roadmap/e2e-wdio`
 
-Audit finding F2: `write_export` in `repository.rs` accepted any file extension.
-The path comes from the native Save dialog, so this is low-severity, but
-defense-in-depth requires export commands to only write `.svg` and `.png` files.
+This is an independent CI fix on the integration branch — not part of Stage 3A.
+Aktualna wersja stable Clippy zgłasza `clippy::manual_filter` dla trzech istniejących
+wcześniej konstrukcji w `csv_reader.rs`. Ponieważ CI korzysta z pływającego toolchainu
+stable, wcześniej akceptowany kod zaczął powodować błąd bez zmiany samego pliku.
+The affected code was already present on `roadmap/e2e-wdio` before Stage 3A work began.
 
-Fix: added `validate_export_extension` helper that checks the file extension
-(case-insensitively) before `std::fs::write`. Both `write_export_file` (SVG)
-and `write_export_bytes` (PNG) are protected through the shared `write_export`
-private function.
+## Root cause
 
-No version bump. No tags. No GitHub Release.
+`cargo clippy --workspace -- -D warnings` reports `clippy::manual_filter` for:
+
+```rust
+.and_then(|v| if v.is_empty() { None } else { Some(v) })
+```
+
+The current stable Clippy reports `clippy::manual_filter` for three existing closures
+in `csv_reader.rs`. CI uses a floating stable Rust toolchain, so previously accepted
+code began failing without a change to this file.
+
+The idiomatic replacement is `Option::filter` (available since Rust 1.27.0).
+The change is semantically equivalent.
 
 ## Files changed
 
 | File | Change |
 |---|---|
-| `apps/desktop/src-tauri/src/commands/repository.rs` | Added `validate_export_extension`, called inside `write_export`; added 8 new tests |
-| `docs/BETA3_QA_RUNBOOK.md` | Added cases 9.10–9.11: backend extension rejection |
-| `CHANGELOG.md` | Added security entry under Unreleased |
+| `crates/ris-import/src/csv_reader.rs` | Replace 3 × `and_then(|v| if v.is_empty() { None } else { Some(v) })` with `.filter(|v| !v.is_empty())` — only production code change |
+| `.ai/cc-report.md` | Review report for this PR |
 
-## Audit finding F2
+## Occurrences fixed (3 total)
 
-`write_export` previously accepted any path extension. The native Save dialog
-filters reduce the risk in normal usage, but the backend command accepted
-arbitrary extensions (`.txt`, `.exe`, `.yaml`, etc.) and wrote arbitrary bytes.
-
-## What changed in the export backend
-
-Added `validate_export_extension(path: &Path) -> Result<(), String>`:
-```rust
-fn validate_export_extension(path: &std::path::Path) -> Result<(), String> {
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_ascii_lowercase());
-    match ext.as_deref() {
-        Some("svg") | Some("png") => Ok(()),
-        _ => Err("Unsupported export file extension. Use .svg or .png.".to_string()),
-    }
-}
-```
-
-Called inside `write_export` after the blank/dir checks, before `fs::write`.
-
-Validation order:
-1. Empty path → error (unchanged)
-2. Path is a directory → error (unchanged)
-3. **Extension not .svg or .png → error (NEW)**
-4. Parent directory missing → error (unchanged)
-5. `std::fs::write` (unchanged)
-
-## Allowed extensions
-
-- `.svg` (and `.SVG`, `.Svg`, etc.)
-- `.png` (and `.PNG`, `.Png`, etc.)
-
-## Rejected examples
-
-- `.txt`
-- `.yaml`
-- `.exe`
-- `.json`
-- `.pdf`
-- (no extension)
-
-## Frontend changes
-
-None. Frontend already uses:
-- `filters: [{ name: "SVG Files", extensions: ["svg"] }]` for SVG dialog
-- `filters: [{ name: "PNG Files", extensions: ["png"] }]` for PNG dialog
-- Default filenames `rack-{name}-{side}.svg` and `rack-{name}-{side}.png`
-
-## Tests added
-
-8 new tests in `commands::repository::tests`:
-
-| Test name | What it covers |
+| Location | Context |
 |---|---|
-| `write_export_allows_svg_extension` | `.svg` path accepted, file written |
-| `write_export_allows_png_extension` | `.png` path accepted, file written |
-| `write_export_extension_check_is_case_insensitive` | `.SVG` and `.Png` accepted |
-| `write_export_rejects_unknown_extension` | `.txt`, `.yaml`, `.exe`, `.json`, `.pdf` rejected |
-| `write_export_rejects_missing_extension` | no-extension path rejected |
-| `validate_export_extension_accepts_svg_and_png` | pure helper: all case variants |
-| `validate_export_extension_rejects_other_extensions` | pure helper: rejects 5 extensions |
-| `validate_export_extension_rejects_no_extension` | pure helper: missing ext rejected |
+| Line 69 (Device Model CSV parser) | `tags` field after `.map(|v| v.trim().to_string())` |
+| Line 134 (`get_field` helper) | general field extractor used by all non-tags fields |
+| Line 171 (Device CSV parser) | `tags` field after `.map(|v| v.trim().to_string())` |
 
-Total src-tauri tests: 122 (was 114).
+## Semantic preservation
 
-## Manual QA required
+The transformation `and_then(|v| if v.is_empty() { None } else { Some(v) })`
+→ `.filter(|v| !v.is_empty())` is equivalent for `Option<String>`:
 
-- Export SVG with default `.svg` filename → succeeds, file readable in browser
-- Export PNG with default `.png` filename → succeeds, image opens correctly
-- In SVG Save dialog: manually type `rack.txt`, confirm → error banner with "Unsupported export file extension"
-- In PNG Save dialog: manually type `rack.json`, confirm → same error
-- Cancel Save dialog → no error banner, no file written
-- See `docs/BETA3_QA_RUNBOOK.md` cases 9.10–9.11
+1. Column absent → `None` propagates through `filter` unchanged ✓
+2. Column present, value empty string → `filter` returns `None` ✓
+3. Column present, value whitespace-only → trimmed to `""` → `filter` returns `None` ✓
+4. Column present, non-empty value after trim → `filter` returns `Some(String)` ✓
+5. Device CSV and Device Model CSV semantics unchanged ✓
 
-## Checks
+## Tests
 
 ```
-cargo fmt --all --check                          → clean
-cargo clippy --workspace -- -D warnings          → clean
-cargo check --workspace                          → clean
-cargo test --manifest-path src-tauri/Cargo.toml  → 122 passed
-node scripts/check-version-consistency.mjs       → 0.1.0-beta.2, all match
-node --test scripts/*.test.mjs                   → 19 passed
-node scripts/check-repo-hygiene.mjs              → 8/8 checks passed
-Frontend checks skipped locally — no frontend code changed.
+cargo fmt --all --check          → clean (0 errors)
+cargo test --workspace           → 122 passed (src-tauri) + all workspace crates
+cargo clippy --workspace -- -D warnings  → clean (0 errors, 0 warnings)
+cargo check --workspace          → clean
 ```
+
+`csv-import` related tests confirmed passing:
+- `csv_preview_duplicate_serial_returns_error` ✓
+- `import_devices_csv_rejects_error_row` ✓
+- `sample_csv_parses_without_errors_via_importer` ✓
+
+## Scope confirmation
+
+```
+git diff roadmap/e2e-wdio...HEAD --name-status
+M .ai/cc-report.md
+M crates/ris-import/src/csv_reader.rs
+```
+
+The only production code change is `crates/ris-import/src/csv_reader.rs`.
+`.ai/cc-report.md` is the review report for this PR.
+
+Not changed:
+- Cargo.toml / Cargo.lock ✓
+- Rust toolchain ✓
+- GitHub Actions workflows ✓
+- Dependencies ✓
+- TypeScript / WDIO specs ✓
+- Stage 3A documentation ✓
+- Application version ✓
+- No `#[allow(clippy::manual_filter)]` added ✓
+
+## Effect
+
+Unblocks Rust workspace CI job for all PRs targeting `roadmap/e2e-wdio`,
+including PR #147 (`feature/e2e-wdio-placement-lifecycle`).
 
 ## Risks
 
-- Native Save dialog filters already restrict to `.svg`/`.png` in normal usage.
-  The backend check adds defense-in-depth but is not reachable via normal UI
-  flows unless the user manually types a different extension in the dialog.
-- Case-insensitive matching (`to_ascii_lowercase`) handles common OS variations.
-  Non-ASCII Unicode in the extension (edge case) would fail the `to_str()` call
-  and be rejected as "missing extension" — this is the correct safe default.
+Risks are minimal. The change is a direct semantic refactor from manual Option
+filtering to `Option::filter`. Existing workspace tests and CI pass. The remaining
+integration risk is limited to compatibility with the project's supported Rust
+toolchain. The replacement uses `Option::filter`, available since Rust 1.27.0.
+The repository does not currently document an explicit MSRV.
 
-## Confirmation
+## Not done
 
-- No version bump ✓
-- No tags created ✓
-- No GitHub Release created ✓
-- No `.ai/review-context-*.md` committed ✓
+- Stage 3B work (separate initiative)
+- Toolchain pinning (not required; not in scope)
 
 ## Suggested next step
 
-Manual QA of cases 9.10–9.11 in `docs/BETA3_QA_RUNBOOK.md` (extension
-rejection), then prepare beta.3 release PR (version bump `0.1.0-beta.2` →
-`0.1.0-beta.3`, CHANGELOG finalization, release notes).
+After merge: update `feature/e2e-wdio-placement-lifecycle` from `roadmap/e2e-wdio`,
+re-run CI for PR #147, confirm Rust workspace green, update cc-report and generate
+final Stage 3A review context.
