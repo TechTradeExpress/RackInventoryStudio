@@ -681,7 +681,11 @@ Delivered through `feature/e2e-wdio-placement-lifecycle`.
 
 **New selectors:** None.  All selectors (`open-edit-modal-btn`, `start-u-input`, `save-btn`,
 `remove-from-rack-btn`, placed card attributes) were already present from Stages 1 and 2.
-`ConfirmDialog` confirm button matched by text `button=Remove from rack` (no testid).
+`ConfirmDialog` confirm button located via `button.btn-danger` inside `[data-testid="modal-backdrop"]`
+using `browser.execute()` — native text selector `button=Remove from rack` was avoided because
+the inspector button (also labelled "Remove from rack") appears before the portal in DOM order,
+and native `.click()` fires `mousedown` which lands on the backdrop overlay and triggers
+`handleBackdrop` → immediate dialog close before the confirm button can be activated.
 
 ### Stage 3B — Representative CRUD and destructive-operation guards
 

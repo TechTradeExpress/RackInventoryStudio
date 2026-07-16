@@ -7,20 +7,22 @@
  *   PART 2 — Edit placement: move from U1 to U5 via PlacementInspectorPanel → EditPlacementModal
  *   PART 3 — Persist the moved placement: save + close + reopen → verify U5 remains
  *   PART 4 — Remove placement via PlacementInspectorPanel → ConfirmDialog
- *   PART 5 — Persist the removal: save + close + reopen → verify device is unplaced
+ *   PART 5 — Persist the removal: save + close + reopen → verify device/model/rack exist
  *
  * Rack geometry:
- *   Rack height  : 14U  (allows U1 and U5 without overflow)
+ *   Rack height  : 14U  (allows U1 and U5 without overlap)
  *   Model height : 2U   (occupies 2 rows; U1 occupies U1–U2, U5 occupies U5–U6)
  *   Initial pos  : U1   (start_u = 1)
  *   Moved pos    : U5   (start_u = 5)
  *
  * Selector contract (no new selectors added — all inherited from Stages 1 and 2):
- *   Placed card    — [data-device-code="${code}"][data-start-u="${u}"]
- *                    also data-testid="placed-front-{placementId}"
+ *   Placed card    — [data-testid^="placed-"][data-device-code="${code}"]
+ *                    also [data-start-u="${u}"] for position filtering
  *   Inspector      — open-edit-modal-btn, remove-from-rack-btn
  *   Edit modal     — start-u-input, save-btn, remove-btn (not used here)
- *   Confirm dialog — scoped via modal-backdrop testid; button text "Remove from rack"
+ *   Confirm dialog — scoped via modal-backdrop portal; button.btn-danger via browser.execute()
+ *                    (native "button=Remove from rack" text selector avoided: DOM order
+ *                    ambiguity with inspector button; backdrop closes on native mousedown)
  *   Existing       — palette-drop-zone, place-btn, start-u-input (PlacePlacementModal),
  *                    unsaved-changes-save, repository-close-action,
  *                    repository-open-path-input, repository-open-path-submit,
@@ -41,11 +43,7 @@ function log(msg: string) {
   console.log(`[placement ${ts}] ${msg}`);
 }
 
-function isMoveFailure(err: unknown): err is Error {
-  return err instanceof Error && err.message.startsWith("Move failed");
-}
-
-// ── Internal navigation helpers ───────────────────────────────────────────────
+// ── Internal helpers ──────────────────────────────────────────────────────────
 
 async function clickNav(tab: string): Promise<void> {
   const el = await browser.$(`[data-testid="nav-${tab}"]`);
@@ -88,7 +86,8 @@ async function findRowByText(
  * Navigate to a rack detail panel: Locations tab → click location row →
  * wait for Racks tab → find and click rack row → wait for rack detail.
  *
- * Used in Parts 3 and 5 (after reopen) and in Part 4 (from within the same session).
+ * Also verifies that the rack (and its parent location) is still accessible —
+ * the waitForDisplayed on palette-drop-zone throws if the rack detail does not load.
  */
 async function navigateToRackDetail(
   locationName: string,
@@ -96,7 +95,6 @@ async function navigateToRackDetail(
 ): Promise<void> {
   await clickNav("locations");
   const locationRow = await findRowByText("[data-location-code]", locationName);
-  // WebKitGTK marks <tr> as non-interactable — use JS click.
   await browser.execute(
     (el: HTMLElement) => el.click(),
     locationRow as unknown as HTMLElement,
@@ -113,36 +111,32 @@ async function navigateToRackDetail(
 }
 
 /**
+ * Return the expected U-range string for a device of `heightU` rows placed at `startU`.
+ * Uses the Unicode en-dash (U+2013) that the production card title uses.
+ */
+function expectedRange(startU: number, heightU: number): string {
+  return `U${startU}–U${startU + heightU - 1}`;
+}
+
+/**
  * Wait for EditPlacementModal to close after clicking save-btn.
- * Surfaces any error message from the modal footer.
+ * Uses isExisting() for DOM-removal detection — no false-positive catch on errors.
+ * Any WebDriver error (session failure, unexpected state) propagates and fails the test.
+ * Surfaces modal footer error text immediately.
  */
 async function waitForEditModalClose(): Promise<void> {
   await browser.waitUntil(
     async () => {
-      try {
-        const btn = browser.$('[data-testid="save-btn"]');
-        let isShown: boolean;
-        try {
-          isShown = await btn.isDisplayed();
-        } catch {
-          return true; // stale element reference → modal gone → success
-        }
-        if (!isShown) return true;
-        // Surface footer error instead of swallowing it.
-        try {
-          const errEl = browser.$(".ft-msg.err");
-          if (await errEl.isDisplayed()) {
-            const errText = await errEl.getText();
-            throw new Error(`Move failed — modal error: "${errText}"`);
-          }
-        } catch (inner) {
-          if (isMoveFailure(inner)) throw inner;
-        }
-        return false;
-      } catch (e) {
-        if (isMoveFailure(e)) throw e;
-        return false;
+      const btn = browser.$('[data-testid="save-btn"]');
+      if (!(await btn.isExisting())) return true; // modal removed from DOM
+      if (!(await btn.isDisplayed())) return true;
+      // Surface footer error immediately rather than swallowing it.
+      const errEl = browser.$(".ft-msg.err");
+      if ((await errEl.isExisting()) && (await errEl.isDisplayed())) {
+        const errText = await errEl.getText();
+        throw new Error(`Move failed — modal error: "${errText}"`);
       }
+      return false;
     },
     {
       timeout: 30_000,
@@ -172,16 +166,20 @@ describe("Rack Inventory Studio — placement lifecycle", () => {
       const repoName  = `WDIO Placement ${suffix}`;
 
       // Entity names: unique per run to prevent cross-run collisions.
-      const locationName  = `E2E Loc ${suffix}`;
-      const rackName      = `E2E Rack ${suffix}`;
-      const modelName     = `E2E Model ${suffix}`;
-      const deviceName    = `E2E Device ${suffix}`;
+      const locationName = `E2E Loc ${suffix}`;
+      const rackName     = `E2E Rack ${suffix}`;
+      const modelName    = `E2E Model ${suffix}`;
+      const deviceName   = `E2E Device ${suffix}`;
 
       // Rack geometry — deterministic; no overlap between initial and moved positions.
       const RACK_HEIGHT  = 14; // U
       const MODEL_HEIGHT =  2; // U (device occupies 2 U rows)
       const INITIAL_U    =  1; // placed first at U1 (occupies U1–U2)
       const MOVED_U      =  5; // moved to U5 (occupies U5–U6)
+
+      // Pre-computed expected title ranges for both positions.
+      const RANGE_AT_INITIAL = expectedRange(INITIAL_U, MODEL_HEIGHT); // "U1–U2"
+      const RANGE_AT_MOVED   = expectedRange(MOVED_U, MODEL_HEIGHT);   // "U5–U6"
 
       log(`suffix=${suffix} repoCode=${repoCode}`);
 
@@ -346,64 +344,61 @@ describe("Rack Inventory Studio — placement lifecycle", () => {
       await (await waitForEnabled("place-btn")).click();
 
       // Wait for PlacePlacementModal to close.
+      // Uses isExisting() for DOM-removal detection — no false-positive catch on errors.
       await browser.waitUntil(
         async () => {
-          try {
-            const btn = browser.$('[data-testid="place-btn"]');
-            let isShown: boolean;
-            try {
-              isShown = await btn.isDisplayed();
-            } catch {
-              return true;
-            }
-            if (!isShown) return true;
-            // Surface placement errors immediately.
-            try {
-              const errEl = browser.$(".ft-msg.err");
-              if (await errEl.isDisplayed()) {
-                const errText = await errEl.getText();
-                throw new Error(`Placement failed — modal error: "${errText}"`);
-              }
-            } catch (inner) {
-              if (inner instanceof Error && inner.message.startsWith("Placement failed")) throw inner;
-            }
-            return false;
-          } catch (e) {
-            if (e instanceof Error && e.message.startsWith("Placement failed")) throw e;
-            return false;
+          const btn = browser.$('[data-testid="place-btn"]');
+          if (!(await btn.isExisting())) return true; // modal removed from DOM
+          if (!(await btn.isDisplayed())) return true;
+          const errEl = browser.$(".ft-msg.err");
+          if ((await errEl.isExisting()) && (await errEl.isDisplayed())) {
+            const errText = await errEl.getText();
+            throw new Error(`Placement failed — modal error: "${errText}"`);
           }
+          return false;
         },
         { timeout: 60_000, timeoutMsg: "PlacePlacementModal did not close after placement" },
       );
 
-      // Verify placed card at U1.
+      // Verify initial placement:
+      //   • exactly 1 card for this device (scoped to rack diagram via data-testid^="placed-")
+      //   • card is at U1 (data-start-u="1")
+      //   • title references the model name
+      //   • title contains the effective 2U range (RANGE_AT_INITIAL = "U1–U2")
       log(`part 1: verifying placed card at U${INITIAL_U}`);
       await browser.waitUntil(
         async () => {
-          try {
-            return await browser
-              .$(`[data-device-code="${deviceCode}"][data-start-u="${INITIAL_U}"]`)
-              .isDisplayed();
-          } catch {
-            return false;
-          }
+          const cards = await browser.$$(`[data-testid^="placed-"][data-device-code="${deviceCode}"][data-start-u="${INITIAL_U}"]`);
+          return cards.length > 0;
         },
         { timeout: 30_000, timeoutMsg: `Placed card at U${INITIAL_U} for device "${deviceCode}" never appeared` },
       );
-      const placedCardU1 = await browser.$(`[data-device-code="${deviceCode}"][data-start-u="${INITIAL_U}"]`);
-      const titleAtU1 = await placedCardU1.getAttribute("title");
-      if (!titleAtU1?.includes(modelName)) {
+
+      const allCardsAfterPlace = await browser.$$(`[data-testid^="placed-"][data-device-code="${deviceCode}"]`);
+      if (allCardsAfterPlace.length !== 1) {
         throw new Error(
-          `Placed card at U${INITIAL_U} title does not reference model "${modelName}". Got: "${titleAtU1}"`,
+          `Expected exactly 1 placed card for device ${deviceCode} after placement, found ${allCardsAfterPlace.length}`,
         );
       }
-      log(`part 1: placed card at U${INITIAL_U}, model "${modelName}" confirmed — title="${titleAtU1}"`);
+      const cardPlaceStartU = await allCardsAfterPlace[0].getAttribute("data-start-u");
+      if (cardPlaceStartU !== String(INITIAL_U)) {
+        throw new Error(`Expected placed card at U${INITIAL_U}, found data-start-u="${cardPlaceStartU}"`);
+      }
+
+      const placedCardU1 = await browser.$(`[data-testid^="placed-"][data-device-code="${deviceCode}"][data-start-u="${INITIAL_U}"]`);
+      const titleAtU1 = await placedCardU1.getAttribute("title");
+      if (!titleAtU1?.includes(modelName)) {
+        throw new Error(`Placed card title does not reference model "${modelName}". Got: "${titleAtU1}"`);
+      }
+      if (!titleAtU1?.includes(RANGE_AT_INITIAL)) {
+        throw new Error(`Placed card title missing expected 2U range "${RANGE_AT_INITIAL}". Got: "${titleAtU1}"`);
+      }
+      log(`part 1: 1 card at U${INITIAL_U}, model "${modelName}", range "${RANGE_AT_INITIAL}" — title="${titleAtU1}"`);
 
       // ── PART 2: Edit placement — move from U1 to U5 ───────────────────────
 
-      // After PlacePlacementModal closes, RackDetailPanel.handleAddSuccess calls
-      // refreshAfterMutation({ selectId: newPlacementId }), which auto-selects the
-      // newly placed card.  The PlacementInspectorPanel is therefore already visible.
+      // After PlacePlacementModal closes, RackDetailPanel.refreshAfterMutation auto-selects
+      // the newly placed card.  The PlacementInspectorPanel is therefore already visible.
       // Clicking the already-selected card would TOGGLE it OFF (deselect), hiding the
       // inspector.  Check first and skip the click when the inspector is already open.
       log(`part 2: checking if inspector already open from post-placement auto-selection`);
@@ -411,10 +406,10 @@ describe("Rack Inventory Studio — placement lifecycle", () => {
       const inspectorAlreadyOpenP2 = await editModalBtnEl.isDisplayed().catch(() => false);
       if (!inspectorAlreadyOpenP2) {
         log(`part 2: inspector not open — clicking placed card at U${INITIAL_U}`);
-        // The placed card is a <div> with onClick.  Use JS click to ensure WebKit picks it up.
+        const cardToClick = await browser.$(`[data-testid^="placed-"][data-device-code="${deviceCode}"][data-start-u="${INITIAL_U}"]`);
         await browser.execute(
           (el: HTMLElement) => el.click(),
-          placedCardU1 as unknown as HTMLElement,
+          cardToClick as unknown as HTMLElement,
         );
         log("part 2: waiting for inspector (open-edit-modal-btn)");
         await editModalBtnEl.waitForDisplayed({
@@ -435,7 +430,7 @@ describe("Rack Inventory Studio — placement lifecycle", () => {
       });
 
       log(`part 2: setting start U to ${MOVED_U}`);
-      // reactSetValue replaces the current value ("1") with "5" via the native setter.
+      // reactSetValue replaces the current value via the React native input setter.
       await reactSetValue("start-u-input", String(MOVED_U));
 
       log("part 2: clicking save-btn");
@@ -447,37 +442,47 @@ describe("Rack Inventory Studio — placement lifecycle", () => {
       log(`part 2: verifying placed card moved to U${MOVED_U}`);
       await browser.waitUntil(
         async () => {
-          try {
-            return await browser
-              .$(`[data-device-code="${deviceCode}"][data-start-u="${MOVED_U}"]`)
-              .isDisplayed();
-          } catch {
-            return false;
-          }
+          const cards = await browser.$$(`[data-testid^="placed-"][data-device-code="${deviceCode}"][data-start-u="${MOVED_U}"]`);
+          return cards.length > 0;
         },
         { timeout: 30_000, timeoutMsg: `Moved placed card at U${MOVED_U} never appeared` },
       );
 
-      log(`part 2: verifying U${INITIAL_U} is now empty for device ${deviceCode}`);
-      const stillAtU1 = await browser
-        .$(`[data-device-code="${deviceCode}"][data-start-u="${INITIAL_U}"]`)
-        .isDisplayed()
-        .catch(() => false);
-      if (stillAtU1) {
+      // Verify post-move state:
+      //   • exactly 1 card for this device in the rack diagram
+      //   • that card is at U5 (data-start-u="5")
+      //   • no second card remains at U1 or any other position
+      const allCardsAfterMove = await browser.$$(`[data-testid^="placed-"][data-device-code="${deviceCode}"]`);
+      if (allCardsAfterMove.length !== 1) {
         throw new Error(
-          `Device "${deviceCode}" card still shows at U${INITIAL_U} after move to U${MOVED_U}`,
+          `Expected exactly 1 placed card for device ${deviceCode} after move, found ${allCardsAfterMove.length}`,
+        );
+      }
+      const cardMoveStartU = await allCardsAfterMove[0].getAttribute("data-start-u");
+      if (cardMoveStartU !== String(MOVED_U)) {
+        throw new Error(`Expected single card at U${MOVED_U}, found data-start-u="${cardMoveStartU}"`);
+      }
+
+      // Verify U1 is empty — use rack-card scope to avoid false match from Devices table rows.
+      log(`part 2: verifying U${INITIAL_U} is now empty`);
+      const cardsAtU1AfterMove = await browser.$$(`[data-testid^="placed-"][data-device-code="${deviceCode}"][data-start-u="${INITIAL_U}"]`);
+      if (cardsAtU1AfterMove.length > 0) {
+        throw new Error(
+          `Device "${deviceCode}" has ${cardsAtU1AfterMove.length} card(s) at U${INITIAL_U} after move to U${MOVED_U}`,
         );
       }
 
-      log(`part 2: verifying model still referenced in moved card title`);
-      const movedCard = await browser.$(`[data-device-code="${deviceCode}"][data-start-u="${MOVED_U}"]`);
+      // Verify model association and effective 2U range in card title.
+      log(`part 2: verifying model and 2U range in moved card title`);
+      const movedCard = await browser.$(`[data-testid^="placed-"][data-device-code="${deviceCode}"][data-start-u="${MOVED_U}"]`);
       const titleAtU5 = await movedCard.getAttribute("title");
       if (!titleAtU5?.includes(modelName)) {
-        throw new Error(
-          `Moved card at U${MOVED_U} title does not reference model "${modelName}". Got: "${titleAtU5}"`,
-        );
+        throw new Error(`Moved card title does not reference model "${modelName}". Got: "${titleAtU5}"`);
       }
-      log(`part 2: moved card at U${MOVED_U} verified — title="${titleAtU5}"`);
+      if (!titleAtU5?.includes(RANGE_AT_MOVED)) {
+        throw new Error(`Moved card title missing expected 2U range "${RANGE_AT_MOVED}". Got: "${titleAtU5}"`);
+      }
+      log(`part 2: 1 card at U${MOVED_U}, model "${modelName}", range "${RANGE_AT_MOVED}" — title="${titleAtU5}"`);
 
       // ── PART 3: Persist the moved placement ───────────────────────────────
 
@@ -509,42 +514,45 @@ describe("Rack Inventory Studio — placement lifecycle", () => {
       log(`part 3: verifying placement persisted at U${MOVED_U}`);
       await browser.waitUntil(
         async () => {
-          try {
-            return await browser
-              .$(`[data-device-code="${deviceCode}"][data-start-u="${MOVED_U}"]`)
-              .isDisplayed();
-          } catch {
-            return false;
-          }
+          const cards = await browser.$$(`[data-testid^="placed-"][data-device-code="${deviceCode}"][data-start-u="${MOVED_U}"]`);
+          return cards.length > 0;
         },
         { timeout: 15_000, timeoutMsg: `Moved placement at U${MOVED_U} not found after reopen` },
       );
 
-      log(`part 3: verifying U${INITIAL_U} is still empty after reopen`);
-      const u1AfterReopen = await browser
-        .$(`[data-device-code="${deviceCode}"][data-start-u="${INITIAL_U}"]`)
-        .isDisplayed()
-        .catch(() => false);
-      if (u1AfterReopen) {
+      // Verify exactly one placement card persists after reopen.
+      const allCardsAfterReopen = await browser.$$(`[data-testid^="placed-"][data-device-code="${deviceCode}"]`);
+      if (allCardsAfterReopen.length !== 1) {
         throw new Error(
-          `Device "${deviceCode}" incorrectly shows at U${INITIAL_U} after reopen (should be at U${MOVED_U})`,
+          `Expected exactly 1 placed card for device ${deviceCode} after reopen, found ${allCardsAfterReopen.length}`,
         );
       }
 
-      log(`part 3: verifying model persisted in card title after reopen`);
-      const persistedCard = await browser.$(`[data-device-code="${deviceCode}"][data-start-u="${MOVED_U}"]`);
-      const persistedTitle = await persistedCard.getAttribute("title");
-      if (!persistedTitle?.includes(modelName)) {
+      // Verify U1 is still empty after reopen.
+      log(`part 3: verifying U${INITIAL_U} is still empty after reopen`);
+      const cardsAtU1AfterReopen = await browser.$$(`[data-testid^="placed-"][data-device-code="${deviceCode}"][data-start-u="${INITIAL_U}"]`);
+      if (cardsAtU1AfterReopen.length > 0) {
         throw new Error(
-          `Persisted card at U${MOVED_U} title does not reference model "${modelName}". Got: "${persistedTitle}"`,
+          `Device "${deviceCode}" has ${cardsAtU1AfterReopen.length} card(s) at U${INITIAL_U} after reopen (expected empty)`,
         );
       }
-      log(`part 3: persistence verified — U${MOVED_U}, model "${modelName}"`);
+
+      // Verify model association and effective 2U range persisted in card title.
+      log(`part 3: verifying model and 2U range persisted in card title`);
+      const persistedCard = await browser.$(`[data-testid^="placed-"][data-device-code="${deviceCode}"][data-start-u="${MOVED_U}"]`);
+      const persistedTitle = await persistedCard.getAttribute("title");
+      if (!persistedTitle?.includes(modelName)) {
+        throw new Error(`Persisted card title does not reference model "${modelName}". Got: "${persistedTitle}"`);
+      }
+      if (!persistedTitle?.includes(RANGE_AT_MOVED)) {
+        throw new Error(`Persisted card title missing expected 2U range "${RANGE_AT_MOVED}". Got: "${persistedTitle}"`);
+      }
+      log(`part 3: 1 card at U${MOVED_U}, model "${modelName}", range "${RANGE_AT_MOVED}" — persistence verified`);
 
       // ── PART 4: Remove placement ───────────────────────────────────────────
 
-      log(`part 4: clicking moved placed card at U${MOVED_U} to open inspector`);
-      const cardForRemoval = await browser.$(`[data-device-code="${deviceCode}"][data-start-u="${MOVED_U}"]`);
+      log(`part 4: clicking placed card at U${MOVED_U} to open inspector`);
+      const cardForRemoval = await browser.$(`[data-testid^="placed-"][data-device-code="${deviceCode}"][data-start-u="${MOVED_U}"]`);
       await browser.execute(
         (el: HTMLElement) => el.click(),
         cardForRemoval as unknown as HTMLElement,
@@ -568,17 +576,18 @@ describe("Rack Inventory Studio — placement lifecycle", () => {
       );
 
       log("part 4: waiting for ConfirmDialog (modal-backdrop)");
-      // Wait for the modal-backdrop portal to appear; it has data-testid="modal-backdrop".
       await browser.$('[data-testid="modal-backdrop"]').waitForDisplayed({
         timeout: 10_000,
-        timeoutMsg: 'ConfirmDialog modal-backdrop did not appear after clicking remove-from-rack-btn',
+        timeoutMsg: "ConfirmDialog modal-backdrop did not appear after clicking remove-from-rack-btn",
       });
 
       log("part 4: confirming removal");
       // Use browser.execute to fire the click entirely inside the browser JS context.
-      // The ~48-second WebDriver command overhead (two beforeCommand gaps) between finding
-      // the backdrop element and clicking the confirm button creates a staleness window.
+      // Significant WebDriver command overhead (beforeCommand gaps) between finding the
+      // backdrop element and clicking creates a staleness window with native WebDriver.
       // Doing everything synchronously inside the browser eliminates that risk.
+      // button.btn-danger is scoped inside modal-backdrop to avoid DOM-order ambiguity
+      // with the inspector's remove-from-rack-btn (also labelled "Remove from rack").
       await browser.execute(() => {
         const backdrop = document.querySelector('[data-testid="modal-backdrop"]');
         if (!backdrop) throw new Error("modal-backdrop not found in document");
@@ -587,44 +596,32 @@ describe("Rack Inventory Studio — placement lifecycle", () => {
         (btn as HTMLElement).click();
       });
 
+      // Wait until the placed card is removed from the DOM.
+      // Uses $$ count — no catch block; any WebDriver error propagates and fails the test.
       log(`part 4: waiting for placed card at U${MOVED_U} to disappear`);
       await browser.waitUntil(
         async () => {
-          try {
-            const isDisplayed = await browser
-              .$(`[data-device-code="${deviceCode}"][data-start-u="${MOVED_U}"]`)
-              .isDisplayed();
-            return !isDisplayed;
-          } catch {
-            return true; // element gone → removal confirmed
-          }
+          const cards = await browser.$$(`[data-testid^="placed-"][data-device-code="${deviceCode}"][data-start-u="${MOVED_U}"]`);
+          return cards.length === 0;
         },
         {
           timeout: 15_000,
-          timeoutMsg: `Placed card at U${MOVED_U} still visible after remove confirmation`,
+          timeoutMsg: `Placed card at U${MOVED_U} still present in DOM after remove confirmation`,
         },
       );
-      log("part 4: placed card removed from rack diagram");
+
+      // Confirm zero placement cards remain for this device.
+      const allCardsAfterRemove = await browser.$$(`[data-testid^="placed-"][data-device-code="${deviceCode}"]`);
+      if (allCardsAfterRemove.length > 0) {
+        throw new Error(
+          `Expected 0 placed cards for device ${deviceCode} after removal, found ${allCardsAfterRemove.length}`,
+        );
+      }
+      log("part 4: 0 placed cards remain in rack diagram");
 
       log("part 4: navigating to Devices to verify unplaced state");
       await clickNav("devices");
       await browser.$('[data-testid="device-add-btn"]').waitForDisplayed({ timeout: 10_000 });
-
-      await browser.waitUntil(
-        async () => {
-          try {
-            const rows = await browser.$$("[data-device-code]");
-            for (const row of rows) {
-              const text = await row.getText();
-              if (text.includes(deviceName)) return true;
-            }
-            return false;
-          } catch {
-            return false;
-          }
-        },
-        { timeout: 15_000, timeoutMsg: `Device "${deviceName}" not found in Devices panel after removal` },
-      );
 
       {
         const deviceRowAfterRemoval = await findRowByText("[data-device-code]", deviceName);
@@ -661,66 +658,39 @@ describe("Rack Inventory Studio — placement lifecycle", () => {
       await expectActiveRepositoryPath(repoPath);
       log("part 5: repository reopened");
 
-      // Verify device is unplaced in Devices panel.
+      // Verify device is unplaced in Devices panel after removal persisted.
       log("part 5: navigating to Devices to verify removal persisted");
       await clickNav("devices");
       await browser.$('[data-testid="device-add-btn"]').waitForDisplayed({ timeout: 10_000 });
 
-      let foundDeviceAfterRemovalReopen = false;
-      let deviceIsUnplacedAfterReopen = false;
-      await browser.waitUntil(
-        async () => {
-          try {
-            const rows = await browser.$$("[data-device-code]");
-            for (const row of rows) {
-              const text = await row.getText();
-              if (text.includes(deviceName)) {
-                foundDeviceAfterRemovalReopen = true;
-                deviceIsUnplacedAfterReopen = text.toLowerCase().includes("unplaced");
-                return true;
-              }
-            }
-            return false;
-          } catch {
-            return false;
-          }
-        },
-        { timeout: 15_000, timeoutMsg: `Device "${deviceName}" not found in Devices panel after removal reopen` },
-      );
-
-      if (!foundDeviceAfterRemovalReopen) {
-        throw new Error(`Device "${deviceName}" was not found after removal reopen — device was deleted unexpectedly`);
-      }
-      if (!deviceIsUnplacedAfterReopen) {
-        throw new Error(`Device "${deviceName}" does not show "unplaced" after removal reopen`);
+      const deviceRowFinal = await findRowByText("[data-device-code]", deviceName, 15_000);
+      const deviceRowFinalText = await deviceRowFinal.getText();
+      if (!deviceRowFinalText.toLowerCase().includes("unplaced")) {
+        throw new Error(
+          `Device "${deviceName}" does not show "unplaced" after removal persisted through reopen, got: "${deviceRowFinalText}"`,
+        );
       }
       log("part 5: device is unplaced in Devices panel after reopen");
 
-      // Verify no placed card in rack diagram.
+      // Verify device model still exists in the Device Models list.
+      log("part 5: verifying device model still exists");
+      await clickNav("device_models");
+      await browser.$('[data-testid="model-add-btn"]').waitForDisplayed({ timeout: 10_000 });
+      await findRowByText("[data-model-code]", modelName, 15_000);
+      log(`part 5: device model "${modelName}" still exists in Device Models list`);
+
+      // Verify rack is still accessible and no placed card persists.
+      // navigateToRackDetail throws if the location or rack no longer exists.
       log("part 5: navigating to rack detail to verify no placed card persists");
       await navigateToRackDetail(locationName, rackName);
 
-      const cardAtU5AfterReopen = await browser
-        .$(`[data-device-code="${deviceCode}"][data-start-u="${MOVED_U}"]`)
-        .isDisplayed()
-        .catch(() => false);
-      if (cardAtU5AfterReopen) {
+      const allCardsAfterFinalReopen = await browser.$$(`[data-testid^="placed-"][data-device-code="${deviceCode}"]`);
+      if (allCardsAfterFinalReopen.length > 0) {
         throw new Error(
-          `Device "${deviceCode}" still shows a placed card at U${MOVED_U} after removal reopen`,
+          `Device "${deviceCode}" still has ${allCardsAfterFinalReopen.length} placed card(s) in rack after removal persisted through reopen`,
         );
       }
-
-      const cardAtU1AfterReopen = await browser
-        .$(`[data-device-code="${deviceCode}"][data-start-u="${INITIAL_U}"]`)
-        .isDisplayed()
-        .catch(() => false);
-      if (cardAtU1AfterReopen) {
-        throw new Error(
-          `Device "${deviceCode}" unexpectedly shows a placed card at U${INITIAL_U} after removal reopen`,
-        );
-      }
-
-      log("part 5: no placed card for device in rack — removal persisted correctly");
+      log("part 5: 0 placed cards in rack — removal persisted correctly");
       log("all 5 parts passed");
     },
   );

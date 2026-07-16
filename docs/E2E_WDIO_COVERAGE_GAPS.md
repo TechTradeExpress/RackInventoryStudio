@@ -306,18 +306,20 @@ Suggested selector additions:
 
 ## Summary counts
 
-Counts updated after Stage 3A (placement lifecycle) — 2026-07-15.
+Counts updated after Stage 3A (placement lifecycle) — 2026-07-16.
 
-Stage 3A added 4 new COVERED workflows: edit placement (start U), open edit modal via
-inspector, remove placement via inspector, removed-placement persistence.  One new row
-was also added (removed-placement persistence, previously implicit in the "remove"
-workflow but now tracked separately), bringing the total to 67.
+Stage 3A changed three existing MISSING workflows to COVERED:
+edit placement (start U), remove placement via inspector, open edit modal via inspector.
+One new workflow was added as COVERED: removed-placement persistence (previously implicit
+in the "remove" row but now tracked separately as a distinct persistence check).
+
+Net effect: COVERED +4 (three promoted from MISSING + one new row), MISSING −3, total +1.
 
 | Status | Count |
 |--------|-------|
 | COVERED | 24 |
 | PARTIAL | 0 |
-| MISSING | 14 |
+| MISSING | 12 |
 | NEEDS SELECTOR | 15 |
 | DEFERRED | 9 |
 | NOT JUSTIFIED | 7 |
