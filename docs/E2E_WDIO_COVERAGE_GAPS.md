@@ -129,11 +129,12 @@ buttons (Init, Validate, Commit, Add remote, Push, Pull).
 | Placed card visible in rack diagram | COVERED | `core-inventory` |
 | Placed card title contains model name | COVERED | `core-inventory` |
 | Placement persists after close + reopen | COVERED | `core-inventory` |
-| Edit placement — change start U | MISSING | `EditPlacementModal`; selectors present (`start-u-input`, `height-u-input`, `save-btn`) |
-| Edit placement — change height U | MISSING | Same; `height-u-input` present |
-| Remove placement — via PlacementInspectorPanel | MISSING | `remove-from-rack-btn` present |
-| Remove placement — via EditPlacementModal remove | MISSING | `remove-btn` present in `EditPlacementModal` |
-| PlacementInspectorPanel: open edit modal | MISSING | `open-edit-modal-btn` present |
+| Edit placement — change start U | COVERED | `placement-lifecycle` Stage 3A |
+| Edit placement — change height U | MISSING | `height-u-input` present in `EditPlacementModal` |
+| Remove placement — via PlacementInspectorPanel | COVERED | `placement-lifecycle` Stage 3A |
+| Removed placement persists after close + reopen | COVERED | `placement-lifecycle` Stage 3A |
+| Remove placement — via EditPlacementModal remove | MISSING | `remove-btn` present; distinct confirm label "Remove placement" |
+| PlacementInspectorPanel: open edit modal | COVERED | `placement-lifecycle` Stage 3A |
 | PlacementInspectorPanel: navigate to device | MISSING | `edit-target-device-btn` present |
 | PlacementInspectorPanel: navigate to model | MISSING | `edit-target-model-btn` present |
 | Rack export — SVG | MISSING | `export-svg-btn` present; may require native file dialog on save |
@@ -216,9 +217,9 @@ written without touching application source.
 | Edit rack | `rack-form-submit`, `field-name`, `field-height-u` |
 | Edit device model | `model-form-submit`, `field-name`, `field-height-u` |
 | Edit device | `device-form-submit`, `field-name`, `field-device-type` |
-| Edit placement (start U) | `open-edit-modal-btn`, `start-u-input`, `save-btn` |
+| Edit placement (start U) | ~~covered by Stage 3A~~ |
 | Edit placement (height U) | `open-edit-modal-btn`, `height-u-input`, `save-btn` |
-| Remove placement (inspector) | `remove-from-rack-btn` |
+| Remove placement (inspector) | ~~covered by Stage 3A~~ |
 | Remove placement (edit modal) | `open-edit-modal-btn`, `remove-btn` |
 | PlacementInspector → device | `edit-target-device-btn` |
 | PlacementInspector → model | `edit-target-model-btn` |
@@ -305,16 +306,22 @@ Suggested selector additions:
 
 ## Summary counts
 
+Counts updated after Stage 3A (placement lifecycle) — 2026-07-15.
+
+Stage 3A added 4 new COVERED workflows: edit placement (start U), open edit modal via
+inspector, remove placement via inspector, removed-placement persistence.  One new row
+was also added (removed-placement persistence, previously implicit in the "remove"
+workflow but now tracked separately), bringing the total to 67.
+
 | Status | Count |
 |--------|-------|
-| COVERED | 20 |
+| COVERED | 24 |
 | PARTIAL | 0 |
-| MISSING | 15 |
+| MISSING | 14 |
 | NEEDS SELECTOR | 15 |
 | DEFERRED | 9 |
 | NOT JUSTIFIED | 7 |
-| **Total workflows inventoried** | **66** |
+| **Total workflows inventoried** | **67** (one row added vs. original 66) |
 
-Current E2E coverage: **20 / 66 workflows** (30%).
-With Stage 3 Tier 1 complete: estimated **26 / 66** (39%).
-With Stage 3 Tier 1 + 2 complete: estimated **30 / 66** (45%).
+Current E2E coverage: **24 / 67 workflows** (36%).
+Stage 3B target (entity edits + Tier 1 remainder): estimated **30 / 67** (45%).
