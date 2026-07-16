@@ -66,7 +66,7 @@ pub(crate) fn parse_device_model_csv(content: &str) -> Result<ParsedDeviceModelC
             .get("tags")
             .and_then(|&i| record.get(i))
             .map(|v| v.trim().to_string())
-            .and_then(|v| if v.is_empty() { None } else { Some(v) });
+            .filter(|v| !v.is_empty());
 
         rows.push(CsvDeviceModelRowRaw {
             row_number,
@@ -131,7 +131,7 @@ fn get_field(
         .get(name)
         .and_then(|&i| record.get(i))
         .map(|v| v.trim().to_string())
-        .and_then(|v| if v.is_empty() { None } else { Some(v) })
+        .filter(|v| !v.is_empty())
 }
 
 pub(crate) fn parse_csv(content: &str) -> Result<ParsedCsv, String> {
@@ -168,7 +168,7 @@ pub(crate) fn parse_csv(content: &str) -> Result<ParsedCsv, String> {
             .get("tags")
             .and_then(|&i| record.get(i))
             .map(|v| v.trim().to_string())
-            .and_then(|v| if v.is_empty() { None } else { Some(v) });
+            .filter(|v| !v.is_empty());
 
         rows.push(CsvDeviceRowRaw {
             row_number,
