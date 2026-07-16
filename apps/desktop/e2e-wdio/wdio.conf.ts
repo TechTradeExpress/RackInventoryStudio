@@ -69,12 +69,13 @@ export const config: Options.Testrunner = {
   framework: "mocha",
   mochaOpts: {
     ui: "bdd",
-    // The @wdio/tauri-service beforeCommand hook adds ~600ms overhead per
-    // WebDriver command.  Stage 1 (14 steps, 5 entity types, 4 modal cycles)
-    // takes ~12 min in headless Xvfb.  Stage 2 adds placement, save/close/reopen,
-    // and persistence verification (~13 min, ~24 additional modal/nav actions).
-    // Total estimated wall-clock: ~25 min → 30 min timeout with margin.
-    timeout: 1_800_000,
+    // The @wdio/tauri-service with external driverProvider adds significant per-command
+    // overhead in headless Xvfb.  Stage 1 (14 steps, 5 entity types, 4 modal cycles)
+    // takes ~12 min.  Stage 2 adds placement, save/close/reopen, and persistence
+    // verification (~13 min).  Stage 3A adds edit, remove, and two more close/reopen
+    // cycles (~10 min additional).
+    // Total wall-clock: ~35 min confirmed by two isolated runs → 45 min with margin.
+    timeout: 2_700_000,
   },
 
   services: [

@@ -649,59 +649,60 @@ committed tasks and are not listed in priority order:
 
 ---
 
-## Stage 3 — Next stage (pending coverage-gap decision)
+## Stage 3 — Placement and CRUD workflows
 
-**Status: PLANNING**
+**Overall status: IN PROGRESS**
 
-A coverage gap analysis was completed on 2026-07-15.  The full matrix is in
-[`docs/E2E_WDIO_COVERAGE_GAPS.md`](E2E_WDIO_COVERAGE_GAPS.md).
+Stage 3 is split into two independently reviewable PRs.
 
-### Gap summary (from gap analysis)
+### Stage 3A — Placement lifecycle
 
-| Status | Count |
-|--------|-------|
-| COVERED | 20 |
-| MISSING (selectors in place) | 15 |
-| NEEDS SELECTOR (selectors absent) | 15 |
-| DEFERRED | 9 |
-| NOT JUSTIFIED | 7 |
-| Total workflows inventoried | 66 |
+**Status: IN REVIEW** (PR targeting `roadmap/e2e-wdio`)
 
-Current E2E coverage: **20 / 66 workflows (30%)**.
+Delivered through `feature/e2e-wdio-placement-lifecycle`.
 
-### Recommended next scope
+**Scope:**
 
-The gap analysis identified three tiers based on selector readiness:
+- Place device at U1 via `PlacementPalettePanel` → `PlacePlacementModal`
+- Edit placement: move from U1 to U5 via `PlacementInspectorPanel` → `EditPlacementModal`
+- Verify card moved to U5; U1 empty; model association unchanged
+- Persist moved placement: save + close + reopen → verify U5, empty U1, correct model
+- Remove placement: `PlacementInspectorPanel` → `remove-from-rack-btn` → `ConfirmDialog`
+- Verify device returns to unplaced state in Devices panel
+- Persist removal: save + close + reopen → device unplaced, no placed card in rack
 
-**Tier 1 — No new selectors required (highest ROI):**
-1. Edit placement (`open-edit-modal-btn`, `start-u-input`, `save-btn`)
-2. Remove placement (`remove-from-rack-btn` in PlacementInspectorPanel)
-3. Edit device, device model, location, rack (form modals; all testids in place)
-4. Work mode toggle (`work-mode-planning`, `work-mode-onsite`)
+**Rack geometry:**
+- Rack: 14U
+- Device model: 2U server
+- Initial position: U1 (occupies U1–U2)
+- Moved position: U5 (occupies U5–U6)
 
-**Tier 2 — One selector per entity type needed:**
-5. Delete device, delete location (requires `ConfirmDialog` confirm button testid)
-6. Delete with relationship constraint (backend guard + error display)
+**Spec:** `apps/desktop/e2e-wdio/specs/placement-lifecycle.e2e.ts`
 
-**Tier 3 — Multiple new selectors needed:**
-7. Device Model CSV import (needs `csv-device-model-preview-table` testid)
-8. Validation panel (needs testids on validate/save buttons and issue rows)
+**New selectors:** None.  All selectors (`open-edit-modal-btn`, `start-u-input`, `save-btn`,
+`remove-from-rack-btn`, placed card attributes) were already present from Stages 1 and 2.
+`ConfirmDialog` confirm button located via `button.btn-danger` inside `[data-testid="modal-backdrop"]`
+using `browser.execute()` — native text selector `button=Remove from rack` was avoided because
+the inspector button (also labelled "Remove from rack") appears before the portal in DOM order,
+and native `.click()` fires `mousedown` which lands on the backdrop overlay and triggers
+`handleBackdrop` → immediate dialog close before the confirm button can be activated.
 
-**Deferred to Stage 4+:**
-- Global search (no testids; scope uncertain for E2E)
-- Git workflow (no testids; network-dependent sub-flows)
-- Rack export SVG/PNG (native file dialog blocks automation)
-- Windows / CI validation (separate infrastructure stage)
+### Stage 3B — Representative CRUD and destructive-operation guards
 
-### Planning notes
+**Status: PLANNED**
 
-Stage 3 scope is not yet finalized. No implementation branch has been created.
-The recommended starting point is Tier 1 (edit and remove placement + entity edits)
-because it requires no application source changes and covers unique update IPC paths.
-Git workflows and rack export remain outside Stage 3.
+Not yet started.  Scope pending.
 
-Do not mark Stage 3 as IN PROGRESS until the planning run is complete and scope
-is agreed.
+Representative scope from the Tier 1 and Tier 2 lists in the gap analysis:
+- Edit device, device model, location, rack (form modals; all testids in place)
+- Work mode toggle
+- Delete entity (requires ConfirmDialog confirm button testid)
+- Delete with relationship constraint
+
+See [`docs/E2E_WDIO_COVERAGE_GAPS.md`](E2E_WDIO_COVERAGE_GAPS.md) for the full matrix.
+
+Do not mark Stage 3B as IN PROGRESS until the Stage 3A PR is merged and scope
+is agreed for Stage 3B.
 
 ## Future stages
 
