@@ -39,11 +39,11 @@ This RP addresses all blocking issues found during strict Stage 3A review:
    command" wording. Now says "significant per-command overhead"; total wall-clock
    "~35 min confirmed by two isolated runs".
 
-8. **Rust workspace CI** — first CI run (29467037199) surfaced a `manual_filter` lint
-   in `crates/ris-import/src/csv_reader.rs` triggered by the Rust 1.97.0 toolchain
-   update. This PR introduces no Rust changes (`git diff 8f749f8..HEAD -- crates/ris-import/src/csv_reader.rs`
-   is empty). Current CI run **29478292711** for PR head `13b237b` completed with full
-   success on all 5 jobs including Rust workspace. No action required in this PR.
+8. **Rust workspace CI** — PR #148 (`fix/rust-clippy-manual-filter`) was merged to
+   `roadmap/e2e-wdio` (merge commit `d82406a`). It fixed the `clippy::manual_filter`
+   lint in `crates/ris-import/src/csv_reader.rs`. This branch was then synchronized
+   with the updated base via a merge commit. PR #147 introduces no Rust changes of its
+   own — `csv_reader.rs` does not appear in the diff of PR #147 against its base.
 
 ## Files changed
 
@@ -79,6 +79,10 @@ Run 2: 6 passed, 6 total  in 01:26:54  (cleanup: /tmp/ris-wdio-Cjx4Jz)
 Run 2 used the RP spec (`13b237b`). All 6 specs passed. No leftover ris-wdio directories
 after run completion.
 
+Full WDIO was not rerun after the base merge because PR #148 changed only the Rust CSV
+filtering implementation and `.ai/cc-report.md`. The previously completed post-RP full
+suite remains the applicable Stage 3A validation.
+
 ### TypeScript
 
 ```
@@ -93,6 +97,7 @@ pnpm exec tsc --noEmit   → clean (0 errors)
 
 ### Tauri build
 
+Previous Stage 3A validation (not rerun after base merge — no Tauri code changed):
 ```
 pnpm tauri build --no-bundle  → Built application at target/release/rack-inventory-studio-desktop
 Finished release profile in 58.63s
@@ -107,14 +112,24 @@ regression. Exact error:
 ║     sudo apt-get install libasound2t64               ║
 ```
 
-### Rust workspace
+### Rust workspace (after base merge)
 
-CI run 29478292711 (head `13b237b`): all 5 jobs green, including Rust workspace
-(`cargo fmt --check`, `cargo clippy`, `cargo test`).
+```
+cargo fmt --all --check          → clean
+cargo test --workspace           → all passed
+cargo clippy --workspace -- -D warnings  → clean
+cargo check --workspace          → clean
+```
 
-## GitHub checks
+`csv_reader.rs` now uses `.filter(|v| !v.is_empty())` (from merged PR #148 base).
 
-CI run **29478292711** for PR head `13b237b`: **5/5 jobs green**.
+## Base synchronization
+
+- PR #148 merged to `roadmap/e2e-wdio` as commit `d82406a`
+- `feature/e2e-wdio-placement-lifecycle` merged with updated base via `--no-ff`
+- `git merge-base --is-ancestor d82406a HEAD` → confirmed ancestor
+- `csv_reader.rs` does not appear in `git diff origin/roadmap/e2e-wdio...HEAD`
+- No Rust changes belong to Stage 3A
 
 ## Cleanup verification
 
@@ -123,7 +138,6 @@ CI run **29478292711** for PR head `13b237b`: **5/5 jobs green**.
 - Full suite run 2 cleanup: `[test-environment] cleaned up: /tmp/ris-wdio-Cjx4Jz` ✓
 - All three directories confirmed absent from /tmp after run completion
 - Each run uses a unique suffix ensuring zero cross-run contamination
-- No accidental files added to repository (`git diff --check` clean)
 
 ## Risks
 
@@ -134,6 +148,7 @@ CI run **29478292711** for PR head `13b237b`: **5/5 jobs green**.
   Production paths (IPC `editPlacement`, `removePlacement`) are still exercised via
   resulting React state changes, which is the correct assertion.
 - Playwright tests blocked by `libasound2t64` in this environment — separate env issue.
+- Full WDIO not rerun after base merge (PR #148 changed only Rust CSV parser and report).
 
 ## Not done
 
