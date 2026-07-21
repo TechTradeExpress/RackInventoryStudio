@@ -14,11 +14,12 @@
  *   PART I — Final persistence verification of all four updated entities
  *
  * Selector contract (no new selectors added to application source):
- *   Edit buttons — button[aria-label="Edit <name>"]
+ *   Edit buttons — button[aria-label="Edit <name>"] (scoped to the entity's own row)
  *   Work mode   — work-mode-toggle, work-mode-planning, work-mode-onsite (aria-pressed)
  *   Forms       — location-form-submit, rack-form-submit, model-form-submit, device-form-submit
  *   Fields      — field-name, field-height-u, field-row, field-model-sku, field-status, field-serial
  *   Rows        — [data-location-code], [data-rack-code], [data-model-code], [data-device-code]
+ *   Name cell   — <strong> child of each row (confirmed in all four panel components)
  */
 import { browser } from "@wdio/globals";
 import {
@@ -66,74 +67,103 @@ async function waitForFormClose(submitTestId: string): Promise<void> {
 }
 
 /**
- * Wait until at least one row with the given selector includes `name` in its text.
- * Returns the matched element (re-fetched in the same iteration).
+ * Read entity names from all rows matching rowSelector by querying the <strong> child of each row.
+ * Runs as a single atomic browser.execute() call — no inter-call stale-element risk.
  */
-async function findRowByName(
+async function getEntityNamesInRows(rowSelector: string): Promise<string[]> {
+  return browser.execute((selector: string) => {
+    const rows = document.querySelectorAll(selector);
+    return Array.from(rows)
+      .map((row) => {
+        const strong = row.querySelector("strong");
+        return strong ? (strong.textContent ?? "").trim() : null;
+      })
+      .filter((name): name is string => name !== null && name.length > 0);
+  }, rowSelector);
+}
+
+/**
+ * Wait until at least one row matching rowSelector has a <strong> that exactly equals expectedName.
+ * The wait condition uses getEntityNamesInRows() (atomic browser.execute) — no stale-element risk.
+ * Returns the matched WebdriverIO.Element (re-fetched after the wait) for further interactions.
+ * No broad catch — only stale-element references on the post-wait re-fetch are handled specifically;
+ * all other WebDriver errors propagate and fail the test.
+ */
+async function findRowByExactName(
   rowSelector: string,
-  name: string,
+  expectedName: string,
   timeout = 15_000,
 ): Promise<WebdriverIO.Element> {
-  let found: WebdriverIO.Element | null = null;
   await browser.waitUntil(
     async () => {
-      try {
-        const rows = await browser.$$(rowSelector);
-        for (const row of rows) {
-          const text = await row.getText();
-          if (text.includes(name)) {
-            found = row;
-            return true;
-          }
-        }
-        return false;
-      } catch {
-        return false;
-      }
+      const names = await getEntityNamesInRows(rowSelector);
+      return names.includes(expectedName);
     },
-    { timeout, timeoutMsg: `Row matching "${name}" via "${rowSelector}" not found within ${timeout} ms` },
+    {
+      timeout,
+      timeoutMsg:
+        `Row with exact name "${expectedName}" via "${rowSelector}" ` +
+        `not found within ${timeout} ms`,
+    },
   );
-  return found!;
-}
 
-/**
- * Assert exactly one row with the given selector contains `name`.
- * No catch — WebDriver errors propagate and fail the test.
- */
-async function expectExactlyOneRow(rowSelector: string, name: string): Promise<void> {
-  const rows = await browser.$$(rowSelector);
-  let count = 0;
-  for (const row of rows) {
-    const text = await row.getText();
-    if (text.includes(name)) count++;
-  }
-  if (count !== 1) {
-    throw new Error(`Expected exactly 1 row matching "${name}" via "${rowSelector}", found ${count}`);
-  }
-}
-
-/**
- * Assert no row with the given selector contains `name`.
- * No catch — WebDriver errors propagate and fail the test.
- */
-async function expectNoRow(rowSelector: string, name: string): Promise<void> {
+  // Re-fetch element references after the wait.  A brief stale-element on the child
+  // query is possible if React commits a re-render between $$ and $("strong"); skip and
+  // continue iterating — the matching row will be found in the next iteration.
   const rows = await browser.$$(rowSelector);
   for (const row of rows) {
-    const text = await row.getText();
-    if (text.includes(name)) {
-      throw new Error(`Unexpected row still present — "${name}" found via "${rowSelector}"`);
+    try {
+      const nameEl = await row.$("strong");
+      if ((await nameEl.isExisting()) && (await nameEl.getText()).trim() === expectedName) {
+        return row;
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!msg.toLowerCase().includes("stale element")) throw e;
     }
   }
+
+  throw new Error(`Row with exact name "${expectedName}" disappeared after wait`);
 }
 
 /**
- * Click the edit action button for the entity with the given name.
- * Uses browser.execute() to bypass potential CSS hover-visibility in WebKit.
+ * Assert exactly one row matching rowSelector has a <strong> that exactly equals expectedName.
+ * Uses getEntityNamesInRows() (atomic) — no stale-element risk.
  */
-async function clickEditButton(entityName: string): Promise<void> {
-  const btn = await browser.$(`button[aria-label="Edit ${entityName}"]`);
-  await btn.waitForExist({ timeout: 10_000 });
-  await browser.execute((el: HTMLElement) => el.click(), btn as unknown as HTMLElement);
+async function expectExactlyOneRowByName(rowSelector: string, expectedName: string): Promise<void> {
+  const names = await getEntityNamesInRows(rowSelector);
+  const count = names.filter((n) => n === expectedName).length;
+  if (count !== 1) {
+    throw new Error(
+      `Expected exactly one row with name "${expectedName}" via "${rowSelector}", found ${count}`,
+    );
+  }
+}
+
+/**
+ * Assert no row matching rowSelector has a <strong> that exactly equals unexpectedName.
+ * Uses getEntityNamesInRows() (atomic) — no stale-element risk.
+ */
+async function expectNoRowByName(rowSelector: string, unexpectedName: string): Promise<void> {
+  const names = await getEntityNamesInRows(rowSelector);
+  const count = names.filter((n) => n === unexpectedName).length;
+  if (count > 0) {
+    throw new Error(
+      `Unexpected row still present — exact name "${unexpectedName}" found via "${rowSelector}"`,
+    );
+  }
+}
+
+/**
+ * Click the Edit button for the named entity, scoped to its exact row.
+ * Uses native WebDriver .click() — not browser.execute().
+ */
+async function clickEditAction(rowSelector: string, entityName: string): Promise<void> {
+  const row = await findRowByExactName(rowSelector, entityName);
+  const button = await row.$(`button[aria-label="Edit ${entityName}"]`);
+  await button.waitForDisplayed({ timeout: 10_000 });
+  await button.waitForEnabled({ timeout: 10_000 });
+  await button.click();
 }
 
 /**
@@ -166,20 +196,38 @@ async function expectAriaPressed(testId: string, expected: boolean): Promise<voi
 describe("Rack Inventory Studio — entity updates and work mode", () => {
   after(async () => {
     // Restore work mode to planning so subsequent specs see a clean initial state.
+    // If the WebDriver session is already gone (test crashed hard), log and return
+    // rather than adding a second confusing exception on top of the original failure.
     try {
       const planningBtn = browser.$('[data-testid="work-mode-planning"]');
-      if (await planningBtn.isExisting()) {
-        const pressed = await planningBtn.getAttribute("aria-pressed");
-        if (pressed !== "true") {
-          await planningBtn.click();
-          await browser.waitUntil(
-            async () => (await planningBtn.getAttribute("aria-pressed")) === "true",
-            { timeout: 5_000, timeoutMsg: "Work mode did not return to planning during cleanup" },
-          );
-          log("after: work mode restored to planning");
-        }
+      if (!(await planningBtn.isExisting())) {
+        throw new Error("[entity-updates cleanup] work-mode-planning button not found in DOM");
       }
+      const pressed = await planningBtn.getAttribute("aria-pressed");
+      if (pressed !== "true") {
+        await planningBtn.click();
+        await browser.waitUntil(
+          async () => (await planningBtn.getAttribute("aria-pressed")) === "true",
+          { timeout: 5_000, timeoutMsg: "Work mode did not return to planning during cleanup" },
+        );
+      }
+      const onsitePressed = await browser
+        .$('[data-testid="work-mode-onsite"]')
+        .getAttribute("aria-pressed");
+      if (onsitePressed !== "false") {
+        throw new Error(
+          `[entity-updates cleanup] work-mode-onsite expected aria-pressed="false", got "${onsitePressed}"`,
+        );
+      }
+      log("after: work mode planning confirmed (planning=true, onsite=false)");
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("invalid session id") || msg.includes("session not found")) {
+        console.error(
+          "[entity-updates cleanup] WebDriver session already closed; skipping work mode restore",
+        );
+        return;
+      }
       console.error("[entity-updates cleanup] Work mode restore failed:", e);
       throw e;
     }
@@ -199,10 +247,10 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
     const repoName = `WDIO Updates ${suffix}`;
 
     // Initial entity names
-    const locationName     = `E2E Location ${suffix}`;
-    const rackName         = `E2E Rack ${suffix}`;
-    const modelName        = `E2E Model ${suffix}`;
-    const deviceName       = `E2E Device ${suffix}`;
+    const locationName = `E2E Location ${suffix}`;
+    const rackName     = `E2E Rack ${suffix}`;
+    const modelName    = `E2E Model ${suffix}`;
+    const deviceName   = `E2E Device ${suffix}`;
 
     // Updated names — do not contain initial names as substrings
     const updatedLocationName = `Updated Location ${suffix}`;
@@ -282,12 +330,12 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
     await reactSetValue("field-name", locationName);
     await (await waitForEnabled("location-form-submit")).click();
     await waitForFormClose("location-form-submit");
-    await findRowByName("[data-location-code]", locationName);
+    await findRowByExactName("[data-location-code]", locationName);
     log(`part B: location "${locationName}" confirmed`);
 
     // Navigate to Racks via location row click
     log("part B: clicking location row to navigate to Racks");
-    const locationRowForRack = await findRowByName("[data-location-code]", locationName);
+    const locationRowForRack = await findRowByExactName("[data-location-code]", locationName);
     await browser.execute(
       (el: HTMLElement) => el.click(),
       locationRowForRack as unknown as HTMLElement,
@@ -303,7 +351,7 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
     await reactSetValue("field-row", initialRackRow);
     await (await waitForEnabled("rack-form-submit")).click();
     await waitForFormClose("rack-form-submit");
-    await findRowByName("[data-rack-code]", rackName);
+    await findRowByExactName("[data-rack-code]", rackName);
     log(`part B: rack "${rackName}" (${initialRackHeight}U, row=${initialRackRow}) confirmed`);
 
     // Create Device Model
@@ -318,7 +366,7 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
     await reactSetValue("field-model-sku", initialModelSku);
     await (await waitForEnabled("model-form-submit")).click();
     await waitForFormClose("model-form-submit");
-    await findRowByName("[data-model-code]", modelName);
+    await findRowByExactName("[data-model-code]", modelName);
     log(`part B: model "${modelName}" (${initialModelHeight}U, SKU=${initialModelSku}) confirmed`);
 
     // Create Device
@@ -355,15 +403,15 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
     await reactSetValue("field-serial", initialDeviceSerial);
     await (await waitForEnabled("device-form-submit")).click();
     await waitForFormClose("device-form-submit");
-    await findRowByName("[data-device-code]", deviceName);
+    await findRowByExactName("[data-device-code]", deviceName);
     log(`part B: device "${deviceName}" (serial=${initialDeviceSerial}) confirmed`);
 
     // ── PART C: Edit Device ───────────────────────────────────────────────────
 
     log("part C: editing device");
     await clickNav("devices");
-    await findRowByName("[data-device-code]", deviceName);
-    await clickEditButton(deviceName);
+    await findRowByExactName("[data-device-code]", deviceName);
+    await clickEditAction("[data-device-code]", deviceName);
     await browser.$('[data-testid="device-form-submit"]').waitForDisplayed({ timeout: 10_000 });
 
     await expectInputValue("field-name", deviceName);
@@ -379,11 +427,11 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
     await waitForFormClose("device-form-submit");
     log("part C: device form closed");
 
-    await findRowByName("[data-device-code]", updatedDeviceName);
-    await expectExactlyOneRow("[data-device-code]", updatedDeviceName);
-    await expectNoRow("[data-device-code]", deviceName);
+    await findRowByExactName("[data-device-code]", updatedDeviceName);
+    await expectExactlyOneRowByName("[data-device-code]", updatedDeviceName);
+    await expectNoRowByName("[data-device-code]", deviceName);
 
-    const updatedDeviceRow = await findRowByName("[data-device-code]", updatedDeviceName);
+    const updatedDeviceRow = await findRowByExactName("[data-device-code]", updatedDeviceName);
     const updatedDeviceText = await updatedDeviceRow.getText();
     if (!updatedDeviceText.includes("installed")) {
       throw new Error(`Device row: expected "installed" status, got: "${updatedDeviceText}"`);
@@ -400,8 +448,8 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
 
     log("part D: editing device model");
     await clickNav("device_models");
-    await findRowByName("[data-model-code]", modelName);
-    await clickEditButton(modelName);
+    await findRowByExactName("[data-model-code]", modelName);
+    await clickEditAction("[data-model-code]", modelName);
     await browser.$('[data-testid="model-form-submit"]').waitForDisplayed({ timeout: 10_000 });
 
     await expectInputValue("field-name", modelName);
@@ -417,11 +465,11 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
     await waitForFormClose("model-form-submit");
     log("part D: model form closed");
 
-    await findRowByName("[data-model-code]", updatedModelName);
-    await expectExactlyOneRow("[data-model-code]", updatedModelName);
-    await expectNoRow("[data-model-code]", modelName);
+    await findRowByExactName("[data-model-code]", updatedModelName);
+    await expectExactlyOneRowByName("[data-model-code]", updatedModelName);
+    await expectNoRowByName("[data-model-code]", modelName);
 
-    const updatedModelRow = await findRowByName("[data-model-code]", updatedModelName);
+    const updatedModelRow = await findRowByExactName("[data-model-code]", updatedModelName);
     const updatedModelText = await updatedModelRow.getText();
     if (!updatedModelText.includes("3U")) {
       throw new Error(`Model row: expected "3U", got: "${updatedModelText}"`);
@@ -434,7 +482,7 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
     // Verify device row reflects updated model name
     log("part D: verifying device row shows updated model name");
     await clickNav("devices");
-    const deviceRowAfterModelEdit = await findRowByName("[data-device-code]", updatedDeviceName);
+    const deviceRowAfterModelEdit = await findRowByExactName("[data-device-code]", updatedDeviceName);
     const deviceTextAfterModelEdit = await deviceRowAfterModelEdit.getText();
     if (!deviceTextAfterModelEdit.includes(updatedModelName)) {
       throw new Error(
@@ -447,8 +495,8 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
 
     log("part E: navigating to Location → Rack for edit");
     await clickNav("locations");
-    await findRowByName("[data-location-code]", locationName);
-    const locationRowForRackEdit = await findRowByName("[data-location-code]", locationName);
+    await findRowByExactName("[data-location-code]", locationName);
+    const locationRowForRackEdit = await findRowByExactName("[data-location-code]", locationName);
     await browser.execute(
       (el: HTMLElement) => el.click(),
       locationRowForRackEdit as unknown as HTMLElement,
@@ -456,8 +504,8 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
     await browser.$('[data-testid="rack-add-btn"]').waitForDisplayed({ timeout: 10_000 });
 
     log("part E: clicking edit button for rack");
-    await findRowByName("[data-rack-code]", rackName);
-    await clickEditButton(rackName);
+    await findRowByExactName("[data-rack-code]", rackName);
+    await clickEditAction("[data-rack-code]", rackName);
     await browser.$('[data-testid="rack-form-submit"]').waitForDisplayed({ timeout: 10_000 });
 
     await expectInputValue("field-name", rackName);
@@ -473,17 +521,17 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
     await waitForFormClose("rack-form-submit");
     log("part E: rack form closed");
 
-    await findRowByName("[data-rack-code]", updatedRackName);
-    await expectExactlyOneRow("[data-rack-code]", updatedRackName);
-    await expectNoRow("[data-rack-code]", rackName);
+    await findRowByExactName("[data-rack-code]", updatedRackName);
+    await expectExactlyOneRowByName("[data-rack-code]", updatedRackName);
+    await expectNoRowByName("[data-rack-code]", rackName);
 
-    const updatedRackRow2 = await findRowByName("[data-rack-code]", updatedRackName);
-    const updatedRackText = await updatedRackRow2.getText();
-    if (!updatedRackText.includes("18U")) {
-      throw new Error(`Rack row: expected "18U", got: "${updatedRackText}"`);
+    const verifyRackRowE = await findRowByExactName("[data-rack-code]", updatedRackName);
+    const verifyRackTextE = await verifyRackRowE.getText();
+    if (!verifyRackTextE.includes("18U")) {
+      throw new Error(`Rack row: expected "18U", got: "${verifyRackTextE}"`);
     }
-    if (!updatedRackText.includes(updatedRackRow)) {
-      throw new Error(`Rack row: expected row "${updatedRackRow}", got: "${updatedRackText}"`);
+    if (!verifyRackTextE.includes(updatedRackRow)) {
+      throw new Error(`Rack row: expected row "${updatedRackRow}", got: "${verifyRackTextE}"`);
     }
     log(`part E: rack → "${updatedRackName}", height=18U, row=${updatedRackRow}`);
 
@@ -491,8 +539,8 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
 
     log("part F: editing location");
     await clickNav("locations");
-    await findRowByName("[data-location-code]", locationName);
-    await clickEditButton(locationName);
+    await findRowByExactName("[data-location-code]", locationName);
+    await clickEditAction("[data-location-code]", locationName);
     await browser.$('[data-testid="location-form-submit"]').waitForDisplayed({ timeout: 10_000 });
 
     await expectInputValue("field-name", locationName);
@@ -504,31 +552,31 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
     await waitForFormClose("location-form-submit");
     log("part F: location form closed");
 
-    await findRowByName("[data-location-code]", updatedLocationName);
-    await expectExactlyOneRow("[data-location-code]", updatedLocationName);
-    await expectNoRow("[data-location-code]", locationName);
+    await findRowByExactName("[data-location-code]", updatedLocationName);
+    await expectExactlyOneRowByName("[data-location-code]", updatedLocationName);
+    await expectNoRowByName("[data-location-code]", locationName);
     log(`part F: location → "${updatedLocationName}"`);
 
     // ── PART G: Immediate aggregate verification ───────────────────────────────
 
     log("part G: immediate aggregate verification");
 
-    // Location
+    // Location — findRowByExactName waits for the panel to render before asserting counts
     await clickNav("locations");
-    await expectExactlyOneRow("[data-location-code]", updatedLocationName);
-    await expectNoRow("[data-location-code]", locationName);
+    const locationRowForVerify = await findRowByExactName("[data-location-code]", updatedLocationName);
+    await expectExactlyOneRowByName("[data-location-code]", updatedLocationName);
+    await expectNoRowByName("[data-location-code]", locationName);
     log("part G: location verified");
 
     // Rack under updated location
-    const locationRowForVerify = await findRowByName("[data-location-code]", updatedLocationName);
     await browser.execute(
       (el: HTMLElement) => el.click(),
       locationRowForVerify as unknown as HTMLElement,
     );
     await browser.$('[data-testid="rack-add-btn"]').waitForDisplayed({ timeout: 10_000 });
-    await expectExactlyOneRow("[data-rack-code]", updatedRackName);
-    await expectNoRow("[data-rack-code]", rackName);
-    const verifyRackRow = await findRowByName("[data-rack-code]", updatedRackName);
+    const verifyRackRow = await findRowByExactName("[data-rack-code]", updatedRackName);
+    await expectExactlyOneRowByName("[data-rack-code]", updatedRackName);
+    await expectNoRowByName("[data-rack-code]", rackName);
     const verifyRackText = await verifyRackRow.getText();
     if (!verifyRackText.includes("18U")) {
       throw new Error(`Aggregate verify rack: expected "18U", got: "${verifyRackText}"`);
@@ -540,9 +588,9 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
 
     // Device Model
     await clickNav("device_models");
-    await expectExactlyOneRow("[data-model-code]", updatedModelName);
-    await expectNoRow("[data-model-code]", modelName);
-    const verifyModelRow = await findRowByName("[data-model-code]", updatedModelName);
+    const verifyModelRow = await findRowByExactName("[data-model-code]", updatedModelName);
+    await expectExactlyOneRowByName("[data-model-code]", updatedModelName);
+    await expectNoRowByName("[data-model-code]", modelName);
     const verifyModelText = await verifyModelRow.getText();
     if (!verifyModelText.includes("3U")) {
       throw new Error(`Aggregate verify model: expected "3U", got: "${verifyModelText}"`);
@@ -554,9 +602,9 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
 
     // Device
     await clickNav("devices");
-    await expectExactlyOneRow("[data-device-code]", updatedDeviceName);
-    await expectNoRow("[data-device-code]", deviceName);
-    const verifyDeviceRow = await findRowByName("[data-device-code]", updatedDeviceName);
+    const verifyDeviceRow = await findRowByExactName("[data-device-code]", updatedDeviceName);
+    await expectExactlyOneRowByName("[data-device-code]", updatedDeviceName);
+    await expectNoRowByName("[data-device-code]", deviceName);
     const verifyDeviceText = await verifyDeviceRow.getText();
     if (!verifyDeviceText.includes("installed")) {
       throw new Error(`Aggregate verify device: expected "installed", got: "${verifyDeviceText}"`);
@@ -597,22 +645,22 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
 
     log("part I: verifying persistence after reopen");
 
-    // Location
+    // Location — findRowByExactName waits for the panel to load from disk before asserting counts
     await clickNav("locations");
-    await expectExactlyOneRow("[data-location-code]", updatedLocationName);
-    await expectNoRow("[data-location-code]", locationName);
+    const locationRowAfterReopen = await findRowByExactName("[data-location-code]", updatedLocationName);
+    await expectExactlyOneRowByName("[data-location-code]", updatedLocationName);
+    await expectNoRowByName("[data-location-code]", locationName);
     log("part I: location persisted");
 
     // Rack under updated location
-    const locationRowAfterReopen = await findRowByName("[data-location-code]", updatedLocationName);
     await browser.execute(
       (el: HTMLElement) => el.click(),
       locationRowAfterReopen as unknown as HTMLElement,
     );
     await browser.$('[data-testid="rack-add-btn"]').waitForDisplayed({ timeout: 10_000 });
-    await expectExactlyOneRow("[data-rack-code]", updatedRackName);
-    await expectNoRow("[data-rack-code]", rackName);
-    const persistedRackRow = await findRowByName("[data-rack-code]", updatedRackName);
+    const persistedRackRow = await findRowByExactName("[data-rack-code]", updatedRackName);
+    await expectExactlyOneRowByName("[data-rack-code]", updatedRackName);
+    await expectNoRowByName("[data-rack-code]", rackName);
     const persistedRackText = await persistedRackRow.getText();
     if (!persistedRackText.includes("18U")) {
       throw new Error(`Persisted rack: expected "18U", got: "${persistedRackText}"`);
@@ -624,9 +672,9 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
 
     // Device Model
     await clickNav("device_models");
-    await expectExactlyOneRow("[data-model-code]", updatedModelName);
-    await expectNoRow("[data-model-code]", modelName);
-    const persistedModelRow = await findRowByName("[data-model-code]", updatedModelName);
+    const persistedModelRow = await findRowByExactName("[data-model-code]", updatedModelName);
+    await expectExactlyOneRowByName("[data-model-code]", updatedModelName);
+    await expectNoRowByName("[data-model-code]", modelName);
     const persistedModelText = await persistedModelRow.getText();
     if (!persistedModelText.includes("3U")) {
       throw new Error(`Persisted model: expected "3U", got: "${persistedModelText}"`);
@@ -638,9 +686,9 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
 
     // Device
     await clickNav("devices");
-    await expectExactlyOneRow("[data-device-code]", updatedDeviceName);
-    await expectNoRow("[data-device-code]", deviceName);
-    const persistedDeviceRow = await findRowByName("[data-device-code]", updatedDeviceName);
+    const persistedDeviceRow = await findRowByExactName("[data-device-code]", updatedDeviceName);
+    await expectExactlyOneRowByName("[data-device-code]", updatedDeviceName);
+    await expectNoRowByName("[data-device-code]", deviceName);
     const persistedDeviceText = await persistedDeviceRow.getText();
     if (!persistedDeviceText.includes("installed")) {
       throw new Error(`Persisted device: expected "installed", got: "${persistedDeviceText}"`);

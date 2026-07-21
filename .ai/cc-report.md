@@ -1,6 +1,6 @@
 ## Summary
 
-Stage 3B.1: entity updates and work mode spec.
+Stage 3B.1: entity updates and work mode spec — with RP hardening.
 
 Branch: `feature/e2e-wdio-entity-updates-work-mode` → base: `roadmap/e2e-wdio`
 
@@ -25,14 +25,30 @@ No new selectors added to application source. Edit buttons use the existing
 already present from prior stages.
 
 `wdio.conf.ts` timeout bumped from 2 700 000 ms (45 min) to 3 600 000 ms (60 min):
-the entity-updates-work-mode spec creates 5 entities, edits 4, and persists — wall-clock
-~50 min, which exceeded the previous limit on first run.
+the entity-updates-work-mode spec creates five entities, edits four, and persists —
+wall-clock ~57 min, which exceeded the previous limit.
+
+### RP changes
+
+- Exact entity-name matching from each row's `<strong>` via `getEntityNamesInRows()`
+  (`browser.execute()` — atomic, no stale-element risk)
+- No broad WebDriver `catch` — only stale-element references in the post-wait element
+  re-fetch are caught specifically
+- No non-null assertions (`found!`) in row lookup
+- Edit buttons clicked through native WebDriver `.click()` scoped to the exact row
+- Generated review context removed from Git; repository hygiene restored
+- `findRowByExactName` always called before assertion helpers after navigation to ensure
+  the panel has rendered (fixes race condition with `browser.execute()` DOM reads)
+- `after()` hook throws if `work-mode-planning` button is missing; also verifies
+  `work-mode-onsite aria-pressed="false"`; session-gone errors logged without masking
+  original failure
 
 ## Files changed
 
 | File | Change |
 |---|---|
-| `apps/desktop/e2e-wdio/specs/entity-updates-work-mode.e2e.ts` | New spec: 9-part entity-update + work-mode coverage |
+| `.ai/cc-report.md` | This report |
+| `apps/desktop/e2e-wdio/specs/entity-updates-work-mode.e2e.ts` | New spec: 9-part entity-update + work-mode coverage, RP-hardened helpers |
 | `apps/desktop/e2e-wdio/wdio.conf.ts` | Bump `mochaOpts.timeout` 2 700 000 → 3 600 000 ms; update comment |
 | `docs/E2E_WDIO_COVERAGE_GAPS.md` | Promote 6 workflows MISSING→COVERED; update summary counts (COVERED 24→30, MISSING 12→6) |
 | `docs/E2E_WDIO_PLAN.md` | Stage 3A → COMPLETED (PR #147, 40f6a12); Stage 3B split into 3B.1 IN REVIEW + 3B.2 PLANNED |
@@ -42,7 +58,7 @@ the entity-updates-work-mode spec creates 5 entities, edits 4, and persists — 
 ### TypeScript
 
 ```
-pnpm exec tsc --noEmit   → clean (0 errors)
+pnpm -C apps/desktop exec tsc --noEmit   → clean (0 errors)
 ```
 
 ### Vitest
@@ -50,56 +66,71 @@ pnpm exec tsc --noEmit   → clean (0 errors)
 ```
 Test Files  51 passed (51)
      Tests  844 passed (844)
-  Duration  31.83s
+  Duration  30.29s
 ```
 
 ### Tauri build
 
 ```
 pnpm -C apps/desktop tauri build --no-bundle
-Compiling rack-inventory-studio-desktop v0.1.0-beta.2
-Finished `release` profile [optimized] target(s) in 46.53s
-→ clean (0 errors, 0 warnings)
+Finished `release` profile [optimized] target(s) in 47.25s   → clean (0 errors)
 ```
 
 ### Rust workspace
 
 ```
-cargo fmt --all --check  → clean
-cargo test --workspace   → all passed
+cargo fmt --all --check          → clean
+cargo test --workspace           → all passed
 cargo clippy --workspace -- -D warnings  → clean
-cargo check --workspace  → clean
+cargo check --workspace          → clean
 ```
 
-### Isolated spec × 2 (required gate)
+### Isolated spec — pre-RP (historical, old helpers)
 
-Run 1 — **FAILED** (timeout): spec ran 45:03; hit the old 2 700 000 ms Mocha timeout
-during Part I persistence verification. Root cause: spec creates 5 entities and edits 4,
-which takes ~50 min; previous limit was 45 min.
-Fix: `mochaOpts.timeout` raised to 3 600 000 ms in `wdio.conf.ts`.
+Run 1 — **FAILED** (timeout): 45:03; hit the old 2 700 000 ms limit during Part I.
+Fix: raised `mochaOpts.timeout` to 3 600 000 ms.
 
-Run 2 — **PASSED**: 49:41 · suffix=mrnu0gd2 · run root /tmp/ris-wdio-Iwbjhx (cleaned up).
-All parts A–I complete; all persistence assertions passed.
+Run 2 — **PASSED**: 49:41 · suffix=mrnu0gd2 · /tmp/ris-wdio-Iwbjhx (cleaned up).
 
-Run 3 — **PASSED**: 49:39 · suffix=mrnvt5ez · run root /tmp/ris-wdio-GjnDP9 (cleaned up).
-All parts A–I complete; all persistence assertions passed.
+Run 3 — **PASSED**: 49:39 · suffix=mrnvt5ez · /tmp/ris-wdio-GjnDP9 (cleaned up).
 
-### Full WDIO suite (all 7 specs)
+### Isolated spec × 2 — RP runs (required gate, RP helpers)
+
+RP Run 1 — **FAILED** (timeout 01:00:03): stale-element errors in `waitUntil` slowed
+spec beyond 60 min. Fix: `getEntityNamesInRows()` (`browser.execute()`) for wait
+condition eliminates stale-element retries.
+
+RP Run 2 — **FAILED** (`expectExactlyOneRowByName` found 0 after repo reopen): `browser.execute()`
+DOM query ran before React rendered the panel. Fix: add `findRowByExactName` (waitUntil)
+before assertion helpers after navigation in Parts G and I.
+
+RP Run 3 — **PASSED**: 56:33 · suffix=mrtq66wr · /tmp/ris-wdio-tiWyxX (cleaned up).
+All parts A–I; work mode confirmed (planning=true, onsite=false).
+
+RP Run 4 — **PASSED**: 56:34 · suffix=mrts7dr0 · /tmp/ris-wdio-bv03n0 (cleaned up).
+All parts A–I; work mode confirmed (planning=true, onsite=false).
+
+### Full WDIO suite (all 7 specs) — post-RP
 
 ```
-Spec Files:  7 passed, 7 total (100% completed) in 02:16:28
-run root /tmp/ris-wdio-hp5ww2 (cleaned up)
+Spec Files:  7 passed, 7 total (100% completed) in 02:23:28
+run root /tmp/ris-wdio-RHsmii (cleaned up)
+```
+
+### Repository hygiene
+
+```
+node scripts/check-repo-hygiene.mjs   → All 8 hygiene checks passed
 ```
 
 ## Risks
 
-- Spec takes ~50 min per run due to `@wdio/tauri-service` external driver overhead in
+- Spec takes ~57 min per run due to `@wdio/tauri-service` external driver overhead in
   headless Xvfb — inherent to the current driver configuration.
-- `browser.execute()` fires synthetic `click` (not full mousedown/mouseup sequence) for
-  edit buttons and `<tr>` rows. Production IPC paths are still exercised.
-- Work mode `after()` hook restores planning mode; hook error propagates rather than
-  being swallowed.
-- Playwright tests blocked by `libasound2t64` — pre-existing environment limitation.
+- `browser.execute()` fires synthetic `click` (not full mousedown/mouseup) for
+  navigational `<tr>` rows. Production IPC paths are still exercised.
+- Work mode `after()` hook logs and returns (does not throw) when the WebDriver session
+  is already gone; all other cleanup errors propagate.
 
 ## Not done
 
@@ -111,4 +142,4 @@ run root /tmp/ris-wdio-hp5ww2 (cleaned up)
 
 ## Suggested next step
 
-Merge PR targeting roadmap/e2e-wdio. Plan Stage 3B.2 separately after Stage 3B.1 merge.
+Merge PR #149 targeting roadmap/e2e-wdio after CI passes. Plan Stage 3B.2 separately.
