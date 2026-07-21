@@ -727,6 +727,11 @@ Edit buttons use existing `aria-label="Edit <name>"` pattern; form field testids
 
 Not yet started.  Scope pending.
 
+> **Architecture note:** `entity-updates-work-mode.e2e.ts` runs approximately 57 minutes
+> against a 60-minute Mocha timeout (~3-minute margin).  Stage 3B.2 **must be implemented
+> as a separate spec** — extending this scenario further would exceed the timeout.  The
+> 60-minute limit should not be increased without a separate architectural decision.
+
 Representative scope from the Tier 2 list in the gap analysis:
 - Delete entity (requires ConfirmDialog confirm button testid)
 - Delete with relationship constraint

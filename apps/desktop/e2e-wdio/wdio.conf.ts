@@ -74,8 +74,8 @@ export const config: Options.Testrunner = {
     // takes ~12 min.  Stage 2 adds placement, save/close/reopen, and persistence
     // verification (~13 min).  Stage 3A adds edit, remove, and two more close/reopen
     // cycles (~10 min additional); Stage 3B.1 adds 4 more edit cycles plus work mode
-    // toggle across 5 entities (~50 min observed).
-    // Longest individual spec observed: ~50 min → 60 min with margin.
+    // toggle across 5 entities (~57 min observed).
+    // Longest individual spec observed: ~57 min → 60 min with margin (~3 min margin).
     timeout: 3_600_000,
   },
 

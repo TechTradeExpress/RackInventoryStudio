@@ -384,19 +384,15 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
     await browser.$('[data-testid="field-device-model-search"]').addValue(modelName);
     await browser.waitUntil(
       async () => {
-        try {
-          const opts = await browser.$$('[role="option"]');
-          for (const opt of opts) {
-            const text = await opt.getText();
-            if (text.includes(modelName)) {
-              await opt.click();
-              return true;
-            }
+        const options = await browser.$$('[role="option"]');
+        for (const option of options) {
+          const text = await option.getText();
+          if (text.includes(modelName)) {
+            await option.click();
+            return true;
           }
-          return false;
-        } catch {
-          return false;
         }
+        return false;
       },
       { timeout: 15_000, timeoutMsg: `Model option "${modelName}" not found in device form dropdown` },
     );
