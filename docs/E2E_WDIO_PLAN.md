@@ -653,11 +653,11 @@ committed tasks and are not listed in priority order:
 
 **Overall status: IN PROGRESS**
 
-Stage 3 is split into two independently reviewable PRs.
+Stage 3 is split into independently reviewable sub-stages.
 
 ### Stage 3A — Placement lifecycle
 
-**Status: IN REVIEW** (PR targeting `roadmap/e2e-wdio`)
+**Status: COMPLETED** (merged as PR #147, merge commit `40f6a12`)
 
 Delivered through `feature/e2e-wdio-placement-lifecycle`.
 
@@ -687,22 +687,59 @@ the inspector button (also labelled "Remove from rack") appears before the porta
 and native `.click()` fires `mousedown` which lands on the backdrop overlay and triggers
 `handleBackdrop` → immediate dialog close before the confirm button can be activated.
 
-### Stage 3B — Representative CRUD and destructive-operation guards
+**Validation (Linux, 2026-07-16):**
+
+| Run | Result | Duration | Exit |
+|-----|--------|----------|------|
+| Isolated run 9 | PASSED 1/1 | 00:35:36 | 0 |
+| Isolated run 10 | PASSED 1/1 | 00:35:38 | 0 |
+| Full suite (6 specs) | PASSED 6/6 | 01:26:54 | 0 |
+| TypeScript | 0 errors | — | 0 |
+| Vitest | 844/844 passed | — | 0 |
+| GitHub checks | All green (CI #29478292711) | — | — |
+
+### Stage 3B.1 — Entity updates and work mode
+
+**Status: IN REVIEW** (PR targeting `roadmap/e2e-wdio`)
+
+Delivered through `feature/e2e-wdio-entity-updates-work-mode`.
+
+**Scope:**
+
+- Work mode toggle: Planning → On-site → Planning (`work-mode-toggle`, `aria-pressed`)
+- Edit device: change name, status, serial number (`device-form-submit`, `field-*`)
+- Edit device model: change name, height, SKU (`model-form-submit`, `field-*`)
+- Edit rack: change name, height, row (`rack-form-submit`, `field-*`)
+- Edit location: change name (`location-form-submit`, `field-name`)
+- Aggregate verification: all four updated entities visible in their panels
+- Persistence: save + close + reopen → all four updates survive
+
+**Spec:** `apps/desktop/e2e-wdio/specs/entity-updates-work-mode.e2e.ts`
+
+**New selectors:** None.  All selectors were already present in application source.
+Edit buttons use existing `aria-label="Edit <name>"` pattern; form field testids
+(`field-name`, `field-height-u`, `field-row`, `field-model-sku`, `field-status`,
+`field-serial`) and submit testids were already present from Stage 1.
+
+### Stage 3B.2 — Delete flows and destructive-operation guards
 
 **Status: PLANNED**
 
 Not yet started.  Scope pending.
 
-Representative scope from the Tier 1 and Tier 2 lists in the gap analysis:
-- Edit device, device model, location, rack (form modals; all testids in place)
-- Work mode toggle
+> **Architecture note:** `entity-updates-work-mode.e2e.ts` runs approximately 57 minutes
+> against a 60-minute Mocha timeout (~3-minute margin).  Stage 3B.2 **must be implemented
+> as a separate spec** — extending this scenario further would exceed the timeout.  The
+> 60-minute limit should not be increased without a separate architectural decision.
+
+Representative scope from the Tier 2 list in the gap analysis:
 - Delete entity (requires ConfirmDialog confirm button testid)
 - Delete with relationship constraint
+- Edit placement height U (`height-u-input` in `EditPlacementModal`)
+- Remove placement via `EditPlacementModal` remove button
+- `PlacementInspectorPanel` navigate to device / model
 
 See [`docs/E2E_WDIO_COVERAGE_GAPS.md`](E2E_WDIO_COVERAGE_GAPS.md) for the full matrix.
-
-Do not mark Stage 3B as IN PROGRESS until the Stage 3A PR is merged and scope
-is agreed for Stage 3B.
 
 ## Future stages
 

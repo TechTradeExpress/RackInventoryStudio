@@ -1,118 +1,145 @@
 ## Summary
 
-Stage 3A RP (review proposal) for PR #147: placement lifecycle spec.
+Stage 3B.1: entity updates and work mode spec — with RP hardening and final polish.
 
-Branch: `feature/e2e-wdio-placement-lifecycle` → base: `roadmap/e2e-wdio`
+Branch: `feature/e2e-wdio-entity-updates-work-mode` → base: `roadmap/e2e-wdio`
 
-This RP addresses all blocking issues found during strict Stage 3A review:
+Six MISSING workflows promoted to COVERED by one new spec:
 
-1. **Exact single-placement assertions** — spec now proves exactly N cards exist at
-   each checkpoint using `[data-testid^="placed-"][data-device-code="${code}"]` scoped
-   to rack diagram; bare `[data-device-code]` avoided (also appears in Devices table).
-   Checkpoints: count=1 after place, after move, after first reopen; count=0 after remove,
-   after second reopen.
+1. **Work mode toggle** — Planning → On-site → Planning; `aria-pressed` verified on both
+   `work-mode-planning` and `work-mode-onsite` testids; `after()` hook restores planning mode.
 
-2. **Effective 2U height confirmation** — production card `title` attribute now checked
-   for the en-dash range `U${start}–U${start+MODEL_HEIGHT-1}` at every position: U1–U2
-   after initial placement, U5–U6 after move, U5–U6 after first reopen.
+2. **Edit device** — name, status (planned→installed), serial; `device-form-submit`; persisted.
 
-3. **False-positive catches removed** — `waitForEditModalClose()` and the
-   `PlacePlacementModal` close helper rewritten with `isExisting()` for DOM-removal
-   detection (no exception→success conversion). All "no card" negative assertions now
-   use `browser.$$` + length check: no `.catch(() => false)` on negative paths.
-   Any unhandled WebDriver error propagates and fails the test immediately.
+3. **Edit device model** — name, height (2→3), SKU; `model-form-submit`; device list reflects
+   model rename; persisted.
 
-4. **Entity persistence verification (Part 5)** — after second reopen the spec now
-   explicitly verifies: Device unplaced (Devices panel), Device Model exists (Device
-   Models list), Rack accessible (navigateToRackDetail succeeds).
+4. **Edit rack** — name, height (14→18), row (A→B); `rack-form-submit`; persisted.
 
-5. **Coverage stats corrected** — `docs/E2E_WDIO_COVERAGE_GAPS.md` summary table:
-   `MISSING` changed from 14 to 12 so categories sum to 67.
-   Correct math: 15 MISSING before − 3 promoted to COVERED = 12. Summary MISSING=14
-   was wrong (subtracted only 1 instead of 3). Added explanatory text.
+5. **Edit location** — name; `location-form-submit`; persisted.
 
-6. **ConfirmDialog selector documented correctly** — `docs/E2E_WDIO_PLAN.md` now
-   describes actual mechanism: `button.btn-danger` inside `modal-backdrop` via
-   `browser.execute()`. Previous text said `button=Remove from rack` (wrong).
+6. **Persistence** — save + close + reopen cycle verifies all four entity updates survive.
 
-7. **Runtime overhead comment** — `wdio.conf.ts` removed the imprecise "~600ms per
-   command" wording. Now says "significant per-command overhead"; total wall-clock
-   "~35 min confirmed by two isolated runs".
+No new selectors added to application source. Edit buttons use the existing
+`aria-label="Edit <name>"` pattern. All form field testids and submit testids were
+already present from prior stages.
 
-8. **Rust workspace CI** — PR #148 (`fix/rust-clippy-manual-filter`) was merged to
-   `roadmap/e2e-wdio` (merge commit `d82406a`). It fixed the `clippy::manual_filter`
-   lint in `crates/ris-import/src/csv_reader.rs`. This branch was then synchronized
-   with the updated base via a merge commit. PR #147 introduces no Rust changes of its
-   own — `csv_reader.rs` does not appear in the diff of PR #147 against its base.
+`wdio.conf.ts` timeout bumped from 2 700 000 ms (45 min) to 3 600 000 ms (60 min):
+the entity-updates-work-mode spec creates five entities, edits four, and persists —
+wall-clock ~57 min, which exceeded the previous limit. Margin is approximately 3 minutes.
+
+### RP changes
+
+- Exact entity-name matching from each row's `<strong>` via `getEntityNamesInRows()`
+  (`browser.execute()` — atomic, no stale-element risk)
+- No broad WebDriver `catch` anywhere in the spec — only the specifically recognised
+  stale-element condition on the post-wait re-fetch in `findRowByExactName` is handled;
+  all other WebDriver errors propagate immediately
+- No non-null assertions (`found!`) in row lookup
+- Edit buttons clicked through native WebDriver `.click()` scoped to the exact row
+- Generated review context removed from Git; repository hygiene restored
+- `findRowByExactName` always called before assertion helpers after navigation to ensure
+  the panel has rendered (fixes race condition with `browser.execute()` DOM reads)
+- `after()` hook throws if `work-mode-planning` button is missing; also verifies
+  `work-mode-onsite aria-pressed="false"`; session-gone errors logged without masking
+  original failure
+
+### Final polish
+
+- Removed the remaining broad `catch { return false }` from Device Model option selection
+  in Part B — unexpected WebDriver failures now propagate immediately instead of converting
+  into silent retry timeouts.
+- The normal successful option-selection path (iterate `[role="option"]`, match by text,
+  native `.click()`) is unchanged.
+- No WDIO E2E tests were rerun for this diagnostic-only change.
+- The applicable functional validation remains RP Runs 3 and 4 plus the post-RP full 7/7 suite.
+- The 60-minute timeout was not increased; Stage 3B.2 must use a separate spec.
 
 ## Files changed
 
 | File | Change |
 |---|---|
-| `apps/desktop/e2e-wdio/specs/placement-lifecycle.e2e.ts` | Full RP rewrite: count assertions, 2U range checks, isExisting() modal helpers, $$ no-card checks, device model entity check in Part 5 |
-| `apps/desktop/e2e-wdio/wdio.conf.ts` | Fix overhead comment (remove "~600ms per command") |
-| `docs/E2E_WDIO_COVERAGE_GAPS.md` | Fix MISSING count 14→12, fix date 07-15→07-16, fix explanatory text |
-| `docs/E2E_WDIO_PLAN.md` | Fix ConfirmDialog selector description |
+| `.ai/cc-report.md` | This report |
+| `apps/desktop/e2e-wdio/specs/entity-updates-work-mode.e2e.ts` | New spec: 9-part entity-update + work-mode coverage, RP-hardened helpers, broad catch removed from model option selection |
+| `apps/desktop/e2e-wdio/wdio.conf.ts` | Bump `mochaOpts.timeout` 2 700 000 → 3 600 000 ms; update comment to reflect ~57 min observed and ~3 min margin |
+| `docs/E2E_WDIO_COVERAGE_GAPS.md` | Promote 6 workflows MISSING→COVERED; update summary counts (COVERED 24→30, MISSING 12→6) |
+| `docs/E2E_WDIO_PLAN.md` | Stage 3A → COMPLETED (PR #147, 40f6a12); Stage 3B split into 3B.1 IN REVIEW + 3B.2 PLANNED; architecture note added to Stage 3B.2 requiring a separate spec |
 
 ## Tests
 
-### Isolated spec × 2 (required gate)
+### Functional validation before final polish
+
+#### Isolated spec — pre-RP (historical, old helpers)
+
+Run 1 — **FAILED** (timeout): 45:03; hit the old 2 700 000 ms limit during Part I.
+Fix: raised `mochaOpts.timeout` to 3 600 000 ms.
+
+Run 2 — **PASSED**: 49:41 · suffix=mrnu0gd2 · /tmp/ris-wdio-Iwbjhx (cleaned up).
+
+Run 3 — **PASSED**: 49:39 · suffix=mrnvt5ez · /tmp/ris-wdio-GjnDP9 (cleaned up).
+
+#### Isolated spec × 2 — RP runs (required gate, RP helpers)
+
+RP Run 1 — **FAILED** (timeout 01:00:03): stale-element errors in `waitUntil` slowed
+spec beyond 60 min. Fix: `getEntityNamesInRows()` (`browser.execute()`) for wait
+condition eliminates stale-element retries.
+
+RP Run 2 — **FAILED** (`expectExactlyOneRowByName` found 0 after repo reopen): `browser.execute()`
+DOM query ran before React rendered the panel. Fix: add `findRowByExactName` (waitUntil)
+before assertion helpers after navigation in Parts G and I.
+
+RP Run 3 — **PASSED**: 56:33 · suffix=mrtq66wr · /tmp/ris-wdio-tiWyxX (cleaned up).
+All parts A–I; work mode confirmed (planning=true, onsite=false).
+
+RP Run 4 — **PASSED**: 56:34 · suffix=mrts7dr0 · /tmp/ris-wdio-bv03n0 (cleaned up).
+All parts A–I; work mode confirmed (planning=true, onsite=false).
+
+#### Full WDIO suite (all 7 specs) — post-RP
 
 ```
-Run 9:  1 passed, 1 total  in 00:35:36  (cleanup: /tmp/ris-wdio-jBkKkm)
-Run 10: 1 passed, 1 total  in 00:35:38  (cleanup: /tmp/ris-wdio-50eYNO)
+Spec Files:  7 passed, 7 total (100% completed) in 02:23:28
+run root /tmp/ris-wdio-RHsmii (cleaned up)
 ```
 
-Both runs exercised all 5 parts including new assertions:
-- Part 1: count=1, data-start-u="1", range "U1–U2" in title confirmed
-- Part 2: count=1, data-start-u="5", range "U5–U6" in title confirmed; count at U1=0
-- Part 3: count=1 after reopen, range "U5–U6" persisted, U1 count=0 after reopen
-- Part 4: count=0 after remove (two-phase: waitUntil DOM removal + explicit count check)
-- Part 5: device unplaced, device model verified in list, rack navigable, count=0 in rack
+### Validation after final polish
 
-### Full WDIO suite (all 6 specs)
+WDIO E2E rerun after final polish: **no** — the change is diagnostic-only (exception
+propagation); the successful option-selection path is unchanged; no application code changed.
+
+#### TypeScript
 
 ```
-Run 2: 6 passed, 6 total  in 01:26:54  (cleanup: /tmp/ris-wdio-Cjx4Jz)
+pnpm -C apps/desktop exec tsc --noEmit   → clean (0 errors)
 ```
 
-Run 2 used the RP spec (`13b237b`). All 6 specs passed. No leftover ris-wdio directories
-after run completion.
-
-Full WDIO was not rerun after the base merge because PR #148 changed only the Rust CSV
-filtering implementation and `.ai/cc-report.md`. The previously completed post-RP full
-suite remains the applicable Stage 3A validation.
-
-### TypeScript
+#### Vitest
 
 ```
-pnpm exec tsc --noEmit   → clean (0 errors)
+Test Files  51 passed (51)
+     Tests  844 passed (844)
 ```
 
-### Vitest
+#### Repository hygiene
 
 ```
-51 test files, 844 tests passed
+node scripts/check-repo-hygiene.mjs   → All 8 hygiene checks passed
 ```
 
-### Tauri build
+#### GitHub CI
 
-Previous Stage 3A validation (not rerun after base merge — no Tauri code changed):
-```
-pnpm tauri build --no-bundle  → Built application at target/release/rack-inventory-studio-desktop
-Finished release profile in 58.63s
-```
+Standard CI (TypeScript, Vitest, Rust workspace, hygiene, workflow lint) rerun for
+the final head commit; all 5 checks must pass.
 
-### Playwright
+### Earlier static checks (recorded at RP commit 04a5346)
 
-Blocked by missing `libasound2t64` system package — all 21 tests fail with the same
-system-dependency error. This is a pre-existing environment limitation, not a code
-regression. Exact error:
+#### Tauri build
+
 ```
-║     sudo apt-get install libasound2t64               ║
+pnpm -C apps/desktop tauri build --no-bundle
+Finished `release` profile [optimized] target(s) in 47.25s   → clean (0 errors)
 ```
 
-### Rust workspace (after base merge)
+#### Rust workspace
 
 ```
 cargo fmt --all --check          → clean
@@ -121,43 +148,26 @@ cargo clippy --workspace -- -D warnings  → clean
 cargo check --workspace          → clean
 ```
 
-`csv_reader.rs` now uses `.filter(|v| !v.is_empty())` (from merged PR #148 base).
-
-## Base synchronization
-
-- PR #148 merged to `roadmap/e2e-wdio` as commit `d82406a`
-- `feature/e2e-wdio-placement-lifecycle` merged with updated base via `--no-ff`
-- `git merge-base --is-ancestor d82406a HEAD` → confirmed ancestor
-- `csv_reader.rs` does not appear in `git diff origin/roadmap/e2e-wdio...HEAD`
-- No Rust changes belong to Stage 3A
-
-## Cleanup verification
-
-- Run 9 cleanup: `[test-environment] cleaned up: /tmp/ris-wdio-jBkKkm` ✓
-- Run 10 cleanup: `[test-environment] cleaned up: /tmp/ris-wdio-50eYNO` ✓
-- Full suite run 2 cleanup: `[test-environment] cleaned up: /tmp/ris-wdio-Cjx4Jz` ✓
-- All three directories confirmed absent from /tmp after run completion
-- Each run uses a unique suffix ensuring zero cross-run contamination
-
 ## Risks
 
-- Spec takes ~35 min per run due to `@wdio/tauri-service` external driver overhead in
+- Spec takes ~57 min per run due to `@wdio/tauri-service` external driver overhead in
   headless Xvfb — inherent to the current driver configuration.
-- Full WDIO suite (~6 specs) takes ~1 h 27 min total.
-- `browser.execute()` fires synthetic `click` (not full mousedown/mouseup sequence).
-  Production paths (IPC `editPlacement`, `removePlacement`) are still exercised via
-  resulting React state changes, which is the correct assertion.
-- Playwright tests blocked by `libasound2t64` in this environment — separate env issue.
-- Full WDIO not rerun after base merge (PR #148 changed only Rust CSV parser and report).
+- Longest individual spec (~57 min) leaves approximately 3 minutes of margin against the
+  60-minute Mocha timeout. The timeout was not increased further.
+- Stage 3B.2 must be implemented as a separate spec; this scenario must not be extended.
+- `browser.execute()` fires synthetic `click` (not full mousedown/mouseup) for
+  navigational `<tr>` rows. Production IPC paths are still exercised.
+- Work mode `after()` hook logs and returns (does not throw) when the WebDriver session
+  is already gone; all other cleanup errors propagate.
 
 ## Not done
 
-- Edit placement via height-u-input (Stage 3B)
-- Remove placement via EditPlacementModal remove button (Stage 3B)
-- PlacementInspectorPanel navigate-to-device / navigate-to-model (Stage 3B)
-- Entity edit and delete flows (Stage 3B)
-- Work mode toggle (Stage 3B)
+- Edit placement height U (Stage 3B.2)
+- Remove placement via EditPlacementModal remove button (Stage 3B.2)
+- PlacementInspectorPanel navigate to device / model (Stage 3B.2)
+- Delete entity flows (Stage 3B.2)
+- ConfirmDialog selector (Stage 3B.2)
 
 ## Suggested next step
 
-Merge PR #147 do roadmap/e2e-wdio. Stage 3B należy zaplanować osobno po merge Stage 3A.
+Merge PR #149 targeting roadmap/e2e-wdio after CI passes. Plan Stage 3B.2 as a separate spec.
