@@ -18,7 +18,7 @@
  *   PART I — Reopen — location, rack (list), device model, device survive clean
  *             close and reopen (rack-detail avoided to stay within 60 min Mocha limit)
  *
- * Selector contract (same as entity-deletes.e2e.ts plus placement selectors):
+ * Selector contract (same as entity-deletes-inventory/hierarchy plus placement selectors):
  *   Delete buttons    — button[aria-label="Delete <name>"] scoped to entity row
  *   ConfirmDialog     — data-testid="confirm-dialog-confirm" / confirm-dialog-cancel
  *   Modal             — data-testid="modal", role="dialog", aria-label="Delete "<name>"?"

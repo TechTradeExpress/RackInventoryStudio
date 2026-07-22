@@ -1,31 +1,29 @@
 /**
- * Entity delete flows — Stage 3B.2 (part 1 of 2)
+ * Inventory entity delete flows — Stage 3B.2
  *
- * Covers four successful delete workflows through the production UI with an
- * isolated temporary repository:
+ * Covers successful deletion of Device and Device Model, plus the cancel
+ * assertion for Device, using an isolated temporary repository.
  *
- *   PART A — Create fixture (Location, Rack, Device Model, Device)
- *   PART B — Save, close, reopen — verify all four entities persisted
- *   PART C — Cancel assertion (Device): dialog title verified; entity survives
- *   PART D — Delete Device (unplaced, no model)
- *   PART E — Delete Device Model (not referenced by any device)
- *   PART F — Delete Rack (no placements) + verify Location still present
- *   PART G — Delete Location (no racks)
- *   PART H — Aggregate verification before save
- *   PART I — Persistence: save + close + reopen → verify all four gone
+ *   PART A — Create fixture: Device Model (unused), Device (unplaced, no model)
+ *   PART B — Save, close, reopen — verify both entities persisted
+ *   PART C — Cancel assertion: Device delete dialog title verified; entity survives
+ *   PART D — Delete Device (unplaced, no model assigned)
+ *   PART E — Delete Device Model (not referenced by any device or placement)
+ *   PART F — Aggregate verification before save
+ *   PART G — Persistence: save + close + reopen → verify both gone
  *
  * Selector contract:
- *   Delete buttons    — button[aria-label="Delete <name>"] scoped to entity row
+ *   Delete buttons    — aria-label="Delete <name>" scoped to entity row (not CSS-interpolated)
  *   ConfirmDialog     — data-testid="confirm-dialog-confirm" / confirm-dialog-cancel
  *   Modal             — data-testid="modal", role="dialog", aria-label="Delete "<name>"?"
- *   Delete error      — data-testid="location-delete-error|rack-delete-error|
- *                        device-model-delete-error|device-delete-error"
- *   Row selectors     — [data-location-code], [data-rack-code],
- *                        [data-model-code], [data-device-code]
+ *   Delete error      — data-testid="device-delete-error" / "device-model-delete-error"
+ *   Row selectors     — [data-device-code], [data-model-code]
  *   Name cell         — <strong> child of each row
  *
- * Relationship-guard workflows (workflows 5–8) are covered by the separate
- * entity-delete-guards.e2e.ts spec (Stage 3B.2 part 2).
+ * Hierarchy delete flows (Rack, Location) are covered by entity-deletes-hierarchy.e2e.ts.
+ * Relationship guard workflows are covered by:
+ *   - destructive-guards-inventory.e2e.ts (Device model guard, Device guard)
+ *   - destructive-guards-hierarchy.e2e.ts (Location guard, Rack guard)
  */
 import { browser } from "@wdio/globals";
 import {
@@ -44,12 +42,13 @@ import {
   clickConfirmDialogAction,
   waitForConfirmDialogClosed,
   expectNoDeleteError,
+  expectDeviceRowState,
   getEntityNamesInRows,
 } from "../support/destructive-ui";
 
 function log(msg: string) {
   const ts = new Date().toISOString().substring(11, 23);
-  console.log(`[entity-deletes ${ts}] ${msg}`);
+  console.log(`[deletes-inventory ${ts}] ${msg}`);
 }
 
 async function clickNav(tab: string): Promise<void> {
@@ -77,8 +76,8 @@ async function waitForFormClose(submitTestId: string): Promise<void> {
 
 // ── Suite ─────────────────────────────────────────────────────────────────────
 
-describe("Rack Inventory Studio — entity delete flows", () => {
-  it("creates fixture, deletes four entity types leaf-to-parent, and confirms persistence", async () => {
+describe("Rack Inventory Studio — inventory entity delete flows", () => {
+  it("creates Device Model and Device, exercises cancel and successful deletes, confirms persistence", async () => {
     const repoParent = process.env["RIS_E2E_REPOSITORY_PARENT"] as string;
     if (!repoParent) {
       throw new Error(
@@ -88,13 +87,11 @@ describe("Rack Inventory Studio — entity delete flows", () => {
     }
 
     const suffix = Date.now().toString(36);
-    const repoCode = `del${suffix}`;
-    const repoName = `WDIO Deletes ${suffix}`;
+    const repoCode = `dli${suffix}`;
+    const repoName = `WDIO Deletes Inventory ${suffix}`;
 
-    const locationName  = `Delete Location ${suffix}`;
-    const rackName      = `Delete Rack ${suffix}`;
-    const modelName     = `Delete Model ${suffix}`;
-    const deviceName    = `Delete Device ${suffix}`;
+    const modelName  = `Delete Model ${suffix}`;
+    const deviceName = `Delete Device ${suffix}`;
 
     log(`suffix=${suffix}  repoCode=${repoCode}`);
 
@@ -105,40 +102,7 @@ describe("Rack Inventory Studio — entity delete flows", () => {
     const repoPath = await createRepositoryThroughUi({ repoParent, repoCode, repoName });
     log(`part A: repository created at ${repoPath}`);
 
-    // Create Location
-    log("part A: creating location");
-    await clickNav("locations");
-    await browser.$('[data-testid="location-add-btn"]').waitForDisplayed({ timeout: 10_000 });
-    await browser.$('[data-testid="location-add-btn"]').click();
-    await browser.$('[data-testid="location-form-submit"]').waitForDisplayed({ timeout: 10_000 });
-    await reactSetValue("field-name", locationName);
-    await (await waitForEnabled("location-form-submit")).click();
-    await waitForFormClose("location-form-submit");
-    await findRowByExactName("[data-location-code]", locationName);
-    log(`part A: location "${locationName}" confirmed`);
-
-    // Navigate to location's racks via row click
-    log("part A: clicking location row to navigate to Racks");
-    const locationRowForRack = await findRowByExactName("[data-location-code]", locationName);
-    await browser.execute(
-      (el: HTMLElement) => el.click(),
-      locationRowForRack as unknown as HTMLElement,
-    );
-    await browser.$('[data-testid="rack-add-btn"]').waitForDisplayed({ timeout: 10_000 });
-
-    // Create Rack (no placements — we never place any device here)
-    log("part A: creating rack");
-    await browser.$('[data-testid="rack-add-btn"]').click();
-    await browser.$('[data-testid="rack-form-submit"]').waitForDisplayed({ timeout: 10_000 });
-    await reactSetValue("field-name", rackName);
-    await reactSetValue("field-height-u", "10");
-    await reactSetValue("field-row", `R-${suffix}`);
-    await (await waitForEnabled("rack-form-submit")).click();
-    await waitForFormClose("rack-form-submit");
-    await findRowByExactName("[data-rack-code]", rackName);
-    log(`part A: rack "${rackName}" confirmed`);
-
-    // Create Device Model (not referenced by any device)
+    // Create Device Model (unused — no device will reference it)
     log("part A: creating device model");
     await clickNav("device_models");
     await browser.$('[data-testid="model-add-btn"]').waitForDisplayed({ timeout: 10_000 });
@@ -152,7 +116,7 @@ describe("Rack Inventory Studio — entity delete flows", () => {
     await findRowByExactName("[data-model-code]", modelName);
     log(`part A: model "${modelName}" confirmed`);
 
-    // Create Device (unplaced, no assigned model, status planned)
+    // Create Device (unplaced, no model assigned, status planned)
     log("part A: creating device");
     await clickNav("devices");
     await browser.$('[data-testid="device-add-btn"]').waitForDisplayed({ timeout: 10_000 });
@@ -186,23 +150,7 @@ describe("Rack Inventory Studio — entity delete flows", () => {
     await expectActiveRepositoryPath(repoPath);
     log("part B: repository reopened");
 
-    // Verify all four fixture entities exist after reopen
     log("part B: verifying fixture persistence");
-
-    await clickNav("locations");
-    await findRowByExactName("[data-location-code]", locationName);
-    await expectExactlyOneRowByName("[data-location-code]", locationName);
-    log("part B: location persisted");
-
-    const locationRowForVerify = await findRowByExactName("[data-location-code]", locationName);
-    await browser.execute(
-      (el: HTMLElement) => el.click(),
-      locationRowForVerify as unknown as HTMLElement,
-    );
-    await browser.$('[data-testid="rack-add-btn"]').waitForDisplayed({ timeout: 10_000 });
-    await findRowByExactName("[data-rack-code]", rackName);
-    await expectExactlyOneRowByName("[data-rack-code]", rackName);
-    log("part B: rack persisted");
 
     await clickNav("device_models");
     await findRowByExactName("[data-model-code]", modelName);
@@ -212,9 +160,10 @@ describe("Rack Inventory Studio — entity delete flows", () => {
     await clickNav("devices");
     await findRowByExactName("[data-device-code]", deviceName);
     await expectExactlyOneRowByName("[data-device-code]", deviceName);
-    log("part B: device persisted");
+    await expectDeviceRowState(deviceName, null, "unplaced");
+    log("part B: device persisted — unplaced, no model");
 
-    log("part B: all four fixture entities confirmed after reopen");
+    log("part B: fixture confirmed after reopen");
 
     // ── PART C: Cancel assertion ──────────────────────────────────────────────
 
@@ -259,68 +208,9 @@ describe("Rack Inventory Studio — entity delete flows", () => {
     await expectNoRowByName("[data-model-code]", modelName);
     log(`part E: model "${modelName}" deleted and gone from list`);
 
-    // ── PART F: Delete Rack + verify Location still present ───────────────────
+    // ── PART F: Aggregate verification before save ────────────────────────────
 
-    log("part F: navigating to location's racks to delete rack");
-    await clickNav("locations");
-    await findRowByExactName("[data-location-code]", locationName);
-    const locationRowForRackDelete = await findRowByExactName("[data-location-code]", locationName);
-    await browser.execute(
-      (el: HTMLElement) => el.click(),
-      locationRowForRackDelete as unknown as HTMLElement,
-    );
-    await browser.$('[data-testid="rack-add-btn"]').waitForDisplayed({ timeout: 10_000 });
-    await findRowByExactName("[data-rack-code]", rackName);
-
-    log("part F: deleting rack");
-    await clickRowDeleteAction("[data-rack-code]", rackName);
-    await expectDeleteDialog(rackName);
-    log("part F: dialog confirmed — clicking confirm");
-    await clickConfirmDialogAction("confirm-dialog-confirm");
-    await waitForConfirmDialogClosed();
-    await expectNoDeleteError("rack-delete-error");
-    await expectNoRowByName("[data-rack-code]", rackName);
-    log(`part F: rack "${rackName}" deleted and gone from list`);
-
-    // Verify Location still exists and has no remaining racks
-    log("part F: verifying location still exists after rack deletion");
-    await clickNav("locations");
-    await findRowByExactName("[data-location-code]", locationName);
-    await expectExactlyOneRowByName("[data-location-code]", locationName);
-    log("part F: location still present");
-
-    // Navigate into location and confirm racks panel is empty
-    const locationRowAfterRackDelete = await findRowByExactName("[data-location-code]", locationName);
-    await browser.execute(
-      (el: HTMLElement) => el.click(),
-      locationRowAfterRackDelete as unknown as HTMLElement,
-    );
-    await browser.$('[data-testid="rack-add-btn"]').waitForDisplayed({ timeout: 10_000 });
-    const remainingRackNames = await getEntityNamesInRows("[data-rack-code]");
-    if (remainingRackNames.length > 0) {
-      throw new Error(
-        `Part F: expected 0 racks after deletion, found: ${remainingRackNames.join(", ")}`,
-      );
-    }
-    log("part F: rack count = 0 confirmed");
-
-    // ── PART G: Delete Location ───────────────────────────────────────────────
-
-    log("part G: deleting location");
-    await clickNav("locations");
-    await findRowByExactName("[data-location-code]", locationName);
-    await clickRowDeleteAction("[data-location-code]", locationName);
-    await expectDeleteDialog(locationName);
-    log("part G: dialog confirmed — clicking confirm");
-    await clickConfirmDialogAction("confirm-dialog-confirm");
-    await waitForConfirmDialogClosed();
-    await expectNoDeleteError("location-delete-error");
-    await expectNoRowByName("[data-location-code]", locationName);
-    log(`part G: location "${locationName}" deleted and gone from list`);
-
-    // ── PART H: Aggregate verification before save ────────────────────────────
-
-    log("part H: aggregate verification");
+    log("part F: aggregate verification");
 
     await clickNav("devices");
     await browser.waitUntil(
@@ -331,7 +221,7 @@ describe("Rack Inventory Studio — entity delete flows", () => {
       { timeout: 10_000, timeoutMsg: `Device "${deviceName}" still present in aggregate check` },
     );
     await expectNoDeleteError("device-delete-error");
-    log("part H: device absent");
+    log("part F: device absent");
 
     await clickNav("device_models");
     await browser.waitUntil(
@@ -342,28 +232,16 @@ describe("Rack Inventory Studio — entity delete flows", () => {
       { timeout: 10_000, timeoutMsg: `Model "${modelName}" still present in aggregate check` },
     );
     await expectNoDeleteError("device-model-delete-error");
-    log("part H: device model absent");
+    log("part F: device model absent");
 
-    await clickNav("locations");
-    await browser.waitUntil(
-      async () => {
-        const names = await getEntityNamesInRows("[data-location-code]");
-        return !names.includes(locationName);
-      },
-      { timeout: 10_000, timeoutMsg: `Location "${locationName}" still present in aggregate check` },
-    );
-    await expectNoDeleteError("location-delete-error");
-    log("part H: location absent");
-
-    // Confirm no ConfirmDialog is open
     if (await browser.$('[data-testid="confirm-dialog-confirm"]').isExisting()) {
-      throw new Error("Part H: ConfirmDialog is unexpectedly open after all deletions");
+      throw new Error("Part F: ConfirmDialog is unexpectedly open after all deletions");
     }
-    log("part H: no ConfirmDialog open — aggregate verification passed");
+    log("part F: no ConfirmDialog open — aggregate verification passed");
 
-    // ── PART I: Save, close, reopen — persistence verification ───────────────
+    // ── PART G: Save, close, reopen — persistence verification ───────────────
 
-    log("part I: saving and closing repository");
+    log("part G: saving and closing repository");
     await clickNav("repository");
     await browser.$('[data-testid="repository-active-root"]').waitForDisplayed({ timeout: 10_000 });
     await browser.$('[data-testid="repository-close-action"]').click();
@@ -372,17 +250,15 @@ describe("Rack Inventory Studio — entity delete flows", () => {
     await browser
       .$('[data-testid="repository-active-path"]')
       .waitForDisplayed({ timeout: 5_000, reverse: true });
-    log("part I: repository closed");
+    log("part G: repository closed");
 
-    log(`part I: reopening repository at ${repoPath}`);
+    log(`part G: reopening repository at ${repoPath}`);
     await reactSetValue("repository-open-path-input", repoPath);
     await (await waitForEnabled("repository-open-path-submit")).click();
     await browser.$('[data-testid="repository-active-root"]').waitForDisplayed({ timeout: 30_000 });
     await expectActiveRepositoryPath(repoPath);
-    log("part I: repository reopened");
+    log("part G: repository reopened");
 
-    // Device — navigate and confirm absent
-    log("part I: verifying device is gone after reopen");
     await clickNav("devices");
     await browser.waitUntil(
       async () => {
@@ -392,10 +268,8 @@ describe("Rack Inventory Studio — entity delete flows", () => {
       { timeout: 15_000, timeoutMsg: `Device "${deviceName}" still present after reopen` },
     );
     await expectNoDeleteError("device-delete-error");
-    log("part I: device absent after reopen");
+    log("part G: device absent after reopen");
 
-    // Device Model — navigate and confirm absent
-    log("part I: verifying device model is gone after reopen");
     await clickNav("device_models");
     await browser.waitUntil(
       async () => {
@@ -405,27 +279,13 @@ describe("Rack Inventory Studio — entity delete flows", () => {
       { timeout: 15_000, timeoutMsg: `Model "${modelName}" still present after reopen` },
     );
     await expectNoDeleteError("device-model-delete-error");
-    log("part I: device model absent after reopen");
+    log("part G: device model absent after reopen");
 
-    // Location — navigate and confirm absent (implies Rack is also gone)
-    log("part I: verifying location is gone after reopen");
-    await clickNav("locations");
-    await browser.waitUntil(
-      async () => {
-        const names = await getEntityNamesInRows("[data-location-code]");
-        return !names.includes(locationName);
-      },
-      { timeout: 15_000, timeoutMsg: `Location "${locationName}" still present after reopen` },
-    );
-    await expectNoDeleteError("location-delete-error");
-    log("part I: location absent after reopen");
-
-    // Confirm no stale ConfirmDialog
     if (await browser.$('[data-testid="confirm-dialog-confirm"]').isExisting()) {
-      throw new Error("Part I: ConfirmDialog is unexpectedly open after reopen");
+      throw new Error("Part G: ConfirmDialog is unexpectedly open after reopen");
     }
 
-    log("part I: persistence verified — all four entities gone after save + reopen");
-    log("Stage 3B.2 part 1 complete: entity-deletes spec passed");
+    log("part G: persistence verified — device and model gone after save + reopen");
+    log("Stage 3B.2 inventory deletes spec complete");
   });
 });

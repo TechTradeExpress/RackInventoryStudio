@@ -13,6 +13,10 @@
  *     synthetic click: WebKitGTK intercepts mousedown on the modal backdrop and
  *     can erroneously dismiss the dialog before the click reaches the button.
  *     browser.execute() bypasses the backdrop event entirely.
+ *
+ * Guard coverage for the four relationship guard workflows is split across:
+ *   - destructive-guards-inventory.e2e.ts (Device model guard, Device guard)
+ *   - destructive-guards-hierarchy.e2e.ts (Location guard, Rack guard)
  */
 import { browser } from "@wdio/globals";
 
@@ -122,15 +126,39 @@ export async function expectNoRowByName(
 // ── Delete interaction helpers ────────────────────────────────────────────────
 
 /**
- * Find the exact row for entityName and click its aria-label="Delete <entityName>"
- * button using native WebDriver .click() (the button is not behind a modal backdrop).
+ * Find the exact row for entityName and click its Delete button.
+ * Matches by reading aria-label values from all buttons inside the row and
+ * comparing exactly against "Delete <entityName>" — entity names are not
+ * interpolated into a CSS selector because they may contain characters that
+ * would break CSS attribute-value syntax.
  */
 export async function clickRowDeleteAction(
   rowSelector: string,
   entityName: string,
 ): Promise<void> {
   const row = await findRowByExactName(rowSelector, entityName);
-  const button = await row.$(`button[aria-label="Delete ${entityName}"]`);
+  const expectedLabel = `Delete ${entityName}`;
+
+  const foundLabels = await browser.execute(
+    (el: Element, label: string) => {
+      const buttons = Array.from(el.querySelectorAll("button[aria-label]"));
+      return buttons.map((b) => b.getAttribute("aria-label") ?? "");
+    },
+    row as unknown as Element,
+    expectedLabel,
+  );
+
+  const matchIndex = foundLabels.indexOf(expectedLabel);
+  if (matchIndex === -1) {
+    throw new Error(
+      `clickRowDeleteAction: no button with aria-label="${expectedLabel}" ` +
+      `in row "${entityName}" (rowSelector="${rowSelector}"). ` +
+      `Found labels: [${foundLabels.map((l) => `"${l}"`).join(", ")}]`,
+    );
+  }
+
+  const buttons = await row.$$("button[aria-label]");
+  const button = buttons[matchIndex];
   await button.waitForDisplayed({ timeout: 10_000 });
   await button.waitForEnabled({ timeout: 10_000 });
   await button.click();
@@ -232,6 +260,204 @@ export async function expectNoDeleteError(testId: string): Promise<void> {
     const text = await el.getText();
     throw new Error(
       `expectNoDeleteError: unexpected banner "${testId}" is present in DOM — "${text}"`,
+    );
+  }
+}
+
+// ── Rack navigation helpers ───────────────────────────────────────────────────
+
+/**
+ * Atomically check whether the racks panel is showing the rack list or the rack
+ * detail view.  Returns "list" when rack-add-btn is present, "detail" when
+ * palette-drop-zone is present, or null when neither is present yet (caller
+ * should use waitUntil).
+ *
+ * Uses a single browser.execute() call so the two checks are atomic — no
+ * inter-call state change risk.
+ */
+export async function waitForRackListOrDetail(
+  timeout = 30_000,
+): Promise<"list" | "detail"> {
+  return browser.waitUntil(
+    async () => {
+      const state = await browser.execute(() => {
+        if (document.querySelector('[data-testid="rack-add-btn"]')) return "list";
+        if (document.querySelector('[data-testid="palette-drop-zone"]')) return "detail";
+        return null;
+      });
+      return state ?? false;
+    },
+    {
+      timeout,
+      timeoutMsg: `Neither rack list (rack-add-btn) nor rack detail (palette-drop-zone) appeared within ${timeout} ms`,
+    },
+  ) as Promise<"list" | "detail">;
+}
+
+/**
+ * If the racks panel is currently showing rack detail, click the Back button
+ * (data-testid="rack-detail-back-btn") and wait for the rack list.
+ * No-op when already on the rack list.
+ */
+export async function ensureRackListView(timeout = 30_000): Promise<void> {
+  const state = await waitForRackListOrDetail(timeout);
+  if (state === "detail") {
+    const backBtn = browser.$('[data-testid="rack-detail-back-btn"]');
+    await backBtn.waitForDisplayed({ timeout: 10_000 });
+    await backBtn.click();
+    await browser.$('[data-testid="rack-add-btn"]').waitForDisplayed({ timeout: 15_000 });
+  }
+}
+
+// ── Relational assertion helpers ──────────────────────────────────────────────
+
+/**
+ * Assert the Location row shows exactly expectedCount in its Racks column.
+ *
+ * Location table column layout (0-indexed tds):
+ *   0: Name (<strong>)
+ *   1: Address
+ *   2: Description
+ *   3: Racks count (tbl-num tbl-mono)
+ *   4: Tags
+ *   5: Actions
+ */
+export async function expectLocationRackCount(
+  rowSelector: string,
+  locationName: string,
+  expectedCount: number,
+): Promise<void> {
+  const row = await findRowByExactName(rowSelector, locationName);
+  const actual = await browser.execute((el: Element) => {
+    const tds = el.querySelectorAll("td");
+    const cell = tds[3];
+    return cell ? (cell.textContent ?? "").trim() : null;
+  }, row as unknown as Element);
+
+  if (actual === null) {
+    throw new Error(
+      `expectLocationRackCount: rack count cell (td[3]) not found in row "${locationName}"`,
+    );
+  }
+  const parsed = Number(actual);
+  if (isNaN(parsed) || parsed !== expectedCount) {
+    throw new Error(
+      `expectLocationRackCount: expected rack count ${expectedCount} for location "${locationName}", got "${actual}"`,
+    );
+  }
+}
+
+/**
+ * Assert the Rack row shows exactly expectedFront and expectedRear in its Front
+ * and Rear placement count cells.
+ *
+ * Rack table column layout (0-indexed tds):
+ *   0: Name (<strong>)
+ *   1: Row (tbl-mono)
+ *   2: Height (tbl-num tbl-mono)
+ *   3: Front (<Badge> — text: "{n} placed")
+ *   4: Rear  (<Badge> — text: "{n} placed")
+ *   5: Utilization
+ *   6: Actions
+ */
+export async function expectRackPlacementCounts(
+  rackName: string,
+  expectedFront: number,
+  expectedRear: number,
+): Promise<void> {
+  const row = await findRowByExactName("[data-rack-code]", rackName);
+  const counts = await browser.execute((el: Element) => {
+    const tds = el.querySelectorAll("td");
+    const front = tds[3] ? (tds[3].textContent ?? "").trim() : null;
+    const rear  = tds[4] ? (tds[4].textContent ?? "").trim() : null;
+    return { front, rear };
+  }, row as unknown as Element);
+
+  const expectedFrontText = `${expectedFront} placed`;
+  const expectedRearText  = `${expectedRear} placed`;
+
+  if (counts.front !== expectedFrontText) {
+    throw new Error(
+      `expectRackPlacementCounts: rack "${rackName}" front expected "${expectedFrontText}", got "${counts.front}"`,
+    );
+  }
+  if (counts.rear !== expectedRearText) {
+    throw new Error(
+      `expectRackPlacementCounts: rack "${rackName}" rear expected "${expectedRearText}", got "${counts.rear}"`,
+    );
+  }
+}
+
+/**
+ * Assert the Device row shows the expected model name and placement status badge.
+ *
+ * Device table column layout (0-indexed tds):
+ *   0: Type icon
+ *   1: Name (<strong>)
+ *   2: device_type (tbl-mono)
+ *   3: Status badge
+ *   4: Placed/Unplaced badge (exact text: "placed" or "unplaced")
+ *   5: Model name (or "no model")
+ *   6: Serial
+ *   7: Asset tag
+ *   8: Actions
+ *
+ * expectedPlacementStatus must be "placed" or "unplaced" (exact badge text).
+ */
+export async function expectDeviceRowState(
+  deviceName: string,
+  expectedModelName: string | null,
+  expectedPlacementStatus: "placed" | "unplaced",
+): Promise<void> {
+  const row = await findRowByExactName("[data-device-code]", deviceName);
+  const state = await browser.execute((el: Element) => {
+    const tds = el.querySelectorAll("td");
+    const placedCell = tds[4] ? (tds[4].textContent ?? "").trim() : null;
+    const modelCell  = tds[5] ? (tds[5].textContent ?? "").trim() : null;
+    return { placedCell, modelCell };
+  }, row as unknown as Element);
+
+  if (state.placedCell !== expectedPlacementStatus) {
+    throw new Error(
+      `expectDeviceRowState: device "${deviceName}" placement badge expected ` +
+      `"${expectedPlacementStatus}", got "${state.placedCell}"`,
+    );
+  }
+
+  const expectedModel = expectedModelName ?? "no model";
+  if (state.modelCell !== expectedModel) {
+    throw new Error(
+      `expectDeviceRowState: device "${deviceName}" model cell expected ` +
+      `"${expectedModel}", got "${state.modelCell}"`,
+    );
+  }
+}
+
+/**
+ * Assert exactly one placement card exists for a device at a given U position.
+ *
+ * Placement cards in RackUnitDiagram have:
+ *   data-device-code={target_code}
+ *   data-start-u={start_u}
+ *
+ * Checks that exactly one element matches both attributes and is displayed.
+ */
+export async function expectExactlyOnePlacement(
+  deviceCode: string,
+  startU: number,
+): Promise<void> {
+  const selector = `[data-device-code="${deviceCode}"][data-start-u="${startU}"]`;
+  const cards = await browser.$$(selector);
+  if (cards.length !== 1) {
+    throw new Error(
+      `expectExactlyOnePlacement: expected exactly 1 placement card for ` +
+      `deviceCode="${deviceCode}" startU=${startU}, found ${cards.length}`,
+    );
+  }
+  if (!(await cards[0].isDisplayed())) {
+    throw new Error(
+      `expectExactlyOnePlacement: placement card for deviceCode="${deviceCode}" ` +
+      `startU=${startU} exists but is not displayed`,
     );
   }
 }
