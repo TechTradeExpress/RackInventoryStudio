@@ -700,7 +700,7 @@ and native `.click()` fires `mousedown` which lands on the backdrop overlay and 
 
 ### Stage 3B.1 — Entity updates and work mode
 
-**Status: IN REVIEW** (PR targeting `roadmap/e2e-wdio`)
+**Status: COMPLETED** (merged as PR #149, merge commit `abcb8e4`)
 
 Delivered through `feature/e2e-wdio-entity-updates-work-mode`.
 
@@ -721,25 +721,78 @@ Edit buttons use existing `aria-label="Edit <name>"` pattern; form field testids
 (`field-name`, `field-height-u`, `field-row`, `field-model-sku`, `field-status`,
 `field-serial`) and submit testids were already present from Stage 1.
 
+**Validation (Linux, 2026-07-16):**
+
+| Run | Result | Duration | Exit |
+|-----|--------|----------|------|
+| Full suite (7 specs) | PASSED 7/7 | — | 0 |
+| TypeScript | 0 errors | — | 0 |
+| Vitest | passed | — | 0 |
+| GitHub checks (CI #29809393075) | All green | — | — |
+
 ### Stage 3B.2 — Delete flows and destructive-operation guards
+
+**Status: IN REVIEW** (PR targeting `roadmap/e2e-wdio`)
+
+Delivered through `feature/e2e-wdio-destructive-guards`.
+
+> **Architecture note:** `entity-updates-work-mode.e2e.ts` runs approximately 57 minutes
+> against a 60-minute Mocha timeout (~3-minute margin).  Stage 3B.2 **is implemented
+> as a separate spec** — extending the existing scenario further would exceed the timeout.
+> The 60-minute limit should not be increased without a separate architectural decision.
+
+**Scope:**
+
+Two independent specs, each creating its own isolated repository:
+
+- **`entity-deletes.e2e.ts`** — Four successful delete workflows (leaf-to-parent):
+  - Delete device (unplaced, no model) → delete device model → delete rack (no placements)
+    → delete location (no racks)
+  - Cancel assertion: dialog appears and entity survives cancel
+  - Persistence: save + close + reopen → all four entities absent
+- **`destructive-guards.e2e.ts`** — Four relationship guard workflows (all blocked):
+  - Guard location (rack references it) → guard rack (placement references it)
+    → guard device model (device references it) → guard device (placed in rack)
+  - Aggregate verification: all four entities intact, placement at U1 still present
+  - Dirty-state assertion: close without `UnsavedChangesDialog` (guards do not mutate state)
+  - Persistence: reopen → full graph still present
+
+**New selectors added to application source:**
+
+| Selector | Element | Location |
+|----------|---------|----------|
+| `confirm-dialog-confirm` | Confirm button in `ConfirmDialog` footer | `ConfirmDialog.tsx` |
+| `confirm-dialog-cancel` | Cancel button in `ConfirmDialog` footer | `ConfirmDialog.tsx` |
+| `location-delete-error` | Wrapper `<div>` around delete error `Banner` | `LocationsPanel` |
+| `rack-delete-error` | Wrapper `<div>` around delete error `Banner` | `RacksPanel` |
+| `device-model-delete-error` | Wrapper `<div>` around delete error `Banner` | `DeviceModelsPanel` |
+| `device-delete-error` | Wrapper `<div>` around delete error `Banner` | `DevicesPanel` |
+
+Delete trigger buttons use the existing `aria-label="Delete <name>"` pattern scoped to the
+exact entity row — no new testid needed for the trigger itself.  ConfirmDialog buttons are
+clicked via `browser.execute()` synthetic click to bypass the WebKitGTK modal-backdrop
+`mousedown` intercept.  Row delete buttons are safe to native `.click()`.
+
+**Shared support:** `apps/desktop/e2e-wdio/support/destructive-ui.ts` — 10 helpers
+covering atomic DOM reads, row finders, delete interaction, and error banner assertions.
+
+**Coverage: 8 workflows** promoted from NEEDS SELECTOR → COVERED.
+
+See [`docs/E2E_WDIO_COVERAGE_GAPS.md`](E2E_WDIO_COVERAGE_GAPS.md) for the full matrix.
+
+### Stage 3C — Remaining placement workflows
 
 **Status: PLANNED**
 
 Not yet started.  Scope pending.
 
-> **Architecture note:** `entity-updates-work-mode.e2e.ts` runs approximately 57 minutes
-> against a 60-minute Mocha timeout (~3-minute margin).  Stage 3B.2 **must be implemented
-> as a separate spec** — extending this scenario further would exceed the timeout.  The
-> 60-minute limit should not be increased without a separate architectural decision.
-
-Representative scope from the Tier 2 list in the gap analysis:
-- Delete entity (requires ConfirmDialog confirm button testid)
-- Delete with relationship constraint
+Representative scope from the MISSING list in the gap analysis:
 - Edit placement height U (`height-u-input` in `EditPlacementModal`)
-- Remove placement via `EditPlacementModal` remove button
-- `PlacementInspectorPanel` navigate to device / model
+- Remove placement via `EditPlacementModal` remove button (distinct confirm label "Remove placement")
+- `PlacementInspectorPanel` navigate to device (`edit-target-device-btn`)
+- `PlacementInspectorPanel` navigate to model (`edit-target-model-btn`)
 
-See [`docs/E2E_WDIO_COVERAGE_GAPS.md`](E2E_WDIO_COVERAGE_GAPS.md) for the full matrix.
+All required selectors are already present in application source.
 
 ## Future stages
 

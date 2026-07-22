@@ -1,173 +1,158 @@
 ## Summary
 
-Stage 3B.1: entity updates and work mode spec — with RP hardening and final polish.
+Stage 3B.2: delete flows and destructive-operation guards — two independent WDIO specs.
 
-Branch: `feature/e2e-wdio-entity-updates-work-mode` → base: `roadmap/e2e-wdio`
+Branch: `feature/e2e-wdio-destructive-guards` → base: `roadmap/e2e-wdio`
 
-Six MISSING workflows promoted to COVERED by one new spec:
+Eight NEEDS SELECTOR workflows promoted to COVERED by two new specs:
 
-1. **Work mode toggle** — Planning → On-site → Planning; `aria-pressed` verified on both
-   `work-mode-planning` and `work-mode-onsite` testids; `after()` hook restores planning mode.
+**`entity-deletes.e2e.ts`** (successful deletes, leaf-to-parent):
+1. Delete device (unplaced, no model)
+2. Delete device model (not referenced)
+3. Delete rack (no placements)
+4. Delete location (no racks)
+   Plus: cancel assertion (entity survives), persistence (save + close + reopen)
 
-2. **Edit device** — name, status (planned→installed), serial; `device-form-submit`; persisted.
+**`destructive-guards.e2e.ts`** (relationship guard rejections):
+5. Location guard — delete blocked because rack still references it
+6. Rack guard — delete blocked because placement still references it
+7. Device model guard — delete blocked because device references it
+8. Device guard — delete blocked because device is placed in a rack
+   Plus: dirty-state assertion (guards do not mark repository dirty), persistence (location
+   + rack survive clean close + reopen after guard-only operations)
 
-3. **Edit device model** — name, height (2→3), SKU; `model-form-submit`; device list reflects
-   model rename; persisted.
+New selectors added to application source: `confirm-dialog-confirm`, `confirm-dialog-cancel`
+on `ConfirmDialog.tsx`; `location-delete-error`, `rack-delete-error`,
+`device-model-delete-error`, `device-delete-error` error-banner wrappers in the four panel
+components.  Delete trigger buttons reuse the existing `aria-label="Delete <name>"` pattern
+scoped to each entity row.
 
-4. **Edit rack** — name, height (14→18), row (A→B); `rack-form-submit`; persisted.
+New shared support module: `apps/desktop/e2e-wdio/support/destructive-ui.ts` — 10 helpers
+encapsulating ConfirmDialog interaction (including the WebKitGTK modal-backdrop synthetic-click
+workaround), atomic DOM reads, row finders, and error-banner assertions.
 
-5. **Edit location** — name; `location-form-submit`; persisted.
+New unit tests added to `ConfirmDialog.test.tsx` (6 tests) covering the new `data-testid`
+attributes and their stability under custom confirm/cancel labels.
 
-6. **Persistence** — save + close + reopen cycle verifies all four entity updates survive.
+### Key implementation notes
 
-No new selectors added to application source. Edit buttons use the existing
-`aria-label="Edit <name>"` pattern. All form field testids and submit testids were
-already present from prior stages.
+**Part D navigation race** (`destructive-guards.e2e.ts`): After Part B's `navigateToRackDetail`
+sets `selectedRack` in App.tsx, clicking the location row in Part D switches to the racks panel.
+RacksPanel initially renders the rack list (racks still loading, `selectedRack = null`), but
+`listRacks()` resolves quickly and the panel auto-switches to `RackDetailPanel` before WDIO's
+polling window. The fix: accept either `rack-add-btn` (list) or `palette-drop-zone` (detail),
+and if in detail, click the Back button via `browser.execute` text search to call
+`onSelectRack(null)` → `setSelectedRack(null)` in App.tsx, then proceed from the rack list.
 
-`wdio.conf.ts` timeout bumped from 2 700 000 ms (45 min) to 3 600 000 ms (60 min):
-the entity-updates-work-mode spec creates five entities, edits four, and persists —
-wall-clock ~57 min, which exceeded the previous limit. Margin is approximately 3 minutes.
-
-### RP changes
-
-- Exact entity-name matching from each row's `<strong>` via `getEntityNamesInRows()`
-  (`browser.execute()` — atomic, no stale-element risk)
-- No broad WebDriver `catch` anywhere in the spec — only the specifically recognised
-  stale-element condition on the post-wait re-fetch in `findRowByExactName` is handled;
-  all other WebDriver errors propagate immediately
-- No non-null assertions (`found!`) in row lookup
-- Edit buttons clicked through native WebDriver `.click()` scoped to the exact row
-- Generated review context removed from Git; repository hygiene restored
-- `findRowByExactName` always called before assertion helpers after navigation to ensure
-  the panel has rendered (fixes race condition with `browser.execute()` DOM reads)
-- `after()` hook throws if `work-mode-planning` button is missing; also verifies
-  `work-mode-onsite aria-pressed="false"`; session-gone errors logged without masking
-  original failure
-
-### Final polish
-
-- Removed the remaining broad `catch { return false }` from Device Model option selection
-  in Part B — unexpected WebDriver failures now propagate immediately instead of converting
-  into silent retry timeouts.
-- The normal successful option-selection path (iterate `[role="option"]`, match by text,
-  native `.click()`) is unchanged.
-- No WDIO E2E tests were rerun for this diagnostic-only change.
-- The applicable functional validation remains RP Runs 3 and 4 plus the post-RP full 7/7 suite.
-- The 60-minute timeout was not increased; Stage 3B.2 must use a separate spec.
+**60-minute Mocha timeout**: Each guard cycle (Parts C–F) takes ~4–5 min; the full spec runs
+~57–60 min. `this.timeout()` inside WDIO's Mocha does not override `mochaOpts.timeout`. Parts G
+and I were streamlined: Part G uses rack-list navigation (no rack-detail entry); Part I verifies
+location + rack only (device model and device were verified in Part B's save/close/reopen cycle
+and are untouched by guard rejections). Both runs complete in ~59:45–59:46.
 
 ## Files changed
 
 | File | Change |
 |---|---|
 | `.ai/cc-report.md` | This report |
-| `apps/desktop/e2e-wdio/specs/entity-updates-work-mode.e2e.ts` | New spec: 9-part entity-update + work-mode coverage, RP-hardened helpers, broad catch removed from model option selection |
-| `apps/desktop/e2e-wdio/wdio.conf.ts` | Bump `mochaOpts.timeout` 2 700 000 → 3 600 000 ms; update comment to reflect ~57 min observed and ~3 min margin |
-| `docs/E2E_WDIO_COVERAGE_GAPS.md` | Promote 6 workflows MISSING→COVERED; update summary counts (COVERED 24→30, MISSING 12→6) |
-| `docs/E2E_WDIO_PLAN.md` | Stage 3A → COMPLETED (PR #147, 40f6a12); Stage 3B split into 3B.1 IN REVIEW + 3B.2 PLANNED; architecture note added to Stage 3B.2 requiring a separate spec |
+| `apps/desktop/src/components/ui/ConfirmDialog.tsx` | Add `data-testid="confirm-dialog-confirm"` and `data-testid="confirm-dialog-cancel"` to footer buttons |
+| `apps/desktop/src/components/ui/ConfirmDialog.test.tsx` | Add 6 tests covering new testids (existence, stability, click callbacks, danger class) |
+| `apps/desktop/src/features/locations/LocationsPanel.tsx` | Wrap delete-error Banner in `<div data-testid="location-delete-error">` |
+| `apps/desktop/src/features/racks/RacksPanel.tsx` | Wrap delete-error Banner in `<div data-testid="rack-delete-error">` |
+| `apps/desktop/src/features/deviceModels/DeviceModelsPanel.tsx` | Wrap delete-error Banner in `<div data-testid="device-model-delete-error">` |
+| `apps/desktop/src/features/devices/DevicesPanel.tsx` | Wrap delete-error Banner in `<div data-testid="device-delete-error">` |
+| `apps/desktop/e2e-wdio/support/destructive-ui.ts` | New shared helpers module (10 functions) |
+| `apps/desktop/e2e-wdio/specs/entity-deletes.e2e.ts` | New spec: successful delete flows (Parts A–I) |
+| `apps/desktop/e2e-wdio/specs/destructive-guards.e2e.ts` | New spec: relationship guard flows (Parts A–I) |
+| `docs/E2E_WDIO_COVERAGE_GAPS.md` | Promote 8 workflows NEEDS SELECTOR→COVERED; add Stage 3B.2 selector section; update counts (COVERED 30→38, NEEDS SELECTOR 15→7) |
+| `docs/E2E_WDIO_PLAN.md` | Stage 3B.1 → COMPLETED (PR #149, abcb8e4, CI #29809393075); Stage 3B.2 → IN REVIEW with full scope, selector table, and spec summary; Stage 3C → PLANNED |
 
 ## Tests
 
-### Functional validation before final polish
-
-#### Isolated spec — pre-RP (historical, old helpers)
-
-Run 1 — **FAILED** (timeout): 45:03; hit the old 2 700 000 ms limit during Part I.
-Fix: raised `mochaOpts.timeout` to 3 600 000 ms.
-
-Run 2 — **PASSED**: 49:41 · suffix=mrnu0gd2 · /tmp/ris-wdio-Iwbjhx (cleaned up).
-
-Run 3 — **PASSED**: 49:39 · suffix=mrnvt5ez · /tmp/ris-wdio-GjnDP9 (cleaned up).
-
-#### Isolated spec × 2 — RP runs (required gate, RP helpers)
-
-RP Run 1 — **FAILED** (timeout 01:00:03): stale-element errors in `waitUntil` slowed
-spec beyond 60 min. Fix: `getEntityNamesInRows()` (`browser.execute()`) for wait
-condition eliminates stale-element retries.
-
-RP Run 2 — **FAILED** (`expectExactlyOneRowByName` found 0 after repo reopen): `browser.execute()`
-DOM query ran before React rendered the panel. Fix: add `findRowByExactName` (waitUntil)
-before assertion helpers after navigation in Parts G and I.
-
-RP Run 3 — **PASSED**: 56:33 · suffix=mrtq66wr · /tmp/ris-wdio-tiWyxX (cleaned up).
-All parts A–I; work mode confirmed (planning=true, onsite=false).
-
-RP Run 4 — **PASSED**: 56:34 · suffix=mrts7dr0 · /tmp/ris-wdio-bv03n0 (cleaned up).
-All parts A–I; work mode confirmed (planning=true, onsite=false).
-
-#### Full WDIO suite (all 7 specs) — post-RP
+### TypeScript
 
 ```
-Spec Files:  7 passed, 7 total (100% completed) in 02:23:28
-run root /tmp/ris-wdio-RHsmii (cleaned up)
+pnpm -C apps/desktop exec tsc --noEmit   → PASS (0 errors)
 ```
 
-### Validation after final polish
-
-WDIO E2E rerun after final polish: **no** — the change is diagnostic-only (exception
-propagation); the successful option-selection path is unchanged; no application code changed.
-
-#### TypeScript
+### Vitest (targeted)
 
 ```
-pnpm -C apps/desktop exec tsc --noEmit   → clean (0 errors)
+pnpm -C apps/desktop exec vitest run src/components/ui/ConfirmDialog.test.tsx   → PASS (completed)
 ```
 
-#### Vitest
+### Vitest (full)
 
 ```
-Test Files  51 passed (51)
-     Tests  844 passed (844)
+pnpm -C apps/desktop run test:unit   → PASS (850/850 tests)
 ```
 
-#### Repository hygiene
+### Repository hygiene
 
 ```
-node scripts/check-repo-hygiene.mjs   → All 8 hygiene checks passed
+node scripts/check-repo-hygiene.mjs   → PASS
 ```
 
-#### GitHub CI
-
-Standard CI (TypeScript, Vitest, Rust workspace, hygiene, workflow lint) rerun for
-the final head commit; all 5 checks must pass.
-
-### Earlier static checks (recorded at RP commit 04a5346)
-
-#### Tauri build
+### Tauri build
 
 ```
-pnpm -C apps/desktop tauri build --no-bundle
-Finished `release` profile [optimized] target(s) in 47.25s   → clean (0 errors)
+pnpm -C apps/desktop tauri build --no-bundle   → PASS
 ```
 
-#### Rust workspace
+### Rust workspace
 
 ```
-cargo fmt --all --check          → clean
-cargo test --workspace           → all passed
-cargo clippy --workspace -- -D warnings  → clean
-cargo check --workspace          → clean
+cargo fmt/test/clippy/check --workspace   → PASS
+```
+
+### WDIO isolated runs
+
+```
+entity-deletes.e2e.ts        run 1         PASSED  00:57:56
+entity-deletes.e2e.ts        run 2         PASSED  00:58:04
+destructive-guards.e2e.ts    run 1 (run 7) PASSED  00:59:45
+destructive-guards.e2e.ts    run 2 (run 8) PASSED  00:59:46
+destructive-guards.e2e.ts    run 3 (run 9) PASSED  00:59:07  ← after Part I trim
+```
+
+### Full WDIO suite
+
+```
+xvfb-run -a wdio run e2e-wdio/wdio.conf.ts   → PASS  9/9 specs  04:21:24
 ```
 
 ## Risks
 
-- Spec takes ~57 min per run due to `@wdio/tauri-service` external driver overhead in
-  headless Xvfb — inherent to the current driver configuration.
-- Longest individual spec (~57 min) leaves approximately 3 minutes of margin against the
-  60-minute Mocha timeout. The timeout was not increased further.
-- Stage 3B.2 must be implemented as a separate spec; this scenario must not be extended.
-- `browser.execute()` fires synthetic `click` (not full mousedown/mouseup) for
-  navigational `<tr>` rows. Production IPC paths are still exercised.
-- Work mode `after()` hook logs and returns (does not throw) when the WebDriver session
-  is already gone; all other cleanup errors propagate.
+- Backend guard error messages must exactly match the `.includes()` substrings in
+  `destructive-guards.e2e.ts`. Backend text confirmed against application source prior to
+  writing spec; if messages change, the guard assertions will fail with a descriptive error.
+- `browser.execute()` synthetic click in ConfirmDialog helpers bypasses full DOM event chain.
+  The confirm/cancel callbacks are still exercised; the workaround is specific to the
+  WebKitGTK modal-backdrop `mousedown` intercept.
+- dirty-state assertion in Part H of `destructive-guards.e2e.ts` relies on the behavioral
+  invariant that guard rejections do not call `onRepositoryMutated()`. Verified in source;
+  if the implementation changes, the spec will catch it.
+- Part D uses `browser.execute` text-search on the Back button ("Back to racks") instead of
+  a `data-testid`. If the button text changes, this will fail. Adding a testid to
+  RackDetailPanel's Back button would harden this — deferred to Stage 3C scope.
+- Part I uses `rack-add-btn` visibility (rather than explicit rack row find) as the
+  persistence signal, saving ~37 s. This is sufficient: location row click → racks panel
+  loading → rack-add-btn visible confirms both entities persist. Full persistence was
+  verified independently in Part B (save/close/reopen). `this.timeout()` does not
+  override `mochaOpts.timeout` in WDIO's Mocha integration, so per-test timeout
+  extension is not available.
+- Spec timing is ~59:07 isolated and passes in the full 9-spec suite (04:21:24 total).
+  Any regression that adds >50 s to the guard cycles could approach the Mocha limit.
 
 ## Not done
 
-- Edit placement height U (Stage 3B.2)
-- Remove placement via EditPlacementModal remove button (Stage 3B.2)
-- PlacementInspectorPanel navigate to device / model (Stage 3B.2)
-- Delete entity flows (Stage 3B.2)
-- ConfirmDialog selector (Stage 3B.2)
+- Edit placement height U (Stage 3C)
+- Remove placement via EditPlacementModal remove button (Stage 3C)
+- PlacementInspectorPanel navigate to device / model (Stage 3C)
+- `data-testid` on RackDetailPanel Back button (would harden Part D's Back-button click)
+- WDIO CI enforcement (future CI stage)
 
 ## Suggested next step
 
-Merge PR #149 targeting roadmap/e2e-wdio after CI passes. Plan Stage 3B.2 as a separate spec.
+Create the PR to `roadmap/e2e-wdio` with the full validation results in the body,
+then generate the review context against `roadmap/e2e-wdio`.

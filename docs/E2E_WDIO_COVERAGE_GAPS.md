@@ -81,8 +81,8 @@ buttons (Init, Validate, Commit, Add remote, Push, Pull).
 |----------|--------|-------|
 | Create location | COVERED | `core-inventory` |
 | Edit location | COVERED | `entity-updates-work-mode` Stage 3B.1 |
-| Delete location — no racks (confirm dialog) | NEEDS SELECTOR | `ConfirmDialog` has no `data-testid` on confirm button |
-| Delete location — racks exist (constraint error) | NEEDS SELECTOR | Same; backend likely returns an error |
+| Delete location — no racks (confirm dialog) | COVERED | `entity-deletes` Stage 3B.2 |
+| Delete location — racks exist (constraint error) | COVERED | `destructive-guards` Stage 3B.2 |
 
 ---
 
@@ -93,8 +93,8 @@ buttons (Init, Validate, Commit, Add remote, Push, Pull).
 | Create rack | COVERED | `core-inventory` |
 | Navigate to rack via location row click | COVERED | `core-inventory` |
 | Edit rack | COVERED | `entity-updates-work-mode` Stage 3B.1 |
-| Delete rack — no placements (confirm dialog) | NEEDS SELECTOR | `ConfirmDialog` has no `data-testid` on confirm button |
-| Delete rack — placements exist (constraint error) | NEEDS SELECTOR | Same; backend constraint |
+| Delete rack — no placements (confirm dialog) | COVERED | `entity-deletes` Stage 3B.2 |
+| Delete rack — placements exist (constraint error) | COVERED | `destructive-guards` Stage 3B.2 |
 
 ---
 
@@ -104,8 +104,8 @@ buttons (Init, Validate, Commit, Add remote, Push, Pull).
 |----------|--------|-------|
 | Create device model (server, 1U) | COVERED | `core-inventory` |
 | Edit device model | COVERED | `entity-updates-work-mode` Stage 3B.1 |
-| Delete device model — no devices (confirm dialog) | NEEDS SELECTOR | `ConfirmDialog` has no testid |
-| Delete device model — devices exist (constraint error) | NEEDS SELECTOR | Same; backend constraint |
+| Delete device model — no devices (confirm dialog) | COVERED | `entity-deletes` Stage 3B.2 |
+| Delete device model — devices exist (constraint error) | COVERED | `destructive-guards` Stage 3B.2 |
 
 ---
 
@@ -116,8 +116,8 @@ buttons (Init, Validate, Commit, Add remote, Push, Pull).
 | Create device (with model, planned status) | COVERED | `core-inventory` |
 | Unplaced badge after creation | COVERED | `core-inventory` |
 | Edit device | COVERED | `entity-updates-work-mode` Stage 3B.1 |
-| Delete device — unplaced (confirm dialog) | NEEDS SELECTOR | `ConfirmDialog` has no testid |
-| Delete placed device — must unplace first | NEEDS SELECTOR | Same; backend guard |
+| Delete device — unplaced (confirm dialog) | COVERED | `entity-deletes` Stage 3B.2 |
+| Delete placed device — must unplace first | COVERED | `destructive-guards` Stage 3B.2 |
 
 ---
 
@@ -225,6 +225,22 @@ written without touching application source.
 | PlacementInspector → model | `edit-target-model-btn` |
 | Work mode toggle | `work-mode-planning`, `work-mode-onsite` |
 
+### Selectors added in Stage 3B.2
+
+Delete flows and guards are now covered.  The selectors added to enable them:
+
+| Selector | Element | Location |
+|----------|---------|----------|
+| `confirm-dialog-confirm` | Confirm button in `ConfirmDialog` footer | `ConfirmDialog.tsx` |
+| `confirm-dialog-cancel` | Cancel button in `ConfirmDialog` footer | `ConfirmDialog.tsx` |
+| `location-delete-error` | Wrapper `<div>` around delete error `Banner` | `LocationsPanel` |
+| `rack-delete-error` | Wrapper `<div>` around delete error `Banner` | `RacksPanel` |
+| `device-model-delete-error` | Wrapper `<div>` around delete error `Banner` | `DeviceModelsPanel` |
+| `device-delete-error` | Wrapper `<div>` around delete error `Banner` | `DevicesPanel` |
+
+Delete trigger buttons use the existing `aria-label="Delete <entity name>"` pattern
+scoped to the exact entity row — no new testid needed for the trigger button itself.
+
 ### Needs one or more selectors
 
 These workflows need `data-testid` added to application source before a spec
@@ -232,8 +248,6 @@ can use stable selectors.
 
 | Workflow | What needs a testid |
 |----------|---------------------|
-| Delete location / rack / model / device | `ConfirmDialog` confirm button; delete trigger buttons in each panel |
-| Delete with relationship constraint | Same confirm button; also error banner in each panel |
 | Device Model CSV preview | `DeviceModelPreviewTable` needs a testid (like `csv-device-model-preview-table`) |
 | Global search | Search input, result items, or result container |
 | Validation panel actions | Validate button, save button, issue rows |
@@ -306,7 +320,7 @@ Suggested selector additions:
 
 ## Summary counts
 
-Counts updated after Stage 3B.1 (entity updates and work mode) — 2026-07-16.
+Counts updated after Stage 3B.2 (delete flows and destructive-operation guards) — 2026-07-21.
 
 Stage 3A changed three existing MISSING workflows to COVERED:
 edit placement (start U), remove placement via inspector, open edit modal via inspector.
@@ -318,15 +332,24 @@ Stage 3B.1 changed six existing MISSING workflows to COVERED:
 edit location, edit rack, edit device model, edit device, toggle to on-site, toggle to planning.
 Net effect: COVERED +6, MISSING −6, total unchanged.
 
+Stage 3B.2 changed eight existing NEEDS SELECTOR workflows to COVERED:
+delete location (no racks), delete location (racks exist — guard), delete rack (no placements),
+delete rack (placements exist — guard), delete device model (no devices), delete device model
+(devices exist — guard), delete device (unplaced), delete placed device (guard).
+New selectors added: `confirm-dialog-confirm`, `confirm-dialog-cancel`, and four delete-error
+banner wrappers (`location-delete-error`, `rack-delete-error`, `device-model-delete-error`,
+`device-delete-error`).  Delete trigger buttons use existing `aria-label="Delete <name>"`.
+Net effect: COVERED +8, NEEDS SELECTOR −8, total unchanged.
+
 | Status | Count |
 |--------|-------|
-| COVERED | 30 |
+| COVERED | 38 |
 | PARTIAL | 0 |
 | MISSING | 6 |
-| NEEDS SELECTOR | 15 |
+| NEEDS SELECTOR | 7 |
 | DEFERRED | 9 |
 | NOT JUSTIFIED | 7 |
 | **Total workflows inventoried** | **67** |
 
-Current E2E coverage: **30 / 67 workflows** (45%).
-Stage 3B.2 target (delete flows): estimated further reduction of MISSING count.
+Current E2E coverage: **38 / 67 workflows** (57%).
+Stage 3C target (remaining placement MISSING workflows): estimated further reduction.
