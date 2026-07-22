@@ -1,8 +1,8 @@
 # Desktop E2E Coverage Gap Analysis
 
-Generated: 2026-07-15
-Branch: `feature/e2e-wdio-coverage-gap-review`
-Base: `roadmap/e2e-wdio` at `9514cae`
+Generated: 2026-07-22 (updated for Stage 3B.2 repair pass, PR #152)
+Branch: `feature/e2e-wdio-destructive-guards`
+Base: `roadmap/e2e-wdio`
 
 ## Purpose
 
@@ -27,7 +27,7 @@ browser-mode and Vitest/Rust unit tests are separate layers not considered here.
 
 ---
 
-## Existing specs (as of Stage 2)
+## Existing specs (as of Stage 3B.2)
 
 | Spec file | What it covers |
 |-----------|----------------|
@@ -36,6 +36,12 @@ browser-mode and Vitest/Rust unit tests are separate layers not considered here.
 | `core-inventory.e2e.ts` | Location + Rack + Model + Device create; place at U1; persist after close/reopen |
 | `safety-recovery.e2e.ts` | Clone URL safety (3 unsafe + 1 control); open-path recovery (2 cases) |
 | `csv-import.e2e.ts` | Device CSV preview + import + persist; negative: missing required column |
+| `placement-lifecycle.e2e.ts` | Place at U1; edit → move to U5; persist; remove via inspector; persist removal |
+| `entity-updates-work-mode.e2e.ts` | Work mode toggle; edit all four entity types; persist after close/reopen |
+| `entity-deletes-inventory.e2e.ts` | Delete device model (unreferenced) + device (unplaced); cancel assertion; persist |
+| `entity-deletes-hierarchy.e2e.ts` | Delete rack (no placements) + location (no racks); persist; relational count checks |
+| `destructive-guards-inventory.e2e.ts` | Guard: device model (device references it); guard: device (placed in rack); full 7-part graph assertions |
+| `destructive-guards-hierarchy.e2e.ts` | Guard: location (rack references it); guard: rack (placement references it); full 7-part graph assertions |
 
 ---
 
@@ -81,8 +87,8 @@ buttons (Init, Validate, Commit, Add remote, Push, Pull).
 |----------|--------|-------|
 | Create location | COVERED | `core-inventory` |
 | Edit location | COVERED | `entity-updates-work-mode` Stage 3B.1 |
-| Delete location — no racks (confirm dialog) | COVERED | `entity-deletes` Stage 3B.2 |
-| Delete location — racks exist (constraint error) | COVERED | `destructive-guards` Stage 3B.2 |
+| Delete location — no racks (confirm dialog) | COVERED | `entity-deletes-hierarchy` Stage 3B.2 |
+| Delete location — racks exist (constraint error) | COVERED | `destructive-guards-hierarchy` Stage 3B.2 |
 
 ---
 
@@ -93,8 +99,8 @@ buttons (Init, Validate, Commit, Add remote, Push, Pull).
 | Create rack | COVERED | `core-inventory` |
 | Navigate to rack via location row click | COVERED | `core-inventory` |
 | Edit rack | COVERED | `entity-updates-work-mode` Stage 3B.1 |
-| Delete rack — no placements (confirm dialog) | COVERED | `entity-deletes` Stage 3B.2 |
-| Delete rack — placements exist (constraint error) | COVERED | `destructive-guards` Stage 3B.2 |
+| Delete rack — no placements (confirm dialog) | COVERED | `entity-deletes-hierarchy` Stage 3B.2 |
+| Delete rack — placements exist (constraint error) | COVERED | `destructive-guards-hierarchy` Stage 3B.2 |
 
 ---
 
@@ -104,8 +110,8 @@ buttons (Init, Validate, Commit, Add remote, Push, Pull).
 |----------|--------|-------|
 | Create device model (server, 1U) | COVERED | `core-inventory` |
 | Edit device model | COVERED | `entity-updates-work-mode` Stage 3B.1 |
-| Delete device model — no devices (confirm dialog) | COVERED | `entity-deletes` Stage 3B.2 |
-| Delete device model — devices exist (constraint error) | COVERED | `destructive-guards` Stage 3B.2 |
+| Delete device model — no devices (confirm dialog) | COVERED | `entity-deletes-inventory` Stage 3B.2 |
+| Delete device model — devices exist (constraint error) | COVERED | `destructive-guards-inventory` Stage 3B.2 |
 
 ---
 
@@ -116,8 +122,8 @@ buttons (Init, Validate, Commit, Add remote, Push, Pull).
 | Create device (with model, planned status) | COVERED | `core-inventory` |
 | Unplaced badge after creation | COVERED | `core-inventory` |
 | Edit device | COVERED | `entity-updates-work-mode` Stage 3B.1 |
-| Delete device — unplaced (confirm dialog) | COVERED | `entity-deletes` Stage 3B.2 |
-| Delete placed device — must unplace first | COVERED | `destructive-guards` Stage 3B.2 |
+| Delete device — unplaced (confirm dialog) | COVERED | `entity-deletes-inventory` Stage 3B.2 |
+| Delete placed device — must unplace first | COVERED | `destructive-guards-inventory` Stage 3B.2 |
 
 ---
 
@@ -320,7 +326,7 @@ Suggested selector additions:
 
 ## Summary counts
 
-Counts updated after Stage 3B.2 (delete flows and destructive-operation guards) — 2026-07-21.
+Counts updated after Stage 3B.2 repair pass (PR #152) — 2026-07-22.
 
 Stage 3A changed three existing MISSING workflows to COVERED:
 edit placement (start U), remove placement via inspector, open edit modal via inspector.
@@ -339,6 +345,9 @@ delete rack (placements exist — guard), delete device model (no devices), dele
 New selectors added: `confirm-dialog-confirm`, `confirm-dialog-cancel`, and four delete-error
 banner wrappers (`location-delete-error`, `rack-delete-error`, `device-model-delete-error`,
 `device-delete-error`).  Delete trigger buttons use existing `aria-label="Delete <name>"`.
+Specs delivered as four files: `entity-deletes-inventory`, `entity-deletes-hierarchy`,
+`destructive-guards-inventory`, `destructive-guards-hierarchy` (each under the 90-minute
+Mocha timeout).
 Net effect: COVERED +8, NEEDS SELECTOR −8, total unchanged.
 
 | Status | Count |

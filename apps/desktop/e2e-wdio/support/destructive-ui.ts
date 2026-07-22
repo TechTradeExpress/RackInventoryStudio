@@ -268,12 +268,15 @@ export async function expectNoDeleteError(testId: string): Promise<void> {
 
 /**
  * Atomically check whether the racks panel is showing the rack list or the rack
- * detail view.  Returns "list" when rack-add-btn is present, "detail" when
- * palette-drop-zone is present, or null when neither is present yet (caller
- * should use waitUntil).
+ * detail view.  Returns "list" when rack-add-btn is present, "detail" when BOTH
+ * palette-drop-zone AND rack-detail-back-btn are present, or null when neither
+ * stable state is present yet (caller should use waitUntil).
  *
- * Uses a single browser.execute() call so the two checks are atomic — no
- * inter-call state change risk.
+ * Requiring both elements for "detail" prevents returning "detail" during
+ * transient or residual DOM states where palette-drop-zone lingers from a
+ * previous render cycle while rack-detail-back-btn is absent.
+ *
+ * Uses a single browser.execute() call so all checks are atomic.
  */
 export async function waitForRackListOrDetail(
   timeout = 30_000,
@@ -282,14 +285,17 @@ export async function waitForRackListOrDetail(
     async () => {
       const state = await browser.execute(() => {
         if (document.querySelector('[data-testid="rack-add-btn"]')) return "list";
-        if (document.querySelector('[data-testid="palette-drop-zone"]')) return "detail";
+        if (
+          document.querySelector('[data-testid="palette-drop-zone"]') &&
+          document.querySelector('[data-testid="rack-detail-back-btn"]')
+        ) return "detail";
         return null;
       });
       return state ?? false;
     },
     {
       timeout,
-      timeoutMsg: `Neither rack list (rack-add-btn) nor rack detail (palette-drop-zone) appeared within ${timeout} ms`,
+      timeoutMsg: `Neither rack list (rack-add-btn) nor rack detail (palette-drop-zone + rack-detail-back-btn) appeared within ${timeout} ms`,
     },
   ) as Promise<"list" | "detail">;
 }
@@ -298,13 +304,15 @@ export async function waitForRackListOrDetail(
  * If the racks panel is currently showing rack detail, click the Back button
  * (data-testid="rack-detail-back-btn") and wait for the rack list.
  * No-op when already on the rack list.
+ *
+ * When waitForRackListOrDetail returns "detail", rack-detail-back-btn is
+ * guaranteed present in DOM — use native .click() (no modal backdrop here,
+ * no synthetic browser.execute() needed).
  */
 export async function ensureRackListView(timeout = 30_000): Promise<void> {
   const state = await waitForRackListOrDetail(timeout);
   if (state === "detail") {
-    const backBtn = browser.$('[data-testid="rack-detail-back-btn"]');
-    await backBtn.waitForDisplayed({ timeout: 10_000 });
-    await backBtn.click();
+    await browser.$('[data-testid="rack-detail-back-btn"]').click();
     await browser.$('[data-testid="rack-add-btn"]').waitForDisplayed({ timeout: 15_000 });
   }
 }

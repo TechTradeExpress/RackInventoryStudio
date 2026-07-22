@@ -732,30 +732,35 @@ Edit buttons use existing `aria-label="Edit <name>"` pattern; form field testids
 
 ### Stage 3B.2 — Delete flows and destructive-operation guards
 
-**Status: IN REVIEW** (PR targeting `roadmap/e2e-wdio`)
+**Status: IN REVIEW** (PR #152 targeting `roadmap/e2e-wdio`)
 
 Delivered through `feature/e2e-wdio-destructive-guards`.
 
-> **Architecture note:** `entity-updates-work-mode.e2e.ts` runs approximately 57 minutes
-> against a 60-minute Mocha timeout (~3-minute margin).  Stage 3B.2 **is implemented
-> as a separate spec** — extending the existing scenario further would exceed the timeout.
-> The 60-minute limit should not be increased without a separate architectural decision.
+> **Architecture note:** `entity-updates-work-mode.e2e.ts` runs approximately 57 minutes.
+> Stage 3B.2 **is implemented as separate specs** to avoid exceeding per-spec runtime limits.
+> The Mocha timeout was increased to 90 minutes (5,400,000 ms) in the PR #152 repair pass
+> to accommodate guard specs with 3× `navigateToRackDetail` + full 7-part graph assertions
+> (~70 min observed).
 
 **Scope:**
 
-Two independent specs, each creating its own isolated repository:
+Four independent specs, each creating its own isolated repository:
 
-- **`entity-deletes.e2e.ts`** — Four successful delete workflows (leaf-to-parent):
-  - Delete device (unplaced, no model) → delete device model → delete rack (no placements)
-    → delete location (no racks)
+- **`entity-deletes-inventory.e2e.ts`** — Two successful inventory-entity delete workflows:
+  - Delete device model (unreferenced) → delete device (unplaced, no model)
   - Cancel assertion: dialog appears and entity survives cancel
-  - Persistence: save + close + reopen → all four entities absent
-- **`destructive-guards.e2e.ts`** — Four relationship guard workflows (all blocked):
+  - Persistence: save + close + reopen → both entities absent
+- **`entity-deletes-hierarchy.e2e.ts`** — Two successful hierarchy-entity delete workflows:
+  - Delete rack (no placements) → delete location (no racks)
+  - Relational count assertions (rack count on location, placement count on rack)
+  - Persistence: save + close + reopen → both entities absent
+- **`destructive-guards-inventory.e2e.ts`** — Two inventory-layer guard workflows:
+  - Guard device model (device references it) → guard device (placed in rack)
+  - Full 7-part graph assertions (A: setup, B: reopen verification, C–D: guard cycles,
+    E: aggregate, F: dirty-state assertion, G: post-close reopen)
+- **`destructive-guards-hierarchy.e2e.ts`** — Two hierarchy-layer guard workflows:
   - Guard location (rack references it) → guard rack (placement references it)
-    → guard device model (device references it) → guard device (placed in rack)
-  - Aggregate verification: all four entities intact, placement at U1 still present
-  - Dirty-state assertion: close without `UnsavedChangesDialog` (guards do not mutate state)
-  - Persistence: reopen → full graph still present
+  - Full 7-part graph assertions (same A–G structure as inventory guards)
 
 **New selectors added to application source:**
 
@@ -773,12 +778,43 @@ exact entity row — no new testid needed for the trigger itself.  ConfirmDialog
 clicked via `browser.execute()` synthetic click to bypass the WebKitGTK modal-backdrop
 `mousedown` intercept.  Row delete buttons are safe to native `.click()`.
 
-**Shared support:** `apps/desktop/e2e-wdio/support/destructive-ui.ts` — 10 helpers
-covering atomic DOM reads, row finders, delete interaction, and error banner assertions.
+**Shared support:** `apps/desktop/e2e-wdio/support/destructive-ui.ts` — helpers covering
+atomic DOM reads, row finders, delete interaction, error banner assertions, rack-list/detail
+state detection (`waitForRackListOrDetail`, `ensureRackListView`), and relational count helpers.
 
 **Coverage: 8 workflows** promoted from NEEDS SELECTOR → COVERED.
 
 See [`docs/E2E_WDIO_COVERAGE_GAPS.md`](E2E_WDIO_COVERAGE_GAPS.md) for the full matrix.
+
+**RP hardening (PR #152 repair pass, 2026-07-22):**
+
+The original `destructive-guards.e2e.ts` was split into two specs.  During the repair pass
+the following hardening was applied to `destructive-ui.ts` and `wdio.conf.ts`:
+
+- `waitForRackListOrDetail`: now requires **both** `palette-drop-zone` AND `rack-detail-back-btn`
+  before returning `"detail"`, preventing false positives from transient residual DOM states
+  where `palette-drop-zone` lingers while `rack-detail-back-btn` is absent.
+- `ensureRackListView`: replaced `browser.execute()` synthetic click with direct `.click()` on
+  `rack-detail-back-btn` — the back button is not behind a modal backdrop, so native click is
+  correct and avoids `ChainablePromiseElement` serialization errors.
+- `findRowByExactName` calls immediately after `ensureRackListView()` in guard specs now use a
+  30 s timeout (was 15 s) to accommodate a data-load race: `rack-add-btn` can appear before
+  `listRacks()` resolves, causing the row lookup to time out before the data arrives.
+- Mocha timeout increased from 3,600,000 ms (60 min) to 5,400,000 ms (90 min) to accommodate
+  guard specs that take ~70 min (3× navigateToRackDetail + full 7-part graph assertions).
+
+**Validation (Linux, 2026-07-22, PR #152 repair pass):**
+
+Binary: `./node_modules/.bin/tauri build --no-bundle --config '{"build":{"beforeBuildCommand":""}}'`
+Display: `Xvfb :77 -screen 0 1280x1024x24`
+
+| Spec | Run | Result | Duration |
+|------|-----|--------|----------|
+| `destructive-guards-inventory` | run 1 | PASSED | ~01:09 |
+| `destructive-guards-inventory` | run 2 | PASSED | ~01:09 |
+| `destructive-guards-hierarchy` | run 1 | PASSED | ~01:05 |
+| `destructive-guards-hierarchy` | run 2 | PASSED | ~01:08 |
+| Full suite (11 specs) | — | **PASSED 11/11** | — |
 
 ### Stage 3C — Remaining placement workflows
 

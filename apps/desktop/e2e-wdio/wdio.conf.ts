@@ -75,8 +75,10 @@ export const config: Options.Testrunner = {
     // verification (~13 min).  Stage 3A adds edit, remove, and two more close/reopen
     // cycles (~10 min additional); Stage 3B.1 adds 4 more edit cycles plus work mode
     // toggle across 5 entities (~57 min observed).
-    // Longest individual spec observed: ~57 min → 60 min with margin (~3 min margin).
-    timeout: 3_600_000,
+    // Stage 3B.2 guard specs (destructive-guards-inventory, destructive-guards-hierarchy)
+    // include 3× navigateToRackDetail + full 7-part graph assertions, observed ~70 min.
+    // Longest individual spec observed: ~70 min → 90 min with margin (~20 min margin).
+    timeout: 5_400_000,
   },
 
   services: [

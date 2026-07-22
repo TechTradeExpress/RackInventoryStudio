@@ -1,35 +1,37 @@
 /**
- * Destructive-operation guard spec — Stage 3B.2 (part 2 of 2)
+ * Inventory guard flows — Stage 3B.2
  *
- * Covers four relationship guards that block deletion of referenced entities,
- * using an independent isolated repository created within this spec.
+ * Covers the two relationship guards for inventory entities (Device Model and
+ * Device), verifying that the full inventory graph is intact after each
+ * rejection and after a clean close + reopen.  Uses an independent isolated
+ * temporary repository.
  *
- *   PART A — Create fixture: Location → Rack 14U → Device Model 1U server →
- *             Device (model assigned) → Placement at U1
- *   PART B — Save, close, reopen — verify full graph persisted
- *   PART C — Guard Location: delete blocked because a rack still references it
- *   PART D — Guard Rack: delete blocked because a placement still references it
- *   PART E — Guard Device Model: delete blocked because a device references it
- *   PART F — Guard Device: delete blocked because it is placed in a rack
- *   PART G — Aggregate verification: all four entities intact (rack-list view only;
- *             placement card verified in Part B to stay within 60 min Mocha limit)
- *   PART H — Dirty-state assertion: close succeeds without UnsavedChangesDialog
- *             (guard rejections do not mutate repository state)
- *   PART I — Reopen — location, rack (list), device model, device survive clean
- *             close and reopen (rack-detail avoided to stay within 60 min Mocha limit)
+ *   PART A — Create fixture: Location, Rack 14U, Device Model 1U server,
+ *             Device (model assigned), Placement at front U1
+ *   PART B — Save, close, reopen — verify full inventory graph persisted:
+ *             Model exact row; Device exact row; Device → Model; exact badge
+ *             "placed"; Location; Rack; exactly one Placement at U1
+ *   PART C — Device Model guard: delete blocked (device references model)
+ *             Verify model + device + device→model + placed badge + Placement U1 intact
+ *   PART D — Device guard: delete blocked (device is placed in a rack)
+ *             Verify device + placed badge + model in device row + Placement U1 intact
+ *   PART E — Aggregate: full graph (Model, Device, Device→Model, placed badge,
+ *             Location, Rack, rack count = 1, front count = 1, Placement U1)
+ *   PART F — Dirty-state: close succeeds without UnsavedChangesDialog
+ *   PART G — Reopen: full inventory graph verified again
  *
- * Selector contract (same as entity-deletes-inventory/hierarchy plus placement selectors):
- *   Delete buttons    — button[aria-label="Delete <name>"] scoped to entity row
- *   ConfirmDialog     — data-testid="confirm-dialog-confirm" / confirm-dialog-cancel
- *   Modal             — data-testid="modal", role="dialog", aria-label="Delete "<name>"?"
- *   Delete error      — data-testid="location-delete-error|rack-delete-error|
- *                        device-model-delete-error|device-delete-error"
- *   Row selectors     — [data-location-code], [data-rack-code],
- *                        [data-model-code], [data-device-code]
- *   Name cell         — <strong> child of each row
- *   Placed card       — [data-testid^="placed-"][data-device-code="…"][data-start-u="…"]
- *   Palette button    — button[data-testid^="place-btn-device-"][data-device-code="…"]
+ * Selector contract:
+ *   Delete buttons  — aria-label="Delete <name>" scoped to row (exact label comparison)
+ *   ConfirmDialog   — data-testid="confirm-dialog-confirm" / confirm-dialog-cancel
+ *   Modal           — data-testid="modal", role="dialog", aria-label="Delete "<name>"?"
+ *   Delete error    — data-testid="device-model-delete-error" / "device-delete-error"
+ *   Placement card  — [data-device-code="…"][data-start-u="1"]
+ *   Palette button  — button[data-testid^="place-btn-device-"][data-device-code="…"]
  *   PlacePlacementModal — place-btn, start-u-input
+ *   Back button     — data-testid="rack-detail-back-btn"
+ *
+ * Hierarchy guard workflows (Location, Rack) are covered by
+ * destructive-guards-hierarchy.e2e.ts.
  */
 import { browser } from "@wdio/globals";
 import {
@@ -47,11 +49,17 @@ import {
   clickConfirmDialogAction,
   waitForConfirmDialogClosed,
   expectDeleteError,
+  expectDeviceRowState,
+  expectExactlyOnePlacement,
+  expectLocationRackCount,
+  expectRackPlacementCounts,
+  waitForRackListOrDetail,
+  ensureRackListView,
 } from "../support/destructive-ui";
 
 function log(msg: string) {
   const ts = new Date().toISOString().substring(11, 23);
-  console.log(`[guards ${ts}] ${msg}`);
+  console.log(`[guards-inv ${ts}] ${msg}`);
 }
 
 async function clickNav(tab: string): Promise<void> {
@@ -98,16 +106,21 @@ async function navigateToRackDetail(locationName: string, rackName: string): Pro
   await clickNav("locations");
   const locationRow = await findRowByExactName("[data-location-code]", locationName);
   await browser.execute((el: HTMLElement) => el.click(), locationRow as unknown as HTMLElement);
-  await browser.$('[data-testid="rack-add-btn"]').waitForDisplayed({ timeout: 10_000 });
-  const rackRow = await findRowByExactName("[data-rack-code]", rackName);
+  // selectedRack may still be set in App.tsx from a previous rack-detail visit.
+  // When the racks panel loads, listRacks() resolves quickly and the panel
+  // auto-switches to detail before rack-add-btn is ever visible.
+  // ensureRackListView() handles this via rack-detail-back-btn.
+  await ensureRackListView();
+  // rack-add-btn can appear before listRacks() finishes — use 30 s to allow data to load
+  const rackRow = await findRowByExactName("[data-rack-code]", rackName, 30_000);
   await browser.execute((el: HTMLElement) => el.click(), rackRow as unknown as HTMLElement);
   await browser.$('[data-testid="palette-drop-zone"]').waitForDisplayed({ timeout: 15_000 });
 }
 
 // ── Suite ─────────────────────────────────────────────────────────────────────
 
-describe("Rack Inventory Studio — destructive-operation guards", () => {
-  it("verifies relationship guards block deletion of referenced entities", async () => {
+describe("Rack Inventory Studio — inventory destructive-operation guards", () => {
+  it("verifies Device Model and Device guards block deletion of referenced inventory entities", async () => {
     const repoParent = process.env["RIS_E2E_REPOSITORY_PARENT"] as string;
     if (!repoParent) {
       throw new Error(
@@ -117,13 +130,13 @@ describe("Rack Inventory Studio — destructive-operation guards", () => {
     }
 
     const suffix = Date.now().toString(36);
-    const repoCode = `grd${suffix}`;
-    const repoName = `WDIO Guards ${suffix}`;
+    const repoCode = `gri${suffix}`;
+    const repoName = `WDIO Guards Inventory ${suffix}`;
 
-    const locationName = `Guard Location ${suffix}`;
-    const rackName     = `Guard Rack ${suffix}`;
-    const modelName    = `Guard Model ${suffix}`;
-    const deviceName   = `Guard Device ${suffix}`;
+    const locationName = `Guard Inventory Location ${suffix}`;
+    const rackName     = `Guard Inventory Rack ${suffix}`;
+    const modelName    = `Guard Inventory Model ${suffix}`;
+    const deviceName   = `Guard Inventory Device ${suffix}`;
 
     const RACK_HEIGHT  = 14;
     const MODEL_HEIGHT = 1;
@@ -151,12 +164,8 @@ describe("Rack Inventory Studio — destructive-operation guards", () => {
     log(`part A: location "${locationName}" confirmed`);
 
     // Navigate into location and create Rack
-    log("part A: navigating into location to create rack");
-    const locationRowForRack = await findRowByExactName("[data-location-code]", locationName);
-    await browser.execute(
-      (el: HTMLElement) => el.click(),
-      locationRowForRack as unknown as HTMLElement,
-    );
+    const locationRowA = await findRowByExactName("[data-location-code]", locationName);
+    await browser.execute((el: HTMLElement) => el.click(), locationRowA as unknown as HTMLElement);
     await browser.$('[data-testid="rack-add-btn"]').waitForDisplayed({ timeout: 10_000 });
 
     log("part A: creating rack");
@@ -164,13 +173,13 @@ describe("Rack Inventory Studio — destructive-operation guards", () => {
     await browser.$('[data-testid="rack-form-submit"]').waitForDisplayed({ timeout: 10_000 });
     await reactSetValue("field-name", rackName);
     await reactSetValue("field-height-u", String(RACK_HEIGHT));
-    await reactSetValue("field-row", `GR-${suffix}`);
+    await reactSetValue("field-row", `GRI-${suffix}`);
     await (await waitForEnabled("rack-form-submit")).click();
     await waitForFormClose("rack-form-submit");
     await findRowByExactName("[data-rack-code]", rackName);
     log(`part A: rack "${rackName}" confirmed (${RACK_HEIGHT}U)`);
 
-    // Create Device Model (1U server)
+    // Create Device Model
     log("part A: creating device model");
     await clickNav("device_models");
     await browser.$('[data-testid="model-add-btn"]').waitForDisplayed({ timeout: 10_000 });
@@ -193,7 +202,6 @@ describe("Rack Inventory Studio — destructive-operation guards", () => {
     await reactSelectValue("field-device-type", "server");
     await reactSetValue("field-name", deviceName);
 
-    // Assign device model via combobox (no broad catch)
     await browser.$('[data-testid="field-device-model-trigger"]').waitForDisplayed({ timeout: 10_000 });
     await browser.$('[data-testid="field-device-model-trigger"]').click();
     await browser.$('[data-testid="field-device-model-search"]').waitForDisplayed({ timeout: 10_000 });
@@ -216,7 +224,6 @@ describe("Rack Inventory Studio — destructive-operation guards", () => {
     await (await waitForEnabled("device-form-submit")).click();
     await waitForFormClose("device-form-submit");
 
-    // Capture device code from the newly created row
     const deviceRow = await findRowByExactName("[data-device-code]", deviceName);
     const deviceCode = (await deviceRow.getAttribute("data-device-code")) ?? "";
     if (!deviceCode) {
@@ -224,7 +231,7 @@ describe("Rack Inventory Studio — destructive-operation guards", () => {
     }
     log(`part A: device "${deviceName}" confirmed, code=${deviceCode}`);
 
-    // Place device at U1 via rack detail palette
+    // Place device at front U1
     log("part A: navigating to rack detail for placement");
     await navigateToRackDetail(locationName, rackName);
 
@@ -250,18 +257,10 @@ describe("Rack Inventory Studio — destructive-operation guards", () => {
     await (await waitForEnabled("place-btn")).click();
     await waitForPlacePlacementModalClose();
 
-    await browser.waitUntil(
-      async () => {
-        const cards = await browser.$$(
-          `[data-testid^="placed-"][data-device-code="${deviceCode}"][data-start-u="${PLACE_U}"]`,
-        );
-        return cards.length > 0;
-      },
-      { timeout: 30_000, timeoutMsg: `Placed card at U${PLACE_U} for device "${deviceCode}" not found` },
-    );
-    log(`part A: placed card at U${PLACE_U} confirmed — fixture complete`);
+    await expectExactlyOnePlacement(deviceCode, PLACE_U);
+    log(`part A: placement card confirmed at U${PLACE_U} — fixture complete`);
 
-    // ── PART B: Save, close, reopen — verify full graph ──────────────────────
+    // ── PART B: Save, close, reopen — verify full inventory graph ─────────────
 
     log("part B: saving and closing repository");
     await clickNav("repository");
@@ -281,194 +280,146 @@ describe("Rack Inventory Studio — destructive-operation guards", () => {
     await expectActiveRepositoryPath(repoPath);
     log("part B: repository reopened");
 
-    // Verify Location
-    log("part B: verifying location persisted");
+    log("part B: verifying full inventory graph after reopen");
+
+    await clickNav("device_models");
+    await findRowByExactName("[data-model-code]", modelName);
+    await expectExactlyOneRowByName("[data-model-code]", modelName);
+    log("part B: model confirmed");
+
+    await clickNav("devices");
+    await findRowByExactName("[data-device-code]", deviceName);
+    await expectExactlyOneRowByName("[data-device-code]", deviceName);
+    await expectDeviceRowState(deviceName, modelName, "placed");
+    log("part B: device confirmed — placed, assigned to model");
+
     await clickNav("locations");
     await findRowByExactName("[data-location-code]", locationName);
     await expectExactlyOneRowByName("[data-location-code]", locationName);
     log("part B: location confirmed");
 
-    // Verify Rack (navigate into location)
-    log("part B: verifying rack persisted");
     const locRowB = await findRowByExactName("[data-location-code]", locationName);
     await browser.execute((el: HTMLElement) => el.click(), locRowB as unknown as HTMLElement);
     await browser.$('[data-testid="rack-add-btn"]').waitForDisplayed({ timeout: 10_000 });
     await findRowByExactName("[data-rack-code]", rackName);
     await expectExactlyOneRowByName("[data-rack-code]", rackName);
-    log("part B: rack confirmed");
+    log("part B: rack confirmed in rack list");
 
-    // Verify placement card at U1 inside rack detail
-    log("part B: verifying placement card at U1 in rack detail");
-    await navigateToRackDetail(locationName, rackName);
-    await browser.waitUntil(
-      async () => {
-        const cards = await browser.$$(
-          `[data-testid^="placed-"][data-device-code="${deviceCode}"][data-start-u="${PLACE_U}"]`,
-        );
-        return cards.length > 0;
-      },
-      { timeout: 15_000, timeoutMsg: `Placed card at U${PLACE_U} not found after reopen (Part B)` },
-    );
-    log("part B: placement card at U1 confirmed");
+    // Enter rack detail and verify placement card
+    const rackRowB = await findRowByExactName("[data-rack-code]", rackName);
+    await browser.execute((el: HTMLElement) => el.click(), rackRowB as unknown as HTMLElement);
+    await browser.$('[data-testid="palette-drop-zone"]').waitForDisplayed({ timeout: 15_000 });
+    await expectExactlyOnePlacement(deviceCode, PLACE_U);
+    log("part B: placement card at U1 confirmed in rack detail");
 
-    // Verify Device Model
-    log("part B: verifying device model persisted");
-    await clickNav("device_models");
-    await findRowByExactName("[data-model-code]", modelName);
-    await expectExactlyOneRowByName("[data-model-code]", modelName);
-    log("part B: device model confirmed");
+    log("part B: full inventory graph verified after reopen");
 
-    // Verify Device is placed
-    log("part B: verifying device persisted and shows placed badge");
-    await clickNav("devices");
-    await findRowByExactName("[data-device-code]", deviceName);
-    await expectExactlyOneRowByName("[data-device-code]", deviceName);
-    const deviceRowB = await findRowByExactName("[data-device-code]", deviceName);
-    const deviceRowBText = await deviceRowB.getText();
-    if (deviceRowBText.includes("unplaced")) {
-      throw new Error(
-        `Part B: device row shows "unplaced" — expected "placed" after placement. Row: "${deviceRowBText}"`,
-      );
-    }
-    if (!deviceRowBText.includes("placed")) {
-      throw new Error(
-        `Part B: device row does not show "placed" badge. Row: "${deviceRowBText}"`,
-      );
-    }
-    log("part B: device confirmed as placed");
-    log("part B: full graph verified after reopen");
+    // ── PART C: Device Model guard ────────────────────────────────────────────
 
-    // ── PART C: Guard — Location delete blocked (rack references it) ──────────
-
-    log("part C: attempting to delete location (expected: guard fires — rack references it)");
-    await clickNav("locations");
-    await findRowByExactName("[data-location-code]", locationName);
-    await clickRowDeleteAction("[data-location-code]", locationName);
-    await expectDeleteDialog(locationName);
-    log("part C: dialog confirmed — clicking confirm");
-    await clickConfirmDialogAction("confirm-dialog-confirm");
-    await waitForConfirmDialogClosed();
-    await expectDeleteError(
-      "location-delete-error",
-      "Cannot delete location because racks still reference it.",
-    );
-    await expectExactlyOneRowByName("[data-location-code]", locationName);
-    log("part C: location guard fired — location still present");
-
-    // ── PART D: Guard — Rack delete blocked (placement references it) ─────────
-
-    log("part D: attempting to delete rack (expected: guard fires — placement references it)");
-    // Part B's navigateToRackDetail left selectedRack set in App.tsx state. When we
-    // navigate to the racks panel, RacksPanel initially shows the rack list (racks=[]),
-    // but once listRacks() resolves it auto-switches to RackDetailPanel because
-    // selectedRackId is non-null. This race can cause WDIO to miss the brief window
-    // where rack-add-btn is visible. Accept either outcome and click Back if needed.
-    const locRowD = await findRowByExactName("[data-location-code]", locationName);
-    await browser.execute((el: HTMLElement) => el.click(), locRowD as unknown as HTMLElement);
-
-    await browser.waitUntil(
-      async () => {
-        const addBtn = await browser.$('[data-testid="rack-add-btn"]').isDisplayed().catch(() => false);
-        const dropZone = await browser.$('[data-testid="palette-drop-zone"]').isDisplayed().catch(() => false);
-        return addBtn || dropZone;
-      },
-      { timeout: 30_000, timeoutMsg: "Part D: neither rack list (rack-add-btn) nor rack detail (palette-drop-zone) appeared" },
-    );
-
-    if (!(await browser.$('[data-testid="rack-add-btn"]').isDisplayed().catch(() => false))) {
-      log("part D: arrived in rack detail (selectedRack set from Part B) — clicking Back to reach rack list");
-      await browser.execute(() => {
-        const btn = Array.from(document.querySelectorAll("button")).find(
-          (b) => (b.textContent ?? "").includes("Back to racks"),
-        );
-        if (btn) (btn as HTMLElement).click();
-      });
-      await browser.$('[data-testid="rack-add-btn"]').waitForDisplayed({ timeout: 15_000 });
-    }
-    await findRowByExactName("[data-rack-code]", rackName);
-    await clickRowDeleteAction("[data-rack-code]", rackName);
-    await expectDeleteDialog(rackName);
-    log("part D: dialog confirmed — clicking confirm");
-    await clickConfirmDialogAction("confirm-dialog-confirm");
-    await waitForConfirmDialogClosed();
-    await expectDeleteError(
-      "rack-delete-error",
-      "Cannot delete rack because placements still reference it.",
-    );
-    await expectExactlyOneRowByName("[data-rack-code]", rackName);
-    log("part D: rack guard fired — rack still present");
-
-    // ── PART E: Guard — Device Model delete blocked (device references it) ────
-
-    log("part E: attempting to delete device model (expected: guard fires — device references it)");
+    log("part C: attempting to delete device model (expected: guard — device references it)");
     await clickNav("device_models");
     await findRowByExactName("[data-model-code]", modelName);
     await clickRowDeleteAction("[data-model-code]", modelName);
     await expectDeleteDialog(modelName);
-    log("part E: dialog confirmed — clicking confirm");
+    log("part C: dialog confirmed — clicking confirm");
     await clickConfirmDialogAction("confirm-dialog-confirm");
     await waitForConfirmDialogClosed();
     await expectDeleteError(
       "device-model-delete-error",
       "Cannot delete device model because devices or rack-object placements still reference it.",
     );
+    log("part C: guard fired — verifying inventory graph intact");
+
+    await findRowByExactName("[data-model-code]", modelName);
     await expectExactlyOneRowByName("[data-model-code]", modelName);
-    log("part E: device model guard fired — model still present");
+    log("part C: model still present");
 
-    // ── PART F: Guard — Device delete blocked (placed in rack) ───────────────
+    await clickNav("devices");
+    await findRowByExactName("[data-device-code]", deviceName);
+    await expectExactlyOneRowByName("[data-device-code]", deviceName);
+    await expectDeviceRowState(deviceName, modelName, "placed");
+    log("part C: device still present — placed badge, model assigned");
 
-    log("part F: attempting to delete device (expected: guard fires — device is placed)");
+    // Navigate to rack detail to verify placement card still exists
+    await navigateToRackDetail(locationName, rackName);
+    await expectExactlyOnePlacement(deviceCode, PLACE_U);
+    log("part C: placement card at U1 confirmed — model guard verified");
+
+    // ── PART D: Device guard ──────────────────────────────────────────────────
+
+    log("part D: attempting to delete device (expected: guard — device is placed)");
     await clickNav("devices");
     await findRowByExactName("[data-device-code]", deviceName);
     await clickRowDeleteAction("[data-device-code]", deviceName);
     await expectDeleteDialog(deviceName);
-    log("part F: dialog confirmed — clicking confirm");
+    log("part D: dialog confirmed — clicking confirm");
     await clickConfirmDialogAction("confirm-dialog-confirm");
     await waitForConfirmDialogClosed();
     await expectDeleteError(
       "device-delete-error",
       "Cannot delete device because it is placed in a rack.",
     );
+    log("part D: guard fired — verifying inventory graph intact");
+
+    await findRowByExactName("[data-device-code]", deviceName);
     await expectExactlyOneRowByName("[data-device-code]", deviceName);
-    log("part F: device guard fired — device still present");
-
-    // ── PART G: Aggregate verification — all entities intact ─────────────────
-
-    log("part G: aggregate verification — all four entities still present");
-
-    await clickNav("locations");
-    await findRowByExactName("[data-location-code]", locationName);
-    await expectExactlyOneRowByName("[data-location-code]", locationName);
-    log("part G: location intact");
-
-    // Navigate to rack list — entering rack detail would cost ~2 extra minutes.
-    // Placement card already verified in Part B's save/close/reopen cycle; guards
-    // do not affect placements, so re-verifying it here is unnecessary.
-    const locRowG = await findRowByExactName("[data-location-code]", locationName);
-    await browser.execute((el: HTMLElement) => el.click(), locRowG as unknown as HTMLElement);
-    await browser.$('[data-testid="rack-add-btn"]').waitForDisplayed({ timeout: 15_000 });
-    await findRowByExactName("[data-rack-code]", rackName);
-    await expectExactlyOneRowByName("[data-rack-code]", rackName);
-    log(`part G: rack intact (rack list confirmed — placement verified in Part B)`);
+    await expectDeviceRowState(deviceName, modelName, "placed");
+    log("part D: device still present — placed badge, model assigned");
 
     await clickNav("device_models");
     await findRowByExactName("[data-model-code]", modelName);
     await expectExactlyOneRowByName("[data-model-code]", modelName);
-    log("part G: device model intact");
+    log("part D: model still present");
+
+    // Verify placement still exists
+    await navigateToRackDetail(locationName, rackName);
+    await expectExactlyOnePlacement(deviceCode, PLACE_U);
+    log("part D: placement card at U1 confirmed — device guard verified");
+
+    // ── PART E: Aggregate verification ───────────────────────────────────────
+
+    log("part E: aggregate verification — full graph intact after both guards");
+
+    await clickNav("device_models");
+    await findRowByExactName("[data-model-code]", modelName);
+    await expectExactlyOneRowByName("[data-model-code]", modelName);
+    log("part E: model intact");
 
     await clickNav("devices");
     await findRowByExactName("[data-device-code]", deviceName);
     await expectExactlyOneRowByName("[data-device-code]", deviceName);
-    log("part G: device intact");
+    await expectDeviceRowState(deviceName, modelName, "placed");
+    log("part E: device intact — placed, assigned to model");
+
+    await clickNav("locations");
+    await findRowByExactName("[data-location-code]", locationName);
+    await expectExactlyOneRowByName("[data-location-code]", locationName);
+    await expectLocationRackCount("[data-location-code]", locationName, 1);
+    log("part E: location intact — rack count = 1");
+
+    const locRowE = await findRowByExactName("[data-location-code]", locationName);
+    await browser.execute((el: HTMLElement) => el.click(), locRowE as unknown as HTMLElement);
+    await ensureRackListView();
+    await findRowByExactName("[data-rack-code]", rackName);
+    await expectExactlyOneRowByName("[data-rack-code]", rackName);
+    await expectRackPlacementCounts(rackName, 1, 0);
+    log("part E: rack intact — front = 1, rear = 0");
+
+    // Enter rack detail and verify placement card
+    const rackRowE = await findRowByExactName("[data-rack-code]", rackName);
+    await browser.execute((el: HTMLElement) => el.click(), rackRowE as unknown as HTMLElement);
+    await browser.$('[data-testid="palette-drop-zone"]').waitForDisplayed({ timeout: 15_000 });
+    await expectExactlyOnePlacement(deviceCode, PLACE_U);
+    log("part E: exactly one placement card at U1 confirmed");
 
     if (await browser.$('[data-testid="confirm-dialog-confirm"]').isExisting()) {
-      throw new Error("Part G: ConfirmDialog is unexpectedly open after guard verification");
+      throw new Error("Part E: ConfirmDialog is unexpectedly open after aggregate check");
     }
-    log("part G: no ConfirmDialog open — aggregate verification passed");
+    log("part E: no ConfirmDialog open — aggregate verification passed");
 
-    // ── PART H: Dirty-state assertion ────────────────────────────────────────
+    // ── PART F: Dirty-state assertion ─────────────────────────────────────────
 
-    log("part H: clicking close — guards must not dirty repository state");
+    log("part F: clicking close — guard rejections must not dirty repository state");
     await clickNav("repository");
     await browser.$('[data-testid="repository-active-root"]').waitForDisplayed({ timeout: 10_000 });
     await browser.$('[data-testid="repository-close-action"]').click();
@@ -485,44 +436,60 @@ describe("Rack Inventory Studio — destructive-operation guards", () => {
       },
       {
         timeout: 30_000,
-        timeoutMsg:
-          "Neither repository-landing-title nor unsaved-changes-save appeared after Close",
+        timeoutMsg: "Neither repository-landing-title nor unsaved-changes-save appeared after Close",
       },
     );
 
     if (hitUnsavedDialog) {
       throw new Error(
-        "Part H: UnsavedChangesDialog appeared after guard-only operations — " +
+        "Part F: UnsavedChangesDialog appeared after guard-only operations — " +
           "guard rejections must not mark the repository as dirty",
       );
     }
-    log("part H: closed cleanly — no UnsavedChangesDialog (guard operations do not dirty state)");
+    log("part F: closed cleanly — no UnsavedChangesDialog (guard operations do not dirty state)");
 
-    // ── PART I: Reopen — verify full graph survives clean close ───────────────
+    // ── PART G: Reopen — verify full inventory graph survives clean close ──────
 
-    log(`part I: reopening repository at ${repoPath}`);
+    log(`part G: reopening repository at ${repoPath}`);
     await browser.$('[data-testid="repository-landing-title"]').waitForDisplayed({ timeout: 10_000 });
     await reactSetValue("repository-open-path-input", repoPath);
     await (await waitForEnabled("repository-open-path-submit")).click();
     await browser.$('[data-testid="repository-active-root"]').waitForDisplayed({ timeout: 30_000 });
     await expectActiveRepositoryPath(repoPath);
-    log("part I: repository reopened");
+    log("part G: repository reopened");
 
-    // Verify Location + Rack: click location row → rack-add-btn appearing confirms
-    // (a) the location row was found and still exists, and (b) the rack list loaded for
-    // that location (i.e. the rack also persists, since the location→rack relationship
-    // is intact).  Separate findRowByExactName("[data-rack-code]") would add ~37 s and
-    // is beyond the 60-min Mocha budget when running in the full parallel suite.
-    // Device model and device were verified in Part B (save/close/reopen); guard
-    // rejections (Parts E, F) left them untouched; clean close (Part H) is no-op.
-    log("part I: verifying location and rack after reopen");
+    log("part G: verifying full inventory graph after clean close and reopen");
+
+    await clickNav("device_models");
+    await findRowByExactName("[data-model-code]", modelName);
+    await expectExactlyOneRowByName("[data-model-code]", modelName);
+    log("part G: model confirmed after reopen");
+
+    await clickNav("devices");
+    await findRowByExactName("[data-device-code]", deviceName);
+    await expectExactlyOneRowByName("[data-device-code]", deviceName);
+    await expectDeviceRowState(deviceName, modelName, "placed");
+    log("part G: device confirmed — placed badge, model assigned");
+
     await clickNav("locations");
-    const locRowI = await findRowByExactName("[data-location-code]", locationName);
-    await browser.execute((el: HTMLElement) => el.click(), locRowI as unknown as HTMLElement);
-    await browser.$('[data-testid="rack-add-btn"]').waitForDisplayed({ timeout: 15_000 });
-    // rack-add-btn visible → location found + clicked, rack list is live for this location
+    await findRowByExactName("[data-location-code]", locationName);
+    await expectExactlyOneRowByName("[data-location-code]", locationName);
+    log("part G: location confirmed");
 
-    log("part I: location and rack survive clean close and reopen — guard spec complete");
-    log("Stage 3B.2 part 2 complete: destructive-guards spec passed");
+    const locRowG = await findRowByExactName("[data-location-code]", locationName);
+    await browser.execute((el: HTMLElement) => el.click(), locRowG as unknown as HTMLElement);
+    await ensureRackListView();
+    await findRowByExactName("[data-rack-code]", rackName);
+    await expectExactlyOneRowByName("[data-rack-code]", rackName);
+    await expectRackPlacementCounts(rackName, 1, 0);
+    log("part G: rack confirmed — front = 1, rear = 0");
+
+    const rackRowG = await findRowByExactName("[data-rack-code]", rackName);
+    await browser.execute((el: HTMLElement) => el.click(), rackRowG as unknown as HTMLElement);
+    await browser.$('[data-testid="palette-drop-zone"]').waitForDisplayed({ timeout: 15_000 });
+    await expectExactlyOnePlacement(deviceCode, PLACE_U);
+    log("part G: placement card at U1 confirmed — full inventory graph survives clean close");
+
+    log("Stage 3B.2 inventory guards spec complete");
   });
 });
