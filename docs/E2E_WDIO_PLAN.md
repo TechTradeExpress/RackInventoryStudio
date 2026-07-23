@@ -803,13 +803,18 @@ the following hardening was applied to `destructive-ui.ts` and `wdio.conf.ts`:
 - Mocha timeout increased from 3,600,000 ms (60 min) to 5,400,000 ms (90 min) to accommodate
   guard specs that take ~70 min (3× navigateToRackDetail + full 7-part graph assertions).
 
-**Validation (Linux, 2026-07-22, PR #152 repair pass):**
+**Validation (Linux, 2026-07-22–23, PR #152 validation RP):**
 
-Binary: `./node_modules/.bin/tauri build --no-bundle --config '{"build":{"beforeBuildCommand":""}}'`
+Binary: `./node_modules/.bin/tauri build --no-bundle --config '{"build":{"beforeBuildCommand":""}}'` — PASS (47 s)
 Display: `Xvfb :77 -screen 0 1280x1024x24`
+Playwright: BLOCKED — environment dependency: `libasound2t64` (pre-existing; no dependency changes)
 
 | Spec | Run | Result | Duration |
 |------|-----|--------|----------|
+| `entity-deletes-inventory` | run 1 | PASSED | 00:38:15 |
+| `entity-deletes-inventory` | run 2 | PASSED | 00:38:32 |
+| `entity-deletes-hierarchy` | run 1 | PASSED | 00:31:12 |
+| `entity-deletes-hierarchy` | run 2 | PASSED | 00:31:12 |
 | `destructive-guards-inventory` | run 1 | PASSED | ~01:09 |
 | `destructive-guards-inventory` | run 2 | PASSED | ~01:09 |
 | `destructive-guards-hierarchy` | run 1 | PASSED | ~01:05 |
