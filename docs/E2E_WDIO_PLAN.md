@@ -823,60 +823,47 @@ Playwright: BLOCKED — environment dependency: `libasound2t64` (pre-existing; n
 
 ### Stage 3B.3 — Windows WDIO performance experiment
 
-**Status: IN REVIEW**
+**Status: COMPLETE** — Decision: **KEEP EXTERNAL — temporary** (PR #153)
 
 Branch: `experiment/e2e-wdio-windows-performance`
 Direct base: `roadmap/e2e-wdio`
 
-Goal: measure per-command WebDriver latency on Windows and determine whether
-the embedded driver provider (`tauri-plugin-wdio-webdriver`) offers a meaningful
-improvement over the external provider (`tauri-driver` → `msedgedriver`).
-
-**What this stage delivers:**
+**What this stage delivered:**
 - Opt-in timing instrumentation (`RIS_WDIO_TIMING=1`) via WDIO command hooks
 - `RIS_WDIO_DRIVER_PROVIDER=external|embedded` env-var switch in `wdio.conf.ts`
 - Optional Cargo feature `wdio-embedded` wrapping `tauri-plugin-wdio-webdriver`
   (no impact on production builds; guarded by `#[cfg(feature = "wdio-embedded")]`)
 - `measureStep()` helper in `core-inventory.e2e.ts` for 9 logical business steps
-- Benchmark runner script: `scripts/run-wdio-performance-benchmark.mjs`
+- Benchmark runner script with PID-safe cleanup and outcome classification
 - Performance comparison document: `docs/E2E_WDIO_WINDOWS_PERFORMANCE.md`
 
-**Benchmark matrix (Windows, same machine, same binary for A/B):**
-8 runs — external vs. embedded × app-smoke × 2 + core-inventory × 2.
+**Coverage changes:** none.  No COVERED counts changed; no specs added or removed.
 
-**Coverage changes:** none.  No COVERED counts change; no specs added or removed.
+**Results:** Windows matrix complete (8 runs, two passes; see `docs/E2E_WDIO_WINDOWS_PERFORMANCE.md`).
 
-**Helper refactors:** intentionally deferred.  Any optimisation identified from
-the data will be a separate future stage.
+- app-smoke: external `PASS_WITH_FORCED_CLEANUP` ×2 (test correct; PID-safe cleanup
+  handles leftover driver processes safely). Embedded `CLEAN_PASS` ×2, consistently
+  faster (session startup ~79–83% lower, test execution ~34% lower).
+- core-inventory: external `PASS_WITH_FORCED_CLEANUP` ×2, all 9 steps pass both runs.
+  Embedded `TEST_FAILED` ×2 — deterministic failure at device-model selection:
+  `tauri-plugin-wdio-webdriver` v1.2.0 does not dispatch `mousedown`, so the
+  `SearchableSelect` component (used in `DeviceFormModal` and `PlacePlacementModal`)
+  cannot be interacted with. Confirmed on both Windows/WebView2 and Linux/WebKit.
 
-**Results:** Windows matrix complete (8 runs). Decision status: **PENDING
-MAINTAINER REVIEW** — data collected and analyzed, final call left to a human
-reviewer rather than asserted by the implementing agent.
+**Decision: KEEP EXTERNAL — temporary.**
 
-Windows results (2026-07-23, same machine, same embedded binary for A/B):
-- app-smoke (×2 per provider): external `PASS_WITH_FORCED_CLEANUP` ×2 (test
-  itself correct; `tauri-driver`/`msedgedriver` require a safe, PID-verified
-  forced cleanup every time — a confirmed upstream `@wdio/tauri-service`
-  Windows teardown gap, not a race). Embedded `CLEAN_PASS` ×2, consistently
-  faster (session startup ~79% lower, test execution ~34% lower).
-- core-inventory (×2 per provider, run twice — once before and once after a
-  targeted spec fix, see below): external `PASS_WITH_FORCED_CLEANUP` ×2 both
-  times (all 9 steps pass; same forced-cleanup pattern as app-smoke).
-  Embedded `TEST_FAILED` ×2 both times. First pass failed at `submit-placement`
-  (matches the Linux/WebKit signal). A minimal spec-level fix
-  (`core-inventory.e2e.ts`, commit `44446a6`) added an explicit
-  post-selection verification and revealed the true cause: `tauri-plugin-wdio-webdriver`'s
-  click implementation does not dispatch a real `mousedown` event, so any
-  `onMouseDown`-based UI (the `SearchableSelect` component, used in both
-  `DeviceFormModal` and `PlacePlacementModal`) never registers the
-  interaction under the embedded provider. Confirmed reproducible on both
-  Linux/WebKit and Windows/WebView2 — a genuine embedded-provider
-  WebDriver-compliance gap, not a test race, not an application bug.
+- External completed full `core-inventory` flows (9/9 steps, 2/2 runs); behaviour
+  is correct.  Default provider does not change.  PID-safe cleanup safely handles
+  Windows teardown gap.
+- Embedded is faster where it works (~34–35% on shared steps) but cannot complete
+  the full spec due to a confirmed upstream `mousedown`-synthesis gap.  Adopting
+  embedded in its current state would reduce real E2E coverage.
+- Embedded is deferred to a separate future stage, contingent on an upstream fix or
+  deliberate compatibility layer plus a full regression of all specs.
 
-See `docs/E2E_WDIO_WINDOWS_PERFORMANCE.md` for the full results matrix,
-process/port ownership detail, and the evidence write-up. The
-ADOPT EMBEDDED / KEEP EXTERNAL / INCONCLUSIVE call is intentionally left
-open there for maintainer review.
+**Next stage:** optimize long-action latency in the external-provider flow (separate
+branch from the updated `roadmap/e2e-wdio` base; Stage 3C and later stages
+remain as planned).  No optimizations were implemented in this stage.
 
 ---
 

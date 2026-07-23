@@ -152,15 +152,45 @@ timing, log excerpts, what was/wasn't changed).
 
 ## Decision
 
-**PENDING MAINTAINER REVIEW** — by explicit instruction, this pass collected
-and analyzed the full dataset but did not assert a final ADOPT EMBEDDED /
-KEEP EXTERNAL / INCONCLUSIVE call. Evidence summary: where embedded works
-(app-smoke, and 6 of 9 core-inventory steps) it is consistently ~34–35%
-faster with ~79–83% lower session startup; it cannot currently complete the
-full core-inventory flow due to the confirmed driver bug above. External
-completes the full flow correctly but never reaches `CLEAN_PASS` due to a
-confirmed, safely-mitigated upstream teardown gap. Full criteria checklist
-in `docs/E2E_WDIO_WINDOWS_PERFORMANCE.md` §Decision.
+**KEEP EXTERNAL — temporary** (Stage 3B.3 COMPLETE).
+
+External remains the default provider for the current E2E program.  This is
+an operationally conservative decision, not a rejection of the embedded
+architecture.
+
+**Why external:**
+- Completed both full `core-inventory` runs with all 9 steps passing.
+- Functional behaviour is correct and consistent with existing tests.
+- Default provider unchanged; no production or CI behaviour affected.
+- PID-safe forced cleanup handles the Windows teardown gap safely (no
+  incorrect test results, confirmed 4/4 cleanup successes).
+
+**Why embedded is not adopted now:**
+- Failed `core-inventory` deterministically (2/2 on Windows, 1/1 on Linux —
+  3 failures across 2 platforms and 2 browser engines).
+- Root cause: `tauri-plugin-wdio-webdriver` v1.2.0 does not dispatch a real
+  `mousedown` event.  The `SearchableSelect` component relies on `onMouseDown`
+  to open its dropdown; without it the device model can never be selected.
+- Longer timeouts and retries cannot fix this — it is a structural driver
+  limitation, not a timing race.
+- Adoption would mean losing real E2E coverage of any `SearchableSelect`
+  interaction.
+
+**Performance evidence (where embedded works):**
+- Session startup: ~79–83% lower than external.
+- Step execution (6/9 shared steps): ~34–35% faster.
+- P95 command latency (app-smoke): ~34% lower.
+- These numbers confirm external is a genuine source of overhead; they also
+  show that the multi-second waits dominating total time come from
+  `waitUntil` polling and IPC round-trips, not the driver channel alone.
+
+**Embedded is deferred**, not permanently rejected.  Reconsideration is
+appropriate after an upstream fix to `tauri-plugin-wdio-webdriver` (correct
+`mousedown` synthesis) or a deliberate compatibility layer in `SearchableSelect`,
+plus a full regression of all specs under the embedded provider.
+
+**Next priority:** reduce long-action latency in the external-provider flow —
+separate branch, separate stage, no changes to provider or coverage.
 
 ## Static validation (this pass, Windows)
 
@@ -225,20 +255,28 @@ pre-existing CI behavior unrelated to this PR's changes.
 - Dependency audit: 4 pre-existing advisories, no fix available without
   upstream updates (unchanged from prior passes).
 
+## Not done in this PR
+
+- Implementing any latency optimizations (intentionally deferred).
+- Fixing `tauri-plugin-wdio-webdriver`'s `mousedown` gap (third-party,
+  out of scope).
+- Patching `SearchableSelect.tsx` to work around embedded's limitation
+  (production UI change, out of scope).
+- Starting Stage 3C or any new optimization branch (separate future stage).
+- Any coverage changes (0 new specs, 0 removed specs, 0 assertion changes).
+- Any change to the default provider (still `external`).
+
 ## Suggested next step
 
-Maintainer review of `docs/E2E_WDIO_WINDOWS_PERFORMANCE.md` §Decision to
-make the ADOPT EMBEDDED / KEEP EXTERNAL / INCONCLUSIVE call. If embedded is
-of interest despite the current core-inventory gap, the concrete next step
-would be either an upstream fix/report against `tauri-plugin-wdio-webdriver`
-for its click-event synthesis, or a scoped follow-up PR to make
-`SearchableSelect.tsx` (and any other `onMouseDown`-reliant component) also
-respond to a plain `click` event — with its own review and full regression
-run, independent of this harness-repair PR.
+Create a separate branch from the updated `roadmap/e2e-wdio` base to reduce
+long-action latency in the external-provider flow:
+- Proposed branch: `feature/e2e-wdio-external-latency-optimization`
+- Direct base: `roadmap/e2e-wdio` (post-merge HEAD)
+- Focus: reduce `waitUntil` polling, IPC round-trip count, and redundant
+  WebDriver command chains — without changing assertions, coverage, or the
+  default provider
+- Benchmark before and after using the existing timing instrumentation
 
 ## Working tree
 
-Clean at final HEAD `44446a6` (confirmed via `git status --short`; the only
-prior artifact, a CRLF-only line-ending diff on `Cargo.toml`, is unrelated
-working-tree noise from `core.autocrlf`, not a content change, and was
-excluded from every commit in this pass).
+Clean after final decision commit.

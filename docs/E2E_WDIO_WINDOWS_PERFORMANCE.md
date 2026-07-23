@@ -2,9 +2,8 @@
 
 **Branch:** `experiment/e2e-wdio-windows-performance`
 **Base:** `roadmap/e2e-wdio`
-**Status:** Windows matrix complete (8 runs, two passes — see §"submit-placement
-root cause"). ADOPT EMBEDDED / KEEP EXTERNAL / INCONCLUSIVE decision
-intentionally left to maintainer review — see §Decision.
+**Status:** COMPLETE — Decision: **KEEP EXTERNAL — temporary**
+(Windows matrix complete, 8 runs over two passes; see §Decision and §"submit-placement root cause".)
 
 ---
 
@@ -409,46 +408,70 @@ IPC/disk-heavy steps consistent in shape with the earlier steps.
 
 ## Decision
 
-**Status: PENDING MAINTAINER REVIEW.** All data below is collected and
-verified; the ADOPT EMBEDDED / KEEP EXTERNAL / INCONCLUSIVE call is
-intentionally left to a human reviewer rather than asserted here.
+**Status: KEEP EXTERNAL — temporary**
 
-Criteria for ADOPT EMBEDDED (all must hold):
+### Why external remains the default
 
-| # | Criterion | Status |
-|---|-----------|--------|
-| 1 | All embedded runs pass | **Not met** — core-inventory embedded failed both runs (driver click-synthesis bug, see above); app-smoke embedded passed both (CLEAN_PASS ×2) |
-| 2 | Cleanup works correctly | Met for embedded (nothing to clean up — no driver process). **Not applicable/met for external** — external requires PID-safe forced cleanup on every run (confirmed safe, but not "correct" in the sense of not being needed) |
-| 3 | No new flaky behaviour | Embedded's core-inventory failure is 100% reproducible (2/2), not flaky — it is a deterministic driver limitation. app-smoke is stable both providers. |
-| 4 | Regular production build passes | **Met** — confirmed no `wdio-embedded` plugin, no port 4444/4445 listener on the regular binary |
-| 5 | Embedded test build compiles and runs | **Met** — separate `target-embedded` build succeeds; embedded provider runs and passes app-smoke |
-| 6 | Improvement is consistent across both runs | **Met where data exists** — app-smoke and the 6 shared core-inventory steps show consistent, near-identical improvement across both runs each |
-| 7 | ≥20% core-inventory duration / ≥30% p95 / ≥30% commands≥1s | Cannot be evaluated for full-spec core-inventory (embedded never completes it). The 6 shared steps show ~34–35% — comfortably over threshold — but that is a partial-flow measurement, not the full spec |
+- External completed both full `core-inventory` runs with all 9 measured
+  steps passing.
+- Functional behaviour is correct and consistent with the existing test suite.
+- The default provider does not change; no production or CI behaviour is
+  affected.
+- PID-safe cleanup (`PASS_WITH_FORCED_CLEANUP`) safely removes leftover
+  `tauri-driver.exe`/`msedgedriver.exe` after every run.  This is an
+  operational inconvenience but does not produce incorrect test results.
 
-**Evidence summary for a human decision:**
+### Why embedded is not adopted
 
-- Where embedded works (app-smoke, and the first 6 of 9 core-inventory
-  steps), it is markedly and consistently faster — session startup ~79–83%
-  lower, test/step execution ~34–35% lower, comfortably clearing every
-  numeric adoption threshold.
-- Embedded currently **cannot complete the full core-inventory flow** due to
-  a confirmed, reproducible (2/2 on Windows, also on Linux/WebKit) gap in
-  `tauri-plugin-wdio-webdriver`'s click event synthesis: it does not
-  dispatch a `mousedown` event, so any `onMouseDown`-based UI component
-  (`SearchableSelect`, used in `DeviceFormModal` and `PlacePlacementModal`)
-  cannot be interacted with under the embedded provider. This is a
-  third-party dependency limitation, not something this PR's scope covers
-  fixing.
-- External is functionally correct on Windows for the full flow (9/9 steps,
-  2/2 runs) but never reaches `CLEAN_PASS` because `@wdio/tauri-service`
-  does not reliably tear down `tauri-driver.exe`/`msedgedriver.exe` on
-  Windows — a separate, already-mitigated (safe, PID-verified forced
-  cleanup, confirmed 2/2 for app-smoke and 2/2 for core-inventory) upstream
-  gap.
-- Both providers therefore have a real, confirmed limitation on Windows,
-  in different places (embedded: functional/interaction gap; external:
-  teardown gap). Neither reaches genuine `CLEAN_PASS` for the full
-  core-inventory spec as currently instrumented.
+- Embedded failed `core-inventory` both times (2/2 on Windows/WebView2,
+  also 1/1 on Linux/WebKit — 3 independent failures across two platforms).
+- The failure is **deterministic, not flaky**.
+- Root cause: `tauri-plugin-wdio-webdriver` v1.2.0 does not dispatch a
+  real `mousedown` event when performing a click.  The `SearchableSelect`
+  component (used in `DeviceFormModal` and `PlacePlacementModal`) relies on
+  `onMouseDown` to open its dropdown.  Without a real `mousedown`, the
+  component never registers the interaction, the device model is never
+  selected, and the device form cannot be submitted.
+- A longer timeout or retry does not fix this.  A device model selection
+  that produces no visible DOM change will never succeed no matter how long
+  the harness waits.
+- Adopting embedded would mean losing the ability to test any `SearchableSelect`
+  interaction via WDIO — a genuine reduction in E2E coverage, not just a
+  harness issue.
+
+### What the performance data says
+
+Embedded is markedly faster where it works:
+
+| Metric | external | embedded | Δ (Windows) |
+|--------|----------|----------|-------------|
+| Session startup | ~756ms | ~135ms | −79–83% |
+| app-smoke total duration | ~100s | ~71s | −29% |
+| Steps 1–6 of core-inventory | baseline | ~34–35% faster | — |
+| P95 command latency (app-smoke) | ~15400ms | ~10100ms | ~−34% |
+
+These numbers confirm that external is a genuine source of overhead, and that
+eliminating the `tauri-driver` → `msedgedriver` round-trip has real value.
+However, embedded does not eliminate the multi-second waits that dominate
+total spec time — those come from `waitUntil` polling and IPC round-trips,
+not from the driver channel itself.  The next optimization priority is
+reducing those waits in the external provider flow, not switching to embedded.
+
+### Nature of the decision
+
+External remains the default provider for the current E2E program.
+This is an operationally conservative decision, not a rejection of
+the embedded architecture.
+
+Embedded will be reconsidered separately after:
+
+- an upstream fix to `tauri-plugin-wdio-webdriver` that correctly
+  synthesizes `mousedown` events (or equivalent), **or**
+- a deliberately designed compatibility layer that allows `SearchableSelect`
+  to work without a real `mousedown`,
+- **and** a full regression of all specs under the embedded provider.
+
+No workaround for embedded is being implemented in this branch.
 
 ---
 
