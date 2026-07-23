@@ -47,7 +47,7 @@ TypeScript (npx tsc --noEmit)             PASS (0 errors)   — prior validation
 Vitest (pnpm -C apps/desktop test:unit)   PASS (850/850)    — prior validation + CI
 Hygiene (node scripts/check-repo-hygiene) PASS (8/8)        — this RP
 Tauri build (--no-bundle, no beforeCmd)   PASS (47 s)       — this RP, 2026-07-23
-Rust workspace                            PASS              — CI run 29967001014
+Rust workspace                            PASS              — CI run 29996330471
 ```
 
 Playwright: BLOCKED — environment dependency: `libasound2t64`
@@ -89,15 +89,13 @@ Exit code: 1. Pre-existing condition; unrelated to Stage 3B.2.
 
 ## GitHub Actions
 
-Prior CI (HEAD 9ddd22d):
-- Run ID: 29967001014 | Run number: 365 | Conclusion: success
+Final CI (HEAD fb13fb8e7273c84a2bc4d3d837809de0c36a7d82):
+- Run ID: 29996330471 | Run number: 366 | Conclusion: success
 - Frontend checks: success
 - Rust workspace: success
 - Script and hygiene checks: success
 - Version consistency: success
 - Workflow lint: success
-
-Post-validation-RP CI: pending push of documentation commit. Will be updated after push.
 
 ## Working tree and cleanup
 
