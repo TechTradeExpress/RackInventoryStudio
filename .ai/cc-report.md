@@ -1,114 +1,126 @@
 ## Summary
 
-Stage 3B.2: four WDIO specs covering delete flows and relationship-guard rejections.
-Promotes 8 workflows from NEEDS SELECTOR → COVERED (total: 30 → 38 COVERED, 15 → 7 NEEDS SELECTOR).
+Stage 3B.3: Windows WDIO performance experiment.
 
-Branch: `feature/e2e-wdio-destructive-guards` → direct base: `roadmap/e2e-wdio`
+Branch `experiment/e2e-wdio-windows-performance` from `roadmap/e2e-wdio`
+(base SHA 95ea5fd3795b42769da9e7a4907ab2a82e6d9bc6).
 
-Four final specs (each with its own isolated repository):
+Adds opt-in command timing instrumentation, configurable driver provider
+(external/embedded), optional embedded WebDriver Cargo feature, and a
+benchmark runner script.  No coverage counts changed.  All benchmark
+results are PENDING — Windows execution required.
 
-- **`entity-deletes-inventory.e2e.ts`** — Device model + device successful deletes, cancel assertion, persistence
-- **`entity-deletes-hierarchy.e2e.ts`** — Rack + location successful deletes, relational counts, persistence
-- **`destructive-guards-inventory.e2e.ts`** — Device model guard + device guard, full 7-part A–G graph assertions
-- **`destructive-guards-hierarchy.e2e.ts`** — Location guard + rack guard, full 7-part A–G graph assertions
+## Branch and base
 
-Eight workflows promoted NEEDS SELECTOR → COVERED: delete location (no racks), delete location (guard),
-delete rack (no placements), delete rack (guard), delete device model (unreferenced), delete device model
-(guard), delete device (unplaced), delete placed device (guard).
+| Item | Value |
+|------|-------|
+| Branch | `experiment/e2e-wdio-windows-performance` |
+| Direct base | `roadmap/e2e-wdio` |
+| Base SHA | `95ea5fd3795b42769da9e7a4907ab2a82e6d9bc6` |
+| Final head | (post-push — see PR) |
 
-Final Mocha timeout: 5,400,000 ms (90 min). Guard specs run ~70 min each.
+## Commits
 
-## Final files
+| SHA | Message |
+|-----|---------|
+| 8c1b46c | test(e2e): add opt-in WDIO command timing benchmark |
+| 170abae | test(e2e): add test-only embedded WebDriver experiment |
+| (commit 3) | docs(e2e): record Windows driver performance comparison |
+
+## Files changed
 
 | File | Change |
-|---|---|
+|------|--------|
+| `apps/desktop/e2e-wdio/support/command-timing.ts` | New: per-command timing hooks, measureStep, NDJSON+summary output |
+| `apps/desktop/e2e-wdio/wdio.conf.ts` | Add provider env (RIS_WDIO_DRIVER_PROVIDER), embedded port, timing hook |
+| `apps/desktop/e2e-wdio/specs/core-inventory.e2e.ts` | Add measureStep() for 8 representative business steps |
+| `scripts/run-wdio-performance-benchmark.mjs` | New: benchmark runner (Node.js built-ins only) |
+| `apps/desktop/src-tauri/Cargo.toml` | Add wdio-embedded feature + optional tauri-plugin-wdio-webdriver |
+| `apps/desktop/src-tauri/build.rs` | Conditional capability file generation for embedded feature |
+| `apps/desktop/src-tauri/src/lib.rs` | #[cfg(feature = "wdio-embedded")] plugin registration |
+| `.gitignore` | Gitignore generated capabilities/embedded-test.json |
+| `Cargo.lock` | Updated with tauri-plugin-wdio-webdriver 1.2.0 |
+| `docs/E2E_WDIO_WINDOWS_PERFORMANCE.md` | New: benchmark design, pending results, decision criteria |
+| `docs/E2E_WDIO_PLAN.md` | Add Stage 3B.3 section |
 | `.ai/cc-report.md` | This report |
-| `apps/desktop/e2e-wdio/specs/entity-deletes-inventory.e2e.ts` | New: device model + device successful deletes (Parts A–G) |
-| `apps/desktop/e2e-wdio/specs/entity-deletes-hierarchy.e2e.ts` | New: rack + location successful deletes (Parts A–G) |
-| `apps/desktop/e2e-wdio/specs/destructive-guards-inventory.e2e.ts` | New: inventory-layer guard spec (Parts A–G, 7-part graph assertions) |
-| `apps/desktop/e2e-wdio/specs/destructive-guards-hierarchy.e2e.ts` | New: hierarchy-layer guard spec (Parts A–G, 7-part graph assertions) |
-| `apps/desktop/e2e-wdio/support/destructive-ui.ts` | Helpers: ConfirmDialog, row finders, error banners, waitForRackListOrDetail, ensureRackListView, relational count helpers |
-| `apps/desktop/e2e-wdio/wdio.conf.ts` | Mocha timeout 3,600,000 → 5,400,000 ms |
-| `apps/desktop/src/components/ui/ConfirmDialog.tsx` | Add `data-testid="confirm-dialog-confirm"` and `data-testid="confirm-dialog-cancel"` |
-| `apps/desktop/src/components/ui/ConfirmDialog.test.tsx` | 6 tests covering new testids |
-| `apps/desktop/src/features/locations/LocationsPanel.tsx` | `<div data-testid="location-delete-error">` wrapper |
-| `apps/desktop/src/features/racks/RacksPanel.tsx` | `<div data-testid="rack-delete-error">` wrapper |
-| `apps/desktop/src/features/deviceModels/DeviceModelsPanel.tsx` | `<div data-testid="device-model-delete-error">` wrapper |
-| `apps/desktop/src/features/devices/DevicesPanel.tsx` | `<div data-testid="device-delete-error">` wrapper |
-| `apps/desktop/src/features/racks/RackDetailPanel.tsx` | Add `data-testid="rack-detail-back-btn"` |
-| `apps/desktop/src/features/racks/RackDetailPanel.test.tsx` | 3 tests covering new testid |
-| `docs/E2E_WDIO_PLAN.md` | Stage 3B.2 scope, RP hardening, full validation matrix |
-| `docs/E2E_WDIO_COVERAGE_GAPS.md` | Updated spec names, existing specs table, summary counts |
 
-## Static and component validation
+## Environment
 
-```
-TypeScript (npx tsc --noEmit)             PASS (0 errors)   — prior validation + CI
-Vitest (pnpm -C apps/desktop test:unit)   PASS (850/850)    — prior validation + CI
-Hygiene (node scripts/check-repo-hygiene) PASS (8/8)        — this RP
-Tauri build (--no-bundle, no beforeCmd)   PASS (47 s)       — this RP, 2026-07-23
-Rust workspace                            PASS              — CI run 29996330471
-```
+| Tool | Value |
+|------|-------|
+| Platform (validation) | linux |
+| Node.js | 18.x |
+| TypeScript | 5.x |
+| Vitest | 4.x |
+| @wdio/tauri-service | 1.2.0 |
+| tauri-plugin-wdio-webdriver | 1.2.0 (new, optional) |
 
-Playwright: BLOCKED — environment dependency: `libasound2t64`
-- Error: `browserType.launch: Host system is missing dependencies to run browsers`
-- All 21 tests fail at launch with 0 ms runtime (never execute)
-- Pre-existing condition; no dependency or configuration changes made
+## Measurement design
 
-## Final Stage 3B.2 isolated WDIO matrix
+- Activated by `RIS_WDIO_TIMING=1` (absent = zero overhead, zero output)
+- Per-command: seq, commandName, start/end/duration ms, success/error, testName, suiteName, platform, provider, pid, runId
+- Output: NDJSON to `os.tmpdir()/ris-wdio-bench/<run-id>/commands.ndjson`
+- Summary JSON: session ms, command count, min/mean/median/p90/p95/p99/max, buckets (≥250/500/1000/2000/5000 ms), top-20 slowest, per-command aggregates
+- `measureStep("name", fn)` for logical steps — wraps async fn, records step duration as a separate entry in NDJSON
+- Slow commands logged to console at threshold `RIS_WDIO_SLOW_COMMAND_MS` (default 500 ms)
+- Provider stored in every record; RUN_ID shared across launcher+worker via `process.env['RIS_WDIO_RUN_ID']`
 
-Run command: `cd apps/desktop && DISPLAY=:77 node_modules/.bin/wdio run e2e-wdio/wdio.conf.ts --spec e2e-wdio/specs/<spec>.e2e.ts`
+## Production build isolation
 
-| Spec | Run | Result | Duration | Suffix | Run root | Cleanup |
-|------|-----|--------|----------|--------|----------|---------|
-| `entity-deletes-inventory` | run 1 | PASSED | 00:38:15 | mrx6g0hp | /tmp/ris-wdio-9QIW69 | REMOVED ✓ |
-| `entity-deletes-inventory` | run 2 | PASSED | 00:38:32 | mrx7tq4h | /tmp/ris-wdio-PVsanb | REMOVED ✓ |
-| `entity-deletes-hierarchy` | run 1 | PASSED | 00:31:12 | mrx97py8 | /tmp/ris-wdio-ogECM9 | REMOVED ✓ |
-| `entity-deletes-hierarchy` | run 2 | PASSED | 00:31:12 | mrxacamw | /tmp/ris-wdio-Lnfwj8 | REMOVED ✓ |
-| `destructive-guards-inventory` | run 1 | PASSED | ~01:09 | mrw3stks | /tmp/ris-wdio-9PVj1i | REMOVED ✓ |
-| `destructive-guards-inventory` | run 2 | PASSED | ~01:09 | — | — | REMOVED ✓ |
-| `destructive-guards-hierarchy` | run 1 | PASSED | ~01:05 | — | — | REMOVED ✓ |
-| `destructive-guards-hierarchy` | run 2 | PASSED | ~01:08 | — | — | REMOVED ✓ |
+| Check | Result |
+|-------|--------|
+| `cargo check --workspace` (no feature) | PASS |
+| `cargo clippy --workspace -- -D warnings` (no feature) | PASS |
+| `cargo check -p rack-inventory-studio-desktop --features wdio-embedded` | PASS |
+| `cargo clippy -p rack-inventory-studio-desktop --features wdio-embedded` | PASS |
+| `cargo fmt --all --check` | PASS |
+| No embedded plugin in default build | Confirmed (optional dep, not compiled) |
+| No port 4445 in default build | Confirmed (plugin not registered) |
 
-## Full WDIO suite
+## Static checks (Linux)
 
 ```
-cd apps/desktop && DISPLAY=:77 node_modules/.bin/wdio run e2e-wdio/wdio.conf.ts
-→ PASSED 11/11 specs (2026-07-22)
+TypeScript (npx tsc --noEmit)           PASS (0 errors)
+Vitest                                  PASS (853/853)
+Hygiene (check-repo-hygiene.mjs)        PASS (8/8)
+cargo fmt --all --check                 PASS
+cargo check --workspace                 PASS
+cargo check --features wdio-embedded    PASS
+cargo clippy --workspace                PASS
+cargo clippy --features wdio-embedded   PASS
+git diff --check                        PASS
 ```
 
-Specs: app-smoke, core-inventory, csv-import, destructive-guards-hierarchy, destructive-guards-inventory,
-entity-deletes-hierarchy, entity-deletes-inventory, entity-updates-work-mode, placement-lifecycle,
-repository-lifecycle, safety-recovery.
+## Benchmark results (PENDING — Windows execution required)
 
-## Playwright
+All 8 runs (external×4 + embedded×4 across app-smoke and core-inventory) are PENDING.
+See `docs/E2E_WDIO_WINDOWS_PERFORMANCE.md` for the full matrix and decision criteria.
 
-BLOCKED — environment dependency: `libasound2t64`
-Command: `cd apps/desktop && node_modules/.bin/playwright test`
-Exit code: 1. Pre-existing condition; unrelated to Stage 3B.2.
+## Decision
 
-## GitHub Actions
+PENDING — cannot evaluate until Windows benchmark runs are complete.
 
-Final CI (HEAD fb13fb8e7273c84a2bc4d3d837809de0c36a7d82):
-- Run ID: 29996330471 | Run number: 366 | Conclusion: success
-- Frontend checks: success
-- Rust workspace: success
-- Script and hygiene checks: success
-- Version consistency: success
-- Workflow lint: success
+## Not done
 
-## Working tree and cleanup
+- Windows benchmark execution (requires Windows machine)
+- Filling in `docs/E2E_WDIO_WINDOWS_PERFORMANCE.md` raw results, aggregation, interpretation, decision
+- Commit 3 (`docs(e2e): record Windows driver performance comparison`)
+- Full 11-spec WDIO suite validation (not required for this experiment branch unless embedded becomes default)
 
-| Run root | Status |
-|----------|--------|
-| /tmp/ris-wdio-9QIW69 (del-inv run 1) | REMOVED ✓ |
-| /tmp/ris-wdio-PVsanb (del-inv run 2) | REMOVED ✓ |
-| /tmp/ris-wdio-ogECM9 (del-hier run 1) | REMOVED ✓ |
-| /tmp/ris-wdio-Lnfwj8 (del-hier run 2) | REMOVED ✓ |
+## Risks
 
-Uncommitted changes present: no
-Working tree: clean
+- `tauri-plugin-wdio-webdriver` may require additional Tauri permissions not anticipated (build.rs creates the capability file conditionally)
+- The Cargo feature approach correctly isolates the plugin; the `#[cfg(feature = "wdio-embedded")]` guard is explicit, not `debug_assertions`
+- On Windows, Defender scanning may inflate startup and IPC step timings independently of provider choice
 
 ## Suggested next step
 
-PR #152 is ready for final review. Windows WDIO validation remains a separate follow-up stage.
+Execute the 8-run benchmark matrix on Windows using:
+```
+node scripts\run-wdio-performance-benchmark.mjs --provider external --spec app-smoke --repeat 2
+node scripts\run-wdio-performance-benchmark.mjs --provider embedded --spec app-smoke --repeat 2 --binary "..."
+node scripts\run-wdio-performance-benchmark.mjs --provider external --spec core-inventory --repeat 2
+node scripts\run-wdio-performance-benchmark.mjs --provider embedded --spec core-inventory --repeat 2 --binary "..."
+```
+Then fill in `docs/E2E_WDIO_WINDOWS_PERFORMANCE.md` and commit as:
+`docs(e2e): record Windows driver performance comparison`

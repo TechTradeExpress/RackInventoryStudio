@@ -821,6 +821,40 @@ Playwright: BLOCKED — environment dependency: `libasound2t64` (pre-existing; n
 | `destructive-guards-hierarchy` | run 2 | PASSED | ~01:08 |
 | Full suite (11 specs) | — | **PASSED 11/11** | — |
 
+### Stage 3B.3 — Windows WDIO performance experiment
+
+**Status: IN REVIEW**
+
+Branch: `experiment/e2e-wdio-windows-performance`
+Direct base: `roadmap/e2e-wdio`
+
+Goal: measure per-command WebDriver latency on Windows and determine whether
+the embedded driver provider (`tauri-plugin-wdio-webdriver`) offers a meaningful
+improvement over the external provider (`tauri-driver` → `msedgedriver`).
+
+**What this stage delivers:**
+- Opt-in timing instrumentation (`RIS_WDIO_TIMING=1`) via WDIO command hooks
+- `RIS_WDIO_DRIVER_PROVIDER=external|embedded` env-var switch in `wdio.conf.ts`
+- Optional Cargo feature `wdio-embedded` wrapping `tauri-plugin-wdio-webdriver`
+  (no impact on production builds; guarded by `#[cfg(feature = "wdio-embedded")]`)
+- `measureStep()` helper in `core-inventory.e2e.ts` for 8 logical business steps
+- Benchmark runner script: `scripts/run-wdio-performance-benchmark.mjs`
+- Performance comparison document: `docs/E2E_WDIO_WINDOWS_PERFORMANCE.md`
+
+**Benchmark matrix (Windows, same machine, same binary for A/B):**
+8 runs — external vs. embedded × app-smoke × 2 + core-inventory × 2.
+
+**Coverage changes:** none.  No COVERED counts change; no specs added or removed.
+
+**Helper refactors:** intentionally deferred.  Any optimisation identified from
+the data will be a separate future stage.
+
+**Results:** PENDING — requires Windows execution.
+See `docs/E2E_WDIO_WINDOWS_PERFORMANCE.md` for the full results matrix and
+decision (ADOPT EMBEDDED / KEEP EXTERNAL / INCONCLUSIVE).
+
+---
+
 ### Stage 3C — Remaining placement workflows
 
 **Status: PLANNED**
