@@ -481,7 +481,9 @@ function runWdioProcess({ wdioEntrypoint, wdioConf, specPath, cwd, env, timeoutM
   });
 }
 
-function checkPort4445Listening() {
+const EXTERNAL_DRIVER_PORT = 4444; // tauri-driver's own WebDriver-facing port
+
+function checkPortListening(port) {
   if (process.platform !== "win32") return "unknown (non-Windows)";
   try {
     const r = spawnSync(
@@ -489,7 +491,7 @@ function checkPort4445Listening() {
       [
         "-NoProfile",
         "-Command",
-        `(Get-NetTCPConnection -LocalPort ${EMBEDDED_PORT} -State Listen -ErrorAction SilentlyContinue | Measure-Object).Count`,
+        `(Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue | Measure-Object).Count`,
       ],
       { encoding: "utf8" },
     );
@@ -497,6 +499,49 @@ function checkPort4445Listening() {
     return Number.isFinite(n) && n > 0 ? "listening" : "free";
   } catch {
     return "unknown (check failed)";
+  }
+}
+
+/**
+ * Safety-net cleanup for a known, observed gap: @wdio/tauri-service v1.2.0's
+ * "Stopping N driver(s)..." shutdown does not reliably terminate tauri-driver
+ * (and its own msedgedriver child) on Windows, even after a fully PASSED run
+ * — the WDIO process itself exits cleanly while the driver stays bound to
+ * its port, which would break every subsequent run ("port already in use").
+ *
+ * This does NOT kill processes by name alone (that would risk touching an
+ * unrelated driver instance on the machine). It only targets tauri-driver.exe
+ * / msedgedriver.exe processes whose own CreationDate falls within this run's
+ * own [start, now] window — since the runner only ever drives one run at a
+ * time, any such process was necessarily spawned by the run that just
+ * finished. Only invoked when checkPortListening() has already shown a
+ * driver port is still bound after the WDIO process exited.
+ */
+function cleanupOrphanedDriverProcesses(runStartMs) {
+  if (process.platform !== "win32") return { attempted: false, killedPids: [] };
+  // A few seconds of margin against clock rounding between Date.now() and
+  // the WMI-reported CreationDate, both drawn from the same system clock.
+  const cutoffMs = runStartMs - 5000;
+  try {
+    const r = spawnSync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-Command",
+        `$cutoff = [DateTimeOffset]::FromUnixTimeMilliseconds(${cutoffMs}).LocalDateTime; ` +
+          `Get-CimInstance Win32_Process | Where-Object { ($_.Name -eq 'tauri-driver.exe' -or $_.Name -eq 'msedgedriver.exe') -and $_.CreationDate -ge $cutoff } | ` +
+          `ForEach-Object { taskkill /PID $_.ProcessId /T /F; $_.ProcessId }`,
+      ],
+      { encoding: "utf8" },
+    );
+    const killedPids = (r.stdout ?? "")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => /^\d+$/.test(l))
+      .map(Number);
+    return { attempted: true, killedPids };
+  } catch (e) {
+    return { attempted: true, killedPids: [], error: e.message };
   }
 }
 
@@ -521,23 +566,31 @@ function readPkgVersion(pkgJsonPath) {
   }
 }
 
-function readCargoLockVersion(cargoLockPath, packageName) {
+export function readCargoLockVersion(cargoLockPath, packageName) {
   if (!existsSync(cargoLockPath)) return null;
   const text = readFileSync(cargoLockPath, "utf8");
-  const re = new RegExp(`name = "${packageName}"\\nversion = "([^"]+)"`);
+  // Cargo.lock is CRLF on Windows checkouts — match either line ending.
+  const re = new RegExp(`name = "${packageName}"\\r?\\nversion = "([^"]+)"`);
   const m = text.match(re);
   return m ? m[1] : null;
 }
 
 function getEdgeVersion() {
   if (os.platform() !== "win32") return "N/A (not Windows)";
+  // `msedge.exe --version` does not reliably print to stdout — on some builds
+  // it silently launches the browser instead, which would leave a stray
+  // process behind. Read the file's VersionInfo instead: no process spawned.
   const candidates = [
     "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
     "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
   ];
   for (const p of candidates) {
     if (existsSync(p)) {
-      const out = safeExec(p, ["--version"]);
+      const out = safeExec("powershell.exe", [
+        "-NoProfile",
+        "-Command",
+        `(Get-Item '${p}').VersionInfo.ProductVersion`,
+      ]);
       if (out) return out;
     }
   }
@@ -669,7 +722,36 @@ async function runSingle({ provider, spec, runN, binary, desktopDir, wdioEntrypo
 
   const reportValid = validationErrors.length === 0;
   const passed = wdioResult.exitCode === 0 && reportValid;
-  const portStatusAfter = provider === "embedded" ? checkPort4445Listening() : "n/a";
+  // Checked for both providers: external's tauri-driver listens on 4444 and
+  // proxies to a native msedgedriver on 4445, and embedded's in-process
+  // server also defaults to 4445 — either can be left listening if the
+  // WDIO/tauri-service process doesn't tear its driver down before exiting.
+  const driverPortsStatusAfter = {
+    port4444: checkPortListening(EXTERNAL_DRIVER_PORT),
+    port4445: checkPortListening(EMBEDDED_PORT),
+  };
+  let forcedCleanupLikely =
+    driverPortsStatusAfter.port4444 === "listening" || driverPortsStatusAfter.port4445 === "listening";
+  let forcedCleanupResult = { attempted: false, killedPids: [] };
+
+  if (forcedCleanupLikely) {
+    console.warn(
+      `[benchmark]   WARNING: driver port(s) still listening after the WDIO process exited ` +
+        `(4444=${driverPortsStatusAfter.port4444}, 4445=${driverPortsStatusAfter.port4445}). ` +
+        `Treating this as a cleanup problem, not a success — attempting a targeted safety-net cleanup.`,
+    );
+    forcedCleanupResult = cleanupOrphanedDriverProcesses(runStartMs);
+    driverPortsStatusAfter.port4444 = checkPortListening(EXTERNAL_DRIVER_PORT);
+    driverPortsStatusAfter.port4445 = checkPortListening(EMBEDDED_PORT);
+    forcedCleanupLikely =
+      driverPortsStatusAfter.port4444 === "listening" || driverPortsStatusAfter.port4445 === "listening";
+    if (forcedCleanupResult.killedPids.length > 0) {
+      console.warn(
+        `[benchmark]   Safety-net cleanup killed PID(s): ${forcedCleanupResult.killedPids.join(", ")}. ` +
+          `Ports after cleanup: 4444=${driverPortsStatusAfter.port4444}, 4445=${driverPortsStatusAfter.port4445}.`,
+      );
+    }
+  }
 
   const result = {
     runN,
@@ -689,7 +771,9 @@ async function runSingle({ provider, spec, runN, binary, desktopDir, wdioEntrypo
     ndjsonPath: existsSync(ndjsonPath) ? ndjsonPath : null,
     ndjsonText,
     summary,
-    portStatusAfter,
+    driverPortsStatusAfter,
+    forcedCleanupLikely,
+    forcedCleanupResult,
   };
 
   console.log(

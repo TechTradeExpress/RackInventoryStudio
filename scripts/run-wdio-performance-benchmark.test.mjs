@@ -16,6 +16,7 @@ import {
   generateRunId,
   validatePort,
   resolveWdioEntrypoint,
+  readCargoLockVersion,
   pct,
   avg,
   medianOf,
@@ -229,6 +230,51 @@ describe("resolveWdioEntrypoint", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+// ── readCargoLockVersion ─────────────────────────────────────────────────────
+
+describe("readCargoLockVersion", () => {
+  it("finds a package version in a CRLF Cargo.lock (Windows checkout line endings)", () => {
+    const root = mkdtempSync(join(tmpdir(), "ris-cargolock-test-"));
+    try {
+      const lockPath = join(root, "Cargo.lock");
+      const content =
+        '[[package]]\r\nname = "other-crate"\r\nversion = "9.9.9"\r\n\r\n' +
+        '[[package]]\r\nname = "tauri-plugin-wdio-webdriver"\r\nversion = "1.2.0"\r\n' +
+        'source = "registry+..."\r\n';
+      writeFileSync(lockPath, content);
+      assert.equal(readCargoLockVersion(lockPath, "tauri-plugin-wdio-webdriver"), "1.2.0");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("finds a package version in an LF Cargo.lock", () => {
+    const root = mkdtempSync(join(tmpdir(), "ris-cargolock-test-"));
+    try {
+      const lockPath = join(root, "Cargo.lock");
+      writeFileSync(lockPath, '[[package]]\nname = "tauri-plugin-wdio-webdriver"\nversion = "1.2.0"\n');
+      assert.equal(readCargoLockVersion(lockPath, "tauri-plugin-wdio-webdriver"), "1.2.0");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("returns null when the package is not present", () => {
+    const root = mkdtempSync(join(tmpdir(), "ris-cargolock-test-"));
+    try {
+      const lockPath = join(root, "Cargo.lock");
+      writeFileSync(lockPath, '[[package]]\r\nname = "unrelated-crate"\r\nversion = "1.0.0"\r\n');
+      assert.equal(readCargoLockVersion(lockPath, "tauri-plugin-wdio-webdriver"), null);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("returns null when Cargo.lock does not exist", () => {
+    assert.equal(readCargoLockVersion(join(tmpdir(), "does-not-exist", "Cargo.lock"), "foo"), null);
   });
 });
 
