@@ -849,20 +849,34 @@ improvement over the external provider (`tauri-driver` → `msedgedriver`).
 **Helper refactors:** intentionally deferred.  Any optimisation identified from
 the data will be a separate future stage.
 
-**Results:** PENDING WINDOWS MATRIX — Linux supplementary data collected.
+**Results:** Windows matrix complete (8 runs). Decision status: **PENDING
+MAINTAINER REVIEW** — data collected and analyzed, final call left to a human
+reviewer rather than asserted by the implementing agent.
 
-Linux results (2026-07-23, WebKit/xvfb, same embedded binary for A/B):
-- app-smoke (×2 per provider): external PASS ×2, embedded PASS ×2.
-  Session startup improvement: 738ms (77%).  Test execution: −12s (16%).
-- core-inventory (×1 per provider): external PASS (1376s, 852 cmds).
-  Embedded FAIL — `submit-placement` step failed; matrix stopped.
-  Steps before failure show ~15–17% improvement with embedded.
+Windows results (2026-07-23, same machine, same embedded binary for A/B):
+- app-smoke (×2 per provider): external `PASS_WITH_FORCED_CLEANUP` ×2 (test
+  itself correct; `tauri-driver`/`msedgedriver` require a safe, PID-verified
+  forced cleanup every time — a confirmed upstream `@wdio/tauri-service`
+  Windows teardown gap, not a race). Embedded `CLEAN_PASS` ×2, consistently
+  faster (session startup ~79% lower, test execution ~34% lower).
+- core-inventory (×2 per provider, run twice — once before and once after a
+  targeted spec fix, see below): external `PASS_WITH_FORCED_CLEANUP` ×2 both
+  times (all 9 steps pass; same forced-cleanup pattern as app-smoke).
+  Embedded `TEST_FAILED` ×2 both times. First pass failed at `submit-placement`
+  (matches the Linux/WebKit signal). A minimal spec-level fix
+  (`core-inventory.e2e.ts`, commit `44446a6`) added an explicit
+  post-selection verification and revealed the true cause: `tauri-plugin-wdio-webdriver`'s
+  click implementation does not dispatch a real `mousedown` event, so any
+  `onMouseDown`-based UI (the `SearchableSelect` component, used in both
+  `DeviceFormModal` and `PlacePlacementModal`) never registers the
+  interaction under the embedded provider. Confirmed reproducible on both
+  Linux/WebKit and Windows/WebView2 — a genuine embedded-provider
+  WebDriver-compliance gap, not a test race, not an application bug.
 
-Linux data is supplementary only.  The embedded failure on Linux/WebKit
-at `submit-placement` is a risk signal requiring Windows verification.
-
-See `docs/E2E_WDIO_WINDOWS_PERFORMANCE.md` for the full results matrix and
-decision (ADOPT EMBEDDED / KEEP EXTERNAL / INCONCLUSIVE).
+See `docs/E2E_WDIO_WINDOWS_PERFORMANCE.md` for the full results matrix,
+process/port ownership detail, and the evidence write-up. The
+ADOPT EMBEDDED / KEEP EXTERNAL / INCONCLUSIVE call is intentionally left
+open there for maintainer review.
 
 ---
 
