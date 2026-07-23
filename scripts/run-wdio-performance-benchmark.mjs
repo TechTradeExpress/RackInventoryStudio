@@ -645,6 +645,30 @@ function killPidTree(pid) {
   spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
 }
 
+const NATURAL_TEARDOWN_GRACE_MS = 5000;
+const NATURAL_TEARDOWN_POLL_MS = 500;
+
+/**
+ * Gives driver processes a bounded final chance to release their ports on
+ * their own after the WDIO process has already exited, before this is
+ * treated as requiring forced cleanup. @wdio/tauri-service's own
+ * "Stopping N driver(s)..." step is asynchronous with the WDIO process's
+ * own exit on Windows — checking at t=0 can catch it mid-teardown. This
+ * does not weaken the safety guarantees in evaluateCleanupEligibility(): it
+ * only affects whether cleanup is judged *required* at all, never who is
+ * eligible to be auto-killed once it is.
+ */
+function waitForNaturalTeardown(ports, { graceMs = NATURAL_TEARDOWN_GRACE_MS, intervalMs = NATURAL_TEARDOWN_POLL_MS } = {}) {
+  if (process.platform !== "win32") return;
+  const deadline = Date.now() + graceMs;
+  for (;;) {
+    const stillOccupied = ports.some((port) => queryPortOwnerPids(port).length > 0);
+    if (!stillOccupied) return;
+    if (Date.now() >= deadline) return;
+    spawnSync("powershell.exe", ["-NoProfile", "-Command", `Start-Sleep -Milliseconds ${intervalMs}`]);
+  }
+}
+
 /**
  * Pre-run snapshot: every PID currently listening on a monitored port, plus
  * every currently-running driver-named process, regardless of whether it is
@@ -970,6 +994,10 @@ async function runSingle({ provider, spec, runN, binary, desktopDir, wdioEntrypo
   const testPassed = wdioResult.exitCode === 0;
   const reportValid = validationErrors.length === 0;
 
+  // Give tauri-driver/msedgedriver a final bounded chance to tear down on
+  // their own before treating this as requiring forced cleanup — see
+  // waitForNaturalTeardown().
+  waitForNaturalTeardown(cleanupPorts);
   const cleanup = performSafeCleanup({ ports: cleanupPorts, preRunPids, runStartMs });
   currentRunCleanupContext = null;
 
