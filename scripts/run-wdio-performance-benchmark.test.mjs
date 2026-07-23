@@ -26,6 +26,16 @@ import {
   poolCommandDurationsFromNdjsonText,
   poolStepDurationsByName,
   computeComparison,
+  OUTCOMES,
+  classifyOutcome,
+  isEligibleForAggregate,
+  summarizeRunOutcomes,
+  resolvePortOwnership,
+  evaluateCleanupEligibility,
+  parsePortOwnerPids,
+  parseProcessInfoJson,
+  EXPECTED_DRIVER_PROCESS_NAMES,
+  CLEANUP_CREATION_MARGIN_MS,
 } from "./run-wdio-performance-benchmark.mjs";
 
 // ── parseArgs ────────────────────────────────────────────────────────────────
@@ -610,6 +620,37 @@ describe("computeComparison", () => {
     assert.equal(comparison.embedded.medianTotalRunMs, null);
     assert.equal(comparison.deltas.medianTotalRunMs.absolute, null);
   });
+
+  it("excludes PASS_WITH_FORCED_CLEANUP runs from aggregation even though the test itself passed", () => {
+    const cleanRun = fakeRun({ provider: "external", runN: 1, passed: true, totalRunMs: 1000, sessionStartupMs: 100, testExecutionMs: 200, commandDurations: [10] });
+    const forcedRun = fakeRun({ provider: "external", runN: 2, passed: false, totalRunMs: 99999, sessionStartupMs: 999, testExecutionMs: 999, commandDurations: [99999] });
+    forcedRun.outcome = OUTCOMES.PASS_WITH_FORCED_CLEANUP;
+    const runs = [cleanRun, forcedRun];
+    const comparison = computeComparison({ runs, spec: "app-smoke" });
+    assert.equal(comparison.external.passedCount, 1, "forced-cleanup run must not count toward passedCount");
+    assert.equal(comparison.external.medianTotalRunMs, 1000, "forced-cleanup run's duration must not pollute the median");
+    assert.equal(comparison.external.outcomeCounts.PASS_WITH_FORCED_CLEANUP, 1);
+  });
+
+  it("reports status INSUFFICIENT_CLEAN_RUNS when a provider has fewer than 2 CLEAN_PASS runs", () => {
+    const runs = [
+      fakeRun({ provider: "external", runN: 1, passed: true, totalRunMs: 1000, sessionStartupMs: 100, testExecutionMs: 200, commandDurations: [10] }),
+      fakeRun({ provider: "embedded", runN: 1, passed: true, totalRunMs: 800, sessionStartupMs: 80, testExecutionMs: 150, commandDurations: [10] }),
+    ];
+    const comparison = computeComparison({ runs, spec: "app-smoke" });
+    assert.equal(comparison.status, "INSUFFICIENT_CLEAN_RUNS");
+  });
+
+  it("reports status OK when both providers have at least 2 CLEAN_PASS runs", () => {
+    const runs = [
+      fakeRun({ provider: "external", runN: 1, passed: true, totalRunMs: 1000, sessionStartupMs: 100, testExecutionMs: 200, commandDurations: [10] }),
+      fakeRun({ provider: "external", runN: 2, passed: true, totalRunMs: 1000, sessionStartupMs: 100, testExecutionMs: 200, commandDurations: [10] }),
+      fakeRun({ provider: "embedded", runN: 1, passed: true, totalRunMs: 800, sessionStartupMs: 80, testExecutionMs: 150, commandDurations: [10] }),
+      fakeRun({ provider: "embedded", runN: 2, passed: true, totalRunMs: 800, sessionStartupMs: 80, testExecutionMs: 150, commandDurations: [10] }),
+    ];
+    const comparison = computeComparison({ runs, spec: "app-smoke" });
+    assert.equal(comparison.status, "OK");
+  });
 });
 
 // ── ALLOWED_PROVIDERS sanity ───────────────────────────────────────────────────
@@ -621,5 +662,298 @@ describe("constants", () => {
 
   it("REQUIRED_CORE_INVENTORY_STEPS has the 9 documented steps", () => {
     assert.equal(REQUIRED_CORE_INVENTORY_STEPS.length, 9);
+  });
+});
+
+// ── classifyOutcome ──────────────────────────────────────────────────────────
+
+describe("classifyOutcome", () => {
+  const base = {
+    interrupted: false,
+    timedOut: false,
+    testPassed: true,
+    reportValid: true,
+    cleanupRequired: false,
+    cleanupSafe: true,
+    cleanupSucceeded: null,
+  };
+
+  it("exit 0 + valid report + natural cleanup -> CLEAN_PASS", () => {
+    assert.equal(classifyOutcome({ ...base }), OUTCOMES.CLEAN_PASS);
+  });
+
+  it("exit 0 + valid report + forced cleanup success -> PASS_WITH_FORCED_CLEANUP", () => {
+    assert.equal(
+      classifyOutcome({ ...base, cleanupRequired: true, cleanupSafe: true, cleanupSucceeded: true }),
+      OUTCOMES.PASS_WITH_FORCED_CLEANUP,
+    );
+  });
+
+  it("exit 0 + invalid report -> REPORT_INVALID", () => {
+    assert.equal(classifyOutcome({ ...base, reportValid: false }), OUTCOMES.REPORT_INVALID);
+  });
+
+  it("non-zero exit -> TEST_FAILED", () => {
+    assert.equal(classifyOutcome({ ...base, testPassed: false }), OUTCOMES.TEST_FAILED);
+  });
+
+  it("timeout -> TIMED_OUT regardless of report/cleanup state", () => {
+    assert.equal(
+      classifyOutcome({ ...base, timedOut: true, testPassed: false, reportValid: false }),
+      OUTCOMES.TIMED_OUT,
+    );
+  });
+
+  it("interrupt -> INTERRUPTED, takes precedence over everything else", () => {
+    assert.equal(
+      classifyOutcome({ ...base, interrupted: true, timedOut: true, testPassed: false }),
+      OUTCOMES.INTERRUPTED,
+    );
+  });
+
+  it("port occupied by an ambiguous/unsafe process -> CLEANUP_UNSAFE", () => {
+    assert.equal(
+      classifyOutcome({ ...base, cleanupRequired: true, cleanupSafe: false, cleanupSucceeded: false }),
+      OUTCOMES.CLEANUP_UNSAFE,
+    );
+  });
+
+  it("forced cleanup did not free the port -> CLEANUP_FAILED", () => {
+    assert.equal(
+      classifyOutcome({ ...base, cleanupRequired: true, cleanupSafe: true, cleanupSucceeded: false }),
+      OUTCOMES.CLEANUP_FAILED,
+    );
+  });
+
+  it("test failure takes precedence over cleanup state", () => {
+    assert.equal(
+      classifyOutcome({ ...base, testPassed: false, cleanupRequired: true, cleanupSafe: false }),
+      OUTCOMES.TEST_FAILED,
+    );
+  });
+});
+
+describe("isEligibleForAggregate", () => {
+  it("is true only for CLEAN_PASS", () => {
+    assert.equal(isEligibleForAggregate(OUTCOMES.CLEAN_PASS), true);
+    for (const outcome of Object.values(OUTCOMES)) {
+      if (outcome === OUTCOMES.CLEAN_PASS) continue;
+      assert.equal(isEligibleForAggregate(outcome), false, `${outcome} must not be aggregate-eligible`);
+    }
+  });
+});
+
+describe("summarizeRunOutcomes", () => {
+  it("counts each outcome bucket independently", () => {
+    const runs = [
+      { outcome: OUTCOMES.CLEAN_PASS },
+      { outcome: OUTCOMES.CLEAN_PASS },
+      { outcome: OUTCOMES.PASS_WITH_FORCED_CLEANUP },
+      { outcome: OUTCOMES.TEST_FAILED },
+      { outcome: OUTCOMES.CLEANUP_UNSAFE },
+    ];
+    const counts = summarizeRunOutcomes(runs);
+    assert.equal(counts.CLEAN_PASS, 2);
+    assert.equal(counts.PASS_WITH_FORCED_CLEANUP, 1);
+    assert.equal(counts.TEST_FAILED, 1);
+    assert.equal(counts.CLEANUP_UNSAFE, 1);
+    assert.equal(counts.CLEANUP_FAILED, 0);
+  });
+});
+
+// ── resolvePortOwnership ─────────────────────────────────────────────────────
+
+describe("resolvePortOwnership", () => {
+  it("reports not listening for an empty PID list", () => {
+    const r = resolvePortOwnership([]);
+    assert.equal(r.listening, false);
+    assert.equal(r.ambiguous, false);
+    assert.equal(r.owningPid, null);
+  });
+
+  it("resolves a single owning PID", () => {
+    const r = resolvePortOwnership([1234]);
+    assert.equal(r.listening, true);
+    assert.equal(r.ambiguous, false);
+    assert.equal(r.owningPid, 1234);
+  });
+
+  it("de-duplicates a repeated PID into a single owner", () => {
+    const r = resolvePortOwnership([1234, 1234]);
+    assert.equal(r.ambiguous, false);
+    assert.equal(r.owningPid, 1234);
+  });
+
+  it("flags multiple distinct PIDs as ambiguous — never guesses", () => {
+    const r = resolvePortOwnership([1234, 5678]);
+    assert.equal(r.listening, true);
+    assert.equal(r.ambiguous, true);
+    assert.equal(r.owningPid, null);
+    assert.deepEqual(r.candidatePids.sort(), [1234, 5678]);
+  });
+});
+
+// ── evaluateCleanupEligibility (process targeting) ──────────────────────────
+
+describe("evaluateCleanupEligibility", () => {
+  const runStartMs = 1_000_000;
+
+  it("PID owns the port and was created during the run -> eligible", () => {
+    const d = evaluateCleanupEligibility({
+      pid: 999,
+      processName: "tauri-driver.exe",
+      creationDateMs: runStartMs + 1000,
+      preRunPids: new Set(),
+      runStartMs,
+    });
+    assert.equal(d.eligible, true);
+    assert.equal(d.unsafe, false);
+  });
+
+  it("PID existed before the run -> ineligible, not unsafe", () => {
+    const d = evaluateCleanupEligibility({
+      pid: 999,
+      processName: "tauri-driver.exe",
+      creationDateMs: runStartMs + 1000,
+      preRunPids: new Set([999]),
+      runStartMs,
+    });
+    assert.equal(d.eligible, false);
+    assert.equal(d.unsafe, false);
+  });
+
+  it("expected name but not the confirmed port owner -> ineligible", () => {
+    const d = evaluateCleanupEligibility({
+      pid: 999,
+      processName: "tauri-driver.exe",
+      creationDateMs: runStartMs + 1000,
+      preRunPids: new Set(),
+      runStartMs,
+      portOwnerMatch: false,
+    });
+    assert.equal(d.eligible, false);
+    assert.equal(d.unsafe, false);
+  });
+
+  it("port owner has an unexpected process name -> unsafe", () => {
+    const d = evaluateCleanupEligibility({
+      pid: 999,
+      processName: "notepad.exe",
+      creationDateMs: runStartMs + 1000,
+      preRunPids: new Set(),
+      runStartMs,
+    });
+    assert.equal(d.eligible, false);
+    assert.equal(d.unsafe, true);
+  });
+
+  it("missing CreationDate -> unsafe", () => {
+    const d = evaluateCleanupEligibility({
+      pid: 999,
+      processName: "tauri-driver.exe",
+      creationDateMs: null,
+      preRunPids: new Set(),
+      runStartMs,
+    });
+    assert.equal(d.eligible, false);
+    assert.equal(d.unsafe, true);
+  });
+
+  it("CreationDate predating the run window (beyond margin) -> ineligible, not unsafe", () => {
+    const d = evaluateCleanupEligibility({
+      pid: 999,
+      processName: "tauri-driver.exe",
+      creationDateMs: runStartMs - CLEANUP_CREATION_MARGIN_MS - 1,
+      preRunPids: new Set(),
+      runStartMs,
+    });
+    assert.equal(d.eligible, false);
+    assert.equal(d.unsafe, false);
+  });
+
+  it("the 5-second creation margin alone is not sufficient — wrong name still unsafe", () => {
+    // CreationDate is within the margin window, PID is new, but the name is wrong:
+    // the margin passing must not by itself qualify the process.
+    const d = evaluateCleanupEligibility({
+      pid: 999,
+      processName: "chrome.exe",
+      creationDateMs: runStartMs - CLEANUP_CREATION_MARGIN_MS + 500,
+      preRunPids: new Set(),
+      runStartMs,
+    });
+    assert.equal(d.eligible, false);
+    assert.equal(d.unsafe, true);
+  });
+
+  it("defaults expectedProcessNames to the documented driver binaries", () => {
+    assert.deepEqual(EXPECTED_DRIVER_PROCESS_NAMES, ["tauri-driver.exe", "msedgedriver.exe"]);
+  });
+
+  it("accepts msedgedriver.exe as well as tauri-driver.exe", () => {
+    const d = evaluateCleanupEligibility({
+      pid: 999,
+      processName: "msedgedriver.exe",
+      creationDateMs: runStartMs + 100,
+      preRunPids: new Set(),
+      runStartMs,
+    });
+    assert.equal(d.eligible, true);
+  });
+});
+
+// ── PowerShell output parsers ────────────────────────────────────────────────
+
+describe("parsePortOwnerPids", () => {
+  it("parses an empty result as no owners", () => {
+    assert.deepEqual(parsePortOwnerPids(""), []);
+    assert.deepEqual(parsePortOwnerPids(null), []);
+    assert.deepEqual(parsePortOwnerPids(undefined), []);
+  });
+
+  it("parses a bare single PID (PowerShell ConvertTo-Json unwraps single-element arrays)", () => {
+    assert.deepEqual(parsePortOwnerPids("1234"), [1234]);
+  });
+
+  it("parses a JSON array of PIDs", () => {
+    assert.deepEqual(parsePortOwnerPids("[1234,5678]"), [1234, 5678]);
+  });
+
+  it("falls back to whitespace-separated integers on non-JSON output", () => {
+    assert.deepEqual(parsePortOwnerPids("1234\n5678\n"), [1234, 5678]);
+  });
+});
+
+describe("parseProcessInfoJson", () => {
+  it("returns null for empty output (process not found)", () => {
+    assert.equal(parseProcessInfoJson(""), null);
+    assert.equal(parseProcessInfoJson(null), null);
+  });
+
+  it("parses a well-formed single process record", () => {
+    const raw = JSON.stringify({
+      ProcessId: 4321,
+      Name: "tauri-driver.exe",
+      ParentProcessId: 100,
+      CreationDateIso: "2026-07-23T10:00:00.000Z",
+    });
+    const info = parseProcessInfoJson(raw);
+    assert.equal(info.pid, 4321);
+    assert.equal(info.name, "tauri-driver.exe");
+    assert.equal(info.parentProcessId, 100);
+    assert.equal(info.creationDateMs, Date.parse("2026-07-23T10:00:00.000Z"));
+  });
+
+  it("handles a null CreationDateIso as creationDateMs: null", () => {
+    const raw = JSON.stringify({ ProcessId: 1, Name: "x.exe", ParentProcessId: 1, CreationDateIso: null });
+    assert.equal(parseProcessInfoJson(raw).creationDateMs, null);
+  });
+
+  it("returns null for malformed JSON", () => {
+    assert.equal(parseProcessInfoJson("not json"), null);
+  });
+
+  it("unwraps a single-element array (PowerShell ConvertTo-Json behaviour)", () => {
+    const raw = JSON.stringify([{ ProcessId: 7, Name: "x.exe", ParentProcessId: 1, CreationDateIso: null }]);
+    assert.equal(parseProcessInfoJson(raw).pid, 7);
   });
 });

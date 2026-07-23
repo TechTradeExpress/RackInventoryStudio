@@ -23,9 +23,13 @@
  *   --compare   run the alternating external/embedded A/B matrix on one binary
  *   --continue-on-failure   keep running after a failed run (default: stop)
  *
- * A run is only considered PASSED when the WDIO process exits 0 AND the
- * timing report it produced (summary.json + commands.ndjson) validates —
- * see validateSummary(). exitCode === 0 alone is not sufficient.
+ * Result semantics (see OUTCOMES below): a run's `outcome` is one of a closed
+ * set of values. `passed === true` iff `outcome === "CLEAN_PASS"` — a run
+ * whose WDIO process exited 0, whose timing report validated, AND whose
+ * driver processes tore down without requiring a forced safety-net cleanup.
+ * A run that passed its test but needed forced cleanup is reported as
+ * PASS_WITH_FORCED_CLEANUP — it is kept for diagnostics but excluded from
+ * every aggregate/percentile computation and from the A/B comparison.
  *
  * Output:
  *   <os.tmpdir()>/ris-wdio-bench/<run-id>/          per-run timing data (written by command-timing.ts)
@@ -60,7 +64,7 @@ export const REQUIRED_CORE_INVENTORY_STEPS = [
 ];
 
 const WDIO_TIMEOUT_MS = 120 * 60 * 1000; // 120 minutes
-const EMBEDDED_PORT = 4445;
+const EMBEDDED_PORT_DEFAULT = 4445;
 const SIGTERM_GRACE_MS = 3000;
 
 // ── Argument parsing / validation (pure — unit tested) ─────────────────────────
@@ -317,81 +321,192 @@ export function poolStepDurationsByName(runs) {
   return map;
 }
 
+// ── Outcome classification (pure — unit tested) ─────────────────────────────────
+//
+// A run's raw exit code and report validity are necessary but not sufficient
+// conditions for treating it as a clean success: the driver processes it
+// spawned (tauri-driver.exe / msedgedriver.exe on Windows) must also have
+// torn themselves down without needing a forced safety-net kill. The four
+// cleanup-related fields below capture that distinction so `passed` cannot
+// silently paper over a leaked process or an unsafe/ambiguous cleanup.
+
+export const OUTCOMES = Object.freeze({
+  CLEAN_PASS: "CLEAN_PASS",
+  PASS_WITH_FORCED_CLEANUP: "PASS_WITH_FORCED_CLEANUP",
+  TEST_FAILED: "TEST_FAILED",
+  REPORT_INVALID: "REPORT_INVALID",
+  CLEANUP_UNSAFE: "CLEANUP_UNSAFE",
+  CLEANUP_FAILED: "CLEANUP_FAILED",
+  TIMED_OUT: "TIMED_OUT",
+  INTERRUPTED: "INTERRUPTED",
+});
+
 /**
- * Builds the A/B comparison object for one spec's runs. `runs` must already
- * carry `passed`, `totalRunMs`, `summary` (parsed summary.json or null), and
- * `ndjsonText` (raw commands.ndjson content or null) for each run.
+ * Precedence (highest first): an aborted run (interrupted/timed out) is
+ * reported as such regardless of what its report or cleanup state look
+ * like, since the run itself never completed normally. Next, exit code and
+ * report validity — a run that failed its own assertions or produced a
+ * malformed report cannot be a pass no matter how clean its cleanup was.
+ * Only once the run itself is a genuine pass does cleanup status decide
+ * between CLEAN_PASS / PASS_WITH_FORCED_CLEANUP / CLEANUP_UNSAFE / CLEANUP_FAILED.
  */
-export function computeComparison({ runs, spec }) {
-  const externalRuns = runs.filter((r) => r.provider === "external");
-  const embeddedRuns = runs.filter((r) => r.provider === "embedded");
+export function classifyOutcome({
+  interrupted = false,
+  timedOut = false,
+  testPassed,
+  reportValid,
+  cleanupRequired,
+  cleanupSafe,
+  cleanupSucceeded,
+}) {
+  if (interrupted) return OUTCOMES.INTERRUPTED;
+  if (timedOut) return OUTCOMES.TIMED_OUT;
+  if (!testPassed) return OUTCOMES.TEST_FAILED;
+  if (!reportValid) return OUTCOMES.REPORT_INVALID;
+  if (!cleanupRequired) return OUTCOMES.CLEAN_PASS;
+  if (!cleanupSafe) return OUTCOMES.CLEANUP_UNSAFE;
+  if (!cleanupSucceeded) return OUTCOMES.CLEANUP_FAILED;
+  return OUTCOMES.PASS_WITH_FORCED_CLEANUP;
+}
 
-  function providerStats(providerRuns) {
-    const passed = providerRuns.filter((r) => r.passed);
-    const totalDurations = passed.map((r) => r.totalRunMs).filter((v) => v != null);
-    const testExecDurations = passed.map((r) => r.summary?.testExecutionMs).filter((v) => v != null);
-    const sessionStartupDurations = passed.map((r) => r.summary?.sessionStartupMs).filter((v) => v != null);
-    const pooledCommandDurations = poolCommandDurationsFromNdjsonText(
-      passed.map((r) => r.ndjsonText).filter((t) => t != null),
-    );
-    const perRunP95 = passed.map((r) => r.summary?.p95).filter((v) => v != null);
+/** Only CLEAN_PASS runs are eligible for aggregate/percentile/A-B computations. */
+export function isEligibleForAggregate(outcome) {
+  return outcome === OUTCOMES.CLEAN_PASS;
+}
 
-    return {
-      runCount: providerRuns.length,
-      passedCount: passed.length,
-      medianTotalRunMs: totalDurations.length ? medianOf(totalDurations) : null,
-      medianTestExecutionMs: testExecDurations.length ? medianOf(testExecDurations) : null,
-      medianSessionStartupMs: sessionStartupDurations.length ? medianOf(sessionStartupDurations) : null,
-      medianCommandLatencyMs: pooledCommandDurations.length ? medianOf(pooledCommandDurations) : null,
-      p95CommandLatencyMs: pooledCommandDurations.length ? pct(pooledCommandDurations, 95) : null,
-      commandsGe1s: pooledCommandDurations.filter((d) => d >= 1000).length,
-      commandsGe5s: pooledCommandDurations.filter((d) => d >= 5000).length,
-      pooledCommandCount: pooledCommandDurations.length,
-      perRunP95,
-    };
-  }
-
-  const externalStats = providerStats(externalRuns);
-  const embeddedStats = providerStats(embeddedRuns);
-
-  const deltas = {
-    medianTotalRunMs: computeDelta(externalStats.medianTotalRunMs, embeddedStats.medianTotalRunMs),
-    medianTestExecutionMs: computeDelta(externalStats.medianTestExecutionMs, embeddedStats.medianTestExecutionMs),
-    medianSessionStartupMs: computeDelta(externalStats.medianSessionStartupMs, embeddedStats.medianSessionStartupMs),
-    medianCommandLatencyMs: computeDelta(externalStats.medianCommandLatencyMs, embeddedStats.medianCommandLatencyMs),
-    p95CommandLatencyMs: computeDelta(externalStats.p95CommandLatencyMs, embeddedStats.p95CommandLatencyMs),
-    commandsGe1s: computeDelta(externalStats.commandsGe1s, embeddedStats.commandsGe1s),
-    commandsGe5s: computeDelta(externalStats.commandsGe5s, embeddedStats.commandsGe5s),
+export function summarizeRunOutcomes(runs) {
+  const counts = {
+    CLEAN_PASS: 0,
+    PASS_WITH_FORCED_CLEANUP: 0,
+    TEST_FAILED: 0,
+    REPORT_INVALID: 0,
+    CLEANUP_UNSAFE: 0,
+    CLEANUP_FAILED: 0,
+    TIMED_OUT: 0,
+    INTERRUPTED: 0,
   };
-
-  let steps = null;
-  if (spec === "core-inventory") {
-    const externalSteps = poolStepDurationsByName(externalRuns);
-    const embeddedSteps = poolStepDurationsByName(embeddedRuns);
-    const allStepNames = new Set([...externalSteps.keys(), ...embeddedSteps.keys()]);
-    steps = Array.from(allStepNames)
-      .sort()
-      .map((stepName) => {
-        const extDurs = externalSteps.get(stepName) ?? [];
-        const embDurs = embeddedSteps.get(stepName) ?? [];
-        const externalMedianMs = extDurs.length ? medianOf(extDurs) : null;
-        const embeddedMedianMs = embDurs.length ? medianOf(embDurs) : null;
-        return {
-          stepName,
-          externalMedianMs,
-          embeddedMedianMs,
-          delta: computeDelta(externalMedianMs, embeddedMedianMs),
-        };
-      });
+  for (const r of runs) {
+    if (r.outcome in counts) counts[r.outcome]++;
   }
+  return counts;
+}
 
+// ── PID-safe process/port ownership (pure decision logic — unit tested) ────────
+
+export const EXPECTED_DRIVER_PROCESS_NAMES = ["tauri-driver.exe", "msedgedriver.exe"];
+
+// A few seconds of margin against clock rounding between Date.now() and the
+// WMI-reported CreationDate, both drawn from the same system clock. This
+// margin alone is never sufficient to qualify a process for auto-kill — it
+// is one of several independently-required conditions in
+// evaluateCleanupEligibility().
+export const CLEANUP_CREATION_MARGIN_MS = 5000;
+
+/**
+ * Given the set of PIDs a PowerShell `Get-NetTCPConnection -State Listen`
+ * query reported as OwningProcess for one port, decides whether the port
+ * has zero, one, or an ambiguous multiple owners. Ambiguity (more than one
+ * distinct PID reported for the same LocalPort) must never be auto-resolved.
+ */
+export function resolvePortOwnership(owningPids) {
+  const distinct = [...new Set((owningPids ?? []).filter((n) => Number.isInteger(n)))];
+  if (distinct.length === 0) return { listening: false, owningPid: null, ambiguous: false, candidatePids: [] };
+  if (distinct.length === 1) {
+    return { listening: true, owningPid: distinct[0], ambiguous: false, candidatePids: distinct };
+  }
+  return { listening: true, owningPid: null, ambiguous: true, candidatePids: distinct };
+}
+
+/**
+ * Decides whether a single, unambiguously-identified port-owning process may
+ * be automatically killed as a run's forced-cleanup safety net. Every
+ * condition below is independently required (see docs/E2E_WDIO_PLAN.md
+ * §"Bezpieczna identyfikacja procesu cleanupu"):
+ *
+ *   1. the candidate is confirmed as the port's actual OwningProcess
+ *      (portOwnerMatch) — never inferred from process name/time alone,
+ *   2. its PID did not exist before this run started (preRunPids),
+ *   3. its CreationDate falls within this run's own [start, now] window,
+ *   4. its executable name is one of the expected driver binaries.
+ *
+ * Any condition that cannot be verified (missing CreationDate, unexpected
+ * name, ambiguous owner) marks the result `unsafe: true` — the caller must
+ * not kill anything and must surface CLEANUP_UNSAFE instead. A candidate
+ * that is simply not ours (pre-existing, or created outside the run window)
+ * is `unsafe: false, eligible: false` — a normal, expected "leave it alone".
+ */
+export function evaluateCleanupEligibility({
+  pid,
+  processName,
+  creationDateMs,
+  preRunPids,
+  runStartMs,
+  marginMs = CLEANUP_CREATION_MARGIN_MS,
+  expectedProcessNames = EXPECTED_DRIVER_PROCESS_NAMES,
+  portOwnerMatch = true,
+}) {
+  if (!portOwnerMatch) {
+    return { eligible: false, unsafe: false, reason: "candidate PID is not the confirmed owning process of the port" };
+  }
+  if (preRunPids && typeof preRunPids.has === "function" && preRunPids.has(pid)) {
+    return { eligible: false, unsafe: false, reason: "PID existed before this run started" };
+  }
+  if (creationDateMs === null || creationDateMs === undefined || !Number.isFinite(creationDateMs)) {
+    return { eligible: false, unsafe: true, reason: "process CreationDate unavailable" };
+  }
+  if (creationDateMs < runStartMs - marginMs) {
+    return { eligible: false, unsafe: false, reason: "process CreationDate predates this run's window" };
+  }
+  if (!expectedProcessNames.includes(processName)) {
+    return { eligible: false, unsafe: true, reason: `unexpected process name "${processName}"` };
+  }
   return {
-    spec,
-    directionNote: "positive delta / positive percent = embedded faster or better than external",
-    external: externalStats,
-    embedded: embeddedStats,
-    deltas,
-    steps,
+    eligible: true,
+    unsafe: false,
+    reason: "eligible: new PID, confirmed port owner, expected name, created within run window",
+  };
+}
+
+// ── PowerShell output parsers (pure — unit tested) ──────────────────────────────
+
+/** Parses `... | ConvertTo-Json -Compress` output for a list of PIDs (empty/bare-number/array). */
+export function parsePortOwnerPids(raw) {
+  const text = (raw ?? "").trim();
+  if (!text) return [];
+  try {
+    const parsed = JSON.parse(text);
+    const arr = Array.isArray(parsed) ? parsed : [parsed];
+    return arr.map((n) => Number(n)).filter((n) => Number.isInteger(n));
+  } catch {
+    // Fallback: bare whitespace/newline-separated integers.
+    return text
+      .split(/\s+/)
+      .map((s) => Number(s))
+      .filter((n) => Number.isInteger(n));
+  }
+}
+
+/** Parses a single Win32_Process record (ProcessId, Name, ParentProcessId, CreationDateIso). */
+export function parseProcessInfoJson(raw) {
+  const text = (raw ?? "").trim();
+  if (!text) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (Array.isArray(parsed)) parsed = parsed[0];
+  if (!parsed || typeof parsed !== "object") return null;
+  const pid = Number(parsed.ProcessId);
+  if (!Number.isInteger(pid)) return null;
+  const parentRaw = Number(parsed.ParentProcessId);
+  const creationDateMs = parsed.CreationDateIso ? Date.parse(parsed.CreationDateIso) : NaN;
+  return {
+    pid,
+    name: parsed.Name ?? null,
+    parentProcessId: Number.isInteger(parentRaw) ? parentRaw : null,
+    creationDateMs: Number.isFinite(creationDateMs) ? creationDateMs : null,
   };
 }
 
@@ -399,6 +514,10 @@ export function computeComparison({ runs, spec }) {
 
 let currentChild = null;
 let sigintHandlerInstalled = false;
+// Tracks the ports/pre-run snapshot/start time of whichever run is currently
+// in flight, so SIGINT handling can perform the same PID-scoped, safe
+// cleanup as a normal run instead of blindly killing by name.
+let currentRunCleanupContext = null;
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -430,10 +549,24 @@ function installSigintHandler() {
   process.on("SIGINT", () => {
     console.error("\n[benchmark] SIGINT received — cleaning up the WDIO child process...");
     const pid = currentChild?.pid;
-    killProcessTreeGraceful(pid).finally(() => {
-      process.exitCode = 130;
-      process.exit(130);
-    });
+    killProcessTreeGraceful(pid)
+      .then(() => {
+        if (currentRunCleanupContext) {
+          const { ports, preRunPids, runStartMs } = currentRunCleanupContext;
+          const cleanup = performSafeCleanup({ ports, preRunPids, runStartMs });
+          console.error(
+            `[benchmark] outcome=${OUTCOMES.INTERRUPTED} passed=false ` +
+              `cleanupRequired=${cleanup.cleanupRequired} cleanupSafe=${cleanup.cleanupSafe} ` +
+              `cleanupSucceeded=${cleanup.cleanupSucceeded} killedPids=${cleanup.killedPids.join(",") || "-"}`,
+          );
+        } else {
+          console.error(`[benchmark] outcome=${OUTCOMES.INTERRUPTED} passed=false (no run in flight)`);
+        }
+      })
+      .finally(() => {
+        process.exitCode = 130;
+        process.exit(130);
+      });
   });
 }
 
@@ -483,66 +616,162 @@ function runWdioProcess({ wdioEntrypoint, wdioConf, specPath, cwd, env, timeoutM
 
 const EXTERNAL_DRIVER_PORT = 4444; // tauri-driver's own WebDriver-facing port
 
-function checkPortListening(port) {
-  if (process.platform !== "win32") return "unknown (non-Windows)";
-  try {
-    const r = spawnSync(
-      "powershell.exe",
-      [
-        "-NoProfile",
-        "-Command",
-        `(Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue | Measure-Object).Count`,
-      ],
-      { encoding: "utf8" },
-    );
-    const n = parseInt((r.stdout ?? "").trim(), 10);
-    return Number.isFinite(n) && n > 0 ? "listening" : "free";
-  } catch {
-    return "unknown (check failed)";
-  }
+function runPowershellCapture(script) {
+  const r = spawnSync("powershell.exe", ["-NoProfile", "-Command", script], { encoding: "utf8" });
+  return (r.stdout ?? "").trim();
+}
+
+/** Raw PowerShell query — not unit tested; parsing is done by parsePortOwnerPids(). */
+function queryPortOwnerPids(port) {
+  if (process.platform !== "win32") return [];
+  const script =
+    `Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue | ` +
+    `Select-Object -ExpandProperty OwningProcess -Unique | ConvertTo-Json -Compress`;
+  return parsePortOwnerPids(runPowershellCapture(script));
+}
+
+/** Raw PowerShell query — not unit tested; parsing is done by parseProcessInfoJson(). */
+function queryProcessInfo(pid) {
+  if (process.platform !== "win32") return null;
+  const script =
+    `Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}" -ErrorAction SilentlyContinue | ` +
+    `Select-Object ProcessId, Name, ParentProcessId, ` +
+    `@{Name='CreationDateIso';Expression={ if ($_.CreationDate) { $_.CreationDate.ToString('o') } else { $null } }} | ` +
+    `ConvertTo-Json -Compress`;
+  return parseProcessInfoJson(runPowershellCapture(script));
+}
+
+function killPidTree(pid) {
+  spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
 }
 
 /**
- * Safety-net cleanup for a known, observed gap: @wdio/tauri-service v1.2.0's
- * "Stopping N driver(s)..." shutdown does not reliably terminate tauri-driver
- * (and its own msedgedriver child) on Windows, even after a fully PASSED run
- * — the WDIO process itself exits cleanly while the driver stays bound to
- * its port, which would break every subsequent run ("port already in use").
- *
- * This does NOT kill processes by name alone (that would risk touching an
- * unrelated driver instance on the machine). It only targets tauri-driver.exe
- * / msedgedriver.exe processes whose own CreationDate falls within this run's
- * own [start, now] window — since the runner only ever drives one run at a
- * time, any such process was necessarily spawned by the run that just
- * finished. Only invoked when checkPortListening() has already shown a
- * driver port is still bound after the WDIO process exited.
+ * Pre-run snapshot: every PID currently listening on a monitored port, plus
+ * every currently-running driver-named process, regardless of whether it is
+ * listening yet. Used exclusively to EXCLUDE processes that pre-date this
+ * run from forced-cleanup eligibility — never to select a cleanup target.
  */
-function cleanupOrphanedDriverProcesses(runStartMs) {
-  if (process.platform !== "win32") return { attempted: false, killedPids: [] };
-  // A few seconds of margin against clock rounding between Date.now() and
-  // the WMI-reported CreationDate, both drawn from the same system clock.
-  const cutoffMs = runStartMs - 5000;
-  try {
-    const r = spawnSync(
-      "powershell.exe",
-      [
-        "-NoProfile",
-        "-Command",
-        `$cutoff = [DateTimeOffset]::FromUnixTimeMilliseconds(${cutoffMs}).LocalDateTime; ` +
-          `Get-CimInstance Win32_Process | Where-Object { ($_.Name -eq 'tauri-driver.exe' -or $_.Name -eq 'msedgedriver.exe') -and $_.CreationDate -ge $cutoff } | ` +
-          `ForEach-Object { taskkill /PID $_.ProcessId /T /F; $_.ProcessId }`,
-      ],
-      { encoding: "utf8" },
-    );
-    const killedPids = (r.stdout ?? "")
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => /^\d+$/.test(l))
-      .map(Number);
-    return { attempted: true, killedPids };
-  } catch (e) {
-    return { attempted: true, killedPids: [], error: e.message };
+function snapshotPreRunPids(ports) {
+  if (process.platform !== "win32") return new Set();
+  const portList = ports.join(",");
+  const script =
+    `$ports = @(${portList}); ` +
+    `$portPids = @(); foreach ($p in $ports) { $portPids += @(Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess) }; ` +
+    `$driverPids = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | ` +
+    `Where-Object { $_.Name -eq 'tauri-driver.exe' -or $_.Name -eq 'msedgedriver.exe' } | Select-Object -ExpandProperty ProcessId); ` +
+    `($portPids + $driverPids) | Select-Object -Unique | ConvertTo-Json -Compress`;
+  const pids = parsePortOwnerPids(runPowershellCapture(script));
+  return new Set(pids);
+}
+
+/**
+ * Resolves whether one port needs cleanup and, if so, whether the
+ * identified owner is safe to auto-kill. Never kills anything itself —
+ * see performSafeCleanup() for the orchestration that actually acts on
+ * this decision.
+ */
+function evaluatePortForCleanup({ port, preRunPids, runStartMs }) {
+  const ownership = resolvePortOwnership(queryPortOwnerPids(port));
+  if (!ownership.listening) {
+    return { port, required: false, owningPid: null, processName: null, safe: true, eligible: false, reason: "port free" };
   }
+  if (ownership.ambiguous) {
+    return {
+      port,
+      required: true,
+      owningPid: null,
+      candidatePids: ownership.candidatePids,
+      processName: null,
+      safe: false,
+      eligible: false,
+      reason: "multiple distinct owning PIDs reported for this port — refusing to guess",
+    };
+  }
+  const pid = ownership.owningPid;
+  const info = queryProcessInfo(pid);
+  if (!info) {
+    return {
+      port,
+      required: true,
+      owningPid: pid,
+      processName: null,
+      safe: false,
+      eligible: false,
+      reason: "could not retrieve process info for the port's owning PID",
+    };
+  }
+  const decision = evaluateCleanupEligibility({
+    pid: info.pid,
+    processName: info.name,
+    creationDateMs: info.creationDateMs,
+    preRunPids,
+    runStartMs,
+  });
+  return {
+    port,
+    required: true,
+    owningPid: pid,
+    processName: info.name,
+    parentProcessId: info.parentProcessId,
+    creationDateMs: info.creationDateMs,
+    safe: decision.eligible,
+    eligible: decision.eligible,
+    reason: decision.reason,
+  };
+}
+
+/**
+ * Orchestrates the full safety-net cleanup for a run: evaluates every
+ * monitored port, and only ever kills a port's owning process if every one
+ * of the monitored ports that still needs cleanup was independently judged
+ * safe. A single unsafe/ambiguous port blocks killing on ALL ports for this
+ * run — partial automated cleanup next to an unresolved ambiguity is not
+ * an acceptable outcome.
+ */
+function performSafeCleanup({ ports, preRunPids, runStartMs }) {
+  const perPort = ports.map((port) => evaluatePortForCleanup({ port, preRunPids, runStartMs }));
+  const requiredPorts = perPort.filter((p) => p.required);
+
+  if (requiredPorts.length === 0) {
+    return {
+      ports: perPort,
+      cleanupRequired: false,
+      cleanupSafe: true,
+      cleanupAttempted: false,
+      cleanupSucceeded: null,
+      cleanupClean: true,
+      killedPids: [],
+    };
+  }
+
+  const cleanupSafe = requiredPorts.every((p) => p.safe);
+  const killedPids = [];
+  let cleanupAttempted = false;
+
+  if (cleanupSafe) {
+    for (const p of requiredPorts) {
+      if (p.eligible) {
+        cleanupAttempted = true;
+        killPidTree(p.owningPid);
+        killedPids.push(p.owningPid);
+      }
+    }
+  }
+
+  const afterCheck = ports.map((port) => ({ port, owners: queryPortOwnerPids(port) }));
+  const stillOccupied = afterCheck.filter((s) => s.owners.length > 0).map((s) => s.port);
+  const cleanupSucceeded = cleanupSafe && stillOccupied.length === 0;
+
+  return {
+    ports: perPort,
+    cleanupRequired: true,
+    cleanupSafe,
+    cleanupAttempted,
+    cleanupSucceeded,
+    cleanupClean: false,
+    killedPids,
+    portsStillOccupiedAfter: stillOccupied,
+  };
 }
 
 // ── Environment info (side-effecting — not unit tested) ────────────────────────
@@ -652,6 +881,24 @@ async function runSingle({ provider, spec, runN, binary, desktopDir, wdioEntrypo
 
   console.log(`\n[benchmark] === Run ${runN} provider=${provider} spec=${spec} runId=${runId} ===`);
 
+  // Requested embedded port: honours a caller-provided RIS_WDIO_EMBEDDED_PORT
+  // (defaulting to 4445) rather than silently overriding it — see
+  // docs/E2E_WDIO_PLAN.md §"Porty zależne od providera".
+  const requestedEmbeddedPort =
+    process.env["RIS_WDIO_EMBEDDED_PORT"] !== undefined
+      ? validatePort(process.env["RIS_WDIO_EMBEDDED_PORT"])
+      : EMBEDDED_PORT_DEFAULT;
+
+  // Both ports are monitored for every provider: external's tauri-driver
+  // listens on 4444 and proxies to a native msedgedriver that may itself
+  // land on the embedded-default port, and embedded's in-process server
+  // listens on the configured port — either can be left listening if the
+  // WDIO/tauri-service process doesn't tear its driver down before exiting.
+  const cleanupPorts = [...new Set([EXTERNAL_DRIVER_PORT, requestedEmbeddedPort])];
+
+  const preRunPids = snapshotPreRunPids(cleanupPorts);
+  currentRunCleanupContext = { ports: cleanupPorts, preRunPids, runStartMs };
+
   const env = {
     ...process.env,
     RIS_WDIO_TIMING: "1",
@@ -660,7 +907,7 @@ async function runSingle({ provider, spec, runN, binary, desktopDir, wdioEntrypo
     RIS_WDIO_SLOW_COMMAND_MS: "500",
   };
   if (binary) env["TAURI_BINARY_PATH"] = resolve(binary);
-  if (provider === "embedded") env["RIS_WDIO_EMBEDDED_PORT"] = String(validatePort(EMBEDDED_PORT));
+  if (provider === "embedded") env["RIS_WDIO_EMBEDDED_PORT"] = String(requestedEmbeddedPort);
 
   const wdioResult = await runWdioProcess({
     wdioEntrypoint,
@@ -720,38 +967,40 @@ async function runSingle({ provider, spec, runN, binary, desktopDir, wdioEntrypo
     );
   }
 
+  const testPassed = wdioResult.exitCode === 0;
   const reportValid = validationErrors.length === 0;
-  const passed = wdioResult.exitCode === 0 && reportValid;
-  // Checked for both providers: external's tauri-driver listens on 4444 and
-  // proxies to a native msedgedriver on 4445, and embedded's in-process
-  // server also defaults to 4445 — either can be left listening if the
-  // WDIO/tauri-service process doesn't tear its driver down before exiting.
-  const driverPortsStatusAfter = {
-    port4444: checkPortListening(EXTERNAL_DRIVER_PORT),
-    port4445: checkPortListening(EMBEDDED_PORT),
-  };
-  let forcedCleanupLikely =
-    driverPortsStatusAfter.port4444 === "listening" || driverPortsStatusAfter.port4445 === "listening";
-  let forcedCleanupResult = { attempted: false, killedPids: [] };
 
-  if (forcedCleanupLikely) {
+  const cleanup = performSafeCleanup({ ports: cleanupPorts, preRunPids, runStartMs });
+  currentRunCleanupContext = null;
+
+  if (cleanup.cleanupRequired) {
     console.warn(
-      `[benchmark]   WARNING: driver port(s) still listening after the WDIO process exited ` +
-        `(4444=${driverPortsStatusAfter.port4444}, 4445=${driverPortsStatusAfter.port4445}). ` +
-        `Treating this as a cleanup problem, not a success — attempting a targeted safety-net cleanup.`,
+      `[benchmark]   Port(s) still occupied after the WDIO process exited: ` +
+        cleanup.ports
+          .filter((p) => p.required)
+          .map((p) => `${p.port}=pid:${p.owningPid ?? "?"}(${p.processName ?? "unknown"})`)
+          .join(", ") +
+        `. cleanupSafe=${cleanup.cleanupSafe} cleanupSucceeded=${cleanup.cleanupSucceeded}` +
+        (cleanup.killedPids.length ? ` killedPids=${cleanup.killedPids.join(",")}` : ""),
     );
-    forcedCleanupResult = cleanupOrphanedDriverProcesses(runStartMs);
-    driverPortsStatusAfter.port4444 = checkPortListening(EXTERNAL_DRIVER_PORT);
-    driverPortsStatusAfter.port4445 = checkPortListening(EMBEDDED_PORT);
-    forcedCleanupLikely =
-      driverPortsStatusAfter.port4444 === "listening" || driverPortsStatusAfter.port4445 === "listening";
-    if (forcedCleanupResult.killedPids.length > 0) {
-      console.warn(
-        `[benchmark]   Safety-net cleanup killed PID(s): ${forcedCleanupResult.killedPids.join(", ")}. ` +
-          `Ports after cleanup: 4444=${driverPortsStatusAfter.port4444}, 4445=${driverPortsStatusAfter.port4445}.`,
-      );
+    if (!cleanup.cleanupSafe) {
+      for (const p of cleanup.ports.filter((p) => p.required && !p.safe)) {
+        console.error(`[benchmark]   CLEANUP_UNSAFE on port ${p.port}: ${p.reason}`);
+      }
     }
   }
+
+  const outcome = classifyOutcome({
+    interrupted: false,
+    timedOut: wdioResult.timedOut,
+    testPassed,
+    reportValid,
+    cleanupRequired: cleanup.cleanupRequired,
+    cleanupSafe: cleanup.cleanupSafe,
+    cleanupSucceeded: cleanup.cleanupSucceeded,
+  });
+  const passed = outcome === OUTCOMES.CLEAN_PASS;
+  const excludedFromAggregate = !isEligibleForAggregate(outcome);
 
   const result = {
     runN,
@@ -763,21 +1012,29 @@ async function runSingle({ provider, spec, runN, binary, desktopDir, wdioEntrypo
     wdioPid: wdioResult.pid,
     totalRunMs,
     wdioProcessMs: wdioResult.wdioProcessMs,
-    passed,
+    testPassed,
     reportValid,
+    cleanupRequired: cleanup.cleanupRequired,
+    cleanupAttempted: cleanup.cleanupAttempted,
+    cleanupSucceeded: cleanup.cleanupSucceeded,
+    cleanupClean: cleanup.cleanupClean,
+    cleanupSafe: cleanup.cleanupSafe,
+    cleanupPorts: cleanup.ports,
+    cleanupKilledPids: cleanup.killedPids,
+    outcome,
+    passed,
+    excludedFromAggregate,
+    exclusionReason: excludedFromAggregate ? outcome : null,
     validationErrors,
     reportDir: reportRunDir,
     summaryPath: existsSync(summaryPath) ? summaryPath : null,
     ndjsonPath: existsSync(ndjsonPath) ? ndjsonPath : null,
     ndjsonText,
     summary,
-    driverPortsStatusAfter,
-    forcedCleanupLikely,
-    forcedCleanupResult,
   };
 
   console.log(
-    `[benchmark] Run ${runN} (${provider}) ${passed ? "PASSED" : "FAILED"} in ${Math.round(totalRunMs / 1000)}s ` +
+    `[benchmark] Run ${runN} (${provider}) outcome=${outcome} passed=${passed} in ${Math.round(totalRunMs / 1000)}s ` +
       `exitCode=${wdioResult.exitCode} reportValid=${reportValid}`,
   );
   if (!reportValid) {
@@ -795,22 +1052,49 @@ async function runSingle({ provider, spec, runN, binary, desktopDir, wdioEntrypo
 
 // ── Output writers ───────────────────────────────────────────────────────────
 
+const MIN_CLEAN_RUNS_FOR_COMPARISON = 2;
+
+function outcomeLabel(outcome) {
+  switch (outcome) {
+    case OUTCOMES.CLEAN_PASS:
+      return "CLEAN PASS";
+    case OUTCOMES.PASS_WITH_FORCED_CLEANUP:
+      return "PASS / FORCED CLEANUP";
+    case OUTCOMES.TEST_FAILED:
+    case OUTCOMES.REPORT_INVALID:
+    case OUTCOMES.TIMED_OUT:
+    case OUTCOMES.INTERRUPTED:
+      return "FAILED";
+    case OUTCOMES.CLEANUP_UNSAFE:
+    case OUTCOMES.CLEANUP_FAILED:
+      return "EXCLUDED";
+    default:
+      return outcome ?? "UNKNOWN";
+  }
+}
+
 function writeSingleModeReport({ benchDir, provider, spec, repeat, runResults, envInfo }) {
   function pctArr(values, p) {
     return pct([...values].sort((a, b) => a - b), p);
   }
 
-  const passedRuns = runResults.filter((r) => r.passed);
-  const totalDurations = passedRuns.map((r) => r.totalRunMs).sort((a, b) => a - b);
-  const medians = passedRuns.map((r) => r.summary.median).sort((a, b) => a - b);
-  const p95s = passedRuns.map((r) => r.summary.p95).sort((a, b) => a - b);
+  const cleanRuns = runResults.filter((r) => r.outcome === OUTCOMES.CLEAN_PASS);
+  const totalDurations = cleanRuns.map((r) => r.totalRunMs).sort((a, b) => a - b);
+  const medians = cleanRuns.map((r) => r.summary.median).sort((a, b) => a - b);
+  const p95s = cleanRuns.map((r) => r.summary.p95).sort((a, b) => a - b);
+  const outcomeCounts = summarizeRunOutcomes(runResults);
 
   const aggregate = {
     provider,
     spec,
     totalRuns: repeat,
-    passedRuns: passedRuns.length,
-    failedRuns: runResults.filter((r) => !r.passed).length,
+    cleanPassRuns: cleanRuns.length,
+    forcedCleanupRuns: outcomeCounts.PASS_WITH_FORCED_CLEANUP,
+    failedRuns:
+      outcomeCounts.TEST_FAILED + outcomeCounts.REPORT_INVALID + outcomeCounts.TIMED_OUT + outcomeCounts.INTERRUPTED,
+    excludedRuns: outcomeCounts.CLEANUP_UNSAFE + outcomeCounts.CLEANUP_FAILED,
+    outcomeCounts,
+    status: cleanRuns.length < MIN_CLEAN_RUNS_FOR_COMPARISON ? "INSUFFICIENT_CLEAN_RUNS" : "OK",
     totalRunMs: {
       min: totalDurations[0] ?? 0,
       median: pctArr(totalDurations, 50),
@@ -840,18 +1124,23 @@ function writeSingleModeReport({ benchDir, provider, spec, repeat, runResults, e
     `Node: ${envInfo.node} | Rust: ${envInfo.rustc}`,
     `Provider: **${provider}** | Spec: \`${spec}\` | Repeat: ${repeat}`,
     ``,
+    aggregate.status === "INSUFFICIENT_CLEAN_RUNS"
+      ? `> **INSUFFICIENT CLEAN RUNS** — fewer than ${MIN_CLEAN_RUNS_FOR_COMPARISON} CLEAN_PASS runs; no percentage conclusions should be drawn.`
+      : ``,
+    ``,
     `## Run Results`,
     ``,
-    `| Run | Result | Total | WDIO proc | Commands | Median | P95 | Max | >=1s | >=5s |`,
-    `|-----|--------|-------|-----------|----------|--------|-----|-----|------|------|`,
+    `| Run | Outcome | Total | WDIO proc | Commands | Median | P95 | Max | >=1s | >=5s |`,
+    `|-----|---------|-------|-----------|----------|--------|-----|-----|------|------|`,
     ...runResults.map((r) => {
       const s = r.summary;
-      return `| ${r.runN} | ${r.passed ? "PASSED" : "FAILED"} | ${Math.round(r.totalRunMs / 1000)}s | ${Math.round(r.wdioProcessMs / 1000)}s | ${s?.commandCount ?? "-"} | ${s?.median ?? "-"}ms | ${s?.p95 ?? "-"}ms | ${s?.max ?? "-"}ms | ${s?.bucketsGe?.ms1000 ?? "-"} | ${s?.bucketsGe?.ms5000 ?? "-"} |`;
+      return `| ${r.runN} | ${outcomeLabel(r.outcome)} (${r.outcome}) | ${Math.round(r.totalRunMs / 1000)}s | ${Math.round(r.wdioProcessMs / 1000)}s | ${s?.commandCount ?? "-"} | ${s?.median ?? "-"}ms | ${s?.p95 ?? "-"}ms | ${s?.max ?? "-"}ms | ${s?.bucketsGe?.ms1000 ?? "-"} | ${s?.bucketsGe?.ms5000 ?? "-"} |`;
     }),
     ``,
-    `## Aggregate (passed runs)`,
+    `## Aggregate (CLEAN_PASS runs only)`,
     ``,
-    `- Passed: ${aggregate.passedRuns}/${aggregate.totalRuns}`,
+    `- Status: ${aggregate.status}`,
+    `- CLEAN_PASS: ${aggregate.cleanPassRuns}/${aggregate.totalRuns} | Forced cleanup: ${aggregate.forcedCleanupRuns} | Failed: ${aggregate.failedRuns} | Excluded: ${aggregate.excludedRuns}`,
     `- Total duration (median): ${aggregate.totalRunMs.median}ms`,
     `- Command latency median-of-medians: ${aggregate.commandLatencyMs.medianOfMedians}ms`,
     `- Command latency p95-of-p95: ${aggregate.commandLatencyMs.p95ofP95}ms`,
@@ -867,6 +1156,98 @@ function writeSingleModeReport({ benchDir, provider, spec, repeat, runResults, e
   writeFileSync(mdPath, md);
 
   return { jsonPath, mdPath, aggregate };
+}
+
+/**
+ * Builds the A/B comparison object for one spec's runs. `runs` must already
+ * carry `outcome`, `passed`, `totalRunMs`, `summary` (parsed summary.json or
+ * null), and `ndjsonText` (raw commands.ndjson content or null) for each run.
+ * Only CLEAN_PASS runs feed medians/percentiles/deltas — PASS_WITH_FORCED_CLEANUP,
+ * failed, and excluded runs are reported but never aggregated.
+ */
+export function computeComparison({ runs, spec }) {
+  const externalRuns = runs.filter((r) => r.provider === "external");
+  const embeddedRuns = runs.filter((r) => r.provider === "embedded");
+
+  function providerStats(providerRuns) {
+    const clean = providerRuns.filter((r) => r.outcome === OUTCOMES.CLEAN_PASS || (r.passed && !r.outcome));
+    const totalDurations = clean.map((r) => r.totalRunMs).filter((v) => v != null);
+    const testExecDurations = clean.map((r) => r.summary?.testExecutionMs).filter((v) => v != null);
+    const sessionStartupDurations = clean.map((r) => r.summary?.sessionStartupMs).filter((v) => v != null);
+    const pooledCommandDurations = poolCommandDurationsFromNdjsonText(
+      clean.map((r) => r.ndjsonText).filter((t) => t != null),
+    );
+    const perRunP95 = clean.map((r) => r.summary?.p95).filter((v) => v != null);
+    const outcomeCounts = summarizeRunOutcomes(providerRuns);
+    const excludedRuns = providerRuns
+      .filter((r) => r.outcome && r.outcome !== OUTCOMES.CLEAN_PASS)
+      .map((r) => ({ runN: r.runN, outcome: r.outcome }));
+
+    return {
+      runCount: providerRuns.length,
+      passedCount: clean.length,
+      outcomeCounts,
+      excludedRuns,
+      medianTotalRunMs: totalDurations.length ? medianOf(totalDurations) : null,
+      medianTestExecutionMs: testExecDurations.length ? medianOf(testExecDurations) : null,
+      medianSessionStartupMs: sessionStartupDurations.length ? medianOf(sessionStartupDurations) : null,
+      medianCommandLatencyMs: pooledCommandDurations.length ? medianOf(pooledCommandDurations) : null,
+      p95CommandLatencyMs: pooledCommandDurations.length ? pct(pooledCommandDurations, 95) : null,
+      commandsGe1s: pooledCommandDurations.filter((d) => d >= 1000).length,
+      commandsGe5s: pooledCommandDurations.filter((d) => d >= 5000).length,
+      pooledCommandCount: pooledCommandDurations.length,
+      perRunP95,
+    };
+  }
+
+  const externalStats = providerStats(externalRuns);
+  const embeddedStats = providerStats(embeddedRuns);
+
+  const status =
+    externalStats.passedCount < MIN_CLEAN_RUNS_FOR_COMPARISON || embeddedStats.passedCount < MIN_CLEAN_RUNS_FOR_COMPARISON
+      ? "INSUFFICIENT_CLEAN_RUNS"
+      : "OK";
+
+  const deltas = {
+    medianTotalRunMs: computeDelta(externalStats.medianTotalRunMs, embeddedStats.medianTotalRunMs),
+    medianTestExecutionMs: computeDelta(externalStats.medianTestExecutionMs, embeddedStats.medianTestExecutionMs),
+    medianSessionStartupMs: computeDelta(externalStats.medianSessionStartupMs, embeddedStats.medianSessionStartupMs),
+    medianCommandLatencyMs: computeDelta(externalStats.medianCommandLatencyMs, embeddedStats.medianCommandLatencyMs),
+    p95CommandLatencyMs: computeDelta(externalStats.p95CommandLatencyMs, embeddedStats.p95CommandLatencyMs),
+    commandsGe1s: computeDelta(externalStats.commandsGe1s, embeddedStats.commandsGe1s),
+    commandsGe5s: computeDelta(externalStats.commandsGe5s, embeddedStats.commandsGe5s),
+  };
+
+  let steps = null;
+  if (spec === "core-inventory") {
+    const externalSteps = poolStepDurationsByName(externalRuns);
+    const embeddedSteps = poolStepDurationsByName(embeddedRuns);
+    const allStepNames = new Set([...externalSteps.keys(), ...embeddedSteps.keys()]);
+    steps = Array.from(allStepNames)
+      .sort()
+      .map((stepName) => {
+        const extDurs = externalSteps.get(stepName) ?? [];
+        const embDurs = embeddedSteps.get(stepName) ?? [];
+        const externalMedianMs = extDurs.length ? medianOf(extDurs) : null;
+        const embeddedMedianMs = embDurs.length ? medianOf(embDurs) : null;
+        return {
+          stepName,
+          externalMedianMs,
+          embeddedMedianMs,
+          delta: computeDelta(externalMedianMs, embeddedMedianMs),
+        };
+      });
+  }
+
+  return {
+    spec,
+    status,
+    directionNote: "positive delta / positive percent = embedded faster or better than external",
+    external: externalStats,
+    embedded: embeddedStats,
+    deltas,
+    steps,
+  };
 }
 
 function writeCompareModeReport({ benchDir, spec, repeat, runResults, envInfo, comparison }) {
@@ -896,17 +1277,29 @@ function writeCompareModeReport({ benchDir, spec, repeat, runResults, envInfo, c
     `Binary (both providers): \`${envInfo.binary}\``,
     ``,
     `Positive delta / positive % = embedded faster or better than external.`,
+    `Only CLEAN_PASS runs feed medians/percentiles/deltas below; PASS_WITH_FORCED_CLEANUP, FAILED, and EXCLUDED runs are shown for diagnostics only.`,
+    ``,
+    comparison.status === "INSUFFICIENT_CLEAN_RUNS"
+      ? `> **Comparison status: INSUFFICIENT CLEAN RUNS** — at least one provider has fewer than ${MIN_CLEAN_RUNS_FOR_COMPARISON} CLEAN_PASS runs for this spec. No percentage conclusions should be drawn from the table below.`
+      : `> **Comparison status: OK** — both providers have at least ${MIN_CLEAN_RUNS_FOR_COMPARISON} CLEAN_PASS runs.`,
     ``,
     `## Runs`,
     ``,
-    `| # | Provider | Run | Result | Total | WDIO proc | Session startup | Test exec | Commands | Median | P95 |`,
-    `|---|----------|-----|--------|-------|-----------|------------------|-----------|----------|--------|-----|`,
+    `| # | Provider | Run | Outcome | Total | WDIO proc | Session startup | Test exec | Commands | Median | P95 | Cleanup required | Cleanup safe | Cleanup succeeded |`,
+    `|---|----------|-----|---------|-------|-----------|------------------|-----------|----------|--------|-----|-------------------|--------------|--------------------|`,
     ...runResults.map((r, i) => {
       const s = r.summary;
-      return `| ${i + 1} | ${r.provider} | ${r.runN} | ${r.passed ? "PASSED" : "FAILED"} | ${Math.round(r.totalRunMs / 1000)}s | ${Math.round(r.wdioProcessMs / 1000)}s | ${fmt(s?.sessionStartupMs)} | ${fmt(s?.testExecutionMs)} | ${s?.commandCount ?? "-"} | ${s?.median ?? "-"}ms | ${s?.p95 ?? "-"}ms |`;
+      return `| ${i + 1} | ${r.provider} | ${r.runN} | ${outcomeLabel(r.outcome)} (${r.outcome}) | ${Math.round(r.totalRunMs / 1000)}s | ${Math.round(r.wdioProcessMs / 1000)}s | ${fmt(s?.sessionStartupMs)} | ${fmt(s?.testExecutionMs)} | ${s?.commandCount ?? "-"} | ${s?.median ?? "-"}ms | ${s?.p95 ?? "-"}ms | ${r.cleanupRequired} | ${r.cleanupSafe} | ${r.cleanupSucceeded} |`;
     }),
     ``,
-    `## Aggregate comparison`,
+    `## Outcome breakdown`,
+    ``,
+    `| Provider | CLEAN PASS | PASS / FORCED CLEANUP | FAILED | EXCLUDED |`,
+    `|----------|-----------|------------------------|--------|----------|`,
+    `| external | ${comparison.external.outcomeCounts.CLEAN_PASS} | ${comparison.external.outcomeCounts.PASS_WITH_FORCED_CLEANUP} | ${comparison.external.outcomeCounts.TEST_FAILED + comparison.external.outcomeCounts.REPORT_INVALID + comparison.external.outcomeCounts.TIMED_OUT + comparison.external.outcomeCounts.INTERRUPTED} | ${comparison.external.outcomeCounts.CLEANUP_UNSAFE + comparison.external.outcomeCounts.CLEANUP_FAILED} |`,
+    `| embedded | ${comparison.embedded.outcomeCounts.CLEAN_PASS} | ${comparison.embedded.outcomeCounts.PASS_WITH_FORCED_CLEANUP} | ${comparison.embedded.outcomeCounts.TEST_FAILED + comparison.embedded.outcomeCounts.REPORT_INVALID + comparison.embedded.outcomeCounts.TIMED_OUT + comparison.embedded.outcomeCounts.INTERRUPTED} | ${comparison.embedded.outcomeCounts.CLEANUP_UNSAFE + comparison.embedded.outcomeCounts.CLEANUP_FAILED} |`,
+    ``,
+    `## Aggregate comparison (CLEAN_PASS only)`,
     ``,
     `| Metric | external | embedded | Delta (abs) | Delta (%) |`,
     `|--------|----------|----------|--------------|-----------|`,
@@ -922,7 +1315,7 @@ function writeCompareModeReport({ benchDir, spec, repeat, runResults, envInfo, c
 
   if (comparison.steps) {
     lines.push(
-      `## Step comparison (core-inventory)`,
+      `## Step comparison (core-inventory, CLEAN_PASS runs only)`,
       ``,
       `| Step | external median | embedded median | Delta (abs) | Delta (%) |`,
       `|------|-----------------|-----------------|--------------|-----------|`,
@@ -1019,7 +1412,7 @@ async function main() {
       if (!result.passed) {
         allPassed = false;
         if (!opts.continueOnFailure) {
-          console.error(`[benchmark] Stopping matrix after failure (provider=${provider}, run ${runN}).`);
+          console.error(`[benchmark] Stopping matrix after non-CLEAN_PASS run (provider=${provider}, run ${runN}, outcome=${result.outcome}).`);
           break;
         }
       }
@@ -1035,7 +1428,7 @@ async function main() {
       comparison,
     });
 
-    console.log(`\n[benchmark] === Compare complete ===`);
+    console.log(`\n[benchmark] === Compare complete (status=${comparison.status}) ===`);
     console.log(`[benchmark] Comparison JSON: ${jsonPath}`);
     console.log(`[benchmark] Comparison MD:   ${mdPath}`);
   } else {
@@ -1054,7 +1447,7 @@ async function main() {
       if (!result.passed) {
         allPassed = false;
         if (!opts.continueOnFailure) {
-          console.error(`[benchmark] Stopping after failure in run ${runN}. Use --continue-on-failure to proceed.`);
+          console.error(`[benchmark] Stopping after non-CLEAN_PASS run ${runN} (outcome=${result.outcome}). Use --continue-on-failure to proceed.`);
           break;
         }
       }
@@ -1069,8 +1462,8 @@ async function main() {
       envInfo,
     });
 
-    console.log(`\n[benchmark] === Complete ===`);
-    console.log(`[benchmark] Passed: ${aggregate.passedRuns}/${aggregate.totalRuns}`);
+    console.log(`\n[benchmark] === Complete (status=${aggregate.status}) ===`);
+    console.log(`[benchmark] CLEAN_PASS: ${aggregate.cleanPassRuns}/${aggregate.totalRuns}`);
     console.log(`[benchmark] Aggregate JSON: ${jsonPath}`);
     console.log(`[benchmark] Markdown:       ${mdPath}`);
   }
