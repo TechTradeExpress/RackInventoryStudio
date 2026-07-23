@@ -319,6 +319,25 @@ describe("Rack Inventory Studio — core inventory placement", () => {
       },
       { timeout: 15_000, timeoutMsg: `Model option "${modelName}" not found in device form dropdown` },
     );
+
+    // Clicking the option closes the dropdown and updates the parent form's
+    // React state via onChange, but that state update is not guaranteed to
+    // have committed to the trigger's rendered text by the time the click
+    // command resolves — submitting immediately after risks the device form
+    // capturing a stale (unset) model, which later fails placement
+    // validation ("no model and no explicit height_u"). Confirm the
+    // trigger actually reflects the selection before proceeding.
+    await browser.waitUntil(
+      async () => {
+        try {
+          const text = await browser.$('[data-testid="field-device-model-trigger"]').getText();
+          return text.includes(modelName);
+        } catch {
+          return false;
+        }
+      },
+      { timeout: 5_000, timeoutMsg: `Device model trigger never showed selected model "${modelName}"` },
+    );
     log("step 13: device model assigned");
 
     log("step 13: submitting device form");
