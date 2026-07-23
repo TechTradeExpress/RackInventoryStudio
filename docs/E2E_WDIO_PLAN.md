@@ -821,6 +821,52 @@ Playwright: BLOCKED — environment dependency: `libasound2t64` (pre-existing; n
 | `destructive-guards-hierarchy` | run 2 | PASSED | ~01:08 |
 | Full suite (11 specs) | — | **PASSED 11/11** | — |
 
+### Stage 3B.3 — Windows WDIO performance experiment
+
+**Status: COMPLETE** — Decision: **KEEP EXTERNAL — temporary** (PR #153)
+
+Branch: `experiment/e2e-wdio-windows-performance`
+Direct base: `roadmap/e2e-wdio`
+
+**What this stage delivered:**
+- Opt-in timing instrumentation (`RIS_WDIO_TIMING=1`) via WDIO command hooks
+- `RIS_WDIO_DRIVER_PROVIDER=external|embedded` env-var switch in `wdio.conf.ts`
+- Optional Cargo feature `wdio-embedded` wrapping `tauri-plugin-wdio-webdriver`
+  (no impact on production builds; guarded by `#[cfg(feature = "wdio-embedded")]`)
+- `measureStep()` helper in `core-inventory.e2e.ts` for 9 logical business steps
+- Benchmark runner script with PID-safe cleanup and outcome classification
+- Performance comparison document: `docs/E2E_WDIO_WINDOWS_PERFORMANCE.md`
+
+**Coverage changes:** none.  No COVERED counts changed; no specs added or removed.
+
+**Results:** Windows matrix complete (8 runs, two passes; see `docs/E2E_WDIO_WINDOWS_PERFORMANCE.md`).
+
+- app-smoke: external `PASS_WITH_FORCED_CLEANUP` ×2 (test correct; PID-safe cleanup
+  handles leftover driver processes safely). Embedded `CLEAN_PASS` ×2, consistently
+  faster (session startup ~79–83% lower, test execution ~34% lower).
+- core-inventory: external `PASS_WITH_FORCED_CLEANUP` ×2, all 9 steps pass both runs.
+  Embedded `TEST_FAILED` ×2 — deterministic failure at device-model selection:
+  `tauri-plugin-wdio-webdriver` v1.2.0 does not dispatch `mousedown`, so the
+  `SearchableSelect` component (used in `DeviceFormModal` and `PlacePlacementModal`)
+  cannot be interacted with. Confirmed on both Windows/WebView2 and Linux/WebKit.
+
+**Decision: KEEP EXTERNAL — temporary.**
+
+- External completed full `core-inventory` flows (9/9 steps, 2/2 runs); behaviour
+  is correct.  Default provider does not change.  PID-safe cleanup safely handles
+  Windows teardown gap.
+- Embedded is faster where it works (~34–35% on shared steps) but cannot complete
+  the full spec due to a confirmed upstream `mousedown`-synthesis gap.  Adopting
+  embedded in its current state would reduce real E2E coverage.
+- Embedded is deferred to a separate future stage, contingent on an upstream fix or
+  deliberate compatibility layer plus a full regression of all specs.
+
+**Next stage:** optimize long-action latency in the external-provider flow (separate
+branch from the updated `roadmap/e2e-wdio` base; Stage 3C and later stages
+remain as planned).  No optimizations were implemented in this stage.
+
+---
+
 ### Stage 3C — Remaining placement workflows
 
 **Status: PLANNED**

@@ -29,6 +29,7 @@ import {
   expectActiveRepositoryPath,
   createRepositoryThroughUi,
 } from "../support/repository-ui";
+import { measureStep } from "../support/command-timing";
 
 function log(msg: string) {
   const ts = new Date().toISOString().substring(11, 23);
@@ -51,6 +52,24 @@ async function waitForModal(submitTestId: string): Promise<void> {
   await browser
     .$(`[data-testid="${submitTestId}"]`)
     .waitForDisplayed({ timeout: 10_000 });
+}
+
+/**
+ * Waits for a modal to close by looking for its submit button to no longer
+ * be displayed; a stale element reference (DOM node removed) also counts as
+ * closed.
+ */
+async function waitForModalClose(submitTestId: string): Promise<void> {
+  await browser.waitUntil(
+    async () => {
+      try {
+        return !(await browser.$(`[data-testid="${submitTestId}"]`).isDisplayed());
+      } catch {
+        return true;
+      }
+    },
+    { timeout: 15_000, timeoutMsg: `Modal with submit "${submitTestId}" did not close` },
+  );
 }
 
 function isPlacementFailure(err: unknown): err is Error {
@@ -93,7 +112,9 @@ describe("Rack Inventory Studio — core inventory placement", () => {
 
     // ── 2. Create repository ──────────────────────────────────────────────────
     log("step 2: creating repository");
-    const repoPath = await createRepositoryThroughUi({ repoParent, repoCode, repoName });
+    const repoPath = await measureStep("create-repository", () =>
+      createRepositoryThroughUi({ repoParent, repoCode, repoName }),
+    );
     log("step 2: repository open");
 
     // ── 3. Navigate to Locations ──────────────────────────────────────────────
@@ -106,61 +127,73 @@ describe("Rack Inventory Studio — core inventory placement", () => {
 
     // ── 4. Add location ───────────────────────────────────────────────────────
     log("step 4: opening Add location modal");
-    await browser.$('[data-testid="location-add-btn"]').waitForDisplayed({ timeout: 10_000 });
-    await browser.$('[data-testid="location-add-btn"]').click();
-    await waitForModal("location-form-submit");
+    await measureStep("open-location-form", async () => {
+      await browser.$('[data-testid="location-add-btn"]').waitForDisplayed({ timeout: 10_000 });
+      await browser.$('[data-testid="location-add-btn"]').click();
+      await waitForModal("location-form-submit");
+    });
 
     log("step 4: filling location name");
-    await reactSetValue("field-name", locationName);
+    await measureStep("fill-location-form", async () => {
+      await reactSetValue("field-name", locationName);
+    });
 
     log("step 4: submitting location form");
-    await (await waitForEnabled("location-form-submit")).click();
+    await measureStep("submit-location-form", async () => {
+      await (await waitForEnabled("location-form-submit")).click();
+      await waitForModalClose("location-form-submit");
+    });
 
     // ── 5. Verify location row ────────────────────────────────────────────────
     log("step 5: waiting for location row");
     // The backend generates the code from the name.  We match by name text rather
     // than by code, since we don't know the generated code up front.
-    await browser.waitUntil(
-      async () => {
-        try {
-          const rows = await browser.$$("[data-location-code]");
-          for (const row of rows) {
-            const text = await row.getText();
-            if (text.includes(locationName)) return true;
+    await measureStep("wait-for-location-row", () =>
+      browser.waitUntil(
+        async () => {
+          try {
+            const rows = await browser.$$("[data-location-code]");
+            for (const row of rows) {
+              const text = await row.getText();
+              if (text.includes(locationName)) return true;
+            }
+            return false;
+          } catch {
+            return false;
           }
-          return false;
-        } catch {
-          return false;
-        }
-      },
-      { timeout: 15_000, timeoutMsg: `Location row for "${locationName}" never appeared` },
+        },
+        { timeout: 15_000, timeoutMsg: `Location row for "${locationName}" never appeared` },
+      ),
     );
     log("step 5: location row found");
 
     // ── 6. Navigate to Racks via location row click ───────────────────────────
     log("step 6: clicking location row to navigate to Racks");
-    const locationRows = await browser.$$("[data-location-code]");
-    let targetLocationRow: WebdriverIO.Element | null = null;
-    for (const row of locationRows) {
-      const text = await row.getText();
-      if (text.includes(locationName)) {
-        targetLocationRow = row;
-        break;
-      }
-    }
-    if (!targetLocationRow) {
-      throw new Error(`Location row for "${locationName}" not found for click`);
-    }
-    // WebKit's WebDriver marks <tr> elements as not-interactable; use JS click.
-    await browser.execute(
-      (el: HTMLElement) => el.click(),
-      targetLocationRow as unknown as HTMLElement,
-    );
 
     // Clicking a location row triggers handleManageRacks → setActiveTab("racks").
-    await browser
-      .$('[data-testid="nav-racks"]')
-      .waitForDisplayed({ timeout: 10_000 });
+    // The measured window covers row lookup, click, and the resulting nav
+    // transition — not just the final wait — so it reflects the full
+    // user-observable cost of this navigation.
+    await measureStep("navigate-location-to-racks", async () => {
+      const locationRows = await browser.$$("[data-location-code]");
+      let targetLocationRow: WebdriverIO.Element | null = null;
+      for (const row of locationRows) {
+        const text = await row.getText();
+        if (text.includes(locationName)) {
+          targetLocationRow = row;
+          break;
+        }
+      }
+      if (!targetLocationRow) {
+        throw new Error(`Location row for "${locationName}" not found for click`);
+      }
+      // WebKit's WebDriver marks <tr> elements as not-interactable; use JS click.
+      await browser.execute(
+        (el: HTMLElement) => el.click(),
+        targetLocationRow as unknown as HTMLElement,
+      );
+      await browser.$('[data-testid="nav-racks"]').waitForDisplayed({ timeout: 10_000 });
+    });
     log("step 6: Racks nav appeared, app switched to Racks tab");
 
     // ── 7. Add rack ───────────────────────────────────────────────────────────
@@ -286,6 +319,25 @@ describe("Rack Inventory Studio — core inventory placement", () => {
       },
       { timeout: 15_000, timeoutMsg: `Model option "${modelName}" not found in device form dropdown` },
     );
+
+    // Clicking the option closes the dropdown and updates the parent form's
+    // React state via onChange, but that state update is not guaranteed to
+    // have committed to the trigger's rendered text by the time the click
+    // command resolves — submitting immediately after risks the device form
+    // capturing a stale (unset) model, which later fails placement
+    // validation ("no model and no explicit height_u"). Confirm the
+    // trigger actually reflects the selection before proceeding.
+    await browser.waitUntil(
+      async () => {
+        try {
+          const text = await browser.$('[data-testid="field-device-model-trigger"]').getText();
+          return text.includes(modelName);
+        } catch {
+          return false;
+        }
+      },
+      { timeout: 5_000, timeoutMsg: `Device model trigger never showed selected model "${modelName}"` },
+    );
     log("step 13: device model assigned");
 
     log("step 13: submitting device form");
@@ -397,42 +449,48 @@ describe("Rack Inventory Studio — core inventory placement", () => {
     await suInput.addValue("1");
 
     // ── 19. Submit placement ───────────────────────────────────────────────────
+    // The measured window covers the click, the modal-close wait, and the
+    // error check that stands in for "placement was added successfully" —
+    // it stops short of the separate U1-card/title assertions in step 20,
+    // which are a distinct concern (DOM content, not placement success).
     log("step 19: submitting placement");
-    await (await waitForEnabled("place-btn")).click();
+    await measureStep("submit-placement", async () => {
+      await (await waitForEnabled("place-btn")).click();
 
-    // Wait for modal to close; surface any error from the modal footer (.ft-msg.err)
-    // so failures produce a meaningful message instead of a generic timeout.
-    // Stale element reference means the modal DOM node was removed → success.
-    await browser.waitUntil(
-      async () => {
-        try {
-          const btn = browser.$('[data-testid="place-btn"]');
-          let isShown: boolean;
+      // Wait for modal to close; surface any error from the modal footer (.ft-msg.err)
+      // so failures produce a meaningful message instead of a generic timeout.
+      // Stale element reference means the modal DOM node was removed → success.
+      await browser.waitUntil(
+        async () => {
           try {
-            isShown = await btn.isDisplayed();
-          } catch {
-            // Stale element reference or element not found → modal is gone → success
-            return true;
-          }
-          if (!isShown) return true; // modal closed → success
-          // Check for placement error shown in the modal footer
-          const errEl = browser.$('.ft-msg.err');
-          try {
-            if (await errEl.isDisplayed()) {
-              const errText = await errEl.getText();
-              throw new Error(`Placement failed — modal error: "${errText}"`);
+            const btn = browser.$('[data-testid="place-btn"]');
+            let isShown: boolean;
+            try {
+              isShown = await btn.isDisplayed();
+            } catch {
+              // Stale element reference or element not found → modal is gone → success
+              return true;
             }
-          } catch (inner) {
-            if (isPlacementFailure(inner)) throw inner;
+            if (!isShown) return true; // modal closed → success
+            // Check for placement error shown in the modal footer
+            const errEl = browser.$('.ft-msg.err');
+            try {
+              if (await errEl.isDisplayed()) {
+                const errText = await errEl.getText();
+                throw new Error(`Placement failed — modal error: "${errText}"`);
+              }
+            } catch (inner) {
+              if (isPlacementFailure(inner)) throw inner;
+            }
+            return false;
+          } catch (e) {
+            if (isPlacementFailure(e)) throw e;
+            return false;
           }
-          return false;
-        } catch (e) {
-          if (isPlacementFailure(e)) throw e;
-          return false;
-        }
-      },
-      { timeout: 60_000, timeoutMsg: "place-btn still displayed after 60000ms (modal did not close)" },
-    );
+        },
+        { timeout: 60_000, timeoutMsg: "place-btn still displayed after 60000ms (modal did not close)" },
+      );
+    });
 
     // ── 20. Verify placed card appears in rack diagram at U1 ──────────────────
     log("step 20: waiting for placed device card at U1");
@@ -466,29 +524,33 @@ describe("Rack Inventory Studio — core inventory placement", () => {
     await browser.$('[data-testid="repository-active-root"]').waitForDisplayed({ timeout: 10_000 });
 
     log("step 21: clicking Close");
-    await browser.$('[data-testid="repository-close-action"]').click();
+    await measureStep("save-and-close", async () => {
+      await browser.$('[data-testid="repository-close-action"]').click();
 
-    // UnsavedChangesDialog opens (created entities + placement = unsaved changes)
-    log("step 21: waiting for Save and continue in UnsavedChangesDialog");
-    await (await waitForEnabled("unsaved-changes-save")).click();
+      // UnsavedChangesDialog opens (created entities + placement = unsaved changes)
+      log("step 21: waiting for Save and continue in UnsavedChangesDialog");
+      await (await waitForEnabled("unsaved-changes-save")).click();
 
-    // Wait for save + close to complete and landing screen to appear
-    await browser
-      .$('[data-testid="repository-landing-title"]')
-      .waitForDisplayed({ timeout: 60_000 });
-    await browser
-      .$('[data-testid="repository-active-path"]')
-      .waitForDisplayed({ timeout: 5_000, reverse: true });
+      // Wait for save + close to complete and landing screen to appear
+      await browser
+        .$('[data-testid="repository-landing-title"]')
+        .waitForDisplayed({ timeout: 60_000 });
+      await browser
+        .$('[data-testid="repository-active-path"]')
+        .waitForDisplayed({ timeout: 5_000, reverse: true });
+    });
     log("step 21: repository saved and closed, landing screen visible");
 
     // ── 22. Reopen repository via Open by path ────────────────────────────────
     log(`step 22: reopening repository at ${repoPath}`);
-    await reactSetValue("repository-open-path-input", repoPath);
-    await (await waitForEnabled("repository-open-path-submit")).click();
-    await browser
-      .$('[data-testid="repository-active-root"]')
-      .waitForDisplayed({ timeout: 30_000 });
-    await expectActiveRepositoryPath(repoPath);
+    await measureStep("reopen-repository", async () => {
+      await reactSetValue("repository-open-path-input", repoPath);
+      await (await waitForEnabled("repository-open-path-submit")).click();
+      await browser
+        .$('[data-testid="repository-active-root"]')
+        .waitForDisplayed({ timeout: 30_000 });
+      await expectActiveRepositoryPath(repoPath);
+    });
     log("step 22: repository reopened, active path verified");
 
     // ── 23. Navigate to Location → Rack → Rack detail after reopen ────────────
