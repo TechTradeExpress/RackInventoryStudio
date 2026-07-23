@@ -75,74 +75,90 @@ and replaces it with an in-process server communicating directly with WebView2.
 
 ## Build commands
 
+Verified against the installed Tauri CLI (`pnpm -C apps/desktop tauri build --help`).
+`-f`/`--features` is a first-class flag — no `-- --features` passthrough and no
+backslash-escaped `--config` JSON are required or used.
+
 ### Regular external binary (production build)
 
 ```powershell
 # From repo root on Windows:
-node apps\desktop\node_modules\.bin\tauri build --no-bundle --config '{\"build\":{\"beforeBuildCommand\":\"\"}}'
+Remove-Item Env:CARGO_TARGET_DIR -ErrorAction SilentlyContinue
+pnpm -C apps/desktop tauri build --no-bundle
 # Binary: target\release\rack-inventory-studio-desktop.exe
 ```
 
 ### Embedded test binary
 
-```powershell
-# Option A — via Tauri CLI (passes feature to cargo):
-node apps\desktop\node_modules\.bin\tauri build --no-bundle --config '{\"build\":{\"beforeBuildCommand\":\"\"}}' -- --features wdio-embedded
-
-# Option B — direct cargo (requires frontend dist already built):
-cargo build --release -p rack-inventory-studio-desktop --features wdio-embedded
-# Binary: target\release\rack-inventory-studio-desktop.exe
-# Note: copy or rename to avoid overwriting the regular binary.
-```
-
-### Distinguishing the two binaries
+Built to a **separate** `CARGO_TARGET_DIR` so it never overwrites the regular binary:
 
 ```powershell
-# Recommended: build embedded binary to a separate path
-$env:CARGO_TARGET_DIR = "target-embedded"
-cargo build --release -p rack-inventory-studio-desktop --features wdio-embedded
+$env:CARGO_TARGET_DIR = Join-Path $PWD "target-embedded"
+pnpm -C apps/desktop tauri build --no-bundle --features wdio-embedded
+Remove-Item Env:CARGO_TARGET_DIR -ErrorAction SilentlyContinue
 # Embedded binary: target-embedded\release\rack-inventory-studio-desktop.exe
 ```
+
+Building via the Tauri CLI (not bare `cargo build`) is required so `frontendDist`
+assets are embedded — a bare `cargo build --release` binary would try to connect
+to the Vite dev server and show "Connection refused".
+
+> **Known limitation (accepted for this experiment):** `build.rs` generates
+> `capabilities/embedded-test.json` conditionally based on the `wdio-embedded`
+> feature flag, gitignored between builds. This is acceptable for a sequential
+> build-then-test workflow (regular build, then embedded build, never both at
+> once) but is not safe for parallel feature/no-feature builds from the same
+> checkout — a race on the generated capability file is possible. A future
+> migration to embedded-by-default (if adopted) should move this to a more
+> robust mechanism than a build-script-generated, gitignored file.
 
 ---
 
 ## Benchmark matrix
 
-Run using the benchmark runner:
+Two run modes are available:
+
+**Single-provider (smoke):**
 
 ```powershell
-# external — app-smoke
-node scripts\run-wdio-performance-benchmark.mjs --provider external --spec app-smoke --repeat 2
-
-# embedded — app-smoke (point at the embedded binary)
-node scripts\run-wdio-performance-benchmark.mjs --provider embedded --spec app-smoke --repeat 2 --binary "target-embedded\release\rack-inventory-studio-desktop.exe"
-
-# external — core-inventory
-node scripts\run-wdio-performance-benchmark.mjs --provider external --spec core-inventory --repeat 2
-
-# embedded — core-inventory
-node scripts\run-wdio-performance-benchmark.mjs --provider embedded --spec core-inventory --repeat 2 --binary "target-embedded\release\rack-inventory-studio-desktop.exe"
+node scripts\run-wdio-performance-benchmark.mjs --provider external --spec app-smoke --repeat 1 --binary "C:\...\target-embedded\release\rack-inventory-studio-desktop.exe"
+node scripts\run-wdio-performance-benchmark.mjs --provider embedded --spec app-smoke --repeat 1 --binary "C:\...\target-embedded\release\rack-inventory-studio-desktop.exe"
 ```
 
-For the controlled A/B comparison, both providers use the **same embedded binary**
-so the only variable is the driver channel.
+**Controlled A/B comparison** — both providers run against the **same binary**
+(the embedded-feature build; the embedded server is simply not exercised when
+`--provider external` is selected), in strict alternating order
+(external₁, embedded₁, external₂, embedded₂, ...):
+
+```powershell
+node scripts\run-wdio-performance-benchmark.mjs --compare --spec app-smoke --repeat 2 --binary "C:\...\target-embedded\release\rack-inventory-studio-desktop.exe"
+node scripts\run-wdio-performance-benchmark.mjs --compare --spec core-inventory --repeat 2 --binary "C:\...\target-embedded\release\rack-inventory-studio-desktop.exe"
+```
+
+`--compare` writes a single `comparison.json` + `comparison.md` per spec, with
+medians and a **pooled** p95 (command durations from all passed runs of a
+provider combined, not a p95-of-per-run-p95s), plus a `core-inventory` step
+comparison table. A run only counts as `PASSED` when the WDIO process exits 0
+**and** its `summary.json`/`commands.ndjson` report validates (`reportValid`) —
+see `validateSummary()` in the runner script for the full list of checks.
 
 ---
 
 ## Raw run results
 
-> All 8 cells are PENDING.  Fill in from benchmark runner output after Windows execution.
+> All 8 rows are PENDING.  Fill in from `comparison.json` / the runner's console
+> output after Windows execution.
 
-| # | Provider | Spec | Run | Result | Duration | Commands | Median | P95 | P99 | Max | ≥1 s | ≥5 s | Run root | Cleanup |
-|---|----------|------|-----|--------|----------|----------|--------|-----|-----|-----|------|------|----------|---------|
-| 1 | external | app-smoke | 1 | PENDING | — | — | — | — | — | — | — | — | — | — |
-| 2 | embedded | app-smoke | 1 | PENDING | — | — | — | — | — | — | — | — | — | — |
-| 3 | external | app-smoke | 2 | PENDING | — | — | — | — | — | — | — | — | — | — |
-| 4 | embedded | app-smoke | 2 | PENDING | — | — | — | — | — | — | — | — | — | — |
-| 5 | external | core-inventory | 1 | PENDING | — | — | — | — | — | — | — | — | — | — |
-| 6 | embedded | core-inventory | 1 | PENDING | — | — | — | — | — | — | — | — | — | — |
-| 7 | external | core-inventory | 2 | PENDING | — | — | — | — | — | — | — | — | — | — |
-| 8 | embedded | core-inventory | 2 | PENDING | — | — | — | — | — | — | — | — | — | — |
+| # | Provider | Spec | Run | Result | totalRunMs | wdioProcessMs | sessionStartupMs | testExecutionMs | Commands | Median | P95 | P99 | Max | ≥1 s | ≥5 s | Report dir | Run root cleanup | Process cleanup | Port cleanup |
+|---|----------|------|-----|--------|-----------|---------------|-------------------|-------------------|----------|--------|-----|-----|-----|------|------|------------|-------------------|------------------|---------------|
+| 1 | external | app-smoke | 1 | PENDING | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| 2 | embedded | app-smoke | 1 | PENDING | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| 3 | external | app-smoke | 2 | PENDING | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| 4 | embedded | app-smoke | 2 | PENDING | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| 5 | external | core-inventory | 1 | PENDING | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| 6 | embedded | core-inventory | 1 | PENDING | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| 7 | external | core-inventory | 2 | PENDING | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| 8 | embedded | core-inventory | 2 | PENDING | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
 
 ---
 

@@ -73,8 +73,8 @@ function resolveProvider(): DriverProvider {
 function resolveEmbeddedPort(): number {
   const raw = process.env["RIS_WDIO_EMBEDDED_PORT"];
   if (raw === undefined) return 4445;
-  const n = parseInt(raw, 10);
-  if (!Number.isFinite(n) || n < 1024 || n > 65535) {
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1024 || n > 65535) {
     throw new Error(
       `[wdio.conf] Invalid RIS_WDIO_EMBEDDED_PORT="${raw}". ` +
         `Must be an integer in [1024, 65535].`,

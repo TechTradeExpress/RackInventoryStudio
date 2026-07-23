@@ -54,6 +54,24 @@ async function waitForModal(submitTestId: string): Promise<void> {
     .waitForDisplayed({ timeout: 10_000 });
 }
 
+/**
+ * Waits for a modal to close by looking for its submit button to no longer
+ * be displayed; a stale element reference (DOM node removed) also counts as
+ * closed.
+ */
+async function waitForModalClose(submitTestId: string): Promise<void> {
+  await browser.waitUntil(
+    async () => {
+      try {
+        return !(await browser.$(`[data-testid="${submitTestId}"]`).isDisplayed());
+      } catch {
+        return true;
+      }
+    },
+    { timeout: 15_000, timeoutMsg: `Modal with submit "${submitTestId}" did not close` },
+  );
+}
+
 function isPlacementFailure(err: unknown): err is Error {
   return err instanceof Error && err.message.startsWith("Placement failed");
 }
@@ -123,6 +141,7 @@ describe("Rack Inventory Studio — core inventory placement", () => {
     log("step 4: submitting location form");
     await measureStep("submit-location-form", async () => {
       await (await waitForEnabled("location-form-submit")).click();
+      await waitForModalClose("location-form-submit");
     });
 
     // ── 5. Verify location row ────────────────────────────────────────────────
@@ -151,28 +170,30 @@ describe("Rack Inventory Studio — core inventory placement", () => {
     // ── 6. Navigate to Racks via location row click ───────────────────────────
     log("step 6: clicking location row to navigate to Racks");
 
-    const locationRows = await browser.$$("[data-location-code]");
-    let targetLocationRow: WebdriverIO.Element | null = null;
-    for (const row of locationRows) {
-      const text = await row.getText();
-      if (text.includes(locationName)) {
-        targetLocationRow = row;
-        break;
-      }
-    }
-    if (!targetLocationRow) {
-      throw new Error(`Location row for "${locationName}" not found for click`);
-    }
-    // WebKit's WebDriver marks <tr> elements as not-interactable; use JS click.
-    await browser.execute(
-      (el: HTMLElement) => el.click(),
-      targetLocationRow as unknown as HTMLElement,
-    );
-
     // Clicking a location row triggers handleManageRacks → setActiveTab("racks").
-    await measureStep("navigate-location-to-racks", () =>
-      browser.$('[data-testid="nav-racks"]').waitForDisplayed({ timeout: 10_000 }),
-    );
+    // The measured window covers row lookup, click, and the resulting nav
+    // transition — not just the final wait — so it reflects the full
+    // user-observable cost of this navigation.
+    await measureStep("navigate-location-to-racks", async () => {
+      const locationRows = await browser.$$("[data-location-code]");
+      let targetLocationRow: WebdriverIO.Element | null = null;
+      for (const row of locationRows) {
+        const text = await row.getText();
+        if (text.includes(locationName)) {
+          targetLocationRow = row;
+          break;
+        }
+      }
+      if (!targetLocationRow) {
+        throw new Error(`Location row for "${locationName}" not found for click`);
+      }
+      // WebKit's WebDriver marks <tr> elements as not-interactable; use JS click.
+      await browser.execute(
+        (el: HTMLElement) => el.click(),
+        targetLocationRow as unknown as HTMLElement,
+      );
+      await browser.$('[data-testid="nav-racks"]').waitForDisplayed({ timeout: 10_000 });
+    });
     log("step 6: Racks nav appeared, app switched to Racks tab");
 
     // ── 7. Add rack ───────────────────────────────────────────────────────────
@@ -409,44 +430,48 @@ describe("Rack Inventory Studio — core inventory placement", () => {
     await suInput.addValue("1");
 
     // ── 19. Submit placement ───────────────────────────────────────────────────
+    // The measured window covers the click, the modal-close wait, and the
+    // error check that stands in for "placement was added successfully" —
+    // it stops short of the separate U1-card/title assertions in step 20,
+    // which are a distinct concern (DOM content, not placement success).
     log("step 19: submitting placement");
     await measureStep("submit-placement", async () => {
       await (await waitForEnabled("place-btn")).click();
-    });
 
-    // Wait for modal to close; surface any error from the modal footer (.ft-msg.err)
-    // so failures produce a meaningful message instead of a generic timeout.
-    // Stale element reference means the modal DOM node was removed → success.
-    await browser.waitUntil(
-      async () => {
-        try {
-          const btn = browser.$('[data-testid="place-btn"]');
-          let isShown: boolean;
+      // Wait for modal to close; surface any error from the modal footer (.ft-msg.err)
+      // so failures produce a meaningful message instead of a generic timeout.
+      // Stale element reference means the modal DOM node was removed → success.
+      await browser.waitUntil(
+        async () => {
           try {
-            isShown = await btn.isDisplayed();
-          } catch {
-            // Stale element reference or element not found → modal is gone → success
-            return true;
-          }
-          if (!isShown) return true; // modal closed → success
-          // Check for placement error shown in the modal footer
-          const errEl = browser.$('.ft-msg.err');
-          try {
-            if (await errEl.isDisplayed()) {
-              const errText = await errEl.getText();
-              throw new Error(`Placement failed — modal error: "${errText}"`);
+            const btn = browser.$('[data-testid="place-btn"]');
+            let isShown: boolean;
+            try {
+              isShown = await btn.isDisplayed();
+            } catch {
+              // Stale element reference or element not found → modal is gone → success
+              return true;
             }
-          } catch (inner) {
-            if (isPlacementFailure(inner)) throw inner;
+            if (!isShown) return true; // modal closed → success
+            // Check for placement error shown in the modal footer
+            const errEl = browser.$('.ft-msg.err');
+            try {
+              if (await errEl.isDisplayed()) {
+                const errText = await errEl.getText();
+                throw new Error(`Placement failed — modal error: "${errText}"`);
+              }
+            } catch (inner) {
+              if (isPlacementFailure(inner)) throw inner;
+            }
+            return false;
+          } catch (e) {
+            if (isPlacementFailure(e)) throw e;
+            return false;
           }
-          return false;
-        } catch (e) {
-          if (isPlacementFailure(e)) throw e;
-          return false;
-        }
-      },
-      { timeout: 60_000, timeoutMsg: "place-btn still displayed after 60000ms (modal did not close)" },
-    );
+        },
+        { timeout: 60_000, timeoutMsg: "place-btn still displayed after 60000ms (modal did not close)" },
+      );
+    });
 
     // ── 20. Verify placed card appears in rack diagram at U1 ──────────────────
     log("step 20: waiting for placed device card at U1");

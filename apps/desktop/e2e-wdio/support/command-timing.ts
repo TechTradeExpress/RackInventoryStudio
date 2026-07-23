@@ -11,11 +11,16 @@
  *                                    (set automatically when launcher starts;
  *                                     pass explicitly from benchmark runner)
  *
+ * All command/step records are kept in memory and written exactly once, at
+ * finalization, by flushTimingReport().  No synchronous I/O happens per
+ * command or per step — that would pollute the very latency numbers this
+ * instrumentation exists to measure.
+ *
  * Report location:
  *   <os.tmpdir()>/ris-wdio-bench/<run-id>/commands.ndjson
  *   <os.tmpdir()>/ris-wdio-bench/<run-id>/summary.json
  */
-import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Options } from "@wdio/types";
@@ -30,11 +35,27 @@ const SLOW_MS = (() => {
   return Number.isFinite(n) && n >= 0 ? n : 500;
 })();
 
+// Run IDs are used verbatim to build a filesystem path under tmpdir(), so an
+// unvalidated value could escape the report directory (e.g. "../../etc").
+// Allowed: ASCII letters, digits, hyphen, underscore; max 100 chars.
+const RUN_ID_PATTERN = /^[A-Za-z0-9_-]{1,100}$/;
+
+export function isValidRunId(id: string): boolean {
+  return RUN_ID_PATTERN.test(id);
+}
+
 // The launcher sets this env var so all forked workers inherit the same ID.
 // If run directly without the benchmark runner and RIS_WDIO_RUN_ID is absent,
 // the launcher generates one here and sets it so workers pick it up.
 if (TIMING_ENABLED && !process.env["RIS_WDIO_RUN_ID"]) {
   process.env["RIS_WDIO_RUN_ID"] = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+if (TIMING_ENABLED && process.env["RIS_WDIO_RUN_ID"] && !isValidRunId(process.env["RIS_WDIO_RUN_ID"])) {
+  throw new Error(
+    `[WDIO timing] Invalid RIS_WDIO_RUN_ID="${process.env["RIS_WDIO_RUN_ID"]}". ` +
+      `Allowed: letters, digits, "-", "_", max 100 chars.`,
+  );
 }
 
 export const RUN_ID: string = process.env["RIS_WDIO_RUN_ID"] ?? "noop";
@@ -44,13 +65,6 @@ export const PROVIDER: string = process.env["RIS_WDIO_DRIVER_PROVIDER"] ?? "exte
 export const REPORT_DIR: string | null = TIMING_ENABLED
   ? join(tmpdir(), "ris-wdio-bench", RUN_ID)
   : null;
-
-// Create the report directory early so that worker processes that inherit the
-// same RUN_ID can safely append to the NDJSON file concurrently (no race on
-// mkdir).  mkdirSync with { recursive: true } is idempotent.
-if (REPORT_DIR) {
-  mkdirSync(REPORT_DIR, { recursive: true });
-}
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -106,14 +120,18 @@ const allRecords: AnyRecord[] = [];
 
 let currentTestName = "(startup)";
 let currentSuiteName = "";
-let sessionStartMs = 0;
 
-// ── I/O ──────────────────────────────────────────────────────────────────────
+// ── Lifecycle timestamps ────────────────────────────────────────────────────
+// Captured across hooks to report session startup / test execution / teardown
+// as separate phases instead of one opaque "sessionMs" figure.
 
-function appendNDJSON(record: AnyRecord): void {
-  if (!REPORT_DIR) return;
-  appendFileSync(join(REPORT_DIR, "commands.ndjson"), JSON.stringify(record) + "\n");
-}
+let beforeSessionMs: number | null = null;
+let sessionReadyMs: number | null = null; // "before" hook — browser session is live
+let firstBeforeTestMs: number | null = null;
+let lastAfterTestMs: number | null = null;
+let afterHookEndMs: number | null = null;
+
+let flushed = false;
 
 // ── Statistics helpers ────────────────────────────────────────────────────────
 
@@ -129,14 +147,26 @@ function avg(values: number[]): number {
   return Math.round(values.reduce((a, b) => a + b, 0) / values.length);
 }
 
-// ── Summary ───────────────────────────────────────────────────────────────────
+// ── flushTimingReport ───────────────────────────────────────────────────────
 
-export function writeSummary(): void {
+/**
+ * Writes commands.ndjson and summary.json exactly once. Safe to call
+ * multiple times (e.g. from both `after` and a fallback `afterSession`) —
+ * only the first call performs I/O.
+ */
+export function flushTimingReport(): void {
   if (!TIMING_ENABLED || !REPORT_DIR) return;
+  if (flushed) return;
+  flushed = true;
+
+  mkdirSync(REPORT_DIR, { recursive: true });
+
+  const ndjson = allRecords.map((r) => JSON.stringify(r)).join("\n") + (allRecords.length ? "\n" : "");
+  writeFileSync(join(REPORT_DIR, "commands.ndjson"), ndjson);
 
   const cmds = allRecords.filter((r): r is CommandRecord => r.type === "command");
+  const steps = allRecords.filter((r): r is StepRecord => r.type === "step");
   const sorted = cmds.map((r) => r.durationMs).sort((a, b) => a - b);
-  const sessionMs = sessionStartMs > 0 ? Date.now() - sessionStartMs : 0;
 
   // Aggregate by command name
   const byName = new Map<string, number[]>();
@@ -145,7 +175,6 @@ export function writeSummary(): void {
     arr.push(r.durationMs);
     byName.set(r.commandName, arr);
   }
-
   const byCommandName = Array.from(byName.entries())
     .map(([name, durs]) => {
       const s = [...durs].sort((a, b) => a - b);
@@ -161,6 +190,28 @@ export function writeSummary(): void {
     })
     .sort((a, b) => b.sum - a.sum);
 
+  // Aggregate by step name
+  const byStepNameMap = new Map<string, StepRecord[]>();
+  for (const r of steps) {
+    const arr = byStepNameMap.get(r.stepName) ?? [];
+    arr.push(r);
+    byStepNameMap.set(r.stepName, arr);
+  }
+  const byStepName = Array.from(byStepNameMap.entries()).map(([name, recs]) => {
+    const durs = recs.map((r) => r.durationMs).sort((a, b) => a - b);
+    return {
+      stepName: name,
+      count: recs.length,
+      successful: recs.filter((r) => r.success).length,
+      failed: recs.filter((r) => !r.success).length,
+      min: durs[0] ?? 0,
+      mean: avg(durs),
+      median: pct(durs, 50),
+      p95: pct(durs, 95),
+      max: durs[durs.length - 1] ?? 0,
+    };
+  });
+
   const slowest20 = [...cmds]
     .sort((a, b) => b.durationMs - a.durationMs)
     .slice(0, 20)
@@ -171,12 +222,42 @@ export function writeSummary(): void {
       testName: r.testName,
     }));
 
+  // ── Lifecycle phase durations ──────────────────────────────────────────────
+  // Each phase is null (not 0) when the required timestamps were not both
+  // captured, with an explanatory note — never silently reported as zero.
+  const lifecycleNotes: string[] = [];
+
+  const sessionStartupMs =
+    beforeSessionMs !== null && sessionReadyMs !== null ? sessionReadyMs - beforeSessionMs : null;
+  if (sessionStartupMs === null) {
+    lifecycleNotes.push(
+      "sessionStartupMs unmeasured: beforeSession and/or before (session-ready) hook did not fire.",
+    );
+  }
+
+  const testExecutionMs =
+    firstBeforeTestMs !== null && lastAfterTestMs !== null ? lastAfterTestMs - firstBeforeTestMs : null;
+  if (testExecutionMs === null) {
+    lifecycleNotes.push("testExecutionMs unmeasured: beforeTest and/or afterTest hook did not fire.");
+  }
+
+  const sessionTeardownMs =
+    afterHookEndMs !== null && lastAfterTestMs !== null ? afterHookEndMs - lastAfterTestMs : null;
+  if (sessionTeardownMs === null) {
+    lifecycleNotes.push("sessionTeardownMs unmeasured: afterTest and/or after hook completion was not captured.");
+  }
+
+  const workerObservedMs =
+    afterHookEndMs !== null && beforeSessionMs !== null ? afterHookEndMs - beforeSessionMs : null;
+  if (workerObservedMs === null) {
+    lifecycleNotes.push("workerObservedMs unmeasured: beforeSession and/or after hook completion was not captured.");
+  }
+
   const summary = {
     runId: RUN_ID,
     provider: PROVIDER,
     platform: process.platform,
     pid: process.pid,
-    sessionMs,
     commandCount: sorted.length,
     min: sorted[0] ?? 0,
     mean: avg(sorted),
@@ -194,6 +275,20 @@ export function writeSummary(): void {
     },
     slowest20,
     byCommandName,
+    steps: steps.map((s) => ({
+      stepName: s.stepName,
+      success: s.success,
+      durationMs: s.durationMs,
+      startMs: s.startMs,
+      endMs: s.endMs,
+      testName: s.testName,
+    })),
+    byStepName,
+    sessionStartupMs,
+    testExecutionMs,
+    sessionTeardownMs,
+    workerObservedMs,
+    lifecycleNotes,
   };
 
   const summaryPath = join(REPORT_DIR, "summary.json");
@@ -201,11 +296,15 @@ export function writeSummary(): void {
 
   console.log(`[WDIO timing] === Run ${RUN_ID} Summary ===`);
   console.log(
-    `[WDIO timing] session=${sessionMs}ms commands=${sorted.length}` +
+    `[WDIO timing] commands=${sorted.length}` +
       ` median=${summary.median}ms p95=${summary.p95}ms p99=${summary.p99}ms max=${summary.max}ms`,
   );
   console.log(
-    `[WDIO timing] slow(≥1s)=${summary.bucketsGe.ms1000} slow(≥5s)=${summary.bucketsGe.ms5000}`,
+    `[WDIO timing] slow(>=1s)=${summary.bucketsGe.ms1000} slow(>=5s)=${summary.bucketsGe.ms5000}`,
+  );
+  console.log(
+    `[WDIO timing] sessionStartupMs=${sessionStartupMs ?? "n/a"} testExecutionMs=${testExecutionMs ?? "n/a"} ` +
+      `sessionTeardownMs=${sessionTeardownMs ?? "n/a"} workerObservedMs=${workerObservedMs ?? "n/a"}`,
   );
   console.log(`[WDIO timing] report: ${REPORT_DIR}`);
 }
@@ -243,7 +342,6 @@ export async function measureStep<T>(stepName: string, fn: () => Promise<T>): Pr
       runId: RUN_ID,
     };
     allRecords.push(record);
-    appendNDJSON(record);
     console.log(
       `[WDIO timing] step:${stepName} ${record.durationMs}ms ${success ? "OK" : "ERR"}`,
     );
@@ -259,7 +357,21 @@ export async function measureStep<T>(stepName: string, fn: () => Promise<T>): Pr
 export function patchWdioConfig(config: Options.Testrunner): void {
   if (!TIMING_ENABLED) return;
 
-  // ── before: mark session start (runs in worker, after browser session opens) ──
+  // ── beforeSession: worker is about to initialize the webdriver session ──────
+  const origBeforeSession = config.beforeSession;
+  config.beforeSession = async (sessionConfig, capabilities, specs, cid) => {
+    if (origBeforeSession) {
+      await (origBeforeSession as (
+        c: unknown,
+        cap: unknown,
+        s: unknown,
+        id: unknown,
+      ) => Promise<void>)(sessionConfig, capabilities, specs, cid);
+    }
+    if (beforeSessionMs === null) beforeSessionMs = Date.now();
+  };
+
+  // ── before: mark session ready (runs in worker, after browser session opens) ──
   const origBefore = config.before;
   config.before = async (capabilities, specs, browser) => {
     if (origBefore) {
@@ -269,7 +381,7 @@ export function patchWdioConfig(config: Options.Testrunner): void {
         browser,
       );
     }
-    sessionStartMs = Date.now();
+    sessionReadyMs = Date.now();
   };
 
   // ── beforeSuite / afterSuite: track suite name ──────────────────────────────
@@ -281,13 +393,14 @@ export function patchWdioConfig(config: Options.Testrunner): void {
     currentSuiteName = (suite as { title?: string }).title ?? "";
   };
 
-  // ── beforeTest / afterTest: track test name ─────────────────────────────────
+  // ── beforeTest / afterTest: track test name and execution window ─────────────
   const origBeforeTest = config.beforeTest;
   config.beforeTest = async (test, ctx) => {
     if (origBeforeTest) {
       await (origBeforeTest as (t: unknown, c: unknown) => Promise<void>)(test, ctx);
     }
     currentTestName = (test as { title?: string }).title ?? "";
+    if (firstBeforeTestMs === null) firstBeforeTestMs = Date.now();
   };
 
   const origAfterTest = config.afterTest;
@@ -299,6 +412,7 @@ export function patchWdioConfig(config: Options.Testrunner): void {
         result,
       );
     }
+    lastAfterTestMs = Date.now();
     currentTestName = "(between tests)";
   };
 
@@ -317,7 +431,7 @@ export function patchWdioConfig(config: Options.Testrunner): void {
     });
   };
 
-  // ── afterCommand: pop, compute duration, record ───────────────────────────────
+  // ── afterCommand: pop, compute duration, record (in memory only) ─────────────
   const origAfterCommand = config.afterCommand;
   config.afterCommand = async (commandName, args, result, error) => {
     if (origAfterCommand) {
@@ -349,13 +463,12 @@ export function patchWdioConfig(config: Options.Testrunner): void {
       runId: RUN_ID,
     };
     allRecords.push(record);
-    appendNDJSON(record);
     if (durationMs >= SLOW_MS) {
       console.log(`[WDIO timing] ${commandName} ${durationMs}ms`);
     }
   };
 
-  // ── after: write summary (runs in worker after all tests in a spec finish) ───
+  // ── after: finalize lifecycle timing and flush the report ────────────────────
   const origAfter = config.after;
   config.after = async (result, capabilities, specs) => {
     if (origAfter) {
@@ -365,6 +478,23 @@ export function patchWdioConfig(config: Options.Testrunner): void {
         specs,
       );
     }
-    writeSummary();
+    afterHookEndMs = Date.now();
+    flushTimingReport();
+  };
+
+  // ── afterSession: safety-net flush only if `after` never ran ─────────────────
+  const origAfterSession = config.afterSession;
+  config.afterSession = async (sessionConfig, capabilities, specs) => {
+    if (origAfterSession) {
+      await (origAfterSession as (c: unknown, cap: unknown, s: unknown) => Promise<void>)(
+        sessionConfig,
+        capabilities,
+        specs,
+      );
+    }
+    if (!flushed) {
+      if (afterHookEndMs === null) afterHookEndMs = Date.now();
+      flushTimingReport();
+    }
   };
 }

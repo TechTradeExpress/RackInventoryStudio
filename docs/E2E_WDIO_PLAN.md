@@ -837,7 +837,7 @@ improvement over the external provider (`tauri-driver` → `msedgedriver`).
 - `RIS_WDIO_DRIVER_PROVIDER=external|embedded` env-var switch in `wdio.conf.ts`
 - Optional Cargo feature `wdio-embedded` wrapping `tauri-plugin-wdio-webdriver`
   (no impact on production builds; guarded by `#[cfg(feature = "wdio-embedded")]`)
-- `measureStep()` helper in `core-inventory.e2e.ts` for 8 logical business steps
+- `measureStep()` helper in `core-inventory.e2e.ts` for 9 logical business steps
 - Benchmark runner script: `scripts/run-wdio-performance-benchmark.mjs`
 - Performance comparison document: `docs/E2E_WDIO_WINDOWS_PERFORMANCE.md`
 
