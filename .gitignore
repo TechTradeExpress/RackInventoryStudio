@@ -39,3 +39,4 @@ apps/desktop/playwright-report/
 *.key
 *.p12
 *.pfx
+apps/desktop/src-tauri/capabilities/embedded-test.json
