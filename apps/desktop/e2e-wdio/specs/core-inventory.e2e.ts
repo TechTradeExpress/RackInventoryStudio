@@ -29,6 +29,7 @@ import {
   expectActiveRepositoryPath,
   createRepositoryThroughUi,
 } from "../support/repository-ui";
+import { measureStep } from "../support/command-timing";
 
 function log(msg: string) {
   const ts = new Date().toISOString().substring(11, 23);
@@ -93,7 +94,9 @@ describe("Rack Inventory Studio — core inventory placement", () => {
 
     // ── 2. Create repository ──────────────────────────────────────────────────
     log("step 2: creating repository");
-    const repoPath = await createRepositoryThroughUi({ repoParent, repoCode, repoName });
+    const repoPath = await measureStep("create-repository", () =>
+      createRepositoryThroughUi({ repoParent, repoCode, repoName }),
+    );
     log("step 2: repository open");
 
     // ── 3. Navigate to Locations ──────────────────────────────────────────────
@@ -106,39 +109,48 @@ describe("Rack Inventory Studio — core inventory placement", () => {
 
     // ── 4. Add location ───────────────────────────────────────────────────────
     log("step 4: opening Add location modal");
-    await browser.$('[data-testid="location-add-btn"]').waitForDisplayed({ timeout: 10_000 });
-    await browser.$('[data-testid="location-add-btn"]').click();
-    await waitForModal("location-form-submit");
+    await measureStep("open-location-form", async () => {
+      await browser.$('[data-testid="location-add-btn"]').waitForDisplayed({ timeout: 10_000 });
+      await browser.$('[data-testid="location-add-btn"]').click();
+      await waitForModal("location-form-submit");
+    });
 
     log("step 4: filling location name");
-    await reactSetValue("field-name", locationName);
+    await measureStep("fill-location-form", async () => {
+      await reactSetValue("field-name", locationName);
+    });
 
     log("step 4: submitting location form");
-    await (await waitForEnabled("location-form-submit")).click();
+    await measureStep("submit-location-form", async () => {
+      await (await waitForEnabled("location-form-submit")).click();
+    });
 
     // ── 5. Verify location row ────────────────────────────────────────────────
     log("step 5: waiting for location row");
     // The backend generates the code from the name.  We match by name text rather
     // than by code, since we don't know the generated code up front.
-    await browser.waitUntil(
-      async () => {
-        try {
-          const rows = await browser.$$("[data-location-code]");
-          for (const row of rows) {
-            const text = await row.getText();
-            if (text.includes(locationName)) return true;
+    await measureStep("wait-for-location-row", () =>
+      browser.waitUntil(
+        async () => {
+          try {
+            const rows = await browser.$$("[data-location-code]");
+            for (const row of rows) {
+              const text = await row.getText();
+              if (text.includes(locationName)) return true;
+            }
+            return false;
+          } catch {
+            return false;
           }
-          return false;
-        } catch {
-          return false;
-        }
-      },
-      { timeout: 15_000, timeoutMsg: `Location row for "${locationName}" never appeared` },
+        },
+        { timeout: 15_000, timeoutMsg: `Location row for "${locationName}" never appeared` },
+      ),
     );
     log("step 5: location row found");
 
     // ── 6. Navigate to Racks via location row click ───────────────────────────
     log("step 6: clicking location row to navigate to Racks");
+
     const locationRows = await browser.$$("[data-location-code]");
     let targetLocationRow: WebdriverIO.Element | null = null;
     for (const row of locationRows) {
@@ -158,9 +170,9 @@ describe("Rack Inventory Studio — core inventory placement", () => {
     );
 
     // Clicking a location row triggers handleManageRacks → setActiveTab("racks").
-    await browser
-      .$('[data-testid="nav-racks"]')
-      .waitForDisplayed({ timeout: 10_000 });
+    await measureStep("navigate-location-to-racks", () =>
+      browser.$('[data-testid="nav-racks"]').waitForDisplayed({ timeout: 10_000 }),
+    );
     log("step 6: Racks nav appeared, app switched to Racks tab");
 
     // ── 7. Add rack ───────────────────────────────────────────────────────────
@@ -398,7 +410,9 @@ describe("Rack Inventory Studio — core inventory placement", () => {
 
     // ── 19. Submit placement ───────────────────────────────────────────────────
     log("step 19: submitting placement");
-    await (await waitForEnabled("place-btn")).click();
+    await measureStep("submit-placement", async () => {
+      await (await waitForEnabled("place-btn")).click();
+    });
 
     // Wait for modal to close; surface any error from the modal footer (.ft-msg.err)
     // so failures produce a meaningful message instead of a generic timeout.
@@ -466,29 +480,33 @@ describe("Rack Inventory Studio — core inventory placement", () => {
     await browser.$('[data-testid="repository-active-root"]').waitForDisplayed({ timeout: 10_000 });
 
     log("step 21: clicking Close");
-    await browser.$('[data-testid="repository-close-action"]').click();
+    await measureStep("save-and-close", async () => {
+      await browser.$('[data-testid="repository-close-action"]').click();
 
-    // UnsavedChangesDialog opens (created entities + placement = unsaved changes)
-    log("step 21: waiting for Save and continue in UnsavedChangesDialog");
-    await (await waitForEnabled("unsaved-changes-save")).click();
+      // UnsavedChangesDialog opens (created entities + placement = unsaved changes)
+      log("step 21: waiting for Save and continue in UnsavedChangesDialog");
+      await (await waitForEnabled("unsaved-changes-save")).click();
 
-    // Wait for save + close to complete and landing screen to appear
-    await browser
-      .$('[data-testid="repository-landing-title"]')
-      .waitForDisplayed({ timeout: 60_000 });
-    await browser
-      .$('[data-testid="repository-active-path"]')
-      .waitForDisplayed({ timeout: 5_000, reverse: true });
+      // Wait for save + close to complete and landing screen to appear
+      await browser
+        .$('[data-testid="repository-landing-title"]')
+        .waitForDisplayed({ timeout: 60_000 });
+      await browser
+        .$('[data-testid="repository-active-path"]')
+        .waitForDisplayed({ timeout: 5_000, reverse: true });
+    });
     log("step 21: repository saved and closed, landing screen visible");
 
     // ── 22. Reopen repository via Open by path ────────────────────────────────
     log(`step 22: reopening repository at ${repoPath}`);
-    await reactSetValue("repository-open-path-input", repoPath);
-    await (await waitForEnabled("repository-open-path-submit")).click();
-    await browser
-      .$('[data-testid="repository-active-root"]')
-      .waitForDisplayed({ timeout: 30_000 });
-    await expectActiveRepositoryPath(repoPath);
+    await measureStep("reopen-repository", async () => {
+      await reactSetValue("repository-open-path-input", repoPath);
+      await (await waitForEnabled("repository-open-path-submit")).click();
+      await browser
+        .$('[data-testid="repository-active-root"]')
+        .waitForDisplayed({ timeout: 30_000 });
+      await expectActiveRepositoryPath(repoPath);
+    });
     log("step 22: repository reopened, active path verified");
 
     // ── 23. Navigate to Location → Rack → Rack detail after reopen ────────────

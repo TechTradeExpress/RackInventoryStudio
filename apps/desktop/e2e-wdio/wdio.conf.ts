@@ -29,6 +29,17 @@
  * Override binary path:
  *   TAURI_BINARY_PATH=/abs/path/to/binary xvfb-run -a pnpm -C apps/desktop run test:e2e:wdio
  *
+ * Driver provider (default: external):
+ *   RIS_WDIO_DRIVER_PROVIDER=external   — tauri-driver process (default)
+ *   RIS_WDIO_DRIVER_PROVIDER=embedded   — embedded WebDriver server in the binary
+ *                                         (requires the binary compiled with
+ *                                          --features wdio-embedded)
+ *   RIS_WDIO_EMBEDDED_PORT=4445         — port for the embedded server (default 4445)
+ *
+ * Opt-in command timing (Windows performance experiment):
+ *   RIS_WDIO_TIMING=1                   — enable per-command timing instrumentation
+ *   RIS_WDIO_SLOW_COMMAND_MS=500        — log commands slower than N ms (default 500)
+ *
  * tauri-plugin-wdio: NOT required for PR-1 smoke.
  * Normal WebDriver element interactions are enough for basic visibility assertions.
  * Advanced features (invoke mocking, log capture) are deferred to a later stage.
@@ -36,10 +47,46 @@
 import type { Options } from "@wdio/types";
 import path from "path";
 import { initTestEnvironment } from "./support/test-environment";
+import { patchWdioConfig } from "./support/command-timing";
 
 // Initialize isolated temp environment before any WDIO process starts.
 // Returns cleanup function registered in onComplete below.
 const cleanupTestEnvironment = initTestEnvironment();
+
+// ── Driver provider ───────────────────────────────────────────────────────────
+
+const ALLOWED_PROVIDERS = ["external", "embedded"] as const;
+type DriverProvider = (typeof ALLOWED_PROVIDERS)[number];
+
+function resolveProvider(): DriverProvider {
+  const raw = process.env["RIS_WDIO_DRIVER_PROVIDER"];
+  if (raw === undefined) return "external";
+  if ((ALLOWED_PROVIDERS as readonly string[]).includes(raw)) {
+    return raw as DriverProvider;
+  }
+  throw new Error(
+    `[wdio.conf] Invalid RIS_WDIO_DRIVER_PROVIDER="${raw}". ` +
+      `Allowed values: ${ALLOWED_PROVIDERS.join(", ")}.`,
+  );
+}
+
+function resolveEmbeddedPort(): number {
+  const raw = process.env["RIS_WDIO_EMBEDDED_PORT"];
+  if (raw === undefined) return 4445;
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 1024 || n > 65535) {
+    throw new Error(
+      `[wdio.conf] Invalid RIS_WDIO_EMBEDDED_PORT="${raw}". ` +
+        `Must be an integer in [1024, 65535].`,
+    );
+  }
+  return n;
+}
+
+const driverProvider = resolveProvider();
+const embeddedPort = resolveEmbeddedPort();
+
+// ── Binary path ───────────────────────────────────────────────────────────────
 
 function defaultBinaryPath(): string {
   // This project is a Cargo workspace: the shared target/ dir is at the repo root,
@@ -53,6 +100,25 @@ function defaultBinaryPath(): string {
 
 const appBinaryPath =
   process.env["TAURI_BINARY_PATH"] ?? defaultBinaryPath();
+
+// ── Service options ───────────────────────────────────────────────────────────
+
+type ServiceEntry = [string, Record<string, unknown>];
+
+function buildServiceEntry(): ServiceEntry {
+  const base: Record<string, unknown> = {
+    appBinaryPath,
+    driverProvider,
+  };
+  if (driverProvider === "embedded") {
+    // embeddedPort tells the service which port to expect the in-app WebDriver
+    // server to listen on.  The service sets TAURI_WEBDRIVER_PORT for the binary.
+    base["embeddedPort"] = embeddedPort;
+  }
+  return ["@wdio/tauri-service", base];
+}
+
+// ── Config ────────────────────────────────────────────────────────────────────
 
 export const config: Options.Testrunner = {
   runner: "local",
@@ -81,20 +147,7 @@ export const config: Options.Testrunner = {
     timeout: 5_400_000,
   },
 
-  services: [
-    [
-      "@wdio/tauri-service",
-      {
-        appBinaryPath,
-        // Uses the standalone tauri-driver process (cargo install tauri-driver).
-        // Linux: also needs webkit2gtk-driver + Xvfb system packages.
-        // Windows: Edge WebDriver is auto-downloaded.
-        // Switch to 'embedded' once tauri-plugin-wdio-webdriver is added to the
-        // Rust app (eliminates the external tauri-driver dependency).
-        driverProvider: "external",
-      },
-    ],
-  ],
+  services: [buildServiceEntry()],
 
   capabilities: [
     {
@@ -106,3 +159,6 @@ export const config: Options.Testrunner = {
     cleanupTestEnvironment();
   },
 };
+
+// Apply opt-in timing instrumentation.  No-op when RIS_WDIO_TIMING is unset.
+patchWdioConfig(config);
