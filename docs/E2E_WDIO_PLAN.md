@@ -849,7 +849,18 @@ improvement over the external provider (`tauri-driver` → `msedgedriver`).
 **Helper refactors:** intentionally deferred.  Any optimisation identified from
 the data will be a separate future stage.
 
-**Results:** PENDING — requires Windows execution.
+**Results:** PENDING WINDOWS MATRIX — Linux supplementary data collected.
+
+Linux results (2026-07-23, WebKit/xvfb, same embedded binary for A/B):
+- app-smoke (×2 per provider): external PASS ×2, embedded PASS ×2.
+  Session startup improvement: 738ms (77%).  Test execution: −12s (16%).
+- core-inventory (×1 per provider): external PASS (1376s, 852 cmds).
+  Embedded FAIL — `submit-placement` step failed; matrix stopped.
+  Steps before failure show ~15–17% improvement with embedded.
+
+Linux data is supplementary only.  The embedded failure on Linux/WebKit
+at `submit-placement` is a risk signal requiring Windows verification.
+
 See `docs/E2E_WDIO_WINDOWS_PERFORMANCE.md` for the full results matrix and
 decision (ADOPT EMBEDDED / KEEP EXTERNAL / INCONCLUSIVE).
 

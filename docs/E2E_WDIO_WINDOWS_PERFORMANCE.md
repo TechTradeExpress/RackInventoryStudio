@@ -305,6 +305,115 @@ After each run:
 
 ---
 
+## Linux supplementary benchmark (2026-07-23)
+
+> Supplementary data only — does not replace the Windows matrix.
+> Decision status remains PENDING WINDOWS MATRIX.
+
+Collected on Linux during PR #153 Linux continuation pass.  Driver stack on Linux
+differs from Windows: WebKit/WebKitWebDriver replaces Edge/msedgedriver, and there
+is no Windows Defender overhead.  Data is useful for isolating WebDriver protocol
+overhead from OS-level effects, but cannot substitute for Windows results.
+
+### Environment
+
+| Item | Value |
+|------|-------|
+| OS | Ubuntu 6.8.0-117-generic (x64) |
+| CPU | Intel Core i5-6500T @ 2.50GHz (4 cores) |
+| RAM | 7717 MB |
+| Node.js | v18.19.1 |
+| pnpm | 10.33.4 |
+| Rust toolchain | 1.95.0 |
+| WebDriver | WebKitWebDriver (xvfb-run -a) |
+| @wdio/tauri-service | 1.2.0 |
+| webdriverio | 9.29.1 |
+| tauri-plugin-wdio-webdriver | 1.2.0 |
+| Binary (both providers) | target-embedded/release/rack-inventory-studio-desktop |
+
+### Infrastructure smoke (×1 each, same embedded binary)
+
+| Provider | Result | Total | Commands | Median | P95 |
+|----------|--------|-------|----------|--------|-----|
+| external | PASS | 81s | 37 | 10ms | 12398ms |
+| embedded | PASS | 68s | 39 | 11ms | 10337ms |
+
+Both providers: PASS.  Port and process cleanup: clean.
+
+### app-smoke A/B comparison (--compare, ×2, same embedded binary)
+
+| # | Provider | Run | Result | Total | Session startup | Test exec | Commands | Median | P95 |
+|---|----------|-----|--------|-------|-----------------|-----------|----------|--------|-----|
+| 1 | external | 1 | PASS | 80s | 965ms | 74164ms | 37 | 19ms | 12345ms |
+| 2 | embedded | 1 | PASS | 68s | 220ms | 61967ms | 39 | 11ms | 10357ms |
+| 3 | external | 2 | PASS | 80s | 958ms | 73929ms | 37 | 18ms | 12446ms |
+| 4 | embedded | 2 | PASS | 68s | 228ms | 62164ms | 39 | 11ms | 10362ms |
+
+**Aggregate:**
+
+| Metric | external | embedded | Δ abs | Δ % |
+|--------|----------|----------|-------|-----|
+| Median total run duration | 79598ms | 67975ms | 11623ms | 14.6% |
+| Median test execution | 73929ms | 61967ms | 11962ms | 16.2% |
+| Median session startup | 958ms | 220ms | 738ms | 77.0% |
+| Median command latency | 18ms | 11ms | 7ms | 38.9% |
+| P95 command latency | 12445ms | 10357ms | 2088ms | 16.8% |
+| Commands ≥1 s | 28 | 28 | 0 | 0.0% |
+
+Session startup is the clearest signal: embedded eliminates the tauri-driver
+proxy hop, saving ~738ms (77%) per run on Linux/WebKit.
+
+### core-inventory A/B comparison (--compare, ×2, same embedded binary)
+
+Matrix stopped after the first embedded failure.
+
+| # | Provider | Run | Result | Total | Commands | Median | P95 | Failure |
+|---|----------|-----|--------|-------|----------|--------|-----|---------|
+| 1 | external | 1 | PASS | 1376s | 852 | 9ms | 24503ms | — |
+| 2 | embedded | 1 | FAIL | 889s | 667 | 13ms | 20451ms | submit-placement failed; save-and-close, reopen-repository not reached |
+
+**External measureStep breakdown (run 1):**
+
+| Step | external median | Note |
+|------|-----------------|------|
+| create-repository | 80274ms | IPC + disk |
+| open-location-form | 54912ms | UI interaction |
+| fill-location-form | 12237ms | React state |
+| submit-location-form | 55071ms | IPC round-trip |
+| wait-for-location-row | 12110ms | polling |
+| navigate-location-to-racks | 24084ms | navigation |
+| submit-placement | 42772ms | IPC |
+| save-and-close | 97588ms | save + disk |
+| reopen-repository | 67470ms | disk + IPC |
+
+**Embedded partial breakdown (failed run 1, steps before failure):**
+
+| Step | embedded median | Δ vs external |
+|------|-----------------|---------------|
+| create-repository | 66650ms | −13624ms (−17%) |
+| open-location-form | 45991ms | −8921ms (−16%) |
+| fill-location-form | 10232ms | −2005ms (−16%) |
+| submit-location-form | 45960ms | −9111ms (−17%) |
+| wait-for-location-row | 10226ms | −1884ms (−16%) |
+| navigate-location-to-racks | 20456ms | −3628ms (−15%) |
+| submit-placement | 75445ms (FAILED) | — |
+
+**Interpretation:** Steps 1–6 show consistent ~15–17% improvement with embedded
+before the failure.  The `submit-placement` step is an IPC round-trip that calls
+into Rust; it PASSED with external/WebKitWebDriver (43s) but FAILED with
+embedded/tauri-plugin-wdio-webdriver (75s, timeout or assertion error).
+This failure may be WebKit-specific — the embedded plugin's behaviour under
+WebKitWebDriver may differ from its behaviour under Edge/WebView2 on Windows.
+No claim can be made about Windows without running the full matrix there.
+
+### Linux summary
+
+- app-smoke: embedded consistently faster (~15–39% improvement, all 4 runs PASS)
+- core-inventory: embedded failed at `submit-placement` — incomplete data, cannot draw conclusions
+- The embedded failure on Linux/WebKit is a risk signal that must be verified on Windows before any adoption decision
+
+---
+
 ## Related files
 
 - `apps/desktop/e2e-wdio/support/command-timing.ts` — timing instrumentation

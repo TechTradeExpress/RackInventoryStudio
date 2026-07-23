@@ -1,14 +1,19 @@
 ## Summary
 
-Stage 3B.3: Windows WDIO performance experiment.
+Stage 3B.3: Windows WDIO performance experiment — Linux continuation.
 
 Branch `experiment/e2e-wdio-windows-performance` from `roadmap/e2e-wdio`
 (base SHA 95ea5fd3795b42769da9e7a4907ab2a82e6d9bc6).
 
 Adds opt-in command timing instrumentation, configurable driver provider
 (external/embedded), optional embedded WebDriver Cargo feature, and a
-benchmark runner script.  No coverage counts changed.  All benchmark
-results are PENDING — Windows execution required.
+benchmark runner script.  No coverage counts changed.
+
+Linux continuation pass (2026-07-23): static validation, unit tests, two
+binary builds, and a full Linux supplementary benchmark were run.
+app-smoke: all 4 A/B runs PASS — embedded 15–39% faster.
+core-inventory: external PASS (1376s, 852 cmds); embedded FAIL at
+`submit-placement` step (matrix stopped).  Windows matrix still required.
 
 ## Branch and base
 
@@ -25,23 +30,30 @@ results are PENDING — Windows execution required.
 |-----|---------|
 | 8c1b46c | test(e2e): add opt-in WDIO command timing benchmark |
 | 170abae | test(e2e): add test-only embedded WebDriver experiment |
-| (commit 3) | docs(e2e): record Windows driver performance comparison |
+| bde24a2 | docs(e2e): record Windows driver performance comparison |
+| 7100ebcf | fix(e2e): harden Windows WDIO benchmark harness |
+| 526647e | fix(e2e): resolve smoke-test blockers found on real Windows execution |
+| (pending) | docs(e2e): record supplementary Linux benchmark results |
 
 ## Files changed
 
 | File | Change |
 |------|--------|
-| `apps/desktop/e2e-wdio/support/command-timing.ts` | New: per-command timing hooks, measureStep, NDJSON+summary output |
+| `apps/desktop/e2e-wdio/support/command-timing.ts` | New: per-command timing hooks, measureStep, NDJSON+summary output; hardened (no sync I/O per command, idempotent flush) |
 | `apps/desktop/e2e-wdio/wdio.conf.ts` | Add provider env (RIS_WDIO_DRIVER_PROVIDER), embedded port, timing hook |
-| `apps/desktop/e2e-wdio/specs/core-inventory.e2e.ts` | Add measureStep() for 8 representative business steps |
-| `scripts/run-wdio-performance-benchmark.mjs` | New: benchmark runner (Node.js built-ins only) |
+| `apps/desktop/e2e-wdio/specs/core-inventory.e2e.ts` | Add measureStep() for 9 representative business steps; @wdio/globals import |
+| `apps/desktop/package.json` | Add @wdio/globals as explicit devDependency (was imported but undeclared) |
+| `scripts/run-wdio-performance-benchmark.mjs` | New: benchmark runner (Node.js built-ins only); spawns WDIO via process.execPath, not .cmd; time-windowed orphan cleanup; CRLF Cargo.lock support; Edge version via PowerShell VersionInfo |
+| `scripts/run-wdio-performance-benchmark.test.mjs` | New: 66 unit tests for runner (node:test) |
 | `apps/desktop/src-tauri/Cargo.toml` | Add wdio-embedded feature + optional tauri-plugin-wdio-webdriver |
 | `apps/desktop/src-tauri/build.rs` | Conditional capability file generation for embedded feature |
 | `apps/desktop/src-tauri/src/lib.rs` | #[cfg(feature = "wdio-embedded")] plugin registration |
-| `.gitignore` | Gitignore generated capabilities/embedded-test.json |
+| `apps/desktop/src-tauri/src/ssh_askpass.rs` | Fix Windows-only clippy unused_mut warning |
+| `.gitignore` | Gitignore capabilities/embedded-test.json and target-embedded/ |
 | `Cargo.lock` | Updated with tauri-plugin-wdio-webdriver 1.2.0 |
-| `docs/E2E_WDIO_WINDOWS_PERFORMANCE.md` | New: benchmark design, pending results, decision criteria |
-| `docs/E2E_WDIO_PLAN.md` | Add Stage 3B.3 section |
+| `pnpm-lock.yaml` | Updated for @wdio/globals explicit dependency |
+| `docs/E2E_WDIO_WINDOWS_PERFORMANCE.md` | New: benchmark design, pending results, decision criteria; Linux supplementary section added |
+| `docs/E2E_WDIO_PLAN.md` | Add Stage 3B.3 section; update with Linux supplementary results |
 | `.ai/cc-report.md` | This report |
 
 ## Environment
@@ -91,36 +103,75 @@ cargo clippy --features wdio-embedded   PASS
 git diff --check                        PASS
 ```
 
-## Benchmark results (PENDING — Windows execution required)
+## Benchmark results
 
-All 8 runs (external×4 + embedded×4 across app-smoke and core-inventory) are PENDING.
+### Linux supplementary (2026-07-23, WebKit/xvfb, supplementary only)
+
+**Unit tests:** 66/66 PASS
+
+**Infrastructure smoke:**
+
+| Provider | Spec | Result | Total | Commands | Median | P95 |
+|----------|------|--------|-------|----------|--------|-----|
+| external | app-smoke | PASS | 81s | 37 | 10ms | 12398ms |
+| embedded | app-smoke | PASS | 68s | 39 | 11ms | 10337ms |
+
+**app-smoke A/B comparison (--compare, ×2):**
+
+| Run | Provider | Result | Total | Session startup | Cmd median | Cmd P95 |
+|-----|----------|--------|-------|-----------------|-----------|---------|
+| 1 | external | PASS | 80s | 965ms | 19ms | 12345ms |
+| 2 | embedded | PASS | 68s | 220ms | 11ms | 10357ms |
+| 3 | external | PASS | 80s | 958ms | 18ms | 12446ms |
+| 4 | embedded | PASS | 68s | 228ms | 11ms | 10362ms |
+
+Session startup improvement: 738ms (77%).  Test execution improvement: ~12s (16%).
+
+**core-inventory A/B comparison (--compare, ×2, matrix stopped after failure):**
+
+| Run | Provider | Result | Total | Commands | Median | P95 |
+|-----|----------|--------|-------|----------|--------|-----|
+| 1 | external | PASS | 1376s | 852 | 9ms | 24503ms |
+| 2 | embedded | FAIL | 889s | 667 | 13ms | 20451ms |
+
+Embedded failure: `submit-placement` step failed; `save-and-close` and
+`reopen-repository` not reached.  Steps before failure: ~15–17% faster than external.
+
+**Dependency audit:** 4 advisories (brace-expansion ×2, fast-xml-parser ×1, 1 low) —
+all pre-existing in base branch lockfile, not introduced by this PR.
+
+### Windows matrix (PENDING)
+
+8 runs (external×4 + embedded×4 across app-smoke and core-inventory) are PENDING.
 See `docs/E2E_WDIO_WINDOWS_PERFORMANCE.md` for the full matrix and decision criteria.
 
 ## Decision
 
-PENDING — cannot evaluate until Windows benchmark runs are complete.
+PENDING WINDOWS MATRIX — Linux data is supplementary only.
+- app-smoke on Linux: embedded faster in all metrics, all runs PASS
+- core-inventory on Linux: embedded failed at submit-placement (risk signal for Windows)
+- Cannot ADOPT EMBEDDED based on Linux alone
 
 ## Not done
 
 - Windows benchmark execution (requires Windows machine)
-- Filling in `docs/E2E_WDIO_WINDOWS_PERFORMANCE.md` raw results, aggregation, interpretation, decision
-- Commit 3 (`docs(e2e): record Windows driver performance comparison`)
-- Full 11-spec WDIO suite validation (not required for this experiment branch unless embedded becomes default)
+- Filling in Windows matrix in `docs/E2E_WDIO_WINDOWS_PERFORMANCE.md`
+- Final decision (ADOPT EMBEDDED / KEEP EXTERNAL / INCONCLUSIVE)
+- Full 11-spec WDIO suite validation (not required unless embedded becomes default)
 
 ## Risks
 
+- Embedded provider failed `submit-placement` on Linux/WebKit — may be WebKit-specific; must verify on Windows/WebView2 before adoption
 - `tauri-plugin-wdio-webdriver` may require additional Tauri permissions not anticipated (build.rs creates the capability file conditionally)
-- The Cargo feature approach correctly isolates the plugin; the `#[cfg(feature = "wdio-embedded")]` guard is explicit, not `debug_assertions`
+- Dependency audit: 4 pre-existing advisories in brace-expansion/fast-xml-parser chain; no fix available without upstream updates
 - On Windows, Defender scanning may inflate startup and IPC step timings independently of provider choice
 
 ## Suggested next step
 
-Execute the 8-run benchmark matrix on Windows using:
+Execute the controlled A/B comparison on Windows using the embedded binary:
+```powershell
+node scripts\run-wdio-performance-benchmark.mjs --compare --spec app-smoke --repeat 2 --binary "target-embedded\release\rack-inventory-studio-desktop.exe"
+node scripts\run-wdio-performance-benchmark.mjs --compare --spec core-inventory --repeat 2 --binary "target-embedded\release\rack-inventory-studio-desktop.exe"
 ```
-node scripts\run-wdio-performance-benchmark.mjs --provider external --spec app-smoke --repeat 2
-node scripts\run-wdio-performance-benchmark.mjs --provider embedded --spec app-smoke --repeat 2 --binary "..."
-node scripts\run-wdio-performance-benchmark.mjs --provider external --spec core-inventory --repeat 2
-node scripts\run-wdio-performance-benchmark.mjs --provider embedded --spec core-inventory --repeat 2 --binary "..."
-```
-Then fill in `docs/E2E_WDIO_WINDOWS_PERFORMANCE.md` and commit as:
-`docs(e2e): record Windows driver performance comparison`
+Then fill in `docs/E2E_WDIO_WINDOWS_PERFORMANCE.md` with Windows data and commit.
+Pay special attention to whether embedded also fails `submit-placement` on Windows.
