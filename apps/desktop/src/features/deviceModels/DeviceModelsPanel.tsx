@@ -180,7 +180,11 @@ export function DeviceModelsPanel({
           </p>
         )}
         {error && <Banner tone="err">{error}</Banner>}
-        {deleteError && <Banner tone="err">{deleteError}</Banner>}
+        {deleteError && (
+          <div data-testid="device-model-delete-error">
+            <Banner tone="err">{deleteError}</Banner>
+          </div>
+        )}
         {successMsg && (
           <Banner tone="ok" onDismiss={() => setSuccessMsg(null)}>
             {successMsg}

@@ -32,12 +32,13 @@ export function ConfirmDialog({
       width={460}
       footer={
         <>
-          <button className="btn" onClick={onCancel}>
+          <button className="btn" onClick={onCancel} data-testid="confirm-dialog-cancel">
             {cancelLabel}
           </button>
           <button
             className={`btn ${tone === "danger" ? "btn-danger" : "btn-primary"}`}
             onClick={onConfirm}
+            data-testid="confirm-dialog-confirm"
           >
             {confirmLabel}
           </button>

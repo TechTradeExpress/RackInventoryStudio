@@ -116,7 +116,11 @@ export function LocationsPanel({
           <p style={{ fontSize: 12, color: "var(--tx-3)", fontStyle: "italic" }}>Loading…</p>
         )}
         {error && <Banner tone="err">{error}</Banner>}
-        {deleteError && <Banner tone="err">{deleteError}</Banner>}
+        {deleteError && (
+          <div data-testid="location-delete-error">
+            <Banner tone="err">{deleteError}</Banner>
+          </div>
+        )}
         {successMsg && (
           <Banner tone="ok" onDismiss={() => setSuccessMsg(null)}>{successMsg}</Banner>
         )}

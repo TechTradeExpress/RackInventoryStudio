@@ -700,7 +700,7 @@ and native `.click()` fires `mousedown` which lands on the backdrop overlay and 
 
 ### Stage 3B.1 — Entity updates and work mode
 
-**Status: IN REVIEW** (PR targeting `roadmap/e2e-wdio`)
+**Status: COMPLETED** (merged as PR #149, merge commit `abcb8e4`)
 
 Delivered through `feature/e2e-wdio-entity-updates-work-mode`.
 
@@ -721,25 +721,119 @@ Edit buttons use existing `aria-label="Edit <name>"` pattern; form field testids
 (`field-name`, `field-height-u`, `field-row`, `field-model-sku`, `field-status`,
 `field-serial`) and submit testids were already present from Stage 1.
 
+**Validation (Linux, 2026-07-16):**
+
+| Run | Result | Duration | Exit |
+|-----|--------|----------|------|
+| Full suite (7 specs) | PASSED 7/7 | — | 0 |
+| TypeScript | 0 errors | — | 0 |
+| Vitest | passed | — | 0 |
+| GitHub checks (CI #29809393075) | All green | — | — |
+
 ### Stage 3B.2 — Delete flows and destructive-operation guards
+
+**Status: IN REVIEW** (PR #152 targeting `roadmap/e2e-wdio`)
+
+Delivered through `feature/e2e-wdio-destructive-guards`.
+
+> **Architecture note:** `entity-updates-work-mode.e2e.ts` runs approximately 57 minutes.
+> Stage 3B.2 **is implemented as separate specs** to avoid exceeding per-spec runtime limits.
+> The Mocha timeout was increased to 90 minutes (5,400,000 ms) in the PR #152 repair pass
+> to accommodate guard specs with 3× `navigateToRackDetail` + full 7-part graph assertions
+> (~70 min observed).
+
+**Scope:**
+
+Four independent specs, each creating its own isolated repository:
+
+- **`entity-deletes-inventory.e2e.ts`** — Two successful inventory-entity delete workflows:
+  - Delete device model (unreferenced) → delete device (unplaced, no model)
+  - Cancel assertion: dialog appears and entity survives cancel
+  - Persistence: save + close + reopen → both entities absent
+- **`entity-deletes-hierarchy.e2e.ts`** — Two successful hierarchy-entity delete workflows:
+  - Delete rack (no placements) → delete location (no racks)
+  - Relational count assertions (rack count on location, placement count on rack)
+  - Persistence: save + close + reopen → both entities absent
+- **`destructive-guards-inventory.e2e.ts`** — Two inventory-layer guard workflows:
+  - Guard device model (device references it) → guard device (placed in rack)
+  - Full 7-part graph assertions (A: setup, B: reopen verification, C–D: guard cycles,
+    E: aggregate, F: dirty-state assertion, G: post-close reopen)
+- **`destructive-guards-hierarchy.e2e.ts`** — Two hierarchy-layer guard workflows:
+  - Guard location (rack references it) → guard rack (placement references it)
+  - Full 7-part graph assertions (same A–G structure as inventory guards)
+
+**New selectors added to application source:**
+
+| Selector | Element | Location |
+|----------|---------|----------|
+| `confirm-dialog-confirm` | Confirm button in `ConfirmDialog` footer | `ConfirmDialog.tsx` |
+| `confirm-dialog-cancel` | Cancel button in `ConfirmDialog` footer | `ConfirmDialog.tsx` |
+| `location-delete-error` | Wrapper `<div>` around delete error `Banner` | `LocationsPanel` |
+| `rack-delete-error` | Wrapper `<div>` around delete error `Banner` | `RacksPanel` |
+| `device-model-delete-error` | Wrapper `<div>` around delete error `Banner` | `DeviceModelsPanel` |
+| `device-delete-error` | Wrapper `<div>` around delete error `Banner` | `DevicesPanel` |
+
+Delete trigger buttons use the existing `aria-label="Delete <name>"` pattern scoped to the
+exact entity row — no new testid needed for the trigger itself.  ConfirmDialog buttons are
+clicked via `browser.execute()` synthetic click to bypass the WebKitGTK modal-backdrop
+`mousedown` intercept.  Row delete buttons are safe to native `.click()`.
+
+**Shared support:** `apps/desktop/e2e-wdio/support/destructive-ui.ts` — helpers covering
+atomic DOM reads, row finders, delete interaction, error banner assertions, rack-list/detail
+state detection (`waitForRackListOrDetail`, `ensureRackListView`), and relational count helpers.
+
+**Coverage: 8 workflows** promoted from NEEDS SELECTOR → COVERED.
+
+See [`docs/E2E_WDIO_COVERAGE_GAPS.md`](E2E_WDIO_COVERAGE_GAPS.md) for the full matrix.
+
+**RP hardening (PR #152 repair pass, 2026-07-22):**
+
+The original `destructive-guards.e2e.ts` was split into two specs.  During the repair pass
+the following hardening was applied to `destructive-ui.ts` and `wdio.conf.ts`:
+
+- `waitForRackListOrDetail`: now requires **both** `palette-drop-zone` AND `rack-detail-back-btn`
+  before returning `"detail"`, preventing false positives from transient residual DOM states
+  where `palette-drop-zone` lingers while `rack-detail-back-btn` is absent.
+- `ensureRackListView`: replaced `browser.execute()` synthetic click with direct `.click()` on
+  `rack-detail-back-btn` — the back button is not behind a modal backdrop, so native click is
+  correct and avoids `ChainablePromiseElement` serialization errors.
+- `findRowByExactName` calls immediately after `ensureRackListView()` in guard specs now use a
+  30 s timeout (was 15 s) to accommodate a data-load race: `rack-add-btn` can appear before
+  `listRacks()` resolves, causing the row lookup to time out before the data arrives.
+- Mocha timeout increased from 3,600,000 ms (60 min) to 5,400,000 ms (90 min) to accommodate
+  guard specs that take ~70 min (3× navigateToRackDetail + full 7-part graph assertions).
+
+**Validation (Linux, 2026-07-22–23, PR #152 validation RP):**
+
+Binary: `./node_modules/.bin/tauri build --no-bundle --config '{"build":{"beforeBuildCommand":""}}'` — PASS (47 s)
+Display: `Xvfb :77 -screen 0 1280x1024x24`
+Playwright: BLOCKED — environment dependency: `libasound2t64` (pre-existing; no dependency changes)
+
+| Spec | Run | Result | Duration |
+|------|-----|--------|----------|
+| `entity-deletes-inventory` | run 1 | PASSED | 00:38:15 |
+| `entity-deletes-inventory` | run 2 | PASSED | 00:38:32 |
+| `entity-deletes-hierarchy` | run 1 | PASSED | 00:31:12 |
+| `entity-deletes-hierarchy` | run 2 | PASSED | 00:31:12 |
+| `destructive-guards-inventory` | run 1 | PASSED | ~01:09 |
+| `destructive-guards-inventory` | run 2 | PASSED | ~01:09 |
+| `destructive-guards-hierarchy` | run 1 | PASSED | ~01:05 |
+| `destructive-guards-hierarchy` | run 2 | PASSED | ~01:08 |
+| Full suite (11 specs) | — | **PASSED 11/11** | — |
+
+### Stage 3C — Remaining placement workflows
 
 **Status: PLANNED**
 
 Not yet started.  Scope pending.
 
-> **Architecture note:** `entity-updates-work-mode.e2e.ts` runs approximately 57 minutes
-> against a 60-minute Mocha timeout (~3-minute margin).  Stage 3B.2 **must be implemented
-> as a separate spec** — extending this scenario further would exceed the timeout.  The
-> 60-minute limit should not be increased without a separate architectural decision.
-
-Representative scope from the Tier 2 list in the gap analysis:
-- Delete entity (requires ConfirmDialog confirm button testid)
-- Delete with relationship constraint
+Representative scope from the MISSING list in the gap analysis:
 - Edit placement height U (`height-u-input` in `EditPlacementModal`)
-- Remove placement via `EditPlacementModal` remove button
-- `PlacementInspectorPanel` navigate to device / model
+- Remove placement via `EditPlacementModal` remove button (distinct confirm label "Remove placement")
+- `PlacementInspectorPanel` navigate to device (`edit-target-device-btn`)
+- `PlacementInspectorPanel` navigate to model (`edit-target-model-btn`)
 
-See [`docs/E2E_WDIO_COVERAGE_GAPS.md`](E2E_WDIO_COVERAGE_GAPS.md) for the full matrix.
+All required selectors are already present in application source.
 
 ## Future stages
 
