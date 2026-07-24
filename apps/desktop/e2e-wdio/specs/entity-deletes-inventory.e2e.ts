@@ -33,7 +33,7 @@ import {
   expectActiveRepositoryPath,
   createRepositoryThroughUi,
 } from "../support/repository-ui";
-import { clickNav } from "../support/spec-interactions";
+import { clickNav, waitForFormCloseOrError } from "../support/spec-interactions";
 import {
   findRowByExactName,
   expectExactlyOneRowByName,
@@ -50,23 +50,6 @@ import {
 function log(msg: string) {
   const ts = new Date().toISOString().substring(11, 23);
   console.log(`[deletes-inventory ${ts}] ${msg}`);
-}
-
-async function waitForFormClose(submitTestId: string): Promise<void> {
-  await browser.waitUntil(
-    async () => {
-      const btn = browser.$(`[data-testid="${submitTestId}"]`);
-      if (!(await btn.isExisting())) return true;
-      if (!(await btn.isDisplayed())) return true;
-      const errEl = browser.$(".ft-msg.err");
-      if ((await errEl.isExisting()) && (await errEl.isDisplayed())) {
-        const errText = await errEl.getText();
-        throw new Error(`Form submit failed — modal error: "${errText}"`);
-      }
-      return false;
-    },
-    { timeout: 30_000, timeoutMsg: `Form "[data-testid="${submitTestId}"]" did not close within 30 s` },
-  );
 }
 
 // ── Suite ─────────────────────────────────────────────────────────────────────
@@ -107,7 +90,7 @@ describe("Rack Inventory Studio — inventory entity delete flows", () => {
     await reactSetValue("field-name", modelName);
     await reactSetValue("field-height-u", "1");
     await clickWhenEnabled("model-form-submit");
-    await waitForFormClose("model-form-submit");
+    await waitForFormCloseOrError("model-form-submit");
     await findRowByExactName("[data-model-code]", modelName);
     log(`part A: model "${modelName}" confirmed`);
 
@@ -121,7 +104,7 @@ describe("Rack Inventory Studio — inventory entity delete flows", () => {
     await reactSetValue("field-name", deviceName);
     // No model assigned — leave SearchableSelect at default "— none —"
     await clickWhenEnabled("device-form-submit");
-    await waitForFormClose("device-form-submit");
+    await waitForFormCloseOrError("device-form-submit");
     await findRowByExactName("[data-device-code]", deviceName);
     log(`part A: device "${deviceName}" confirmed (unplaced, no model)`);
 

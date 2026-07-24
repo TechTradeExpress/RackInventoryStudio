@@ -35,7 +35,7 @@ import {
   expectActiveRepositoryPath,
   createRepositoryThroughUi,
 } from "../support/repository-ui";
-import { clickNav } from "../support/spec-interactions";
+import { clickNav, waitForFormCloseOrError } from "../support/spec-interactions";
 import {
   findRowByExactName,
   expectExactlyOneRowByName,
@@ -54,23 +54,6 @@ import {
 function log(msg: string) {
   const ts = new Date().toISOString().substring(11, 23);
   console.log(`[deletes-hierarchy ${ts}] ${msg}`);
-}
-
-async function waitForFormClose(submitTestId: string): Promise<void> {
-  await browser.waitUntil(
-    async () => {
-      const btn = browser.$(`[data-testid="${submitTestId}"]`);
-      if (!(await btn.isExisting())) return true;
-      if (!(await btn.isDisplayed())) return true;
-      const errEl = browser.$(".ft-msg.err");
-      if ((await errEl.isExisting()) && (await errEl.isDisplayed())) {
-        const errText = await errEl.getText();
-        throw new Error(`Form submit failed — modal error: "${errText}"`);
-      }
-      return false;
-    },
-    { timeout: 30_000, timeoutMsg: `Form "[data-testid="${submitTestId}"]" did not close within 30 s` },
-  );
 }
 
 // ── Suite ─────────────────────────────────────────────────────────────────────
@@ -109,7 +92,7 @@ describe("Rack Inventory Studio — hierarchy entity delete flows", () => {
     await browser.$('[data-testid="location-form-submit"]').waitForDisplayed({ timeout: 10_000 });
     await reactSetValue("field-name", locationName);
     await clickWhenEnabled("location-form-submit");
-    await waitForFormClose("location-form-submit");
+    await waitForFormCloseOrError("location-form-submit");
     await findRowByExactName("[data-location-code]", locationName);
     log(`part A: location "${locationName}" confirmed`);
 
@@ -126,7 +109,7 @@ describe("Rack Inventory Studio — hierarchy entity delete flows", () => {
     await reactSetValue("field-height-u", "10");
     await reactSetValue("field-row", `R-${suffix}`);
     await clickWhenEnabled("rack-form-submit");
-    await waitForFormClose("rack-form-submit");
+    await waitForFormCloseOrError("rack-form-submit");
     await findRowByExactName("[data-rack-code]", rackName);
     log(`part A: rack "${rackName}" confirmed`);
 

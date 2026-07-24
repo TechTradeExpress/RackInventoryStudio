@@ -44,8 +44,9 @@ const W3C_ELEMENT_KEY = "element-6066-11e4-a52e-4f735466cecf";
  * WebdriverIO/@wdio/tauri-service dependency versions change materially.
  *
  * Do not use this for SearchableSelect option elements (see clickRowViaDom
- * and the SearchableSelect notes elsewhere) — those still require WDIO's
- * own .click() semantics for onMouseDown handling, which this bypasses.
+ * and the SearchableSelect notes elsewhere) — those require WDIO's higher-level
+ * element.click() wrapper; observed in testing to be necessary for correct
+ * onMouseDown dispatch in the SearchableSelect dropdown.
  */
 export async function clickElementProtocol(selector: string): Promise<void> {
   const ref = await browser.findElement("css selector", selector);
@@ -98,6 +99,82 @@ export async function waitForModalClose(submitTestId: string): Promise<void> {
     interval: 100,
     timeoutMsg: `Modal with submit "${submitTestId}" did not close`,
   });
+}
+
+/**
+ * Waits for a form modal to close after submission, while simultaneously
+ * watching for a visible `.ft-msg.err` error banner in the same poll.
+ *
+ * Combines the two concerns that the local `waitForFormClose` copies in each
+ * spec currently address: waiting for the submit button to disappear AND
+ * surfacing any modal footer error immediately instead of timing out.
+ *
+ * Each poll iteration performs exactly one browser.execute() round trip that
+ * atomically reads both the submit-button visibility and the error-banner state.
+ * No `$()`, `getText()`, or `isDisplayed()` calls inside the poll — those each
+ * cost their own findElement/getProperty round trip.
+ *
+ * Visibility definition (matches isSelectorVisible/isDomElementVisible):
+ *   width > 0 AND height > 0 AND display !== "none" AND visibility !== "hidden"
+ *
+ * Return:   resolves when the submit button is absent or not visible (modal closed)
+ * Throws:   immediately when a visible .ft-msg.err banner is found, with its text
+ * Timeout:  after `timeout` ms with the standard message (default 30 s)
+ */
+export async function waitForFormCloseOrError(
+  submitTestId: string,
+  options?: { timeout?: number },
+): Promise<void> {
+  const selector = `[data-testid="${submitTestId}"]`;
+  const timeout = options?.timeout ?? 30_000;
+  const timeoutMsg = `Form "[data-testid="${submitTestId}"]" did not close within ${Math.round(timeout / 1000)} s`;
+
+  await browser.waitUntil(
+    async () => {
+      const result = await browser.execute(
+        (sel: string): { closed: boolean; errorText: string | null } => {
+          const btn = document.querySelector(sel);
+          if (!btn) return { closed: true, errorText: null };
+
+          // Visibility — same definition as isSelectorVisible / isDomElementVisible.
+          // Inlined here because browser.execute() serialises only this function's own
+          // source: calling isSelectorVisible() from here would resolve to undefined.
+          const rect = (btn as HTMLElement).getBoundingClientRect();
+          const style = window.getComputedStyle(btn as HTMLElement);
+          const visible =
+            rect.width > 0 &&
+            rect.height > 0 &&
+            style.display !== "none" &&
+            style.visibility !== "hidden";
+          if (!visible) return { closed: true, errorText: null };
+
+          // Check for a visible error banner
+          const errEl = document.querySelector(".ft-msg.err");
+          if (errEl) {
+            const errRect = (errEl as HTMLElement).getBoundingClientRect();
+            const errStyle = window.getComputedStyle(errEl as HTMLElement);
+            const errVisible =
+              errRect.width > 0 &&
+              errRect.height > 0 &&
+              errStyle.display !== "none" &&
+              errStyle.visibility !== "hidden";
+            if (errVisible) {
+              return { closed: false, errorText: errEl.textContent ?? "" };
+            }
+          }
+
+          return { closed: false, errorText: null };
+        },
+        selector,
+      );
+
+      if (result.errorText !== null) {
+        throw new Error(`Form submit failed — modal error: "${result.errorText}"`);
+      }
+      return result.closed;
+    },
+    { timeout, interval: 100, timeoutMsg },
+  );
 }
 
 /**

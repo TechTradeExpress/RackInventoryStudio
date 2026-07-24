@@ -37,7 +37,7 @@ import {
   expectActiveRepositoryPath,
   createRepositoryThroughUi,
 } from "../support/repository-ui";
-import { clickNav } from "../support/spec-interactions";
+import { clickNav, waitForFormCloseOrError } from "../support/spec-interactions";
 
 function log(msg: string) {
   const ts = new Date().toISOString().substring(11, 23);
@@ -111,33 +111,6 @@ async function navigateToRackDetail(
  */
 function expectedRange(startU: number, heightU: number): string {
   return `U${startU}–U${startU + heightU - 1}`;
-}
-
-/**
- * Wait for EditPlacementModal to close after clicking save-btn.
- * Uses isExisting() for DOM-removal detection — no false-positive catch on errors.
- * Any WebDriver error (session failure, unexpected state) propagates and fails the test.
- * Surfaces modal footer error text immediately.
- */
-async function waitForEditModalClose(): Promise<void> {
-  await browser.waitUntil(
-    async () => {
-      const btn = browser.$('[data-testid="save-btn"]');
-      if (!(await btn.isExisting())) return true; // modal removed from DOM
-      if (!(await btn.isDisplayed())) return true;
-      // Surface footer error immediately rather than swallowing it.
-      const errEl = browser.$(".ft-msg.err");
-      if ((await errEl.isExisting()) && (await errEl.isDisplayed())) {
-        const errText = await errEl.getText();
-        throw new Error(`Move failed — modal error: "${errText}"`);
-      }
-      return false;
-    },
-    {
-      timeout: 30_000,
-      timeoutMsg: "EditPlacementModal did not close after Save move (30 s timeout)",
-    },
-  );
 }
 
 // ── Suite ─────────────────────────────────────────────────────────────────────
@@ -432,7 +405,7 @@ describe("Rack Inventory Studio — placement lifecycle", () => {
       await clickWhenEnabled("save-btn", 5_000);
 
       log("part 2: waiting for EditPlacementModal to close");
-      await waitForEditModalClose();
+      await waitForFormCloseOrError("save-btn");
 
       log(`part 2: verifying placed card moved to U${MOVED_U}`);
       await browser.waitUntil(

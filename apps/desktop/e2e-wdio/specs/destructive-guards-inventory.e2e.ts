@@ -41,7 +41,7 @@ import {
   expectActiveRepositoryPath,
   createRepositoryThroughUi,
 } from "../support/repository-ui";
-import { clickNav } from "../support/spec-interactions";
+import { clickNav, waitForFormCloseOrError } from "../support/spec-interactions";
 import {
   findRowByExactName,
   expectExactlyOneRowByName,
@@ -61,40 +61,6 @@ import {
 function log(msg: string) {
   const ts = new Date().toISOString().substring(11, 23);
   console.log(`[guards-inv ${ts}] ${msg}`);
-}
-
-async function waitForFormClose(submitTestId: string): Promise<void> {
-  await browser.waitUntil(
-    async () => {
-      const btn = browser.$(`[data-testid="${submitTestId}"]`);
-      if (!(await btn.isExisting())) return true;
-      if (!(await btn.isDisplayed())) return true;
-      const errEl = browser.$(".ft-msg.err");
-      if ((await errEl.isExisting()) && (await errEl.isDisplayed())) {
-        const errText = await errEl.getText();
-        throw new Error(`Form submit failed — modal error: "${errText}"`);
-      }
-      return false;
-    },
-    { timeout: 30_000, timeoutMsg: `Form "[data-testid="${submitTestId}"]" did not close within 30 s` },
-  );
-}
-
-async function waitForPlacePlacementModalClose(): Promise<void> {
-  await browser.waitUntil(
-    async () => {
-      const btn = browser.$('[data-testid="place-btn"]');
-      if (!(await btn.isExisting())) return true;
-      if (!(await btn.isDisplayed())) return true;
-      const errEl = browser.$(".ft-msg.err");
-      if ((await errEl.isExisting()) && (await errEl.isDisplayed())) {
-        const errText = await errEl.getText();
-        throw new Error(`Placement failed — modal error: "${errText}"`);
-      }
-      return false;
-    },
-    { timeout: 60_000, timeoutMsg: "PlacePlacementModal did not close after placement" },
-  );
 }
 
 async function navigateToRackDetail(locationName: string, rackName: string): Promise<void> {
@@ -154,7 +120,7 @@ describe("Rack Inventory Studio — inventory destructive-operation guards", () 
     await browser.$('[data-testid="location-form-submit"]').waitForDisplayed({ timeout: 10_000 });
     await reactSetValue("field-name", locationName);
     await clickWhenEnabled("location-form-submit");
-    await waitForFormClose("location-form-submit");
+    await waitForFormCloseOrError("location-form-submit");
     await findRowByExactName("[data-location-code]", locationName);
     log(`part A: location "${locationName}" confirmed`);
 
@@ -170,7 +136,7 @@ describe("Rack Inventory Studio — inventory destructive-operation guards", () 
     await reactSetValue("field-height-u", String(RACK_HEIGHT));
     await reactSetValue("field-row", `GRI-${suffix}`);
     await clickWhenEnabled("rack-form-submit");
-    await waitForFormClose("rack-form-submit");
+    await waitForFormCloseOrError("rack-form-submit");
     await findRowByExactName("[data-rack-code]", rackName);
     log(`part A: rack "${rackName}" confirmed (${RACK_HEIGHT}U)`);
 
@@ -184,7 +150,7 @@ describe("Rack Inventory Studio — inventory destructive-operation guards", () 
     await reactSetValue("field-name", modelName);
     await reactSetValue("field-height-u", String(MODEL_HEIGHT));
     await clickWhenEnabled("model-form-submit");
-    await waitForFormClose("model-form-submit");
+    await waitForFormCloseOrError("model-form-submit");
     await findRowByExactName("[data-model-code]", modelName);
     log(`part A: model "${modelName}" confirmed (${MODEL_HEIGHT}U server)`);
 
@@ -217,7 +183,7 @@ describe("Rack Inventory Studio — inventory destructive-operation guards", () 
     );
 
     await clickWhenEnabled("device-form-submit");
-    await waitForFormClose("device-form-submit");
+    await waitForFormCloseOrError("device-form-submit");
 
     const deviceRow = await findRowByExactName("[data-device-code]", deviceName);
     const deviceCode = (await deviceRow.getAttribute("data-device-code")) ?? "";
@@ -250,7 +216,7 @@ describe("Rack Inventory Studio — inventory destructive-operation guards", () 
 
     log("part A: submitting placement");
     await clickWhenEnabled("place-btn");
-    await waitForPlacePlacementModalClose();
+    await waitForFormCloseOrError("place-btn", { timeout: 60_000 });
 
     await expectExactlyOnePlacement(deviceCode, PLACE_U);
     log(`part A: placement card confirmed at U${PLACE_U} — fixture complete`);

@@ -29,7 +29,7 @@ import {
   expectActiveRepositoryPath,
   createRepositoryThroughUi,
 } from "../support/repository-ui";
-import { clickNav } from "../support/spec-interactions";
+import { clickNav, waitForFormCloseOrError } from "../support/spec-interactions";
 
 function log(msg: string) {
   const ts = new Date().toISOString().substring(11, 23);
@@ -37,29 +37,6 @@ function log(msg: string) {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-/**
- * Wait for a form modal to close after submission.
- * Uses isExisting() for DOM-removal detection.
- * Surfaces modal footer error text immediately instead of timing out.
- * Any unexpected WebDriver error propagates and fails the test.
- */
-async function waitForFormClose(submitTestId: string): Promise<void> {
-  await browser.waitUntil(
-    async () => {
-      const btn = browser.$(`[data-testid="${submitTestId}"]`);
-      if (!(await btn.isExisting())) return true;
-      if (!(await btn.isDisplayed())) return true;
-      const errEl = browser.$(".ft-msg.err");
-      if ((await errEl.isExisting()) && (await errEl.isDisplayed())) {
-        const errText = await errEl.getText();
-        throw new Error(`Form submit failed — modal error: "${errText}"`);
-      }
-      return false;
-    },
-    { timeout: 30_000, timeoutMsg: `Form with submit "[data-testid="${submitTestId}"]" did not close within 30 s` },
-  );
-}
 
 /**
  * Read entity names from all rows matching rowSelector by querying the <strong> child of each row.
@@ -324,7 +301,7 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
     await browser.$('[data-testid="location-form-submit"]').waitForDisplayed({ timeout: 10_000 });
     await reactSetValue("field-name", locationName);
     await clickWhenEnabled("location-form-submit");
-    await waitForFormClose("location-form-submit");
+    await waitForFormCloseOrError("location-form-submit");
     await findRowByExactName("[data-location-code]", locationName);
     log(`part B: location "${locationName}" confirmed`);
 
@@ -345,7 +322,7 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
     await reactSetValue("field-height-u", initialRackHeight);
     await reactSetValue("field-row", initialRackRow);
     await clickWhenEnabled("rack-form-submit");
-    await waitForFormClose("rack-form-submit");
+    await waitForFormCloseOrError("rack-form-submit");
     await findRowByExactName("[data-rack-code]", rackName);
     log(`part B: rack "${rackName}" (${initialRackHeight}U, row=${initialRackRow}) confirmed`);
 
@@ -360,7 +337,7 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
     await reactSetValue("field-height-u", initialModelHeight);
     await reactSetValue("field-model-sku", initialModelSku);
     await clickWhenEnabled("model-form-submit");
-    await waitForFormClose("model-form-submit");
+    await waitForFormCloseOrError("model-form-submit");
     await findRowByExactName("[data-model-code]", modelName);
     log(`part B: model "${modelName}" (${initialModelHeight}U, SKU=${initialModelSku}) confirmed`);
 
@@ -393,7 +370,7 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
     );
     await reactSetValue("field-serial", initialDeviceSerial);
     await clickWhenEnabled("device-form-submit");
-    await waitForFormClose("device-form-submit");
+    await waitForFormCloseOrError("device-form-submit");
     await findRowByExactName("[data-device-code]", deviceName);
     log(`part B: device "${deviceName}" (serial=${initialDeviceSerial}) confirmed`);
 
@@ -415,7 +392,7 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
     await reactSetValue("field-serial", updatedDeviceSerial);
 
     await clickWhenEnabled("device-form-submit");
-    await waitForFormClose("device-form-submit");
+    await waitForFormCloseOrError("device-form-submit");
     log("part C: device form closed");
 
     await findRowByExactName("[data-device-code]", updatedDeviceName);
@@ -453,7 +430,7 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
     await reactSetValue("field-model-sku", updatedModelSku);
 
     await clickWhenEnabled("model-form-submit");
-    await waitForFormClose("model-form-submit");
+    await waitForFormCloseOrError("model-form-submit");
     log("part D: model form closed");
 
     await findRowByExactName("[data-model-code]", updatedModelName);
@@ -509,7 +486,7 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
     await reactSetValue("field-row", updatedRackRow);
 
     await clickWhenEnabled("rack-form-submit");
-    await waitForFormClose("rack-form-submit");
+    await waitForFormCloseOrError("rack-form-submit");
     log("part E: rack form closed");
 
     await findRowByExactName("[data-rack-code]", updatedRackName);
@@ -540,7 +517,7 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
     await reactSetValue("field-name", updatedLocationName);
 
     await clickWhenEnabled("location-form-submit");
-    await waitForFormClose("location-form-submit");
+    await waitForFormCloseOrError("location-form-submit");
     log("part F: location form closed");
 
     await findRowByExactName("[data-location-code]", updatedLocationName);
