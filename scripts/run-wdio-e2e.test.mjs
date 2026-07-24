@@ -20,6 +20,9 @@ import {
   buildChildEnv,
   buildRunCommand,
   deriveExitCode,
+  parseListeningPorts,
+  inspectPortProbeResult,
+  deriveFinalRunnerExitCode,
 } from "./run-wdio-e2e.mjs";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -350,6 +353,183 @@ describe("buildRunCommand — Windows / other platforms", () => {
   it("does not use xvfb-run on darwin either", () => {
     const { executable } = buildRunCommand({ ...base, nodeExe: "/usr/local/bin/node", platform: "darwin" });
     assert.equal(executable, "/usr/local/bin/node");
+  });
+});
+
+// ── parseListeningPorts ────────────────────────────────────────────────────────
+
+describe("parseListeningPorts", () => {
+  it("returns an empty array for empty, valid output (ports free)", () => {
+    assert.deepEqual(parseListeningPorts(""), []);
+  });
+
+  it("returns an empty array when no target ports appear", () => {
+    const out = "State   Recv-Q Send-Q Local Address:Port  Peer Address:Port  Process\n" +
+      "LISTEN  0      128    127.0.0.1:9999       0.0.0.0:*          users:((\"other\",pid=1,fd=3))\n";
+    assert.deepEqual(parseListeningPorts(out), []);
+  });
+
+  it("recognizes :4444", () => {
+    const out = "LISTEN 0 128 127.0.0.1:4444 0.0.0.0:* users:((\"tauri-driver\",pid=1234,fd=3))\n";
+    const result = parseListeningPorts(out);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].port, 4444);
+  });
+
+  it("recognizes :4445", () => {
+    const out = "LISTEN 0 128 127.0.0.1:4445 0.0.0.0:* users:((\"msedgedriver\",pid=42,fd=3))\n";
+    const result = parseListeningPorts(out);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].port, 4445);
+  });
+
+  it("does not confuse :44440 with :4444", () => {
+    const out = "LISTEN 0 128 127.0.0.1:44440 0.0.0.0:* users:((\"other\",pid=1,fd=3))\n";
+    assert.deepEqual(parseListeningPorts(out), []);
+  });
+
+  it("does not confuse :14444 with :4444", () => {
+    const out = "LISTEN 0 128 127.0.0.1:14444 0.0.0.0:* users:((\"other\",pid=1,fd=3))\n";
+    assert.deepEqual(parseListeningPorts(out), []);
+  });
+
+  it("preserves the full diagnostic line in rawLine", () => {
+    const line = "LISTEN 0 128 127.0.0.1:4444 0.0.0.0:* users:((\"tauri-driver\",pid=1234,fd=3))";
+    const result = parseListeningPorts(`${line}\n`);
+    assert.equal(result[0].rawLine, line);
+  });
+
+  it("extracts pid and processName when present", () => {
+    const out = "LISTEN 0 128 127.0.0.1:4444 0.0.0.0:* users:((\"tauri-driver\",pid=5678,fd=3))\n";
+    const result = parseListeningPorts(out);
+    assert.equal(result[0].pid, 5678);
+    assert.equal(result[0].processName, "tauri-driver");
+  });
+
+  it("sets pid and processName to null when ss provides no process info", () => {
+    const out = "LISTEN 0 128 127.0.0.1:4444 0.0.0.0:*\n";
+    const result = parseListeningPorts(out);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].pid, null);
+    assert.equal(result[0].processName, null);
+  });
+
+  it("detects both ports occupied at once", () => {
+    const out =
+      "LISTEN 0 128 127.0.0.1:4444 0.0.0.0:* users:((\"tauri-driver\",pid=1,fd=3))\n" +
+      "LISTEN 0 128 127.0.0.1:4445 0.0.0.0:* users:((\"msedgedriver\",pid=2,fd=3))\n";
+    const result = parseListeningPorts(out);
+    assert.equal(result.length, 2);
+    assert.deepEqual(result.map((r) => r.port).sort(), [4444, 4445]);
+  });
+});
+
+// ── inspectPortProbeResult ───────────────────────────────────────────────────
+
+describe("inspectPortProbeResult", () => {
+  it("reports probe failure on spawn error", () => {
+    const result = inspectPortProbeResult({ error: new Error("ENOENT"), status: null, stdout: "" });
+    assert.equal(result.probeSucceeded, false);
+    assert.deepEqual(result.occupiedPorts, []);
+  });
+
+  it("reports probe failure on non-zero ss exit status", () => {
+    const result = inspectPortProbeResult({ error: null, status: 1, stdout: "" });
+    assert.equal(result.probeSucceeded, false);
+    assert.deepEqual(result.occupiedPorts, []);
+  });
+
+  it("reports success with no occupied ports for empty valid output", () => {
+    const result = inspectPortProbeResult({ error: null, status: 0, stdout: "" });
+    assert.equal(result.probeSucceeded, true);
+    assert.deepEqual(result.occupiedPorts, []);
+  });
+
+  it("reports success with occupied ports parsed from stdout", () => {
+    const stdout = "LISTEN 0 128 127.0.0.1:4444 0.0.0.0:* users:((\"tauri-driver\",pid=1,fd=3))\n";
+    const result = inspectPortProbeResult({ error: null, status: 0, stdout });
+    assert.equal(result.probeSucceeded, true);
+    assert.equal(result.occupiedPorts.length, 1);
+    assert.equal(result.occupiedPorts[0].port, 4444);
+  });
+});
+
+// ── deriveFinalRunnerExitCode ────────────────────────────────────────────────
+
+describe("deriveFinalRunnerExitCode", () => {
+  it("returns 0 when child exit is 0, probe succeeded, both ports free", () => {
+    const code = deriveFinalRunnerExitCode({
+      childExitCode: 0,
+      postProbeSucceeded: true,
+      occupiedPorts: [],
+    });
+    assert.equal(code, 0);
+  });
+
+  it("preserves a non-zero child exit code of 1", () => {
+    const code = deriveFinalRunnerExitCode({
+      childExitCode: 1,
+      postProbeSucceeded: true,
+      occupiedPorts: [],
+    });
+    assert.equal(code, 1);
+  });
+
+  it("preserves a non-zero child exit code of 2", () => {
+    const code = deriveFinalRunnerExitCode({
+      childExitCode: 2,
+      postProbeSucceeded: true,
+      occupiedPorts: [],
+    });
+    assert.equal(code, 2);
+  });
+
+  it("returns 1 when port 4444 is occupied even though child exit is 0", () => {
+    const code = deriveFinalRunnerExitCode({
+      childExitCode: 0,
+      postProbeSucceeded: true,
+      occupiedPorts: [{ port: 4444, rawLine: "", pid: null, processName: null }],
+    });
+    assert.equal(code, 1);
+  });
+
+  it("returns 1 when port 4445 is occupied even though child exit is 0", () => {
+    const code = deriveFinalRunnerExitCode({
+      childExitCode: 0,
+      postProbeSucceeded: true,
+      occupiedPorts: [{ port: 4445, rawLine: "", pid: null, processName: null }],
+    });
+    assert.equal(code, 1);
+  });
+
+  it("returns 1 when both ports are occupied even though child exit is 0", () => {
+    const code = deriveFinalRunnerExitCode({
+      childExitCode: 0,
+      postProbeSucceeded: true,
+      occupiedPorts: [
+        { port: 4444, rawLine: "", pid: null, processName: null },
+        { port: 4445, rawLine: "", pid: null, processName: null },
+      ],
+    });
+    assert.equal(code, 1);
+  });
+
+  it("returns 1 when the post-run probe failed even though child exit is 0", () => {
+    const code = deriveFinalRunnerExitCode({
+      childExitCode: 0,
+      postProbeSucceeded: false,
+      occupiedPorts: [],
+    });
+    assert.equal(code, 1);
+  });
+
+  it("does not overwrite a non-zero child exit code even when the probe also failed", () => {
+    const code = deriveFinalRunnerExitCode({
+      childExitCode: 3,
+      postProbeSucceeded: false,
+      occupiedPorts: [{ port: 4444, rawLine: "", pid: null, processName: null }],
+    });
+    assert.equal(code, 3);
   });
 });
 

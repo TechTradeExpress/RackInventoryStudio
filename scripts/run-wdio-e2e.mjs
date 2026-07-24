@@ -215,24 +215,107 @@ export function deriveExitCode(spawnResult) {
   return spawnResult.status ?? 1;
 }
 
-// ── Side-effecting helpers (not unit tested) ──────────────────────────────────
+// ── Port contract (pure functions — exported for unit tests) ──────────────────
 
-function warnIfPortsOccupied(phase) {
-  if (process.platform !== "linux") return;
-  const result = spawnSync("ss", ["-ltnp"], { encoding: "utf8" });
-  const out = result.stdout ?? "";
-  for (const port of ["4444", "4445"]) {
-    if (new RegExp(`:${port}\\b`).test(out)) {
-      console.warn(`[run-wdio-e2e] ${phase}: port ${port} is occupied`);
-    }
+const PORT_CONTRACT_PORTS = [4444, 4445];
+
+/**
+ * Parses `ss -ltnp` output and returns an entry for each listening socket
+ * whose Local Address:Port column ends in exactly one of targetPorts.
+ *
+ * Matches on the numeric port value, not a substring of the line — ":44440"
+ * or ":14444" must never be mistaken for ":4444". Column position is not
+ * assumed (ss's column set varies by iproute2 version / -e flags): the
+ * Local Address:Port column is identified as the first column matching
+ * `:<digits>` at its end, which peer-address columns for LISTEN sockets
+ * ("0.0.0.0:*", "*:*") never do.
+ */
+export function parseListeningPorts(ssOutput, targetPorts = PORT_CONTRACT_PORTS) {
+  const targets = new Set(targetPorts);
+  const occupied = [];
+  const lines = (ssOutput ?? "").split("\n");
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    const columns = trimmed.split(/\s+/);
+    const localAddrCol = columns.find((c) => /:[0-9]+$/.test(c));
+    if (!localAddrCol) continue;
+
+    const port = Number(localAddrCol.match(/:([0-9]+)$/)[1]);
+    if (!targets.has(port)) continue;
+
+    const pidMatch = trimmed.match(/pid=(\d+)/);
+    const nameMatch = trimmed.match(/\(\("([^"]+)"/);
+
+    occupied.push({
+      port,
+      rawLine: line,
+      pid: pidMatch ? Number(pidMatch[1]) : null,
+      processName: nameMatch ? nameMatch[1] : null,
+    });
   }
+
+  return occupied;
 }
 
-function portsAreFree() {
-  if (process.platform !== "linux") return true;
-  const result = spawnSync("ss", ["-ltnp"], { encoding: "utf8" });
-  const out = result.stdout ?? "";
-  return !["4444", "4445"].some((p) => new RegExp(`:${p}\\b`).test(out));
+/**
+ * Interprets the result of `spawnSync("ss", ["-ltnp"], ...)`.
+ * probeSucceeded is false when the spawn itself failed (e.g. ss not
+ * installed) or ss exited non-zero — either case must be treated as "cannot
+ * verify port state", never silently treated as "ports are free".
+ */
+export function inspectPortProbeResult(spawnResult, targetPorts = PORT_CONTRACT_PORTS) {
+  if (spawnResult.error) {
+    return { probeSucceeded: false, occupiedPorts: [] };
+  }
+  if (spawnResult.status !== 0) {
+    return { probeSucceeded: false, occupiedPorts: [] };
+  }
+  return {
+    probeSucceeded: true,
+    occupiedPorts: parseListeningPorts(spawnResult.stdout ?? "", targetPorts),
+  };
+}
+
+/**
+ * Derives the final runner exit code from the child benchmark's exit code
+ * and the post-run port probe. A non-zero child exit code is preserved
+ * as-is (never clobbered with a generic 1). Only child_exit=0 AND a
+ * successful post-run probe AND zero occupied ports can produce exit 0.
+ */
+export function deriveFinalRunnerExitCode({ childExitCode, postProbeSucceeded, occupiedPorts }) {
+  if (childExitCode !== 0) return childExitCode;
+  if (!postProbeSucceeded) return 1;
+  if (occupiedPorts.length > 0) return 1;
+  return 0;
+}
+
+// ── Side-effecting helpers (not unit tested) ──────────────────────────────────
+
+/**
+ * Runs the ss -ltnp port probe. On non-Linux platforms ss is not expected to
+ * exist and the port contract does not apply (the canonical runner only
+ * wraps xvfb-run on Linux), so the probe is skipped and reported as trivially
+ * successful with no occupied ports.
+ */
+function checkPorts() {
+  if (process.platform !== "linux") {
+    return { probeSucceeded: true, occupiedPorts: [] };
+  }
+  const spawnResult = spawnSync("ss", ["-ltnp"], { encoding: "utf8" });
+  return inspectPortProbeResult(spawnResult);
+}
+
+function logOccupiedPorts(phase, occupiedPorts) {
+  for (const occ of occupiedPorts) {
+    console.error(`[run-wdio-e2e] ${phase}: port ${occ.port} is occupied`);
+    console.error(`[run-wdio-e2e]   ${occ.rawLine}`);
+    console.error(
+      `[run-wdio-e2e]   pid=${occ.pid ?? "(unknown)"} process=${occ.processName ?? "(unknown)"}`,
+    );
+  }
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
@@ -300,7 +383,24 @@ async function main() {
     process.exit(1);
   }
 
-  warnIfPortsOccupied("pre-run");
+  // Hard pre-run port contract: an unverifiable or occupied port state must
+  // refuse to start the benchmark, not just warn. Never kills a pre-existing
+  // process automatically — it is diagnosed and the run is aborted instead.
+  const preProbe = checkPorts();
+  if (!preProbe.probeSucceeded) {
+    console.error(
+      "[run-wdio-e2e] pre-run: unable to verify ports 4444/4445 are free (ss probe failed). " +
+        "Refusing to start the benchmark.",
+    );
+    process.exit(1);
+  }
+  if (preProbe.occupiedPorts.length > 0) {
+    logOccupiedPorts("pre-run", preProbe.occupiedPorts);
+    console.error(
+      "[run-wdio-e2e] pre-run: refusing to start the benchmark while ports 4444/4445 are occupied.",
+    );
+    process.exit(1);
+  }
 
   // Determine plugin expectation
   const expectPlugin = opts.expectPlugin ?? (opts.binary ? null : "present");
@@ -341,19 +441,36 @@ async function main() {
     process.exit(1);
   }
 
-  const exitCode = deriveExitCode(result);
-  const clean = portsAreFree();
+  const childExitCode = deriveExitCode(result);
+
+  // Hard post-run port contract: an unverifiable or still-occupied port
+  // state must force a non-zero final exit code, even when the child
+  // benchmark itself exited 0. A non-zero child exit code is always
+  // preserved as-is.
+  const postProbe = checkPorts();
+  const finalExitCode = deriveFinalRunnerExitCode({
+    childExitCode,
+    postProbeSucceeded: postProbe.probeSucceeded,
+    occupiedPorts: postProbe.occupiedPorts,
+  });
+
+  const portsFree = postProbe.probeSucceeded && postProbe.occupiedPorts.length === 0;
   console.log(
-    `[run-wdio-e2e] Run complete — exit=${exitCode} ports_free=${clean}`,
+    `[run-wdio-e2e] Run complete — child_exit=${childExitCode} final_exit=${finalExitCode} ports_free=${portsFree}`,
   );
-  if (!clean) {
-    console.warn(
-      "[run-wdio-e2e] Ports 4444/4445 not fully free after run. " +
+  if (!postProbe.probeSucceeded) {
+    console.error(
+      "[run-wdio-e2e] post-run: unable to verify ports 4444/4445 were released (ss probe failed).",
+    );
+  } else if (postProbe.occupiedPorts.length > 0) {
+    logOccupiedPorts("post-run", postProbe.occupiedPorts);
+    console.error(
+      "[run-wdio-e2e] post-run: ports 4444/4445 not fully free after run. " +
         "Check for lingering tauri-driver processes.",
     );
   }
 
-  process.exit(exitCode);
+  process.exit(finalExitCode);
 }
 
 const isMainModule = (() => {
