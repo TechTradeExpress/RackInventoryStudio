@@ -1447,3 +1447,120 @@ smoke, the six modified specs, `representative-latency ×2`, and
 `core-inventory ×2` (9 of 11 specs plus the representative benchmark) — not
 a single full-suite execution. The full 11-spec suite remains explicitly
 deferred and is not a merge gate for Stage 3B.4.
+
+---
+
+## 14. Strict-review repair pass (same branch/PR)
+
+A strict review of PR #154 flagged two blockers: `csv-import.e2e.ts` is
+modified in the PR's overall diff against `roadmap/e2e-wdio` but had never
+been run directly on the Linux final HEAD (§13.5 above validated only the
+six specs touched by the Linux-specific repair pass, not the full modified
+set for the whole PR), and the PR body/docs stated "CI workflow: PASS (6/7
+checks)" while `Frontend dependency audit` was failing — an incorrect
+characterization of a partially-failing CI run as passing.
+
+### 14.1. `csv-import` — validated on the final HEAD
+
+Command used (canonical runner, no direct `wdio run`):
+
+```
+pnpm test:e2e:wdio --spec csv-import --skip-build
+```
+
+The documented `--` form (`pnpm test:e2e:wdio -- --spec csv-import
+--skip-build`) was attempted first and reproduced the same pnpm-9-vs-10
+argument-forwarding difference recorded in §13's environment notes (this
+sandbox's pnpm 9.15.9 forwards a literal `--` into the script's argv,
+which `parseArgs` correctly rejects as `Unknown argument: --`; the pinned
+pnpm 10.33.4 is unavailable here since it requires Node ≥22). The no-`--`
+form is behaviourally identical and was used instead.
+
+| Item | Value |
+|------|-------|
+| Run ID | `mrzc8lrf-3vi0ir` |
+| Outcome | CLEAN_PASS |
+| Total | 10,156ms |
+| Commands | 304 |
+| Median | 11ms |
+| P95 | 305ms |
+| Max | 2,290ms |
+| Commands ≥5s | 0 |
+| Plugin presence | `wdioPluginAvailable: true` |
+| Build variant | `wdio-plugin` |
+| Cleanup | `cleanupRequired: false`, `cleanupSafe: true`, `cleanupClean: true` (clean driver shutdown, no forced cleanup needed) |
+| Ports | free before and after (4444, 4445) |
+
+No code change was required — `csv-import.e2e.ts` passed cleanly on the
+first run against the existing `target-wdio-plugin` binary, no rebuild.
+
+### 14.2. Modified vs. validated real E2E specs — corrected, PR-wide
+
+§13.5's "six modified specs" table covered only the specs touched by the
+Linux-specific repair pass, not the full set of real E2E specs modified
+anywhere in this PR relative to its direct base. The authoritative list is
+the diff against `roadmap/e2e-wdio`:
+
+```
+git diff --name-status origin/roadmap/e2e-wdio...HEAD -- apps/desktop/e2e-wdio/specs
+```
+
+**Modified real E2E specs (8):** `core-inventory`, `csv-import`,
+`destructive-guards-hierarchy`, `destructive-guards-inventory`,
+`entity-deletes-hierarchy`, `entity-deletes-inventory`,
+`entity-updates-work-mode`, `placement-lifecycle`.
+
+**Validated real E2E specs on the final HEAD (8, identical set):**
+`core-inventory` (×2, §13.7), `csv-import` (×1, §14.1),
+`destructive-guards-hierarchy` (×1, §13.5), `destructive-guards-inventory`
+(×1, §13.5), `entity-deletes-hierarchy` (×1, §13.5),
+`entity-deletes-inventory` (×1, §13.5), `entity-updates-work-mode` (×1,
+§13.5), `placement-lifecycle` (×1, §13.5).
+
+**Lists identical: yes.** `representative-latency.e2e.ts` lives under
+`apps/desktop/e2e-wdio/benchmarks/`, not `specs/`, and is correctly
+excluded from both lists — it is an opt-in benchmark, not one of the real
+E2E specs run by the default WDIO spec glob.
+
+### 14.3. Corrected CI status
+
+Prior wording ("CI workflow: PASS (6/7 checks)") mischaracterized a
+partially-failing run as passing. Corrected, per-job status (unchanged
+result from §13, re-confirmed this pass via `gh pr checks 154`):
+
+| Job | Status |
+|-----|--------|
+| CI overall | **PARTIAL FAILURE** |
+| Frontend checks | PASS |
+| Rust workspace | PASS |
+| Script and hygiene checks | PASS |
+| Version consistency | PASS |
+| Workflow lint | PASS |
+| Rust dependency audit | PASS |
+| Frontend dependency audit | **FAIL** |
+
+`Frontend dependency audit` fails on 5 advisories (1 low / 4 high):
+`brace-expansion` ×2 (GHSA-3jxr-9vmj-r5cp), `fast-xml-parser`
+(GHSA-8r6m-32jq-jx6q), `postcss` (GHSA-r28c-9q8g-f849) — all reached via
+pre-existing `@wdio/cli` (`glob>minimatch>brace-expansion`,
+`@wdio/utils>edgedriver>fast-xml-parser`) and pre-existing `vite>postcss`.
+Re-confirmed via `git diff origin/roadmap/e2e-wdio...HEAD -- pnpm-lock.yaml`:
+the only new lockfile entries are `@wdio/tauri-plugin@1.2.0` and its own
+direct dependencies (`@tauri-apps/api`, `@tauri-apps/plugin-log`,
+`@wdio/native-spy`, `@wdio/native-utils`) — none of the 5 flagged packages
+appear in that diff. **The failure pre-dates this PR and this PR does not
+introduce any new vulnerable dependency version.** Not fixed in this repair
+pass — out of scope per the operator brief.
+
+### 14.4. Full 11-spec suite — still deferred
+
+With `csv-import` now validated, 9 of 11 real E2E specs (`app-smoke`,
+`core-inventory`, `csv-import`, `destructive-guards-hierarchy`,
+`destructive-guards-inventory`, `entity-deletes-hierarchy`,
+`entity-deletes-inventory`, `entity-updates-work-mode`,
+`placement-lifecycle`) plus the representative benchmark have been run
+directly on the Linux final HEAD. `repository-lifecycle` and
+`safety-recovery` were not touched by this PR and were not run. The full
+11-spec suite as a single execution remains explicitly deferred and is not
+a merge gate for Stage 3B.4. Stage 3B.4 remains **IN REVIEW**; PR #154
+remains **not merged**.

@@ -1,133 +1,90 @@
 ## Summary
 
-Stage 3B.4, PR #154 — Part 2 of the 2-part repair pass on the existing
-branch/PR (`feature/e2e-wdio-latency-optimization` → `roadmap/e2e-wdio`).
-Part 1 start HEAD: `1fcb6afdaf33b992db4b9a781de3563f1c31f604`. Part 2 start
-HEAD: `e2a97c9c8e04123dee8339df85e3773fdbbaef5a` (Part 1's final HEAD).
+Stage 3B.4, PR #154 — strict-review repair pass on the existing branch/PR
+(`feature/e2e-wdio-latency-optimization` → `roadmap/e2e-wdio`). Start HEAD:
+`0e0abea483a39998d03acd7f2ee3737f25161057` (final HEAD of the prior Linux
+Part 2 repair pass).
 
-This part ran the Linux E2E validation that Part 1 could not (no
-`xvfb-run`/`WebKitWebDriver` in that session's environment): the canonical
-runner's occupied-port negative test, the integration smoke, all six specs
-modified by the repair pass, `representative-latency ×2`, `core-inventory
-×2`, and a production-binary (plugin-absent) check — all directly on
-Linux/WebKitWebDriver.
+A strict review of PR #154 flagged two blockers, both addressed here with
+no expansion of scope:
 
-Real E2E execution surfaced two further bugs that unit tests alone could
-not have caught, both fixed and re-validated in place:
+1. **Missing direct `csv-import` validation on the final HEAD.**
+   `apps/desktop/e2e-wdio/specs/csv-import.e2e.ts` is modified in the PR's
+   overall diff against `roadmap/e2e-wdio`, but the prior Linux repair pass
+   only validated the six specs it directly touched — `csv-import` was
+   never run on Linux. Ran it via the canonical runner
+   (`pnpm test:e2e:wdio --spec csv-import --skip-build`, no `--` separator
+   — see Risks): `CLEAN_PASS`, `wdioPluginAvailable=true`,
+   `buildVariant=wdio-plugin`, ports free before/after, no code change
+   needed. The modified-vs-validated real E2E spec lists (8 specs each) are
+   now identical.
+2. **Incorrect "CI workflow: PASS (6/7 checks)" characterization.** The
+   `Frontend dependency audit` job has been failing throughout this PR's
+   history; describing a partially-failing CI run as "PASS" is wrong.
+   Corrected to report each job separately with `CI overall: PARTIAL
+   FAILURE`, and re-confirmed via a lockfile diff against the direct base
+   that the failing advisories pre-date this PR and it introduces no new
+   vulnerable dependency version.
 
-1. **Plugin-presence probe driver race**: firing the probe's first
-   `browser.execute()` immediately after `@wdio/tauri-service`'s own
-   before-hook plugin check (same event-loop tick) reliably hung the
-   underlying WebDriver HTTP request for the full `connectionRetryTimeout`
-   (90 s), surfacing as `UND_ERR_HEADERS_TIMEOUT`. Correctly classified as
-   an infrastructure failure per Part 1's fix, but still blocked every run.
-   Fixed with a 500 ms settle delay before the first probe.
-2. **Run-root cleanup teardown race**: WDIO's `onComplete` hook (which runs
-   `cleanupOwnedRunRoot`) fires *before* `@wdio/tauri-service` stops the
-   driver/app process, so the app's own filesystem writes (GPU/shader
-   cache, git/IPC activity) could still be landing in the run root when the
-   recursive delete started, throwing `ENOTEMPTY` and turning an
-   otherwise-passing run into `TEST_FAILED`. Fixed with `fs.rmSync`'s
-   built-in `maxRetries`/`retryDelay` (widened from 5/200ms to 40/250ms
-   after the first budget proved insufficient for `representative-latency`'s
-   heavier filesystem activity).
-
-All targeted validation is `CLEAN_PASS` at the final HEAD. Full 11-spec
-suite remains intentionally deferred per the operator brief — not a merge
-gate for this pass.
+No production or test-harness code changed in this pass — both fixes were
+reporting/documentation corrections plus one additional real E2E run that
+passed cleanly on the existing code.
 
 ## Files changed
 
 | File | Change |
 |------|--------|
-| `apps/desktop/e2e-wdio/support/plugin-presence.ts` | 500ms settle delay before the first probe (both present/absent branches) to avoid the driver race; extracted `delay()` helper |
-| `apps/desktop/e2e-wdio/support/plugin-presence.test.ts` | Updated all fake-timer tests to advance past the new settle delay |
-| `apps/desktop/e2e-wdio/support/test-environment.ts` | `cleanupOwnedRunRoot`: `rmSync` now uses `maxRetries: 40, retryDelay: 250` (was unretried) to tolerate the onComplete/driver-stop ordering race |
-| `apps/desktop/e2e-wdio/wdio.conf.ts` | Header note: Linux validation status, pointer to §13 |
-| `docs/E2E_WDIO_PLAN.md` | Stage 3B.4 section: new paragraph documenting the Linux repair pass (Part 1 + Part 2) |
-| `docs/E2E_WDIO_LATENCY_OPTIMIZATION.md` | New §13: full Linux Part 1/Part 2 environment, occupied-port test, six-spec results, `representative-latency ×2`, `core-inventory ×2`, production-binary check, static validation |
-| `docs/E2E_WDIO_WINDOWS_PERFORMANCE.md` | Header note: Linux is now primary; Windows data kept as historical driver-provider comparison |
+| `docs/E2E_WDIO_LATENCY_OPTIMIZATION.md` | New §14: `csv-import` result, corrected modified/validated spec lists (8/8, identical), corrected per-job CI status (`PARTIAL FAILURE`), deferred-suite count update |
+| `docs/E2E_WDIO_PLAN.md` | Stage 3B.4 section: new paragraph summarizing the strict-review repair pass |
 | `.ai/cc-report.md` | This report |
+| PR #154 body (GitHub, not a repo file) | Same corrections applied directly to the PR description |
 
 ## Tests
 
+Docs-only change — ran the required minimum:
+
 ```
-git diff --check                                          PASS
-
-node --test scripts/run-wdio-e2e.test.mjs \
-  scripts/run-wdio-performance-benchmark.test.mjs \
-  scripts/build-wdio-plugin-binary.test.mjs                231/231 PASS
-
-pnpm -C apps/desktop typecheck                             PASS — 0 errors
-pnpm -C apps/desktop test                                  917/917 PASS
-node scripts/check-repo-hygiene.mjs                        8/8 PASS
-node scripts/check-version-consistency.mjs                 PASS
-cargo fmt --all --check                                    PASS
-cargo check/clippy --workspace                             PASS
-cargo check/clippy -p rack-inventory-studio-desktop \
-  --features wdio-embedded                                 PASS
-cargo check/clippy -p rack-inventory-studio-desktop \
-  --features wdio-plugin                                   PASS
+git diff --check                              PASS
+node scripts/check-repo-hygiene.mjs            8/8 PASS
+node scripts/check-version-consistency.mjs     PASS
 ```
 
-**Real E2E validation (Linux, external provider, `pnpm test:e2e:wdio`):**
+Plus the one real E2E run performed to close the first blocker:
 
-| Check | Result |
-|-------|--------|
-| Occupied-port negative test | exit 1, benchmark never started, diagnostic named port 4444 + raw `ss` line + PID |
-| `app-smoke` integration smoke | CLEAN_PASS, 6.4s, 39 cmds, median 16ms, p95 191ms, ≥5s: 0, plugin present, ports free |
-| `entity-deletes-hierarchy` | CLEAN_PASS, 19s, 980 cmds, ports free |
-| `entity-deletes-inventory` | CLEAN_PASS, 21s, 1141 cmds, ports free |
-| `entity-updates-work-mode` | CLEAN_PASS, 27s, 1860 cmds, ports free |
-| `destructive-guards-hierarchy` | CLEAN_PASS, 33s, 2274 cmds, ports free |
-| `destructive-guards-inventory` | CLEAN_PASS, 32s, 2296 cmds, ports free |
-| `placement-lifecycle` | CLEAN_PASS, 21s, 1001 cmds, ports free |
-| `representative-latency ×2` | CLEAN_PASS both, 11.3s/11.0s, variance 3.3%, all 9 cases pass, ≥5s: 0 |
-| `core-inventory ×2` | CLEAN_PASS both, 11.5s/10.9s, variance 4.6%, ≥5s: 0 |
-| Production binary (`--expect-plugin absent`) | CLEAN_PASS, `buildVariant=plain`, `wdioPluginAvailable=false`, ~81s (correctly reproduces pre-plugin retry-loop cost) |
-
-Full details, per-run metrics, and step breakdowns: `docs/E2E_WDIO_LATENCY_OPTIMIZATION.md` §13.
+```
+pnpm test:e2e:wdio --spec csv-import --skip-build
+# CLEAN_PASS, runId=mrzc8lrf-3vi0ir, totalRunMs=10156, commands=304,
+# median=11ms, p95=305ms, max=2290ms, commands>=5s=0,
+# wdioPluginAvailable=true, buildVariant=wdio-plugin,
+# cleanupRequired=false, cleanupSafe=true, ports free before/after
+```
 
 ## Risks
 
 - This sandbox's pinned `pnpm@10.33.4` requires Node ≥22; only Node 18.19.1
-  is available, so `pnpm@9.15.9` (via a `pnpm` shim on `PATH`) was used for
-  every command in this session. Behaviourally equivalent for the commands
-  run (`install`, `run <script>`, `-C <dir> <script>`); the `--` argument
-  separator behaves differently between the two majors, so the no-`--` form
-  (`pnpm test:e2e:wdio --spec <name>`) was used throughout instead of the
-  documented `pnpm test:e2e:wdio -- --spec <name>` — this is a pnpm-version
-  interaction specific to this sandbox, not a defect in the runner or its
-  docs (the documented form is standard npm/pnpm syntax for the pinned
-  v10.33.4).
-- Both real bugs found and fixed this session (plugin-presence settle delay,
-  cleanup retry budget) are environment-timing-sensitive fixes tuned against
-  this specific sandbox's observed behaviour (a 500ms/40-retry budget that
-  reliably worked here). They are conservative and one-time-per-run costs,
-  not per-command, so they should generalize, but neither has been
-  cross-validated against a different Linux machine or CI runner.
-- `representative-latency` and `core-inventory` had no prior Linux
-  plugin-backed baseline to regress against — this session establishes both
-  baselines rather than confirming a regression gate. Documented explicitly
-  in §13.6/§13.7 rather than silently treated as a "no regression" result.
-- Full 11-spec suite not run as a single execution (by design — not a merge
-  gate for this pass; see Not done).
+  is available, so `pnpm@9.15.9` (via a `pnpm` shim on `PATH`) is used for
+  every command. The documented `--` separator form
+  (`pnpm test:e2e:wdio -- --spec csv-import --skip-build`) was tried first
+  per the operator brief and reproduced the same `Unknown argument: --`
+  failure recorded in the prior repair pass — a pnpm-major-version
+  interaction, not a runner defect. The working no-`--` form was used
+  instead and is recorded in the docs.
+- `Frontend dependency audit` remains failing (5 pre-existing advisories,
+  confirmed via lockfile diff not introduced by this PR) — intentionally
+  not fixed here, out of scope for this repair pass.
 
 ## Not done
 
-- Full 11-spec WDIO suite as a single run — intentionally deferred per the
-  operator brief, not required for this pass.
-- `repository-lifecycle.e2e.ts`, `safety-recovery.e2e.ts`, `csv-import.e2e.ts`
-  not re-validated this pass (not modified by the repair pass).
+- `Frontend dependency audit` advisories — intentionally not fixed (out of
+  scope; pre-existing on the direct base).
+- Full 11-spec WDIO suite as a single execution — still intentionally
+  deferred, not a merge gate. `repository-lifecycle` and `safety-recovery`
+  remain unrun (not modified by this PR).
 - Stage 3C — explicitly out of scope.
-- Cross-validation of the two new timing/retry fixes on a second machine or
-  in CI (see Risks).
 
 ## Suggested next step
 
-Update PR #154 body with the Linux validation results (superseding the
-stale "no real E2E runs" / Windows-only claims), push the final commits,
-observe CI (frontend/Rust/hygiene/version/workflow-lint/dependency-audit
-checks — report each separately, especially any dependency-audit result),
-then generate the final review context against `roadmap/e2e-wdio` for
-strict review. Do not merge.
+Push this commit, confirm CI settles into the same partial state (6 pass /
+1 pre-existing failure), update the PR #154 body to match the corrected
+docs, generate a fresh review context against `roadmap/e2e-wdio`, and hand
+back for strict re-review. Do not merge.

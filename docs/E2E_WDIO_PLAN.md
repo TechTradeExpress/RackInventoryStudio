@@ -962,6 +962,24 @@ ran directly on Linux/WebKitWebDriver, not carried over from Windows).
   the occupied-port test transcript, and all before/after metrics. Full
   11-spec suite remains intentionally deferred — not a gate for this pass.
 
+**Strict-review repair pass (same branch/PR):** addressed two blockers
+from a strict review of PR #154. (1) `csv-import.e2e.ts` is modified in
+the PR's overall diff against `roadmap/e2e-wdio` but had not been run
+directly on the Linux final HEAD — the Linux repair pass above validated
+only the six specs it touched, not every real E2E spec modified anywhere
+in the PR. Ran it via the canonical runner (no code changes needed):
+`CLEAN_PASS`, `wdioPluginAvailable=true`, `buildVariant=wdio-plugin`,
+ports free before/after. The full modified-vs-validated real E2E spec
+lists (8 specs each, from `git diff --name-status
+origin/roadmap/e2e-wdio...HEAD -- apps/desktop/e2e-wdio/specs`) are now
+identical. (2) The PR body/docs previously stated "CI workflow: PASS (6/7
+checks)" while `Frontend dependency audit` was failing — corrected to
+report each CI job separately with `CI overall: PARTIAL FAILURE`, and
+re-confirmed via a lockfile diff against the direct base that the failing
+advisories pre-date this PR and no new vulnerable dependency version was
+introduced. See `docs/E2E_WDIO_LATENCY_OPTIMIZATION.md` §14 for full
+detail. Stage 3B.4 remains **IN REVIEW**; PR #154 remains **not merged**.
+
 ---
 
 ### Stage 3C — Remaining placement workflows
