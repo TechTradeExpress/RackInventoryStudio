@@ -137,14 +137,41 @@ describe("validateArgs — spec name validation", () => {
     assert.ok(errors.some((e) => e.includes("--expect-plugin")), `errors: ${errors}`);
   });
 
-  it("accepts --expect-plugin present", () => {
-    const errors = validateArgs({ spec: "core-inventory", repeat: 1, expectPlugin: "present" }, specsDir);
+  it("accepts --expect-plugin present with no --binary (default binary)", () => {
+    const errors = validateArgs({ spec: "core-inventory", repeat: 1, expectPlugin: "present", binary: null }, specsDir);
     assert.equal(errors.length, 0);
   });
 
-  it("accepts --expect-plugin absent", () => {
-    const errors = validateArgs({ spec: "core-inventory", repeat: 1, expectPlugin: "absent" }, specsDir);
+  it("rejects --binary without --expect-plugin", () => {
+    const errors = validateArgs(
+      { spec: "core-inventory", repeat: 1, expectPlugin: null, binary: "/custom/binary" },
+      specsDir,
+    );
+    assert.ok(errors.some((e) => e.includes("--binary requires --expect-plugin")), `errors: ${errors}`);
+  });
+
+  it("accepts --binary with --expect-plugin present", () => {
+    const errors = validateArgs(
+      { spec: "core-inventory", repeat: 1, expectPlugin: "present", binary: "/custom/binary" },
+      specsDir,
+    );
     assert.equal(errors.length, 0);
+  });
+
+  it("accepts --binary with --expect-plugin absent", () => {
+    const errors = validateArgs(
+      { spec: "core-inventory", repeat: 1, expectPlugin: "absent", binary: "/custom/binary" },
+      specsDir,
+    );
+    assert.equal(errors.length, 0);
+  });
+
+  it("rejects the default binary (no --binary) with --expect-plugin absent", () => {
+    const errors = validateArgs(
+      { spec: "core-inventory", repeat: 1, expectPlugin: "absent", binary: null },
+      specsDir,
+    );
+    assert.ok(errors.some((e) => e.includes("--expect-plugin absent requires --binary")), `errors: ${errors}`);
   });
 });
 
@@ -245,6 +272,53 @@ describe("buildChildEnv", () => {
       assert.ok(!("RIS_WDIO_DRIVER_PROVIDER" in process.env) || process.env["RIS_WDIO_DRIVER_PROVIDER"] === before["RIS_WDIO_DRIVER_PROVIDER"],
         "buildChildEnv must not mutate process.env");
     }
+  });
+
+  it("overrides an inherited RIS_WDIO_EXPECT_PLUGIN=absent with expected 'present'", () => {
+    const env = buildChildEnv(
+      { RIS_WDIO_EXPECT_PLUGIN: "absent" },
+      { expectPlugin: "present", binaryPath: "/bin/app" },
+    );
+    assert.equal(env["RIS_WDIO_EXPECT_PLUGIN"], "present");
+  });
+
+  it("overrides an inherited RIS_WDIO_EXPECT_PLUGIN=present with expected 'absent'", () => {
+    const env = buildChildEnv(
+      { RIS_WDIO_EXPECT_PLUGIN: "present" },
+      { expectPlugin: "absent", binaryPath: "/bin/app" },
+    );
+    assert.equal(env["RIS_WDIO_EXPECT_PLUGIN"], "absent");
+  });
+
+  it("deletes an inherited RIS_WDIO_EXPECT_PLUGIN when expectPlugin is null", () => {
+    const env = buildChildEnv(
+      { RIS_WDIO_EXPECT_PLUGIN: "present" },
+      { expectPlugin: null, binaryPath: "/bin/app" },
+    );
+    assert.ok(!("RIS_WDIO_EXPECT_PLUGIN" in env), "inherited RIS_WDIO_EXPECT_PLUGIN must be removed");
+  });
+
+  it("replaces an inherited TAURI_BINARY_PATH with the resolved binary path", () => {
+    const env = buildChildEnv(
+      { TAURI_BINARY_PATH: "/stale/binary" },
+      { expectPlugin: "present", binaryPath: "/fresh/binary" },
+    );
+    assert.equal(env["TAURI_BINARY_PATH"], "/fresh/binary");
+  });
+
+  it("replaces an inherited RIS_WDIO_DRIVER_PROVIDER=embedded with 'external'", () => {
+    const env = buildChildEnv(
+      { RIS_WDIO_DRIVER_PROVIDER: "embedded" },
+      { expectPlugin: "present", binaryPath: "/bin/app" },
+    );
+    assert.equal(env["RIS_WDIO_DRIVER_PROVIDER"], "external");
+  });
+
+  it("leaves baseEnv unchanged when it carries inherited controlled vars", () => {
+    const base = { RIS_WDIO_EXPECT_PLUGIN: "absent", RIS_WDIO_DRIVER_PROVIDER: "embedded", TAURI_BINARY_PATH: "/stale" };
+    const baseCopy = { ...base };
+    buildChildEnv(base, { expectPlugin: "present", binaryPath: "/bin/app" });
+    assert.deepEqual(base, baseCopy, "buildChildEnv must not mutate baseEnv even when deleting inherited keys");
   });
 });
 

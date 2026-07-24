@@ -19,21 +19,37 @@
  *   --repeat <n>               number of runs, >= 1 (default: 1)
  *   --skip-build               skip building the wdio-plugin binary
  *   --continue-on-failure      keep running after a failed run
- *   --expect-plugin <value>    override plugin expectation: "present" or "absent"
- *                              (default: "present" unless --binary is provided)
+ *   --expect-plugin <value>    plugin expectation: "present" or "absent"
  *   --binary <path>            use this binary instead of target-wdio-plugin/release/
  *
- * Default behaviour (no --binary):
+ * --binary and --expect-plugin are coupled and validated together:
+ *   - --binary requires an explicit --expect-plugin (present|absent) — a
+ *     custom binary's plugin status is never assumed.
+ *   - --expect-plugin absent requires --binary <path> — the default binary
+ *     (no --binary) always has the plugin built in, so "absent" without a
+ *     custom binary is rejected rather than silently ignored.
+ *
+ * Default behaviour (no --binary, no --expect-plugin):
  *   - Builds the wdio-plugin binary via scripts/build-wdio-plugin-binary.mjs
  *   - Uses target-wdio-plugin/release/rack-inventory-studio-desktop
  *   - Sets RIS_WDIO_EXPECT_PLUGIN=present
  *   - Sets RIS_WDIO_DRIVER_PROVIDER=external
  *
- * Diagnostic mode (--expect-plugin absent --binary <path>):
+ * Diagnostic mode (--binary <path> --expect-plugin absent):
  *   - Skips the plugin build
  *   - Uses the provided binary
  *   - Sets RIS_WDIO_EXPECT_PLUGIN=absent
  *   - Does NOT set TAURI_BINARY_PATH to the plugin variant
+ *
+ * The child process environment is always deterministic: any
+ * RIS_WDIO_EXPECT_PLUGIN / RIS_WDIO_DRIVER_PROVIDER / TAURI_BINARY_PATH
+ * inherited from the invoking shell is discarded before this run's own
+ * values are applied (see buildChildEnv).
+ *
+ * Ports 4444 and 4445 are checked before and after every run. If either is
+ * occupied before the run, or the port state cannot be verified (ss missing
+ * or failing) before or after, the runner refuses to report success — see
+ * deriveFinalRunnerExitCode.
  *
  * On Linux the run is wrapped with xvfb-run -a. xvfb-run must be installed
  * (apt-get install -y xvfb). WebKitWebDriver must also be installed
@@ -129,6 +145,15 @@ export function validateArgs(opts, specsDir) {
   ) {
     errors.push(`--expect-plugin must be "present" or "absent" (got "${opts.expectPlugin}")`);
   }
+  if (opts.binary && opts.expectPlugin === null) {
+    errors.push("--binary requires --expect-plugin present|absent");
+  }
+  if (!opts.binary && opts.expectPlugin === "absent") {
+    errors.push(
+      '--expect-plugin absent requires --binary <path>; the default binary is always ' +
+        "built with the plugin (use --binary <path> --expect-plugin absent for a plain binary)",
+    );
+  }
   return errors;
 }
 
@@ -154,22 +179,34 @@ export function shouldBuildPlugin(opts) {
  * Builds the child-process environment for the benchmark runner.
  * Returns a new object — never mutates baseEnv or process.env.
  *
+ * Any RIS_WDIO_EXPECT_PLUGIN / RIS_WDIO_DRIVER_PROVIDER / TAURI_BINARY_PATH
+ * inherited from baseEnv (e.g. left over in the invoking shell) is deleted
+ * first, so the child process's environment is fully determined by this
+ * run's own decisions — never a mix of an explicit decision and a stale
+ * inherited value.
+ *
  * Always sets:
  *   RIS_WDIO_DRIVER_PROVIDER=external
- *   RIS_WDIO_EXPECT_PLUGIN=<expectPlugin>
- *   TAURI_BINARY_PATH=<binaryPath>
- *
- * When expectPlugin is null the env var is omitted (no plugin check).
+ *   RIS_WDIO_EXPECT_PLUGIN=<expectPlugin>   (omitted when expectPlugin is null)
+ *   TAURI_BINARY_PATH=<binaryPath>          (omitted when binaryPath is null)
  */
 export function buildChildEnv(baseEnv, { expectPlugin, binaryPath }) {
   const env = { ...baseEnv };
+
+  delete env["RIS_WDIO_EXPECT_PLUGIN"];
+  delete env["RIS_WDIO_DRIVER_PROVIDER"];
+  delete env["TAURI_BINARY_PATH"];
+
   env["RIS_WDIO_DRIVER_PROVIDER"] = "external";
+
   if (expectPlugin !== null && expectPlugin !== undefined) {
     env["RIS_WDIO_EXPECT_PLUGIN"] = expectPlugin;
   }
+
   if (binaryPath !== null && binaryPath !== undefined) {
     env["TAURI_BINARY_PATH"] = binaryPath;
   }
+
   return env;
 }
 
@@ -402,8 +439,11 @@ async function main() {
     process.exit(1);
   }
 
-  // Determine plugin expectation
-  const expectPlugin = opts.expectPlugin ?? (opts.binary ? null : "present");
+  // Determine plugin expectation. validateArgs() already enforces that
+  // --binary always carries an explicit --expect-plugin, so opts.expectPlugin
+  // can only be null here when no --binary was given — the default plugin
+  // binary path, which always implies "present".
+  const expectPlugin = opts.expectPlugin ?? "present";
 
   const childEnv = buildChildEnv(process.env, { expectPlugin, binaryPath });
 
