@@ -20,7 +20,7 @@ in a ready-to-test state before distributing an installer to QA.
 
 | Requirement | Notes |
 |---|---|
-| Node.js >= 20 | `node --version` |
+| Node.js >= 24 (see `.nvmrc`) | `node --version` |
 | pnpm 10.x | `pnpm --version` |
 | Rust stable toolchain | `cargo --version` |
 | Git on PATH | `git --version` |
