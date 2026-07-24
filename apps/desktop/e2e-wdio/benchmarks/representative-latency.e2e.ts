@@ -44,6 +44,7 @@ import {
   waitForModalClose,
   clickWhenVisible,
   clickRowViaDom,
+  clickElementProtocol,
 } from "../support/spec-interactions";
 import { isSelectorVisible } from "../support/dom-helpers";
 import { measureStep } from "../support/command-timing";
@@ -285,7 +286,7 @@ describe("Representative latency benchmark", () => {
       interval: 100,
       timeoutMsg: `Palette Place button for device "${deviceCode}" never appeared`,
     });
-    await browser.$(paletteBtnSel).click();
+    await clickElementProtocol(paletteBtnSel);
     await browser.waitUntil(
       () =>
         browser.execute(() => {
@@ -357,7 +358,7 @@ describe("Representative latency benchmark", () => {
       { timeout: 10_000, interval: 100, timeoutMsg: "repository-active-root not visible after nav to repository tab" },
     );
     await measureStep("case-i-save-close-reopen", async () => {
-      await browser.$('[data-testid="repository-close-action"]').click();
+      await clickElementProtocol('[data-testid="repository-close-action"]');
       await clickWhenEnabled("unsaved-changes-save");
       await browser.waitUntil(
         () => browser.execute(isSelectorVisible, '[data-testid="repository-landing-title"]'),

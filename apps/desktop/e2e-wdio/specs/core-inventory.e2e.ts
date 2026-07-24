@@ -37,6 +37,7 @@ import {
   waitForModalClose,
   clickWhenVisible,
   clickRowViaDom,
+  clickElementProtocol,
 } from "../support/spec-interactions";
 
 function log(msg: string) {
@@ -354,7 +355,7 @@ describe("Rack Inventory Studio — core inventory placement", () => {
       () => browser.execute(isSelectorVisible, paletteBtnSel),
       { timeout: 15_000, interval: 100, timeoutMsg: `Palette Place button for device "${deviceCode}" never appeared` },
     );
-    await browser.$(paletteBtnSel).click();
+    await clickElementProtocol(paletteBtnSel);
     log("step 17: Place… clicked, waiting for modal");
 
     // ── 18. PlacePlacementModal — device pre-selected, fill start U ───────────
@@ -452,7 +453,7 @@ describe("Rack Inventory Studio — core inventory placement", () => {
 
     log("step 21: clicking Close");
     await measureStep("save-and-close", async () => {
-      await browser.$('[data-testid="repository-close-action"]').click();
+      await clickElementProtocol('[data-testid="repository-close-action"]');
 
       // UnsavedChangesDialog opens (created entities + placement = unsaved changes)
       log("step 21: waiting for Save and continue in UnsavedChangesDialog");
