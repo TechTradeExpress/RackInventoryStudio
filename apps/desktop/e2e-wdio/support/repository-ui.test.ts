@@ -265,4 +265,14 @@ describe("expectActiveRepositoryPath", () => {
       new RegExp(`last displayed.*expected`, "s"),
     );
   });
+
+  it("preserves the underlying waitUntil error as the cause", async () => {
+    const internalError = new Error("mock waitUntil exhausted without predicate returning true");
+    vi.mocked(browser.waitUntil).mockRejectedValue(internalError);
+
+    await expect(expectActiveRepositoryPath(expectedDir)).rejects.toMatchObject({
+      message: expect.stringContaining("never matched"),
+      cause: internalError,
+    });
+  });
 });

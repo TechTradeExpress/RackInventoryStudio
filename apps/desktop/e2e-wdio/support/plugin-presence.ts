@@ -43,6 +43,11 @@ export function isWdioTauriPresent(): boolean {
  * Throws a descriptive error on a mismatch (wrong binary variant for the
  * run being performed) — this is meant to fail loudly and immediately, not
  * be silently tolerated.
+ *
+ * For "present": polls via browser.waitUntil (5 s, 100 ms interval) so the
+ * check survives any brief delay between app launch and plugin registration.
+ * For "absent": a single immediate execute() is sufficient — if the plugin
+ * is not registered immediately it was never built in.
  */
 export async function assertPluginPresenceContract(
   browser: WebdriverIO.Browser,
@@ -50,14 +55,31 @@ export async function assertPluginPresenceContract(
   const expected = resolveExpectedPluginPresence();
   if (expected === null) return;
 
+  if (expected === "present") {
+    try {
+      await browser.waitUntil(
+        async () => browser.execute(isWdioTauriPresent),
+        { timeout: 5_000, interval: 100, timeoutMsg: "wdioTauri not present after 5 s" },
+      );
+      recordPluginPresenceProbe(true);
+    } catch {
+      recordPluginPresenceProbe(false);
+      throw new Error(
+        `[plugin-presence] RIS_WDIO_EXPECT_PLUGIN="present" but window.wdioTauri was not found ` +
+          `after 5 s polling. Built with the wrong binary variant? (present = wdio-plugin test ` +
+          `binary via scripts/build-wdio-plugin-binary.mjs; absent = plain production-shaped binary)`,
+      );
+    }
+    return;
+  }
+
+  // expected === "absent"
   const actual = await browser.execute(isWdioTauriPresent);
   recordPluginPresenceProbe(actual);
-
-  const expectedBool = expected === "present";
-  if (actual !== expectedBool) {
+  if (actual) {
     throw new Error(
-      `[plugin-presence] RIS_WDIO_EXPECT_PLUGIN="${expected}" but window.wdioTauri presence was ` +
-        `${actual}. Built with the wrong binary variant? (present = wdio-plugin test binary via ` +
+      `[plugin-presence] RIS_WDIO_EXPECT_PLUGIN="absent" but window.wdioTauri was found. ` +
+        `Built with the wrong binary variant? (present = wdio-plugin test binary via ` +
         `scripts/build-wdio-plugin-binary.mjs; absent = plain production-shaped binary)`,
     );
   }

@@ -198,10 +198,11 @@ export async function expectActiveRepositoryPath(
       },
       { timeout, interval: 100 },
     );
-  } catch {
+  } catch (cause) {
     throw new Error(
       `Active repository path never matched: last displayed "${lastDisplayed ?? "(element never visible)"}", ` +
         `expected "${expected}" (input: "${expectedPath}")`,
+      { cause },
     );
   }
 }

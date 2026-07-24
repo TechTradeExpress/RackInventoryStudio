@@ -56,15 +56,33 @@ describe("assertPluginPresenceContract", () => {
     else process.env[ENV_VAR] = original;
   });
 
-  function fakeBrowser(pluginPresent: boolean) {
+  // For the "absent" path (single execute(), no waitUntil).
+  function fakeBrowserAbsent(pluginPresent: boolean) {
     return {
       execute: vi.fn().mockResolvedValue(pluginPresent),
     } as unknown as WebdriverIO.Browser;
   }
 
+  // For the "present" path (waitUntil + execute()).
+  // waitUntil calls the predicate once; resolves if true, throws if false.
+  function fakeBrowserPresent(pluginPresent: boolean) {
+    const execute = vi.fn().mockResolvedValue(pluginPresent);
+    return {
+      execute,
+      waitUntil: vi.fn().mockImplementation(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        async (predicate: () => Promise<boolean>) => {
+          const result = await predicate();
+          if (!result) throw new Error("Timeout");
+          return undefined;
+        },
+      ),
+    } as unknown as WebdriverIO.Browser;
+  }
+
   it("does nothing and never probes when RIS_WDIO_EXPECT_PLUGIN is unset", async () => {
     delete process.env[ENV_VAR];
-    const browser = fakeBrowser(true);
+    const browser = fakeBrowserAbsent(true);
 
     await assertPluginPresenceContract(browser);
 
@@ -74,7 +92,7 @@ describe("assertPluginPresenceContract", () => {
 
   it("passes silently when expecting 'present' and the plugin is present", async () => {
     process.env[ENV_VAR] = "present";
-    const browser = fakeBrowser(true);
+    const browser = fakeBrowserPresent(true);
 
     await expect(assertPluginPresenceContract(browser)).resolves.toBeUndefined();
     expect(recordPluginPresenceProbe).toHaveBeenCalledWith(true);
@@ -82,15 +100,15 @@ describe("assertPluginPresenceContract", () => {
 
   it("passes silently when expecting 'absent' and the plugin is absent", async () => {
     process.env[ENV_VAR] = "absent";
-    const browser = fakeBrowser(false);
+    const browser = fakeBrowserAbsent(false);
 
     await expect(assertPluginPresenceContract(browser)).resolves.toBeUndefined();
     expect(recordPluginPresenceProbe).toHaveBeenCalledWith(false);
   });
 
-  it("throws when expecting 'present' but the plugin is absent", async () => {
+  it("throws when expecting 'present' but the plugin is absent (waitUntil timeout)", async () => {
     process.env[ENV_VAR] = "present";
-    const browser = fakeBrowser(false);
+    const browser = fakeBrowserPresent(false);
 
     await expect(assertPluginPresenceContract(browser)).rejects.toThrow(/wrong binary variant/);
     expect(recordPluginPresenceProbe).toHaveBeenCalledWith(false);
@@ -98,7 +116,7 @@ describe("assertPluginPresenceContract", () => {
 
   it("throws when expecting 'absent' but the plugin is present", async () => {
     process.env[ENV_VAR] = "absent";
-    const browser = fakeBrowser(true);
+    const browser = fakeBrowserAbsent(true);
 
     await expect(assertPluginPresenceContract(browser)).rejects.toThrow(/wrong binary variant/);
     expect(recordPluginPresenceProbe).toHaveBeenCalledWith(true);
