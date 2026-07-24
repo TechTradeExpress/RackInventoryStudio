@@ -49,7 +49,31 @@ import { fileURLToPath } from "node:url";
 
 export const ALLOWED_PROVIDERS = ["external", "embedded"];
 
+// Specs that live under e2e-wdio/benchmarks/ instead of e2e-wdio/specs/ —
+// opt-in benchmark harnesses, never part of the default WDIO spec glob
+// (./specs/**/*.e2e.ts in wdio.conf.ts).
+export const BENCHMARK_ONLY_SPECS = ["representative-latency"];
+
 const RUN_ID_PATTERN = /^[A-Za-z0-9_-]{1,100}$/;
+
+// Spec names are interpolated directly into a filesystem path
+// (`${spec}.e2e.ts`) — restrict to safe characters so a malformed --spec
+// value can never escape the specs/benchmarks directory.
+const SPEC_NAME_PATTERN = /^[A-Za-z0-9_-]{1,100}$/;
+
+export function isValidSpecName(name) {
+  return typeof name === "string" && SPEC_NAME_PATTERN.test(name);
+}
+
+/**
+ * Maps a --spec name to its .e2e.ts file path: BENCHMARK_ONLY_SPECS resolve
+ * under e2e-wdio/benchmarks/, everything else under e2e-wdio/specs/ (the
+ * default WDIO suite glob).
+ */
+export function resolveSpecPath(desktopDir, specName) {
+  const dir = BENCHMARK_ONLY_SPECS.includes(specName) ? "benchmarks" : "specs";
+  return join(desktopDir, "e2e-wdio", dir, `${specName}.e2e.ts`);
+}
 
 export const REQUIRED_CORE_INVENTORY_STEPS = [
   "create-repository",
@@ -114,6 +138,10 @@ export function validateArgs(opts) {
 
   if (!opts.spec) {
     errors.push("--spec is required");
+  } else if (!isValidSpecName(opts.spec)) {
+    errors.push(
+      `--spec "${opts.spec}" is not a valid spec name (letters, digits, "-", "_" only, max 100 chars)`,
+    );
   }
   if (opts.repeat === null || !Number.isInteger(opts.repeat) || opts.repeat < 1) {
     errors.push("--repeat must be a positive integer");
@@ -372,6 +400,49 @@ export function classifyOutcome({
 /** Only CLEAN_PASS runs are eligible for aggregate/percentile/A-B computations. */
 export function isEligibleForAggregate(outcome) {
   return outcome === OUTCOMES.CLEAN_PASS;
+}
+
+/**
+ * Classification for benchmark measurement purposes ONLY — never a
+ * substitute for `passed` (which stays true exclusively for CLEAN_PASS, see
+ * classifyOutcome()) or for a CI pass/fail gate.
+ *
+ * On Windows, @wdio/tauri-service's external provider does not reliably
+ * release tauri-driver.exe/msedgedriver.exe on its own even after a natural
+ * teardown grace window — every external run in the Stage 3B.3 Windows
+ * matrix landed on PASS_WITH_FORCED_CLEANUP, never CLEAN_PASS (see
+ * docs/E2E_WDIO_WINDOWS_PERFORMANCE.md §"Outcome semantics"). Forced cleanup
+ * happens strictly *after* the WDIO process — and therefore all in-test
+ * timing — has already completed, so a PASS_WITH_FORCED_CLEANUP run's timing
+ * data is legitimate to use in a benchmark aggregate provided the cleanup
+ * itself was verified safe (PID ownership unambiguously confirmed, never
+ * inferred from process name/time alone — see evaluateCleanupEligibility())
+ * and actually succeeded.
+ *
+ * A run is measurementEligible only when every one of the following holds:
+ *   - the WDIO process exited 0 (testPassed),
+ *   - the timing report validated (reportValid),
+ *   - outcome is CLEAN_PASS or PASS_WITH_FORCED_CLEANUP (any other outcome —
+ *     TEST_FAILED, REPORT_INVALID, CLEANUP_UNSAFE, CLEANUP_FAILED, TIMED_OUT,
+ *     INTERRUPTED — is never eligible),
+ *   - cleanupSafe is true,
+ *   - cleanup either was not required (CLEAN_PASS) or succeeded
+ *     (PASS_WITH_FORCED_CLEANUP).
+ */
+export function isMeasurementEligible({
+  testPassed,
+  reportValid,
+  outcome,
+  cleanupRequired,
+  cleanupSafe,
+  cleanupSucceeded,
+}) {
+  if (!testPassed) return false;
+  if (!reportValid) return false;
+  if (outcome !== OUTCOMES.CLEAN_PASS && outcome !== OUTCOMES.PASS_WITH_FORCED_CLEANUP) return false;
+  if (!cleanupSafe) return false;
+  if (cleanupRequired && !cleanupSucceeded) return false;
+  return true;
 }
 
 export function summarizeRunOutcomes(runs) {
@@ -1029,6 +1100,14 @@ async function runSingle({ provider, spec, runN, binary, desktopDir, wdioEntrypo
   });
   const passed = outcome === OUTCOMES.CLEAN_PASS;
   const excludedFromAggregate = !isEligibleForAggregate(outcome);
+  const measurementEligible = isMeasurementEligible({
+    testPassed,
+    reportValid,
+    outcome,
+    cleanupRequired: cleanup.cleanupRequired,
+    cleanupSafe: cleanup.cleanupSafe,
+    cleanupSucceeded: cleanup.cleanupSucceeded,
+  });
 
   const result = {
     runN,
@@ -1053,6 +1132,7 @@ async function runSingle({ provider, spec, runN, binary, desktopDir, wdioEntrypo
     passed,
     excludedFromAggregate,
     exclusionReason: excludedFromAggregate ? outcome : null,
+    measurementEligible,
     validationErrors,
     reportDir: reportRunDir,
     summaryPath: existsSync(summaryPath) ? summaryPath : null,
@@ -1062,8 +1142,8 @@ async function runSingle({ provider, spec, runN, binary, desktopDir, wdioEntrypo
   };
 
   console.log(
-    `[benchmark] Run ${runN} (${provider}) outcome=${outcome} passed=${passed} in ${Math.round(totalRunMs / 1000)}s ` +
-      `exitCode=${wdioResult.exitCode} reportValid=${reportValid}`,
+    `[benchmark] Run ${runN} (${provider}) outcome=${outcome} passed=${passed} measurementEligible=${measurementEligible} ` +
+      `in ${Math.round(totalRunMs / 1000)}s exitCode=${wdioResult.exitCode} reportValid=${reportValid}`,
   );
   if (!reportValid) {
     for (const err of validationErrors) console.error(`[benchmark]   validation error: ${err}`);
@@ -1101,28 +1181,53 @@ function outcomeLabel(outcome) {
   }
 }
 
-function writeSingleModeReport({ benchDir, provider, spec, repeat, runResults, envInfo }) {
+/**
+ * Basename (no extension) shared by a single-mode run's JSON/Markdown
+ * output files — spec-name-agnostic, so representative-latency produces
+ * `external-representative-latency.{json,md}` exactly like any other spec.
+ */
+export function buildBenchmarkOutputBasename(provider, spec) {
+  return `${provider}-${spec}`;
+}
+
+/**
+ * Aggregates a single-mode run series (one provider, one spec, N repeats)
+ * into the summary object written alongside the per-run results.
+ *
+ * Duration/latency statistics are computed from measurementEligible runs
+ * (see isMeasurementEligible()) rather than strictly CLEAN_PASS runs: on
+ * Windows the external provider's runs legitimately land on
+ * PASS_WITH_FORCED_CLEANUP (see docs/E2E_WDIO_WINDOWS_PERFORMANCE.md
+ * §"Outcome semantics"), and excluding all of them here would make the
+ * aggregate report empty/meaningless for the Windows representative
+ * benchmark. `cleanPassRuns` is kept alongside `measurementEligibleRuns` so
+ * the distinction remains visible in the output — this does not change
+ * `passed`, which stays true only for CLEAN_PASS everywhere else.
+ */
+export function computeSingleModeAggregate({ provider, spec, repeat, runResults }) {
   function pctArr(values, p) {
     return pct([...values].sort((a, b) => a - b), p);
   }
 
   const cleanRuns = runResults.filter((r) => r.outcome === OUTCOMES.CLEAN_PASS);
-  const totalDurations = cleanRuns.map((r) => r.totalRunMs).sort((a, b) => a - b);
-  const medians = cleanRuns.map((r) => r.summary.median).sort((a, b) => a - b);
-  const p95s = cleanRuns.map((r) => r.summary.p95).sort((a, b) => a - b);
+  const measurementRuns = runResults.filter((r) => r.measurementEligible);
+  const totalDurations = measurementRuns.map((r) => r.totalRunMs).sort((a, b) => a - b);
+  const medians = measurementRuns.map((r) => r.summary.median).sort((a, b) => a - b);
+  const p95s = measurementRuns.map((r) => r.summary.p95).sort((a, b) => a - b);
   const outcomeCounts = summarizeRunOutcomes(runResults);
 
-  const aggregate = {
+  return {
     provider,
     spec,
     totalRuns: repeat,
     cleanPassRuns: cleanRuns.length,
+    measurementEligibleRuns: measurementRuns.length,
     forcedCleanupRuns: outcomeCounts.PASS_WITH_FORCED_CLEANUP,
     failedRuns:
       outcomeCounts.TEST_FAILED + outcomeCounts.REPORT_INVALID + outcomeCounts.TIMED_OUT + outcomeCounts.INTERRUPTED,
     excludedRuns: outcomeCounts.CLEANUP_UNSAFE + outcomeCounts.CLEANUP_FAILED,
     outcomeCounts,
-    status: cleanRuns.length < MIN_CLEAN_RUNS_FOR_COMPARISON ? "INSUFFICIENT_CLEAN_RUNS" : "OK",
+    status: measurementRuns.length < MIN_CLEAN_RUNS_FOR_COMPARISON ? "INSUFFICIENT_MEASUREMENT_RUNS" : "OK",
     totalRunMs: {
       min: totalDurations[0] ?? 0,
       median: pctArr(totalDurations, 50),
@@ -1133,6 +1238,10 @@ function writeSingleModeReport({ benchDir, provider, spec, repeat, runResults, e
       p95ofP95: pctArr(p95s, 95),
     },
   };
+}
+
+function writeSingleModeReport({ benchDir, provider, spec, repeat, runResults, envInfo }) {
+  const aggregate = computeSingleModeAggregate({ provider, spec, repeat, runResults });
 
   const benchmarkResult = {
     meta: envInfo,
@@ -1141,7 +1250,8 @@ function writeSingleModeReport({ benchDir, provider, spec, repeat, runResults, e
     benchmarkCompleted: new Date().toISOString(),
   };
 
-  const jsonPath = join(benchDir, `${provider}-${spec}.json`);
+  const basename = buildBenchmarkOutputBasename(provider, spec);
+  const jsonPath = join(benchDir, `${basename}.json`);
   writeFileSync(jsonPath, JSON.stringify(benchmarkResult, null, 2));
 
   const md = [
@@ -1152,23 +1262,23 @@ function writeSingleModeReport({ benchDir, provider, spec, repeat, runResults, e
     `Node: ${envInfo.node} | Rust: ${envInfo.rustc}`,
     `Provider: **${provider}** | Spec: \`${spec}\` | Repeat: ${repeat}`,
     ``,
-    aggregate.status === "INSUFFICIENT_CLEAN_RUNS"
-      ? `> **INSUFFICIENT CLEAN RUNS** — fewer than ${MIN_CLEAN_RUNS_FOR_COMPARISON} CLEAN_PASS runs; no percentage conclusions should be drawn.`
+    aggregate.status === "INSUFFICIENT_MEASUREMENT_RUNS"
+      ? `> **INSUFFICIENT MEASUREMENT-ELIGIBLE RUNS** — fewer than ${MIN_CLEAN_RUNS_FOR_COMPARISON} measurementEligible runs; no percentage conclusions should be drawn.`
       : ``,
     ``,
     `## Run Results`,
     ``,
-    `| Run | Outcome | Total | WDIO proc | Commands | Median | P95 | Max | >=1s | >=5s |`,
-    `|-----|---------|-------|-----------|----------|--------|-----|-----|------|------|`,
+    `| Run | Outcome | measurementEligible | Total | WDIO proc | Commands | Median | P95 | Max | >=1s | >=5s |`,
+    `|-----|---------|----------------------|-------|-----------|----------|--------|-----|-----|------|------|`,
     ...runResults.map((r) => {
       const s = r.summary;
-      return `| ${r.runN} | ${outcomeLabel(r.outcome)} (${r.outcome}) | ${Math.round(r.totalRunMs / 1000)}s | ${Math.round(r.wdioProcessMs / 1000)}s | ${s?.commandCount ?? "-"} | ${s?.median ?? "-"}ms | ${s?.p95 ?? "-"}ms | ${s?.max ?? "-"}ms | ${s?.bucketsGe?.ms1000 ?? "-"} | ${s?.bucketsGe?.ms5000 ?? "-"} |`;
+      return `| ${r.runN} | ${outcomeLabel(r.outcome)} (${r.outcome}) | ${r.measurementEligible} | ${Math.round(r.totalRunMs / 1000)}s | ${Math.round(r.wdioProcessMs / 1000)}s | ${s?.commandCount ?? "-"} | ${s?.median ?? "-"}ms | ${s?.p95 ?? "-"}ms | ${s?.max ?? "-"}ms | ${s?.bucketsGe?.ms1000 ?? "-"} | ${s?.bucketsGe?.ms5000 ?? "-"} |`;
     }),
     ``,
-    `## Aggregate (CLEAN_PASS runs only)`,
+    `## Aggregate (measurementEligible runs only — see isMeasurementEligible())`,
     ``,
     `- Status: ${aggregate.status}`,
-    `- CLEAN_PASS: ${aggregate.cleanPassRuns}/${aggregate.totalRuns} | Forced cleanup: ${aggregate.forcedCleanupRuns} | Failed: ${aggregate.failedRuns} | Excluded: ${aggregate.excludedRuns}`,
+    `- measurementEligible: ${aggregate.measurementEligibleRuns}/${aggregate.totalRuns} | CLEAN_PASS: ${aggregate.cleanPassRuns}/${aggregate.totalRuns} | Forced cleanup: ${aggregate.forcedCleanupRuns} | Failed: ${aggregate.failedRuns} | Excluded: ${aggregate.excludedRuns}`,
     `- Total duration (median): ${aggregate.totalRunMs.median}ms`,
     `- Command latency median-of-medians: ${aggregate.commandLatencyMs.medianOfMedians}ms`,
     `- Command latency p95-of-p95: ${aggregate.commandLatencyMs.p95ofP95}ms`,
@@ -1180,7 +1290,7 @@ function writeSingleModeReport({ benchDir, provider, spec, repeat, runResults, e
     ``,
   ].join("\n");
 
-  const mdPath = join(benchDir, `${provider}-${spec}.md`);
+  const mdPath = join(benchDir, `${basename}.md`);
   writeFileSync(mdPath, md);
 
   return { jsonPath, mdPath, aggregate };
@@ -1384,7 +1494,7 @@ async function main() {
   const repoRoot = resolve(scriptDir, "..");
   const desktopDir = join(repoRoot, "apps", "desktop");
   const wdioConf = join(desktopDir, "e2e-wdio", "wdio.conf.ts");
-  const specPath = join(desktopDir, "e2e-wdio", "specs", `${opts.spec}.e2e.ts`);
+  const specPath = resolveSpecPath(desktopDir, opts.spec);
 
   if (!existsSync(wdioConf)) {
     console.error(`[benchmark] WDIO config not found: ${wdioConf}`);
@@ -1491,7 +1601,10 @@ async function main() {
     });
 
     console.log(`\n[benchmark] === Complete (status=${aggregate.status}) ===`);
-    console.log(`[benchmark] CLEAN_PASS: ${aggregate.cleanPassRuns}/${aggregate.totalRuns}`);
+    console.log(
+      `[benchmark] measurementEligible: ${aggregate.measurementEligibleRuns}/${aggregate.totalRuns} ` +
+        `(CLEAN_PASS: ${aggregate.cleanPassRuns}/${aggregate.totalRuns})`,
+    );
     console.log(`[benchmark] Aggregate JSON: ${jsonPath}`);
     console.log(`[benchmark] Markdown:       ${mdPath}`);
   }

@@ -9,10 +9,13 @@ import { tmpdir } from "node:os";
 
 import {
   ALLOWED_PROVIDERS,
+  BENCHMARK_ONLY_SPECS,
   REQUIRED_CORE_INVENTORY_STEPS,
   parseArgs,
   validateArgs,
   isValidRunId,
+  isValidSpecName,
+  resolveSpecPath,
   generateRunId,
   validatePort,
   resolveWdioEntrypoint,
@@ -26,9 +29,12 @@ import {
   poolCommandDurationsFromNdjsonText,
   poolStepDurationsByName,
   computeComparison,
+  computeSingleModeAggregate,
+  buildBenchmarkOutputBasename,
   OUTCOMES,
   classifyOutcome,
   isEligibleForAggregate,
+  isMeasurementEligible,
   summarizeRunOutcomes,
   resolvePortOwnership,
   evaluateCleanupEligibility,
@@ -135,6 +141,58 @@ describe("validateArgs", () => {
   it("accepts a valid compare config", () => {
     const errors = validateArgs({ provider: null, spec: "app-smoke", repeat: 2, binary: "app.exe", compare: true });
     assert.deepEqual(errors, []);
+  });
+
+  it("rejects a --spec value with unsafe characters", () => {
+    const errors = validateArgs({ provider: "external", spec: "../../etc/passwd", repeat: 1, binary: null, compare: false });
+    assert.ok(errors.some((e) => e.includes("--spec")));
+  });
+
+  it("accepts the representative-latency spec name", () => {
+    const errors = validateArgs({ provider: "external", spec: "representative-latency", repeat: 2, binary: null, compare: false });
+    assert.deepEqual(errors, []);
+  });
+});
+
+// ── Spec name validation and resolution ─────────────────────────────────────
+
+describe("isValidSpecName", () => {
+  it("accepts alphanumeric, hyphen, underscore", () => {
+    assert.ok(isValidSpecName("representative-latency"));
+    assert.ok(isValidSpecName("core-inventory"));
+    assert.ok(isValidSpecName("app_smoke123"));
+  });
+
+  it("rejects path separators and traversal", () => {
+    assert.ok(!isValidSpecName("../../etc/passwd"));
+    assert.ok(!isValidSpecName("a/b"));
+    assert.ok(!isValidSpecName("a\\b"));
+  });
+
+  it("rejects a non-string", () => {
+    assert.ok(!isValidSpecName(undefined));
+    assert.ok(!isValidSpecName(null));
+  });
+});
+
+describe("resolveSpecPath", () => {
+  it("maps representative-latency to the benchmarks/ directory", () => {
+    const resolved = resolveSpecPath("/repo/apps/desktop", "representative-latency");
+    assert.equal(
+      resolved.replaceAll("\\", "/"),
+      "/repo/apps/desktop/e2e-wdio/benchmarks/representative-latency.e2e.ts",
+    );
+  });
+
+  it("maps every other spec name to the specs/ directory (default WDIO glob)", () => {
+    for (const spec of ["app-smoke", "core-inventory", "csv-import"]) {
+      const resolved = resolveSpecPath("/repo/apps/desktop", spec);
+      assert.equal(resolved.replaceAll("\\", "/"), `/repo/apps/desktop/e2e-wdio/specs/${spec}.e2e.ts`);
+    }
+  });
+
+  it("BENCHMARK_ONLY_SPECS contains exactly representative-latency", () => {
+    assert.deepEqual(BENCHMARK_ONLY_SPECS, ["representative-latency"]);
   });
 });
 
@@ -650,6 +708,199 @@ describe("computeComparison", () => {
     ];
     const comparison = computeComparison({ runs, spec: "app-smoke" });
     assert.equal(comparison.status, "OK");
+  });
+});
+
+// ── buildBenchmarkOutputBasename ─────────────────────────────────────────────
+
+describe("buildBenchmarkOutputBasename", () => {
+  it("builds a provider-spec basename for representative-latency", () => {
+    assert.equal(buildBenchmarkOutputBasename("external", "representative-latency"), "external-representative-latency");
+  });
+
+  it("builds a provider-spec basename for any other spec", () => {
+    assert.equal(buildBenchmarkOutputBasename("embedded", "app-smoke"), "embedded-app-smoke");
+  });
+});
+
+// ── isMeasurementEligible ────────────────────────────────────────────────────
+
+describe("isMeasurementEligible", () => {
+  const cleanBase = {
+    testPassed: true,
+    reportValid: true,
+    outcome: OUTCOMES.CLEAN_PASS,
+    cleanupRequired: false,
+    cleanupSafe: true,
+    cleanupSucceeded: null,
+  };
+
+  it("CLEAN_PASS with no cleanup required -> eligible", () => {
+    assert.equal(isMeasurementEligible(cleanBase), true);
+  });
+
+  it("PASS_WITH_FORCED_CLEANUP with safe + succeeded cleanup -> eligible (the expected Windows external-provider case)", () => {
+    assert.equal(
+      isMeasurementEligible({
+        testPassed: true,
+        reportValid: true,
+        outcome: OUTCOMES.PASS_WITH_FORCED_CLEANUP,
+        cleanupRequired: true,
+        cleanupSafe: true,
+        cleanupSucceeded: true,
+      }),
+      true,
+    );
+  });
+
+  it("TEST_FAILED is never eligible even if cleanup looks fine", () => {
+    assert.equal(
+      isMeasurementEligible({
+        testPassed: false,
+        reportValid: true,
+        outcome: OUTCOMES.TEST_FAILED,
+        cleanupRequired: false,
+        cleanupSafe: true,
+        cleanupSucceeded: null,
+      }),
+      false,
+    );
+  });
+
+  it("REPORT_INVALID is never eligible", () => {
+    assert.equal(
+      isMeasurementEligible({ ...cleanBase, reportValid: false, outcome: OUTCOMES.REPORT_INVALID }),
+      false,
+    );
+  });
+
+  it("CLEANUP_UNSAFE is never eligible", () => {
+    assert.equal(
+      isMeasurementEligible({
+        testPassed: true,
+        reportValid: true,
+        outcome: OUTCOMES.CLEANUP_UNSAFE,
+        cleanupRequired: true,
+        cleanupSafe: false,
+        cleanupSucceeded: false,
+      }),
+      false,
+    );
+  });
+
+  it("CLEANUP_FAILED is never eligible", () => {
+    assert.equal(
+      isMeasurementEligible({
+        testPassed: true,
+        reportValid: true,
+        outcome: OUTCOMES.CLEANUP_FAILED,
+        cleanupRequired: true,
+        cleanupSafe: true,
+        cleanupSucceeded: false,
+      }),
+      false,
+    );
+  });
+
+  it("TIMED_OUT and INTERRUPTED are never eligible", () => {
+    assert.equal(isMeasurementEligible({ ...cleanBase, outcome: OUTCOMES.TIMED_OUT }), false);
+    assert.equal(isMeasurementEligible({ ...cleanBase, outcome: OUTCOMES.INTERRUPTED }), false);
+  });
+
+  it("is not equivalent to a CI pass/fail gate — PASS_WITH_FORCED_CLEANUP is measurementEligible but passed stays false", () => {
+    const forced = {
+      testPassed: true,
+      reportValid: true,
+      outcome: OUTCOMES.PASS_WITH_FORCED_CLEANUP,
+      cleanupRequired: true,
+      cleanupSafe: true,
+      cleanupSucceeded: true,
+    };
+    assert.equal(isMeasurementEligible(forced), true);
+    assert.notEqual(forced.outcome, OUTCOMES.CLEAN_PASS, "passed === true is reserved for CLEAN_PASS only");
+  });
+});
+
+// ── computeSingleModeAggregate ───────────────────────────────────────────────
+
+function fakeSingleRun({ runN, outcome, measurementEligible, totalRunMs, median, p95 }) {
+  return {
+    runN,
+    outcome,
+    measurementEligible,
+    totalRunMs,
+    summary: { median, p95 },
+  };
+}
+
+describe("computeSingleModeAggregate", () => {
+  it("aggregates two CLEAN_PASS runs (the ordinary Linux case)", () => {
+    const runResults = [
+      fakeSingleRun({ runN: 1, outcome: OUTCOMES.CLEAN_PASS, measurementEligible: true, totalRunMs: 1000, median: 10, p95: 100 }),
+      fakeSingleRun({ runN: 2, outcome: OUTCOMES.CLEAN_PASS, measurementEligible: true, totalRunMs: 1100, median: 12, p95: 110 }),
+    ];
+    const aggregate = computeSingleModeAggregate({
+      provider: "external",
+      spec: "representative-latency",
+      repeat: 2,
+      runResults,
+    });
+    assert.equal(aggregate.status, "OK");
+    assert.equal(aggregate.cleanPassRuns, 2);
+    assert.equal(aggregate.measurementEligibleRuns, 2);
+    assert.equal(aggregate.totalRunMs.median, 1000);
+  });
+
+  it("aggregates two PASS_WITH_FORCED_CLEANUP runs on Windows — measurementEligible, not CLEAN_PASS", () => {
+    const runResults = [
+      fakeSingleRun({
+        runN: 1,
+        outcome: OUTCOMES.PASS_WITH_FORCED_CLEANUP,
+        measurementEligible: true,
+        totalRunMs: 5000,
+        median: 9,
+        p95: 12000,
+      }),
+      fakeSingleRun({
+        runN: 2,
+        outcome: OUTCOMES.PASS_WITH_FORCED_CLEANUP,
+        measurementEligible: true,
+        totalRunMs: 5200,
+        median: 9,
+        p95: 12100,
+      }),
+    ];
+    const aggregate = computeSingleModeAggregate({
+      provider: "external",
+      spec: "representative-latency",
+      repeat: 2,
+      runResults,
+    });
+    // The whole point of measurementEligible: these two Windows external
+    // runs are usable for the benchmark aggregate even though neither is
+    // CLEAN_PASS (see docs/E2E_WDIO_WINDOWS_PERFORMANCE.md).
+    assert.equal(aggregate.cleanPassRuns, 0);
+    assert.equal(aggregate.measurementEligibleRuns, 2);
+    assert.equal(aggregate.status, "OK");
+    assert.equal(aggregate.totalRunMs.median, 5000);
+    assert.equal(aggregate.forcedCleanupRuns, 2);
+  });
+
+  it("reports INSUFFICIENT_MEASUREMENT_RUNS when fewer than 2 runs are measurementEligible", () => {
+    const runResults = [
+      fakeSingleRun({ runN: 1, outcome: OUTCOMES.CLEAN_PASS, measurementEligible: true, totalRunMs: 1000, median: 10, p95: 100 }),
+      fakeSingleRun({ runN: 2, outcome: OUTCOMES.TEST_FAILED, measurementEligible: false, totalRunMs: 999999, median: 999, p95: 999 }),
+    ];
+    const aggregate = computeSingleModeAggregate({
+      provider: "external",
+      spec: "representative-latency",
+      repeat: 2,
+      runResults,
+    });
+    assert.equal(aggregate.measurementEligibleRuns, 1);
+    assert.equal(aggregate.status, "INSUFFICIENT_MEASUREMENT_RUNS");
+    // The failed run's absurd duration must not pollute the median.
+    assert.equal(aggregate.totalRunMs.median, 1000);
   });
 });
 
