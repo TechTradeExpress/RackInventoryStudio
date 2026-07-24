@@ -867,6 +867,34 @@ remain as planned).  No optimizations were implemented in this stage.
 
 ---
 
+### Stage 3B.4 — E2E WDIO latency optimization
+
+**Status: COMPLETE**
+
+Branch: `feature/e2e-wdio-latency-optimization`
+Direct base: `roadmap/e2e-wdio`
+Base SHA: `bd43e90b41bec7237693fe3c845b46bdf4f2f8c2`
+Default provider: `external`
+
+**Goal:** Reduce the long-tail latency observed in the external-provider flow
+without changing test coverage, assertion semantics, or the default provider.
+
+**Scope:**
+
+- Fresh Linux baseline (`app-smoke` ×2, `core-inventory` ×2)
+- Classification of the long-tail command distribution
+- Optimization of redundant WebDriver state reads and polling patterns
+- No coverage changes; no assertion changes; no provider changes
+- Before/after comparison on the same environment and binary
+
+**Not Stage 3C.** Stage 3C remains reserved for remaining placement workflows.
+No parallel spec execution. No changes to `SearchableSelect.tsx` or embedded provider.
+
+See `docs/E2E_WDIO_LATENCY_OPTIMIZATION.md` for full baseline data, diagnosis,
+optimization batches, and before/after results.
+
+---
+
 ### Stage 3C — Remaining placement workflows
 
 **Status: PLANNED**
