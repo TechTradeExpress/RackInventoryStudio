@@ -16,6 +16,8 @@ import {
   isValidRunId,
   isValidSpecName,
   resolveSpecPath,
+  listAvailableSpecNames,
+  isKnownSpecName,
   generateRunId,
   validatePort,
   resolveWdioEntrypoint,
@@ -193,6 +195,81 @@ describe("resolveSpecPath", () => {
 
   it("BENCHMARK_ONLY_SPECS contains exactly representative-latency", () => {
     assert.deepEqual(BENCHMARK_ONLY_SPECS, ["representative-latency"]);
+  });
+});
+
+describe("listAvailableSpecNames / isKnownSpecName", () => {
+  function makeSpecsDir(names) {
+    const dir = mkdtempSync(join(tmpdir(), "ris-specs-test-"));
+    for (const name of names) {
+      writeFileSync(join(dir, `${name}.e2e.ts`), "// fake spec\n");
+    }
+    // A non-spec file must never be treated as a spec name.
+    writeFileSync(join(dir, "README.md"), "not a spec\n");
+    return dir;
+  }
+
+  it("lists real spec files without the .e2e.ts suffix, sorted", () => {
+    const dir = makeSpecsDir(["core-inventory", "app-smoke"]);
+    try {
+      assert.deepEqual(listAvailableSpecNames(dir), ["app-smoke", "core-inventory"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("accepts a valid, existing real spec name", () => {
+    const dir = makeSpecsDir(["core-inventory"]);
+    try {
+      assert.equal(isKnownSpecName("core-inventory", dir), true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("accepts a benchmark-only spec name even though it has no file under specsDir", () => {
+    const dir = makeSpecsDir(["core-inventory"]);
+    try {
+      assert.equal(isKnownSpecName("representative-latency", dir), true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a spec name with no matching file", () => {
+    const dir = makeSpecsDir(["core-inventory"]);
+    try {
+      assert.equal(isKnownSpecName("does-not-exist", dir), false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects path traversal", () => {
+    const dir = makeSpecsDir(["core-inventory"]);
+    try {
+      assert.equal(isKnownSpecName("../../etc/passwd", dir), false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a forward-slash separator", () => {
+    const dir = makeSpecsDir(["core-inventory"]);
+    try {
+      assert.equal(isKnownSpecName("specs/core-inventory", dir), false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a backslash separator", () => {
+    const dir = makeSpecsDir(["core-inventory"]);
+    try {
+      assert.equal(isKnownSpecName("specs\\core-inventory", dir), false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

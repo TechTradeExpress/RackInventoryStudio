@@ -40,7 +40,7 @@
  */
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -73,6 +73,36 @@ export function isValidSpecName(name) {
 export function resolveSpecPath(desktopDir, specName) {
   const dir = BENCHMARK_ONLY_SPECS.includes(specName) ? "benchmarks" : "specs";
   return join(desktopDir, "e2e-wdio", dir, `${specName}.e2e.ts`);
+}
+
+const SPEC_FILE_SUFFIX = ".e2e.ts";
+
+/**
+ * Lists available spec names (without the .e2e.ts suffix) in a specs/
+ * directory, sorted. The one place this module touches the filesystem for
+ * spec-name validation — isolated here so it can be exercised against a
+ * temp directory in tests without needing the real apps/desktop/e2e-wdio/specs.
+ */
+export function listAvailableSpecNames(specsDir) {
+  return readdirSync(specsDir)
+    .filter((f) => f.endsWith(SPEC_FILE_SUFFIX))
+    .map((f) => f.slice(0, -SPEC_FILE_SUFFIX.length))
+    .sort();
+}
+
+/**
+ * True only for a name that is either a real spec file under specsDir (per
+ * listAvailableSpecNames) or one of the explicit BENCHMARK_ONLY_SPECS.
+ * isValidSpecName's character-class check (no path separators, no `..`) is
+ * re-applied here too — a controlled directory listing is the primary
+ * defense, but this keeps the safe-character invariant explicit at the one
+ * call site that decides whether a spec name is trusted enough to resolve
+ * to a file path at all.
+ */
+export function isKnownSpecName(name, specsDir) {
+  if (!isValidSpecName(name)) return false;
+  if (BENCHMARK_ONLY_SPECS.includes(name)) return true;
+  return listAvailableSpecNames(specsDir).includes(name);
 }
 
 export const REQUIRED_CORE_INVENTORY_STEPS = [
@@ -1494,10 +1524,20 @@ async function main() {
   const repoRoot = resolve(scriptDir, "..");
   const desktopDir = join(repoRoot, "apps", "desktop");
   const wdioConf = join(desktopDir, "e2e-wdio", "wdio.conf.ts");
+  const specsDir = join(desktopDir, "e2e-wdio", "specs");
   const specPath = resolveSpecPath(desktopDir, opts.spec);
 
   if (!existsSync(wdioConf)) {
     console.error(`[benchmark] WDIO config not found: ${wdioConf}`);
+    process.exit(1);
+  }
+  // Do not accept an arbitrary path from the user: opts.spec must resolve
+  // either to a real file under e2e-wdio/specs/ or to an explicit
+  // benchmark-only name (representative-latency) — never anything derived
+  // from unchecked user input.
+  if (!isKnownSpecName(opts.spec, specsDir)) {
+    const known = [...BENCHMARK_ONLY_SPECS, ...listAvailableSpecNames(specsDir)];
+    console.error(`[benchmark] Unknown spec "${opts.spec}". Must be one of: ${known.join(", ")}`);
     process.exit(1);
   }
   if (!existsSync(specPath)) {

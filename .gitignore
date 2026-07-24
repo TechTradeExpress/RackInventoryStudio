@@ -1,6 +1,8 @@
 # Rust
 target/
 target-embedded/
+target-wdio-plugin/
+target-production-check/
 
 # Node
 node_modules/

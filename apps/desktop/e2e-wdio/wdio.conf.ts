@@ -40,6 +40,14 @@
  *   RIS_WDIO_TIMING=1                   — enable per-command timing instrumentation
  *   RIS_WDIO_SLOW_COMMAND_MS=500        — log commands slower than N ms (default 500)
  *
+ * Opt-in plugin-presence contract check (see support/plugin-presence.ts):
+ *   RIS_WDIO_EXPECT_PLUGIN=present      — assert window.wdioTauri exists (the
+ *                                         wdio-plugin test binary from
+ *                                         scripts/build-wdio-plugin-binary.mjs)
+ *   RIS_WDIO_EXPECT_PLUGIN=absent       — assert window.wdioTauri does not exist
+ *                                         (the plain production-shaped binary)
+ *   Unset by default — no check runs, no behavioural change.
+ *
  * tauri-plugin-wdio: NOT required for PR-1 smoke.
  * Normal WebDriver element interactions are enough for basic visibility assertions.
  * Advanced features (invoke mocking, log capture) are deferred to a later stage.
@@ -48,6 +56,7 @@ import type { Options } from "@wdio/types";
 import path from "path";
 import { initTestEnvironment } from "./support/test-environment";
 import { patchWdioConfig } from "./support/command-timing";
+import { assertPluginPresenceContract } from "./support/plugin-presence";
 
 // Initialize isolated temp environment before any WDIO process starts.
 // Returns cleanup function registered in onComplete below.
@@ -155,6 +164,13 @@ export const config: Options.Testrunner = {
       browserName: "tauri",
     },
   ],
+
+  // Opt-in plugin-presence contract check — no-op unless RIS_WDIO_EXPECT_PLUGIN
+  // is set. Set before patchWdioConfig() wraps `before` for timing capture, so
+  // both hooks chain correctly regardless of RIS_WDIO_TIMING.
+  before: async (_capabilities, _specs, browser) => {
+    await assertPluginPresenceContract(browser);
+  },
 
   onComplete: () => {
     cleanupTestEnvironment();
