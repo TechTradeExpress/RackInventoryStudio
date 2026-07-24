@@ -13,8 +13,16 @@
  *   - builds the wdio-plugin test binary into target-wdio-plugin/ (not target/release/)
  *   - sets RIS_WDIO_DRIVER_PROVIDER=external, RIS_WDIO_EXPECT_PLUGIN=present,
  *     TAURI_BINARY_PATH=<repo>/target-wdio-plugin/release/rack-inventory-studio-desktop
+ *     — any of these three inherited from the invoking shell is discarded first,
+ *     so the child environment is always fully determined by this run, never a
+ *     mix with a stale leftover value
  *   - wraps with xvfb-run -a on Linux
  *   - uses PID-safe cleanup via scripts/run-wdio-performance-benchmark.mjs
+ *   - refuses to report success if ports 4444/4445 are occupied before the run,
+ *     remain occupied after it, or their state cannot be verified — see
+ *     deriveFinalRunnerExitCode in scripts/run-wdio-e2e.mjs
+ *   - a custom --binary always requires an explicit --expect-plugin
+ *     present|absent; a custom binary's plugin status is never assumed
  *
  * ── Prerequisites (one-time) ─────────────────────────────────────────────────
  *

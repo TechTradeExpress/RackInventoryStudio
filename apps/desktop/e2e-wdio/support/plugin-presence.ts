@@ -1,6 +1,8 @@
 /**
- * Opt-in contract check confirming whether the running binary was actually
- * built with tauri-plugin-wdio (window.wdioTauri present) — or not.
+ * Opt-in frontend plugin-presence contract check: confirms whether
+ * window.wdioTauri — set by the frontend only when the running binary was
+ * actually built with tauri-plugin-wdio — is present or absent, as a live
+ * runtime probe rather than an assumption derived from a binary path.
  *
  * Activated only when RIS_WDIO_EXPECT_PLUGIN is set. When it is absent this
  * module is a no-op: no probe, no assertion, no recorded result. This keeps
