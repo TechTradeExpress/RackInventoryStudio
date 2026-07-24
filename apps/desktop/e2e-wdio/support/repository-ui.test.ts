@@ -275,4 +275,47 @@ describe("expectActiveRepositoryPath", () => {
       cause: internalError,
     });
   });
+
+  it("reports an infrastructure diagnostic (not a mismatch) when the visibility execute() throws", async () => {
+    const sessionError = new Error("session terminated unexpectedly");
+    vi.mocked(browser.execute).mockRejectedValue(sessionError);
+    installLoopingWaitUntilMock();
+
+    await expect(expectActiveRepositoryPath(expectedDir)).rejects.toMatchObject({
+      message: expect.stringContaining("Active repository path check failed"),
+      cause: sessionError,
+    });
+  });
+
+  it("reports an infrastructure diagnostic (not a mismatch) when the textContent execute() throws", async () => {
+    const driverError = new Error("execute() serialization failure");
+    let executeCallCount = 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(browser.execute).mockImplementation(async (..._args: unknown[]): Promise<any> => {
+      executeCallCount++;
+      if (executeCallCount === 1) return true; // visibility read succeeds
+      throw driverError; // textContent read fails
+    });
+    installLoopingWaitUntilMock();
+
+    await expect(expectActiveRepositoryPath(expectedDir)).rejects.toMatchObject({
+      message: expect.stringContaining("Active repository path check failed"),
+      cause: driverError,
+    });
+  });
+
+  it("does not report an infrastructure diagnostic for a genuine timeout/mismatch (message stays 'never matched')", async () => {
+    let call = 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(browser.execute).mockImplementation(async (..._args: unknown[]): Promise<any> => {
+      call++;
+      if (call % 2 === 1) return true;
+      return oldDir;
+    });
+    installLoopingWaitUntilMock(3);
+
+    await expect(expectActiveRepositoryPath(expectedDir)).rejects.toMatchObject({
+      message: expect.not.stringContaining("check failed"),
+    });
+  });
 });

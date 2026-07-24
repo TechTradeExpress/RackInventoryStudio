@@ -141,6 +141,24 @@ export async function clickWhenEnabled(testId: string, timeout = 10_000): Promis
 }
 
 /**
+ * Marks an error thrown by the visibility/textContent execute() calls inside
+ * expectActiveRepositoryPath's poll predicate as an infrastructure failure
+ * (session crash, execute() rejection, etc.) — distinct from the predicate
+ * legitimately returning false. browser.waitUntil() rejects immediately with
+ * whatever the predicate throws (verified by the canonicalPath() catch just
+ * below, which relies on exactly this behaviour to keep polling past its own
+ * expected exceptions), so wrapping these two specific calls lets the outer
+ * catch tell "the WebDriver probe itself broke" apart from "the path never
+ * matched in time" without parsing message text.
+ */
+class RepositoryPathProbeError extends Error {
+  constructor(cause: unknown) {
+    super("[repository-ui] repository path probe failed");
+    this.cause = cause;
+  }
+}
+
+/**
  * Waits until the repository-active-path element is visible AND its text
  * content — after full canonicalisation on both sides (realpathSync symlink
  * resolution + Windows lowercase) — matches expectedPath.
@@ -159,6 +177,12 @@ export async function clickWhenEnabled(testId: string, timeout = 10_000): Promis
  * catching up. A thrown canonicalPath() must not abort the poll: it is
  * treated exactly like a non-matching read (return false, keep polling),
  * not a hard failure.
+ *
+ * A thrown browser.execute() (session dropped, driver error, serialization
+ * failure) is a different failure mode entirely — an infrastructure problem,
+ * not evidence the path never matched — and is reported as such immediately,
+ * with the original error preserved as `cause`, instead of being folded into
+ * the generic timeout/mismatch message.
  */
 export async function expectActiveRepositoryPath(
   expectedPath: string,
@@ -174,12 +198,24 @@ export async function expectActiveRepositoryPath(
       async () => {
         // Visibility semantics: isSelectorVisible (see dom-helpers.ts) —
         // returns false if the element does not exist or is not visible.
-        const visible = await browser.execute(isSelectorVisible, selector);
+        let visible: boolean;
+        try {
+          visible = await browser.execute(isSelectorVisible, selector);
+        } catch (cause) {
+          throw new RepositoryPathProbeError(cause);
+        }
         if (!visible) return false;
-        const raw = await browser.execute(
-          (sel: string) => document.querySelector(sel)?.textContent ?? "",
-          selector,
-        );
+
+        let raw: string;
+        try {
+          raw = await browser.execute(
+            (sel: string) => document.querySelector(sel)?.textContent ?? "",
+            selector,
+          );
+        } catch (cause) {
+          throw new RepositoryPathProbeError(cause);
+        }
+
         const trimmed = raw.trim();
         if (!trimmed) {
           lastDisplayed = trimmed;
@@ -199,6 +235,13 @@ export async function expectActiveRepositoryPath(
       { timeout, interval: 100 },
     );
   } catch (cause) {
+    if (cause instanceof RepositoryPathProbeError) {
+      throw new Error(
+        `Active repository path check failed: the WebDriver probe itself threw while ` +
+          `checking for "${expected}" (input: "${expectedPath}")`,
+        { cause: cause.cause },
+      );
+    }
     throw new Error(
       `Active repository path never matched: last displayed "${lastDisplayed ?? "(element never visible)"}", ` +
         `expected "${expected}" (input: "${expectedPath}")`,
