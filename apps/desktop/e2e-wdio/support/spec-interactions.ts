@@ -106,8 +106,9 @@ export async function waitForModalClose(submitTestId: string): Promise<void> {
  * watching for a visible `.ft-msg.err` error banner in the same poll.
  *
  * Combines the two concerns that the local `waitForFormClose` copies in each
- * spec currently address: waiting for the submit button to disappear AND
- * surfacing any modal footer error immediately instead of timing out.
+ * spec used to address separately: waiting for the submit button to
+ * disappear AND surfacing any modal footer error immediately instead of
+ * timing out.
  *
  * Each poll iteration performs exactly one browser.execute() round trip that
  * atomically reads both the submit-button visibility and the error-banner state.
@@ -117,17 +118,25 @@ export async function waitForModalClose(submitTestId: string): Promise<void> {
  * Visibility definition (matches isSelectorVisible/isDomElementVisible):
  *   width > 0 AND height > 0 AND display !== "none" AND visibility !== "hidden"
  *
+ * errorLabel/timeoutLabel let each caller keep its own diagnostic wording
+ * (e.g. the placement modal's "Placement failed" instead of the generic
+ * "Form submit failed") without duplicating the polling logic itself.
+ *
  * Return:   resolves when the submit button is absent or not visible (modal closed)
  * Throws:   immediately when a visible .ft-msg.err banner is found, with its text
+ *           (an empty-string banner still counts as an error — only a `null`
+ *           errorText, meaning no visible banner at all, is not an error)
  * Timeout:  after `timeout` ms with the standard message (default 30 s)
  */
 export async function waitForFormCloseOrError(
   submitTestId: string,
-  options?: { timeout?: number },
+  options?: { timeout?: number; errorLabel?: string; timeoutLabel?: string },
 ): Promise<void> {
   const selector = `[data-testid="${submitTestId}"]`;
   const timeout = options?.timeout ?? 30_000;
-  const timeoutMsg = `Form "[data-testid="${submitTestId}"]" did not close within ${Math.round(timeout / 1000)} s`;
+  const errorLabel = options?.errorLabel ?? "Form submit failed";
+  const timeoutLabel = options?.timeoutLabel ?? `Form "[data-testid="${submitTestId}"]"`;
+  const timeoutMsg = `${timeoutLabel} did not close within ${Math.round(timeout / 1000)} s`;
 
   await browser.waitUntil(
     async () => {
@@ -169,7 +178,7 @@ export async function waitForFormCloseOrError(
       );
 
       if (result.errorText !== null) {
-        throw new Error(`Form submit failed — modal error: "${result.errorText}"`);
+        throw new Error(`${errorLabel} — modal error: "${result.errorText}"`);
       }
       return result.closed;
     },

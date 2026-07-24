@@ -216,7 +216,11 @@ describe("Rack Inventory Studio — inventory destructive-operation guards", () 
 
     log("part A: submitting placement");
     await clickWhenEnabled("place-btn");
-    await waitForFormCloseOrError("place-btn", { timeout: 60_000 });
+    await waitForFormCloseOrError("place-btn", {
+      timeout: 60_000,
+      errorLabel: "Placement failed",
+      timeoutLabel: "Placement modal",
+    });
 
     await expectExactlyOnePlacement(deviceCode, PLACE_U);
     log(`part A: placement card confirmed at U${PLACE_U} — fixture complete`);

@@ -226,4 +226,48 @@ describe("waitForFormCloseOrError", () => {
     await waitForFormCloseOrError("rack-form-submit", { timeout: 60_000 });
     expect(capturedOpts?.["timeout"]).toBe(60_000);
   });
+
+  it("uses the default 'Form submit failed' error label when none is given", async () => {
+    setupWaitUntil({ closed: false, errorText: "boom" });
+    await expect(waitForFormCloseOrError("device-form-submit")).rejects.toThrow(
+      /^Form submit failed — modal error: "boom"/,
+    );
+  });
+
+  it("uses a custom error label (e.g. placement modal) instead of the default", async () => {
+    setupWaitUntil({ closed: false, errorText: "effective height missing" });
+    await expect(
+      waitForFormCloseOrError("place-btn", { errorLabel: "Placement failed" }),
+    ).rejects.toThrow(/^Placement failed — modal error: "effective height missing"/);
+  });
+
+  it("uses the default 'Form \"[data-testid=...]\"' timeout label when none is given", async () => {
+    let capturedOpts: Record<string, unknown> | undefined;
+    vi.mocked(browser.execute).mockResolvedValue({ closed: false, errorText: null } as never);
+    vi.mocked(browser.waitUntil).mockImplementation(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      async (predicate: () => unknown, opts?: unknown) => {
+        capturedOpts = opts as Record<string, unknown>;
+        await predicate();
+        return undefined as any;
+      },
+    );
+    await waitForFormCloseOrError("save-btn");
+    expect(String(capturedOpts?.["timeoutMsg"])).toContain('Form "[data-testid="save-btn"]"');
+  });
+
+  it("uses a custom timeout label (e.g. 'Placement modal') instead of the default", async () => {
+    let capturedOpts: Record<string, unknown> | undefined;
+    vi.mocked(browser.execute).mockResolvedValue({ closed: false, errorText: null } as never);
+    vi.mocked(browser.waitUntil).mockImplementation(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      async (predicate: () => unknown, opts?: unknown) => {
+        capturedOpts = opts as Record<string, unknown>;
+        await predicate();
+        return undefined as any;
+      },
+    );
+    await waitForFormCloseOrError("place-btn", { timeoutLabel: "Placement modal" });
+    expect(String(capturedOpts?.["timeoutMsg"])).toMatch(/^Placement modal did not close/);
+  });
 });
