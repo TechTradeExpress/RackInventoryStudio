@@ -22,6 +22,7 @@
     "test:scripts": "node --test scripts/*.test.mjs",
     "check:hygiene": "node scripts/check-repo-hygiene.mjs",
     "smoke:beta": "node scripts/smoke-beta-gate.mjs",
-    "build:e2e:wdio-plugin": "node scripts/build-wdio-plugin-binary.mjs"
+    "build:e2e:wdio-plugin": "node scripts/build-wdio-plugin-binary.mjs",
+    "test:e2e:wdio": "node scripts/run-wdio-e2e.mjs"
   }
 }
