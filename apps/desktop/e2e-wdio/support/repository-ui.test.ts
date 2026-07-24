@@ -225,6 +225,32 @@ describe("expectActiveRepositoryPath", () => {
     expect(executeCallCount).toBe(4);
   });
 
+  it("recovers from an empty read and a canonicalPath exception before succeeding on a valid read", async () => {
+    let executeCallCount = 0;
+    // A path string that canonicalPath() (realpathSync.native) will throw on
+    // — it does not exist on disk.
+    const nonExistentPath = join(tmpdir(), `ris-test-does-not-exist-${Date.now()}`);
+    // Call pattern per iteration: 1) visibility check, 2) textContent read.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(browser.execute).mockImplementation(async (..._args: unknown[]): Promise<any> => {
+      executeCallCount++;
+      const isVisibilityCall = executeCallCount % 2 === 1;
+      if (isVisibilityCall) return true; // element visible throughout
+      const textReadNumber = executeCallCount / 2;
+      if (textReadNumber === 1) return ""; // empty/partial render
+      if (textReadNumber === 2) return nonExistentPath; // canonicalPath throws
+      return expectedDir; // valid, matches
+    });
+    installLoopingWaitUntilMock(5);
+
+    await expectActiveRepositoryPath(expectedDir);
+
+    // Three full iterations (visibility + text, three times) were required:
+    // the empty read and the canonicalPath-throwing read both had to be
+    // treated as "keep polling", not as a hard failure.
+    expect(executeCallCount).toBe(6);
+  });
+
   it("throws a clear error naming both the last-displayed and expected path on timeout", async () => {
     let call = 0;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

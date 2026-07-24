@@ -152,6 +152,13 @@ export async function clickWhenEnabled(testId: string, timeout = 10_000): Promis
  * only succeeds once both hold. The textContent is fetched in browser
  * context and compared in Node context so that canonicalPath() — which
  * calls realpathSync — never runs inside browser.execute().
+ *
+ * canonicalPath() calls realpathSync.native(), which throws for a path that
+ * does not exist on disk — and a displayed value can transiently be empty,
+ * a partial render, or a stale/incomplete path while React is still
+ * catching up. A thrown canonicalPath() must not abort the poll: it is
+ * treated exactly like a non-matching read (return false, keep polling),
+ * not a hard failure.
  */
 export async function expectActiveRepositoryPath(
   expectedPath: string,
@@ -173,8 +180,21 @@ export async function expectActiveRepositoryPath(
           (sel: string) => document.querySelector(sel)?.textContent ?? "",
           selector,
         );
-        lastDisplayed = canonicalPath(raw.trim());
-        return lastDisplayed === expected;
+        const trimmed = raw.trim();
+        if (!trimmed) {
+          lastDisplayed = trimmed;
+          return false;
+        }
+        try {
+          lastDisplayed = canonicalPath(trimmed);
+          return lastDisplayed === expected;
+        } catch {
+          // Not yet a resolvable path on disk (empty/partial/stale render).
+          // Keep polling rather than letting canonicalPath's exception
+          // abort the whole waitUntil.
+          lastDisplayed = trimmed;
+          return false;
+        }
       },
       { timeout, interval: 100 },
     );
