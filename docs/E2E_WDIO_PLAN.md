@@ -891,7 +891,18 @@ without changing test coverage, assertion semantics, or the default provider.
 No parallel spec execution. No changes to `SearchableSelect.tsx` or embedded provider.
 
 See `docs/E2E_WDIO_LATENCY_OPTIMIZATION.md` for full baseline data, diagnosis,
-optimization batches, and before/after results.
+optimization batches, and before/after results (Linux Class A/B/C, §1–10).
+
+**Windows repair pass (primary environment from this point):** correctness
+repairs to `expectActiveRepositoryPath`/visibility helpers, a new opt-in
+`representative-latency` benchmark (9 interaction-pattern cases drawn from
+existing specs), a Windows baseline ×2 (1,069,722ms median), root-cause
+diagnosis of a `@wdio/tauri-service` plugin-availability retry loop, three
+optimization batches (client-side retry bypass, then installing
+`tauri-plugin-wdio` behind a test-only Cargo feature — the actual root fix),
+and a Windows final ×2 (12,287ms median, **−98.9%**). Full WDIO suite
+intentionally deferred, not a merge gate for this pass. See
+`docs/E2E_WDIO_LATENCY_OPTIMIZATION.md` §11 for full detail.
 
 ---
 

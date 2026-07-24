@@ -587,3 +587,382 @@ After the optimizations:
   ~91s each in the baseline (likely retry-loop expansion). Not removed since
   they are correctness assertions. Could be replaced with execute()-based
   attribute checks in a future stage.
+
+---
+
+## 11. Windows representative benchmark (repair pass, primary environment)
+
+Work continued on Windows from this point on, per the same branch
+(`feature/e2e-wdio-latency-optimization`) and PR (#154). Sections 1–10 above
+are the historical Linux Class A/B/C baseline/diagnosis/optimization —
+kept for reference and never re-run on this pass. Everything from here on
+is Windows-only, external provider, and uses a new opt-in **representative
+benchmark** (`representative-latency`) instead of re-running the full
+`core-inventory`/`app-smoke` specs.
+
+### 11.1. Correctness repairs (applied before any benchmarking)
+
+Three pre-existing correctness issues were fixed first, verified by new
+unit tests, and committed separately from anything performance-related:
+
+1. **`expectActiveRepositoryPath` polling** — previously waited for
+   visibility once and read text exactly once, so a visible element whose
+   text hadn't yet caught up with a just-completed navigation could fail on
+   a stale read. Now polls: each `waitUntil` iteration re-reads visibility
+   and `textContent` and only succeeds once the canonicalized displayed path
+   matches the canonicalized expected path.
+2. **Visibility gate**: `rect.width === 0 && rect.height === 0` (AND) →
+   `rect.width <= 0 || rect.height <= 0` (OR). An element with only one zero
+   dimension is not visible; the old AND-gate missed that case.
+3. **Consolidated visibility logic**: `isSelectorVisible` (new,
+   `dom-helpers.ts`) is the single self-contained visibility check safe to
+   pass by reference to `browser.execute()`. `clickNav`, `clickWhenVisible`,
+   `waitForModal`, `waitForModalClose`, `expectActiveRepositoryPath`, and the
+   new benchmark all use it instead of independently duplicated inline
+   rect/display/visibility checks. `waitForModalClose` now treats "closed"
+   as "does not exist OR fails `isSelectorVisible`", not a zero-rect special
+   case.
+
+`clickNav`, `waitForModal`, `waitForModalClose`, `clickWhenVisible`, and
+`clickRowViaDom` were also extracted from `core-inventory.e2e.ts` into
+`support/spec-interactions.ts` so the new benchmark and the existing spec
+share one implementation.
+
+Commit: `fix(e2e): restore canonical wait and visibility semantics` (`cd0beec`).
+
+### 11.2. Representative benchmark case matrix
+
+`apps/desktop/e2e-wdio/benchmarks/representative-latency.e2e.ts` — opt-in,
+outside the default WDIO spec glob, one continuous minimal workflow (one
+repository → one location → one rack → one device model → one device →
+one placement → save/close/reopen), nine named `measureStep` cases:
+
+| Case | Name | Source spec/test | Interaction type | Assertion | Setup dependency | Helper(s) |
+|------|------|-------------------|-------------------|-----------|-------------------|-----------|
+| A | `case-a-app-ready` | `app-smoke.e2e.ts` (landing screen) | Poll DOM visibility | Landing title visible | None | `isSelectorVisible` via `waitUntil` |
+| B | `case-b-controlled-input` | `core-inventory.e2e.ts` step 2 (`create-repository`) | 3× controlled-input set + submit + confirm | Repository open (active-root visible) | None | `createRepositoryThroughUi` (`reactSetValue` ×3, `clickWhenEnabled`) |
+| C | `case-c-open-modal` | `core-inventory.e2e.ts` step 4 (`open-location-form`) | Visibility wait + click | Modal submit button visible | Repository created (B) | `clickWhenVisible`, `waitForModal` |
+| D | `case-d-modal-fill-submit-close` | `core-inventory.e2e.ts` step 4 (`submit-location-form`) | Controlled-input set + click + close wait | Modal closed | Modal open (C) | `reactSetValue`, `clickWhenEnabled`, `waitForModalClose` |
+| E | `case-e-row-lookup-navigate` | `core-inventory.e2e.ts` step 6 (`navigate-location-to-racks`) | Row text search + DOM click (WebKit `<tr>` exception) + nav wait | `nav-racks` visible | Location created (D) | `clickRowViaDom` |
+| F | `case-f-searchable-select` | `core-inventory.e2e.ts` step 13 (device-model assignment) | Open dropdown + type + native WDIO click + confirm | Trigger text reflects selection | Device model exists (setup) | `clickWhenVisible` + native `.click()` on option (unchanged — `onMouseDown`) |
+| G | `case-g-attribute-assertion` | `core-inventory.e2e.ts` steps 3/9/12 (`aria-current` checks) | Single `execute()` attribute read | `aria-current === "page"` | Nav click occurred | Inline `execute()` (replaces `expect(...).toHaveAttribute()`) |
+| H | `case-h-submit-placement` | `core-inventory.e2e.ts` step 19 (`submit-placement`) | Click + atomic closed/error read + card-visible wait | Placed card references correct model | Device+rack+model exist | `clickWhenEnabled` + atomic `execute()` |
+| I | `case-i-save-close-reopen` | `core-inventory.e2e.ts` steps 21–22 (`save-and-close`, `reopen-repository`) | Click sequence + modal wait + canonical path polling | `expectActiveRepositoryPath` matches | Placement exists (H) | `clickElementProtocol`, `clickWhenEnabled`, `expectActiveRepositoryPath` |
+
+Steps between cases (rack/model/device creation, form fills) are workflow
+scaffolding, intentionally left outside any `measureStep` block.
+
+Not new business coverage — every interaction already exists in
+`specs/*.e2e.ts`; no assertion was weakened; the SearchableSelect option
+click and WebKit-`<tr>` row-click exceptions were preserved exactly as
+documented in section 6.
+
+Commit: `test(e2e): add representative latency benchmark` (`6ff8211`), plus
+runner support (`resolveSpecPath`/`BENCHMARK_ONLY_SPECS`,
+`isMeasurementEligible`, `computeSingleModeAggregate`,
+`buildBenchmarkOutputBasename` — all unit-tested).
+
+### 11.3. Windows environment
+
+| Item | Value |
+|------|-------|
+| Windows edition | Microsoft Windows 11 Pro |
+| OS build | 10.0.26200 |
+| CPU | AMD Ryzen 7 5800X 8-Core Processor (16 logical cores) |
+| RAM | 32680 MB |
+| Node.js | v22.23.1 |
+| pnpm | 10.33.4 |
+| Rust | rustc 1.97.1 (8bab26f4f 2026-07-14) / cargo 1.97.1 (c980f4866 2026-06-30) |
+| WebdriverIO | 9.29.1 |
+| @wdio/cli | 9.29.1 |
+| @wdio/tauri-service | 1.2.0 |
+| Tauri CLI | tauri-cli 2.11.2 |
+| Edge | 150.0.4078.83 |
+| WebView2 runtime | 150.0.4078.83 |
+| tauri-driver | v2.0.6 (`C:\Users\<user>\.cargo\bin\tauri-driver.exe`) |
+| msedgedriver | auto-downloaded per run by `@wdio/tauri-service` (150.0.4078.83) |
+| Power plan | Balanced (`381b4222-f694-41f0-9685-ff5bb260df2e`) |
+| Provider | `external` (unchanged) |
+| Binary (baseline, §11.4) | `target\release\rack-inventory-studio-desktop.exe`, built via `pnpm -C apps/desktop tauri build --no-bundle` (no extra features) |
+| Binary (post-optimization, §11.6) | Same path, rebuilt with `--features wdio-plugin` + `VITE_WDIO_PLUGIN=true` + `--config withGlobalTauri:true` (see §11.5.3) |
+
+### 11.4. Baseline ×2 (HEAD `6ff82114dfc6dd72d7d50556ece271bb17388dcb`)
+
+Binary built via `pnpm -C apps/desktop tauri build --no-bundle` (no
+`wdio-plugin` feature — that fix came later, see §11.5.3). Ports 4444/4445
+confirmed free before each run.
+
+```powershell
+node scripts\run-wdio-performance-benchmark.mjs `
+  --provider external --spec representative-latency --repeat 2 `
+  --binary "C:\ris\RackInventoryStudio\target\release\rack-inventory-studio-desktop.exe" `
+  --continue-on-failure
+```
+
+`--continue-on-failure` is required on Windows: the external provider does
+not reach `CLEAN_PASS` here (see §11.7, `measurementEligible`), so the
+runner's default "stop after the first non-CLEAN_PASS run" would otherwise
+abort after run 1.
+
+| Run | Outcome | measurementEligible | Total | Commands | Median | P90 | P95 | P99 | Max | ≥5s |
+|-----|---------|----------------------|-------|----------|--------|-----|-----|-----|-----|-----|
+| 1 (`mrytz1e2-omdcf3`) | PASS_WITH_FORCED_CLEANUP | true | 1,069,722ms | 500 | 10ms | 15,263ms | 15,411ms | 53,689ms | 100,078ms | 112 |
+| 2 (`mryum5g0-im8rp4`) | PASS_WITH_FORCED_CLEANUP | true | 1,071,581ms | 500 | 11ms | 15,265ms | 15,417ms | 53,910ms | 99,973ms | 112 |
+
+Variance between runs: 0.17% (well under the 10% third-run threshold).
+Aggregate: `measurementEligibleRuns: 2/2`, `status: OK`, median total
+1,069,722ms, median command latency 10ms, P95-of-P95 15,417ms.
+
+Per-case (mean of the two runs' `measureStep` durations):
+
+| Case | Duration |
+|------|----------|
+| A — app-ready | 9–22ms |
+| B — controlled-input | 99,985–100,079ms |
+| C — open-modal | 38,163–38,334ms |
+| D — modal-fill-submit-close | 53,437–53,853ms |
+| E — row-lookup-navigate | 27–31ms |
+| F — searchable-select | 92,209–92,462ms |
+| G — attribute-assertion | 14–16ms |
+| H — submit-placement | 38,292–38,372ms |
+| I — save-close-reopen | 130,838–130,843ms |
+
+Command profile (run 2): `elementClick` (35, median 7,707ms),
+`$` ChainablePromise (36, median 15,376ms), `click` WDIO composite (5,
+median 54,020ms), `findElement` (36, median 7,700ms), `executeAsync`/
+`executeAsyncScript` (82 each, median ~13ms).
+
+Raw paths: `%TEMP%\ris-wdio-bench\benchmark-2026-07-24T11-02-06\`
+(aggregate JSON/MD) and per-run dirs under `%TEMP%\ris-wdio-bench\<runId>\`.
+
+### 11.5. Optimization batches
+
+#### 11.5.1. Root-cause finding — retry loop, not a timeout
+
+`elementClick`/`findElement` durations in the baseline landed at near-exact
+multiples of a ~7.7s base unit (2×, 4×, 5×, 7×, 9×, up to 13× = ~100s), and
+every single command in that family carried this cost even with zero
+retries visible at the WDIO-client level. An isolated diagnostic spec
+(three consecutive `findElement()` calls on an already-known-existing
+element, nothing else in between, both `logLevel: "info"` and `"silent"`
+tested to rule out logging overhead) confirmed each call cost ~7.6–7.7s
+independent of retries, element state, or log verbosity — never a timeout,
+every command's `success` was `true`.
+
+Root cause (found by reading `@wdio/tauri-service`'s compiled source,
+`dist/cjs/index.js`): a `beforeCommand` hook (`ensureActiveWindowFocus`)
+runs before exactly `['getTitle', 'findElement', 'findElements', '$', '$$',
+'elementClick']` — the precise command set observed as slow — and calls
+`getWindowStates()` → `browser.tauri.execute(...)`. That internal
+`execute()` helper checks whether `window.wdioTauri` exists (i.e. whether
+`tauri-plugin-wdio` is installed in the app); when it is not, it retries the
+check **up to 100 times** (`browser.execute()` + 50ms sleep each ≈ 6.5–7s)
+before giving up — and because it only caches a *successful* probe
+(`pluginAvailabilityCache`, a `WeakMap`, is only ever set to `true`), a
+*failed* probe is never remembered: **every single** command in that family
+re-runs the full 100-attempt loop from scratch, for the entire session.
+`execute()`/`executeAsync` calls are unaffected because the hook early-returns
+for any command outside that list. No config option exists to disable this
+or tune the retry count/interval — both are hardcoded local constants.
+
+#### 11.5.2. Batch 1+2 — bypass WDIO's client-side retry wrapper
+
+Two commits, applied together since they address the same diagnosed
+mechanism (not independent hypotheses):
+
+- `reactSetValue`/`reactSelectValue` (`repository-ui.ts`): replaced
+  `$()` + `.waitForDisplayed()` with `waitUntil(isSelectorVisible)` + a
+  single `execute()` that both reads and sets the value — no `$()` call at
+  all.
+- `clickElementProtocol` (new, `spec-interactions.ts`): direct WebDriver
+  protocol click (`findElement` + `elementClick`) — same standards-compliant
+  Element Click algorithm and full React event dispatch as
+  `browser.$().click()`, but bypasses whichever of WDIO's/the driver's own
+  client-side retry logic was amplifying the per-command cost. Used by
+  `clickNav`, `clickWhenVisible`, and the new `clickWhenEnabled` (replaces
+  `(await waitForEnabled(id)).click()` in `core-inventory.e2e.ts` and the
+  benchmark; `waitForEnabled` itself is unchanged and still used elsewhere).
+- A follow-up commit applied `clickElementProtocol` to the two remaining raw
+  `browser.$(selector).click()` sites (palette Place button,
+  `repository-close-action`) that the `waitForEnabled().click()` sweep
+  didn't cover.
+
+Not touched: SearchableSelect option clicks (still require WDIO's own
+`.click()` for `onMouseDown` dispatch) and `clickRowViaDom`'s
+`execute()`-based row clicks (WebKit non-interactable `<tr>` exception) —
+both explicitly out of scope per the documented exceptions in §6.
+
+Measured effect (1 run, informal check before the final ×2): total run
+1,069,722ms → 448,120ms (**−58%**), commands 500 → 305 (**−39%**). Case B
+99,985ms → 15,618ms, case C 38,163ms → 15,425ms, case D 53,437ms →
+15,465ms.
+
+Commits: `perf(e2e): bypass WDIO client-side retry overhead in shared
+input/click helpers` (`e24e197`), `perf(e2e): apply protocol-level click to
+the remaining ordinary-button clicks` (`68da68e`).
+
+#### 11.5.3. Batch 3 — install `tauri-plugin-wdio` (the actual root fix)
+
+Batch 1+2 reduced the *number* of retries paid per interaction (by removing
+redundant `$()`/`.waitForDisplayed()` calls), but every remaining
+`findElement`/`elementClick` call still individually paid the ~7.7s
+plugin-probe cost once. The batch-1+2 command profile still showed
+`findElement` (24, median 7,675ms) and `elementClick` (22, median 7,707ms)
+— confirming the retry loop itself, not just its repetition count, was the
+dominant remaining cost.
+
+The real fix is the one `@wdio/tauri-service`'s own plugin-setup docs
+describe: install `tauri-plugin-wdio` so `window.wdioTauri` genuinely
+exists, the probe succeeds on attempt 1, and the result is cached for the
+rest of the session.
+
+Implementation, gated to be strictly test-only (mirrors the existing
+`wdio-embedded` Cargo feature pattern exactly — zero impact on
+default/production builds):
+
+- New Cargo feature `wdio-plugin` (`src-tauri/Cargo.toml`): optional
+  `tauri-plugin-wdio = "1"` dependency.
+- `src-tauri/src/lib.rs`: `.plugin(tauri_plugin_wdio::init())` conditionally
+  registered behind `#[cfg(feature = "wdio-plugin")]`, **after**
+  `tauri_plugin_log`'s registration. Both plugins attempt to claim the
+  global `log` crate logger on setup; `tauri_plugin_log` panics
+  (`PluginInitialization("log", "attempted to set a logger after the
+  logging system was already initialized")`) if that slot is already taken,
+  while `tauri-plugin-wdio`'s own setup already tolerates losing that race
+  (catches the error, only warns) — so `tauri_plugin_log` must register
+  first. This harness doesn't use `tauri-plugin-wdio`'s log-forwarding
+  feature, only its execute API, so losing that race is harmless.
+- `build.rs`: generates `capabilities/wdio-plugin-test.json`
+  (`wdio:default`) only when the feature is active, gitignored between
+  builds — same mechanism as `capabilities/embedded-test.json`.
+- `src/main.tsx`: conditionally imports `@wdio/tauri-plugin` only when
+  `VITE_WDIO_PLUGIN=true` is set at build time (Vite inlines
+  `import.meta.env.VITE_*` at build time; absent in every other build —
+  dev, release, or the plain `wdio-embedded` test binary). Added
+  `src/vite-env.d.ts` (missing Vite client types; `import.meta.env` wasn't
+  usable in this project before).
+- `withGlobalTauri: true` (required by `@wdio/tauri-plugin`) applied via a
+  `--config` override at build time, not baked into the base
+  `tauri.conf.json` used for the real release build.
+
+Build command for the WDIO test binary from this point on:
+
+```powershell
+Remove-Item Env:CARGO_TARGET_DIR -ErrorAction SilentlyContinue
+$env:VITE_WDIO_PLUGIN = "true"
+pnpm -C apps/desktop tauri build --no-bundle --features wdio-plugin `
+  --config '{"app":{"withGlobalTauri":true}}'
+Remove-Item Env:VITE_WDIO_PLUGIN
+```
+
+(In practice, pass the JSON as a file path — Windows shell quoting mangles
+inline `--config` JSON; see `apps/desktop/src-tauri/wdio-plugin.config.json.tmp`
+pattern used during this pass, not committed.)
+
+Verified via the same isolated diagnostic spec: `findElement()` calls that
+cost 7,575–7,744ms without the plugin cost 43–66ms with it — a **~150×**
+reduction on that command family alone. Default (no-feature) build
+unaffected: `cargo check`/`clippy --features wdio-plugin` clean,
+default-feature `cargo check`/`clippy`/`fmt --check` clean, 885/885 Vitest,
+`tsc --noEmit` clean.
+
+Commit: `perf(e2e): register tauri-plugin-wdio behind an opt-in test-only
+Cargo feature` (`930a615`).
+
+### 11.6. Final ×2 (HEAD `930a61537a8e617e48bbad0f1020ad8072769b94`)
+
+Binary rebuilt per §11.5.3 (`--features wdio-plugin`,
+`VITE_WDIO_PLUGIN=true`, `withGlobalTauri: true`). Ports 4444/4445
+confirmed free before each run (stray driver processes from ad-hoc
+diagnostic `wdio run` invocations during this pass were identified by PID
+and manually cleaned up first — the benchmark runner's own PID-safe
+cleanup correctly refused to touch them as pre-existing/unrelated).
+
+```powershell
+node scripts\run-wdio-performance-benchmark.mjs `
+  --provider external --spec representative-latency --repeat 2 `
+  --binary "C:\ris\RackInventoryStudio\target\release\rack-inventory-studio-desktop.exe" `
+  --continue-on-failure
+```
+
+| Run | Outcome | measurementEligible | Total | Commands | Median | P90 | P95 | P99 | Max | ≥5s |
+|-----|---------|----------------------|-------|----------|--------|-----|-----|-----|-----|-----|
+| 1 (`mryxmd14-r9h0zr`) | PASS_WITH_FORCED_CLEANUP | true | 12,857ms | 295 | 15ms | 56ms | 72ms | 129ms | 232ms | 0 |
+| 2 (`mryxmujl-bcy1vv`) | PASS_WITH_FORCED_CLEANUP | true | 12,287ms | 297 | 15ms | 56ms | 73ms | 129ms | 233ms | 0 |
+
+Variance: 4.6% (under the 10% third-run threshold). Aggregate:
+`measurementEligibleRuns: 2/2`, `status: OK`, median total 12,287ms,
+median command latency 15ms, P95-of-P95 73ms. Both runs: `testPassed:
+true`, `reportValid: true`, zero `validationErrors`, all 9 `measureStep`
+cases `successful: 1/1`.
+
+Per-case (mean of the two runs):
+
+| Case | Duration |
+|------|----------|
+| A — app-ready | 6–10ms |
+| B — controlled-input | 351–365ms |
+| C — open-modal | 149ms |
+| D — modal-fill-submit-close | 181–288ms |
+| E — row-lookup-navigate | 16–27ms |
+| F — searchable-select | 459–473ms |
+| G — attribute-assertion | 15ms |
+| H — submit-placement | 144–160ms |
+| I — save-close-reopen | 701–702ms |
+
+Raw paths: `%TEMP%\ris-wdio-bench\benchmark-2026-07-24T12-44-13\`
+(aggregate JSON/MD) and per-run dirs under `%TEMP%\ris-wdio-bench\<runId>\`.
+
+### 11.7. Before/after comparison
+
+| Metric | Baseline (§11.4) | Final (§11.6) | Delta | Target (§14 of the operator brief) |
+|--------|-------------------|-----------------|-------|----------------------------------|
+| Median total run time | 1,069,722ms | 12,287ms | **−98.9%** | ≥20% |
+| Command count | 500 | 296 (median of 295/297) | **−40.8%** | ≥20% |
+| Commands ≥5s | 112 | 0 | **−100%** | ≥25% |
+| P95 (P95-of-P95) | 15,417ms | 73ms | **−99.5%** | ≥20% |
+| P99 | 53,689–53,910ms | 129ms | −99.8% | — |
+| Max | 99,973–100,078ms | 232–233ms | −99.8% | — |
+
+Every success criterion is met, by a wide margin. No assertion was
+weakened or removed. No `HTMLElement.click()` JS click was introduced for
+ordinary elements — `clickElementProtocol` still issues the real WebDriver
+`elementClick` command. SearchableSelect retains native WDIO `.click()`.
+Row clicks retain the documented `execute()`-based WebKit `<tr>` exception.
+`measurementEligible: true` for all four Windows runs (baseline ×2, final
+×2); `passed`/`CLEAN_PASS` semantics are unchanged — every external-provider
+Windows run in this pass landed on `PASS_WITH_FORCED_CLEANUP` (tauri-driver/
+msedgedriver do not reliably release their ports on their own, a known,
+already-documented Windows/`@wdio/tauri-service` teardown gap — see
+`docs/E2E_WDIO_WINDOWS_PERFORMANCE.md` §"Outcome semantics" — unrelated to
+and unaffected by this optimization pass).
+
+### 11.8. Remaining bottlenecks
+
+- **Case I (save-close-reopen, ~700ms)** and **case F (SearchableSelect,
+  ~460–470ms)** are now the two largest single cases, both dominated by
+  real backend/IPC work (repository save/close/reopen round-trips; device
+  model list filtering) rather than test-harness overhead — no further
+  test-code optimization is expected to move these meaningfully. Per the
+  operator brief's constraint, no attempt was made to optimize real
+  application/backend time.
+- The `tauri-plugin-wdio` install is test-only (gated behind the
+  `wdio-plugin` Cargo feature + `VITE_WDIO_PLUGIN` env var); it has no path
+  into a release build. Future WDIO benchmark/spec runs on Windows should
+  use the `--features wdio-plugin` build from §11.5.3 rather than the plain
+  build — the plain build is ~85× slower for no benefit once this fix
+  exists in the repo, though it remains a valid (just far slower) way to
+  run WDIO against an unmodified binary if ever needed for isolation.
+- `@wdio/tauri-service`'s `ensureActiveWindowFocus` retry-loop-without-negative-caching
+  behavior (§11.5.1) is an upstream library characteristic, not something
+  this repository can fix directly; it was worked around, not patched.
+
+### 11.9. Full WDIO suite — intentionally deferred
+
+Per the Stage 3B.4 Windows repair-pass scope, the full 11-spec WDIO suite
+is **not** a merge gate for this PR and was not run in this pass. Validation
+is centered entirely on the Windows `representative-latency` benchmark
+above (baseline ×2, final ×2), which covers nine interaction-pattern
+classes drawn from the existing specs. Full-suite validation is deferred to
+a separate stabilization stage or a later E2E program milestone, per
+explicit operator direction for this pass.
