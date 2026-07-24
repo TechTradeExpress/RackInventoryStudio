@@ -79,14 +79,14 @@ export async function reactSelectValue(testId: string, value: string): Promise<v
 export async function waitForEnabled(testId: string, timeout = 10_000): Promise<WebdriverIO.Element> {
   const el = await browser.$(`[data-testid="${testId}"]`);
   await browser.waitUntil(
-    async () => {
-      try {
-        return await el.isEnabled();
-      } catch {
-        return false;
-      }
-    },
-    { timeout, timeoutMsg: `[data-testid="${testId}"] never became enabled` },
+    () =>
+      browser.execute((tid: string) => {
+        const btn = document.querySelector<HTMLButtonElement | HTMLInputElement>(
+          `[data-testid="${tid}"]`,
+        );
+        return !!btn && !btn.disabled;
+      }, testId),
+    { timeout, interval: 100, timeoutMsg: `[data-testid="${testId}"] never became enabled` },
   );
   return el;
 }
@@ -96,20 +96,25 @@ export async function waitForEnabled(testId: string, timeout = 10_000): Promise<
  * matches the canonical form of expectedPath.
  */
 export async function expectActiveRepositoryPath(expectedPath: string): Promise<void> {
-  const pathElement = browser.$('[data-testid="repository-active-path"]');
-  await pathElement.waitForDisplayed({ timeout: 30_000 });
-
+  const expected = canonicalPath(expectedPath);
   await browser.waitUntil(
-    async () => {
-      const displayedPath = await pathElement.getText();
-      try {
-        return canonicalPath(displayedPath) === canonicalPath(expectedPath);
-      } catch {
-        return false;
-      }
-    },
+    () =>
+      browser.execute((testId: string, exp: string) => {
+        const el = document.querySelector(`[data-testid="${testId}"]`);
+        if (!el) return false;
+        const rect = (el as HTMLElement).getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0) return false;
+        try {
+          // Normalise separators for comparison (Windows paths may have \ or /)
+          const text = (el.textContent ?? "").trim().replace(/\\/g, "/");
+          return text === exp.replace(/\\/g, "/");
+        } catch {
+          return false;
+        }
+      }, "repository-active-path", expected),
     {
       timeout: 30_000,
+      interval: 100,
       timeoutMsg: `Active repository path did not become "${expectedPath}"`,
     },
   );
