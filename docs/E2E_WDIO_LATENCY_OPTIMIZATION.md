@@ -104,6 +104,20 @@ startup time. No test-code optimization can reduce this without changing the app
 itself (e.g., adding earlier DOM signals). App-smoke is already optimal from the
 test-code perspective.
 
+### After-optimization: app-smoke ×2 (regression check)
+
+Run date: 2026-07-24 (same binary, Batch A+B code applied).
+
+| Run | Outcome | Test exec | Commands | Median | P95 | >=5s |
+|-----|---------|-----------|----------|--------|-----|------|
+| 1 (mryk82vk) | CLEAN_PASS | 74147ms | 37 | 18ms | 12402ms | 14/37 |
+| 2 (mryk9sj8) | CLEAN_PASS | 75138ms | 37 | 17ms | 12651ms | 14/37 |
+
+**No regression.** Command count, slow-command count, and P95 are all identical
+to baseline within normal run-to-run variance. The `waitforInterval: 100` change
+does not affect app-smoke because that spec has no `waitUntil` calls; its 14
+slow commands remain the inherent startup-time floor.
+
 ---
 
 ## 5. Before-baseline: core-inventory ×2

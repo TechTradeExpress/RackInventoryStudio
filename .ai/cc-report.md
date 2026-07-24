@@ -81,7 +81,14 @@ Same binary, fully optimized test code (Batch A+B).
 
 Both runs consistent (identical command count, p95 within 3ms).
 
-**app-smoke after:** *(pending — being run now)*
+**app-smoke ×2 after (no regression):**
+
+| Run | Outcome | Test exec | Commands | Median | P95 | >=5s |
+|-----|---------|-----------|----------|--------|-----|------|
+| 1 (mryk82vk) | CLEAN_PASS | 74147ms | 37 | 18ms | 12402ms | 14/37 |
+| 2 (mryk9sj8) | CLEAN_PASS | 75138ms | 37 | 17ms | 12651ms | 14/37 |
+
+Identical to baseline (37 cmds, 14/37 ≥5s, P95 ~12.5s). No regression.
 
 ## Diagnosis
 
@@ -138,7 +145,7 @@ xvfb-run -a RIS_WDIO_TIMING=1 node_modules/.bin/wdio run e2e-wdio/wdio.conf.ts \
   not weakened per constraint).
 - Stage 3C (out of scope).
 - New workflow coverage (out of scope).
-- app-smoke after-benchmark (pending).
+- app-smoke after-benchmark: done, no regression.
 
 ## Suggested next step
 
