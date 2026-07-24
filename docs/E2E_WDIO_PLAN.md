@@ -867,6 +867,121 @@ remain as planned).  No optimizations were implemented in this stage.
 
 ---
 
+### Stage 3B.4 — E2E WDIO latency optimization
+
+**Status: IN REVIEW**
+
+Branch: `feature/e2e-wdio-latency-optimization`
+Direct base: `roadmap/e2e-wdio`
+Base SHA: `bd43e90b41bec7237693fe3c845b46bdf4f2f8c2`
+Default provider: `external`
+
+**Goal:** Reduce the long-tail latency observed in the external-provider flow
+without changing test coverage, assertion semantics, or the default provider.
+
+**Scope:**
+
+- Fresh Linux baseline (`app-smoke` ×2, `core-inventory` ×2)
+- Classification of the long-tail command distribution
+- Optimization of redundant WebDriver state reads and polling patterns
+- No coverage changes; no assertion changes; no provider changes
+- Before/after comparison on the same environment and binary
+
+**Not Stage 3C.** Stage 3C remains reserved for remaining placement workflows.
+No parallel spec execution. No changes to `SearchableSelect.tsx` or embedded provider.
+
+See `docs/E2E_WDIO_LATENCY_OPTIMIZATION.md` for full baseline data, diagnosis,
+optimization batches, and before/after results (Linux Class A/B/C, §1–10).
+
+**Windows repair pass (primary environment from this point):** correctness
+repairs to `expectActiveRepositoryPath`/visibility helpers, a new opt-in
+`representative-latency` benchmark (9 interaction-pattern cases drawn from
+existing specs), a Windows baseline ×2 (1,069,722ms median), root-cause
+diagnosis of a `@wdio/tauri-service` plugin-availability retry loop, three
+optimization batches (client-side retry bypass, then installing
+`tauri-plugin-wdio` behind a test-only Cargo feature — the actual root fix),
+and a Windows final ×2 (12,287ms median, **−98.9%**). See
+`docs/E2E_WDIO_LATENCY_OPTIMIZATION.md` §11 for full detail.
+
+**Second Windows repair pass (target-spec migration, same branch/PR):**
+moved the verified optimizations from the diagnostic benchmark into the
+real specs. Hardened `expectActiveRepositoryPath`'s `canonicalPath()`
+exception handling. Formalized the `wdio-plugin` test binary as a
+committed, scripted build (`scripts/build-wdio-plugin-binary.mjs`,
+`target-wdio-plugin/`, never the regular `target/release/`), with an opt-in
+`RIS_WDIO_EXPECT_PLUGIN` presence contract. A/B-confirmed
+`clickElementProtocol` remains ~40%/80ms faster than `browser.$().click()`
+even with the plugin installed. Migrated 7 of 11 specs (`csv-import`,
+`destructive-guards-hierarchy`, `destructive-guards-inventory`,
+`entity-deletes-hierarchy`, `entity-deletes-inventory`,
+`entity-updates-work-mode`, `placement-lifecycle`) to the shared
+`clickWhenEnabled`/`clickNav` helpers; every modified spec validated
+directly on Windows (6-28s each, down from historical Linux times of
+minutes-to-~70min — see the before/after caveat in
+`docs/E2E_WDIO_LATENCY_OPTIMIZATION.md` §12.5). `core-inventory ×2` and
+`representative-latency ×2` re-validated on the final HEAD; the
+representative benchmark passed its regression gate against the previous
+final (all deltas within threshold). Full WDIO suite remains intentionally
+deferred, not a merge gate for this pass. See
+`docs/E2E_WDIO_LATENCY_OPTIMIZATION.md` §12 for full detail, including the
+list of remaining costly patterns consciously left for a future pass.
+
+**Linux canonical-runner repair pass (same branch/PR, two parts):** Linux
+is now the primary Stage 3B.4 validation environment (all validation below
+ran directly on Linux/WebKitWebDriver, not carried over from Windows).
+
+- **Part 1** (static/unit-tested only, no E2E environment available in that
+  session): hardened `scripts/run-wdio-e2e.mjs`'s port contract to a hard
+  pre-run/post-run gate (occupied port or unverifiable `ss` probe now fails
+  the run, never just warns), made the child environment deterministic
+  (inherited `RIS_WDIO_EXPECT_PLUGIN`/`RIS_WDIO_DRIVER_PROVIDER`/
+  `TAURI_BINARY_PATH` are discarded before this run's own values are set;
+  `--binary` now requires an explicit `--expect-plugin`), fixed
+  `plugin-presence.ts` and `expectActiveRepositoryPath` to distinguish a
+  genuine WebDriver infrastructure failure from a real plugin-absence/
+  path-mismatch result instead of conflating the two, and restored the
+  placement modal's specific `"Placement failed"` diagnostic in the shared
+  `waitForFormCloseOrError` helper.
+- **Part 2** (full Linux E2E validation on real `xvfb-run`/`WebKitWebDriver`):
+  validated the canonical runner's port contract with a real occupied-port
+  negative test, ran the integration smoke (`app-smoke`) and all six specs
+  modified by this repair pass, and ran `representative-latency ×2` and
+  `core-inventory ×2` — the first plugin-backed Linux runs of either,
+  establishing fresh Linux baselines rather than comparing against Windows.
+  Also confirmed the production-shaped binary (no `wdio-plugin` feature)
+  still correctly reports `wdioPluginAvailable=false`/`buildVariant=plain`
+  through the same runner. Real E2E execution surfaced two further,
+  previously-undetected bugs, fixed and re-validated in place: a driver-level
+  race where the plugin-presence probe's first `browser.execute()` call
+  (issued in the same tick as `@wdio/tauri-service`'s own before-hook probe)
+  could hang for the full `connectionRetryTimeout` (90 s), and a
+  `cleanupOwnedRunRoot` teardown race (`ENOTEMPTY`) against the app
+  process's own still-settling filesystem writes, since WDIO's `onComplete`
+  hook fires before the driver/app process is stopped. See
+  `docs/E2E_WDIO_LATENCY_OPTIMIZATION.md` §13 for full environment details,
+  the occupied-port test transcript, and all before/after metrics. Full
+  11-spec suite remains intentionally deferred — not a gate for this pass.
+
+**Strict-review repair pass (same branch/PR):** addressed two blockers
+from a strict review of PR #154. (1) `csv-import.e2e.ts` is modified in
+the PR's overall diff against `roadmap/e2e-wdio` but had not been run
+directly on the Linux final HEAD — the Linux repair pass above validated
+only the six specs it touched, not every real E2E spec modified anywhere
+in the PR. Ran it via the canonical runner (no code changes needed):
+`CLEAN_PASS`, `wdioPluginAvailable=true`, `buildVariant=wdio-plugin`,
+ports free before/after. The full modified-vs-validated real E2E spec
+lists (8 specs each, from `git diff --name-status
+origin/roadmap/e2e-wdio...HEAD -- apps/desktop/e2e-wdio/specs`) are now
+identical. (2) The PR body/docs previously stated "CI workflow: PASS (6/7
+checks)" while `Frontend dependency audit` was failing — corrected to
+report each CI job separately with `CI overall: PARTIAL FAILURE`, and
+re-confirmed via a lockfile diff against the direct base that the failing
+advisories pre-date this PR and no new vulnerable dependency version was
+introduced. See `docs/E2E_WDIO_LATENCY_OPTIMIZATION.md` §14 for full
+detail. Stage 3B.4 remains **IN REVIEW**; PR #154 remains **not merged**.
+
+---
+
 ### Stage 3C — Remaining placement workflows
 
 **Status: PLANNED**

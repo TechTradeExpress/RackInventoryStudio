@@ -44,10 +44,11 @@
 import { browser, expect } from "@wdio/globals";
 import {
   reactSetValue,
-  waitForEnabled,
+  clickWhenEnabled,
   expectActiveRepositoryPath,
   createRepositoryThroughUi,
 } from "../support/repository-ui";
+import { clickNav } from "../support/spec-interactions";
 
 function log(msg: string) {
   const ts = new Date().toISOString().substring(11, 23);
@@ -72,21 +73,18 @@ const DEVICE_CSV_MISSING_STATUS = [
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-async function clickNav(tab: string): Promise<void> {
-  const el = await browser.$(`[data-testid="nav-${tab}"]`);
-  await el.waitForDisplayed({ timeout: 10_000 });
-  await el.click();
-}
-
 async function findDeviceRowByName(name: string): Promise<boolean> {
-  const rows = await browser.$$("[data-device-code]");
-  for (const row of rows) {
-    try {
-      const text = await row.getText();
-      if (text.includes(name)) return true;
-    } catch { /* stale element — skip */ }
-  }
-  return false;
+  // Single atomic execute() scan instead of $$() + .getText() per row — no
+  // per-row protocol round trips, no stale-element risk (no element
+  // references are held across an await boundary).
+  return browser.execute(
+    (selector: string, target: string) =>
+      Array.from(document.querySelectorAll(selector)).some((row) =>
+        (row.textContent ?? "").includes(target),
+      ),
+    "[data-device-code]",
+    name,
+  );
 }
 
 // ── Suite ─────────────────────────────────────────────────────────────────────
@@ -138,7 +136,7 @@ describe("Rack Inventory Studio — CSV import", () => {
     await reactSetValue("csv-textarea", DEVICE_CSV_VALID);
 
     log("part 2: clicking Preview");
-    await (await waitForEnabled("csv-preview-btn", 10_000)).click();
+    await clickWhenEnabled("csv-preview-btn", 10_000);
 
     log("part 2: waiting for preview table");
     await browser.$('[data-testid="csv-device-preview-table"]').waitForDisplayed({
@@ -210,7 +208,7 @@ describe("Rack Inventory Studio — CSV import", () => {
 
     // CSV import marks the repository dirty → UnsavedChangesDialog appears.
     log("part 4: saving through UnsavedChangesDialog");
-    await (await waitForEnabled("unsaved-changes-save", 15_000)).click();
+    await clickWhenEnabled("unsaved-changes-save", 15_000);
 
     await browser.$('[data-testid="repository-landing-title"]').waitForDisplayed({ timeout: 60_000 });
     await browser.$('[data-testid="repository-active-path"]').waitForDisplayed({
@@ -221,7 +219,7 @@ describe("Rack Inventory Studio — CSV import", () => {
 
     log(`part 4: reopening repository at ${repoPath}`);
     await reactSetValue("repository-open-path-input", repoPath);
-    await (await waitForEnabled("repository-open-path-submit")).click();
+    await clickWhenEnabled("repository-open-path-submit");
     await browser.$('[data-testid="repository-active-root"]').waitForDisplayed({ timeout: 30_000 });
     await expectActiveRepositoryPath(repoPath);
     log("part 4: repository reopened, active path verified");
@@ -235,20 +233,22 @@ describe("Rack Inventory Studio — CSV import", () => {
     let foundCsv02 = false;
     await browser.waitUntil(
       async () => {
-        try {
-          const rows = await browser.$$("[data-device-code]");
-          totalRows = rows.length;
-          foundCsv01 = false;
-          foundCsv02 = false;
-          for (const row of rows) {
-            const text = await row.getText();
-            if (text.includes("SWITCH-CSV-01")) foundCsv01 = true;
-            if (text.includes("SWITCH-CSV-02")) foundCsv02 = true;
-          }
-          return foundCsv01 && foundCsv02;
-        } catch { return false; }
+        // Single atomic execute() scan per poll iteration instead of $$() +
+        // .getText() per row — one round trip instead of 1+N.
+        const state = await browser.execute((selector: string) => {
+          const rows = Array.from(document.querySelectorAll(selector));
+          return {
+            totalRows: rows.length,
+            foundCsv01: rows.some((r) => (r.textContent ?? "").includes("SWITCH-CSV-01")),
+            foundCsv02: rows.some((r) => (r.textContent ?? "").includes("SWITCH-CSV-02")),
+          };
+        }, "[data-device-code]");
+        totalRows = state.totalRows;
+        foundCsv01 = state.foundCsv01;
+        foundCsv02 = state.foundCsv02;
+        return foundCsv01 && foundCsv02;
       },
-      { timeout: 15_000, timeoutMsg: "Imported devices not found in Devices panel after reopen" },
+      { timeout: 15_000, interval: 100, timeoutMsg: "Imported devices not found in Devices panel after reopen" },
     );
 
     if (totalRows !== 2) {
@@ -268,7 +268,7 @@ describe("Rack Inventory Studio — CSV import", () => {
     await reactSetValue("csv-textarea", DEVICE_CSV_MISSING_STATUS);
 
     log("part 5: clicking Preview");
-    await (await waitForEnabled("csv-preview-btn", 10_000)).click();
+    await clickWhenEnabled("csv-preview-btn", 10_000);
 
     log("part 5: waiting for preview table to appear");
     await browser.$('[data-testid="csv-device-preview-table"]').waitForDisplayed({

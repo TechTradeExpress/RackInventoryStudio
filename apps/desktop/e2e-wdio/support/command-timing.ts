@@ -133,6 +133,23 @@ let afterHookEndMs: number | null = null;
 
 let flushed = false;
 
+// ── Plugin-presence probe result (opt-in, see plugin-presence.ts) ──────────────
+// Populated only when RIS_WDIO_EXPECT_PLUGIN triggers the contract check;
+// stays null otherwise, and buildVariant/wdioPluginAvailable are omitted
+// from the summary rather than reported as a guess.
+
+let wdioPluginAvailable: boolean | null = null;
+
+/**
+ * Records the actual runtime probe result for whether window.wdioTauri was
+ * present in this session — never inferred from a binary path string. Called
+ * by plugin-presence.ts's assertPluginPresenceContract() when
+ * RIS_WDIO_EXPECT_PLUGIN is set.
+ */
+export function recordPluginPresenceProbe(available: boolean): void {
+  wdioPluginAvailable = available;
+}
+
 // ── Statistics helpers ────────────────────────────────────────────────────────
 
 /** Nearest-rank percentile on a pre-sorted ascending array. */
@@ -258,6 +275,11 @@ export function flushTimingReport(): void {
     provider: PROVIDER,
     platform: process.platform,
     pid: process.pid,
+    // Only present when RIS_WDIO_EXPECT_PLUGIN triggered the opt-in
+    // plugin-presence contract check (see plugin-presence.ts); derived from
+    // the actual runtime probe (window.wdioTauri), never from a path string.
+    buildVariant: wdioPluginAvailable === null ? null : wdioPluginAvailable ? "wdio-plugin" : "plain",
+    wdioPluginAvailable,
     commandCount: sorted.length,
     min: sorted[0] ?? 0,
     mean: avg(sorted),

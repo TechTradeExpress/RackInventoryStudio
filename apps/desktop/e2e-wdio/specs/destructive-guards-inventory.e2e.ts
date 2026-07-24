@@ -37,10 +37,11 @@ import { browser } from "@wdio/globals";
 import {
   reactSetValue,
   reactSelectValue,
-  waitForEnabled,
+  clickWhenEnabled,
   expectActiveRepositoryPath,
   createRepositoryThroughUi,
 } from "../support/repository-ui";
+import { clickNav, waitForFormCloseOrError } from "../support/spec-interactions";
 import {
   findRowByExactName,
   expectExactlyOneRowByName,
@@ -60,46 +61,6 @@ import {
 function log(msg: string) {
   const ts = new Date().toISOString().substring(11, 23);
   console.log(`[guards-inv ${ts}] ${msg}`);
-}
-
-async function clickNav(tab: string): Promise<void> {
-  const el = await browser.$(`[data-testid="nav-${tab}"]`);
-  await el.waitForDisplayed({ timeout: 10_000 });
-  await el.click();
-}
-
-async function waitForFormClose(submitTestId: string): Promise<void> {
-  await browser.waitUntil(
-    async () => {
-      const btn = browser.$(`[data-testid="${submitTestId}"]`);
-      if (!(await btn.isExisting())) return true;
-      if (!(await btn.isDisplayed())) return true;
-      const errEl = browser.$(".ft-msg.err");
-      if ((await errEl.isExisting()) && (await errEl.isDisplayed())) {
-        const errText = await errEl.getText();
-        throw new Error(`Form submit failed — modal error: "${errText}"`);
-      }
-      return false;
-    },
-    { timeout: 30_000, timeoutMsg: `Form "[data-testid="${submitTestId}"]" did not close within 30 s` },
-  );
-}
-
-async function waitForPlacePlacementModalClose(): Promise<void> {
-  await browser.waitUntil(
-    async () => {
-      const btn = browser.$('[data-testid="place-btn"]');
-      if (!(await btn.isExisting())) return true;
-      if (!(await btn.isDisplayed())) return true;
-      const errEl = browser.$(".ft-msg.err");
-      if ((await errEl.isExisting()) && (await errEl.isDisplayed())) {
-        const errText = await errEl.getText();
-        throw new Error(`Placement failed — modal error: "${errText}"`);
-      }
-      return false;
-    },
-    { timeout: 60_000, timeoutMsg: "PlacePlacementModal did not close after placement" },
-  );
 }
 
 async function navigateToRackDetail(locationName: string, rackName: string): Promise<void> {
@@ -158,8 +119,8 @@ describe("Rack Inventory Studio — inventory destructive-operation guards", () 
     await browser.$('[data-testid="location-add-btn"]').click();
     await browser.$('[data-testid="location-form-submit"]').waitForDisplayed({ timeout: 10_000 });
     await reactSetValue("field-name", locationName);
-    await (await waitForEnabled("location-form-submit")).click();
-    await waitForFormClose("location-form-submit");
+    await clickWhenEnabled("location-form-submit");
+    await waitForFormCloseOrError("location-form-submit");
     await findRowByExactName("[data-location-code]", locationName);
     log(`part A: location "${locationName}" confirmed`);
 
@@ -174,8 +135,8 @@ describe("Rack Inventory Studio — inventory destructive-operation guards", () 
     await reactSetValue("field-name", rackName);
     await reactSetValue("field-height-u", String(RACK_HEIGHT));
     await reactSetValue("field-row", `GRI-${suffix}`);
-    await (await waitForEnabled("rack-form-submit")).click();
-    await waitForFormClose("rack-form-submit");
+    await clickWhenEnabled("rack-form-submit");
+    await waitForFormCloseOrError("rack-form-submit");
     await findRowByExactName("[data-rack-code]", rackName);
     log(`part A: rack "${rackName}" confirmed (${RACK_HEIGHT}U)`);
 
@@ -188,8 +149,8 @@ describe("Rack Inventory Studio — inventory destructive-operation guards", () 
     await reactSelectValue("field-device-type", "server");
     await reactSetValue("field-name", modelName);
     await reactSetValue("field-height-u", String(MODEL_HEIGHT));
-    await (await waitForEnabled("model-form-submit")).click();
-    await waitForFormClose("model-form-submit");
+    await clickWhenEnabled("model-form-submit");
+    await waitForFormCloseOrError("model-form-submit");
     await findRowByExactName("[data-model-code]", modelName);
     log(`part A: model "${modelName}" confirmed (${MODEL_HEIGHT}U server)`);
 
@@ -221,8 +182,8 @@ describe("Rack Inventory Studio — inventory destructive-operation guards", () 
       { timeout: 15_000, timeoutMsg: `Model option "${modelName}" not found in device form dropdown` },
     );
 
-    await (await waitForEnabled("device-form-submit")).click();
-    await waitForFormClose("device-form-submit");
+    await clickWhenEnabled("device-form-submit");
+    await waitForFormCloseOrError("device-form-submit");
 
     const deviceRow = await findRowByExactName("[data-device-code]", deviceName);
     const deviceCode = (await deviceRow.getAttribute("data-device-code")) ?? "";
@@ -254,8 +215,12 @@ describe("Rack Inventory Studio — inventory destructive-operation guards", () 
     await browser.$('[data-testid="start-u-input"]').addValue(String(PLACE_U));
 
     log("part A: submitting placement");
-    await (await waitForEnabled("place-btn")).click();
-    await waitForPlacePlacementModalClose();
+    await clickWhenEnabled("place-btn");
+    await waitForFormCloseOrError("place-btn", {
+      timeout: 60_000,
+      errorLabel: "Placement failed",
+      timeoutLabel: "Placement modal",
+    });
 
     await expectExactlyOnePlacement(deviceCode, PLACE_U);
     log(`part A: placement card confirmed at U${PLACE_U} — fixture complete`);
@@ -266,7 +231,7 @@ describe("Rack Inventory Studio — inventory destructive-operation guards", () 
     await clickNav("repository");
     await browser.$('[data-testid="repository-active-root"]').waitForDisplayed({ timeout: 10_000 });
     await browser.$('[data-testid="repository-close-action"]').click();
-    await (await waitForEnabled("unsaved-changes-save")).click();
+    await clickWhenEnabled("unsaved-changes-save");
     await browser.$('[data-testid="repository-landing-title"]').waitForDisplayed({ timeout: 60_000 });
     await browser
       .$('[data-testid="repository-active-path"]')
@@ -275,7 +240,7 @@ describe("Rack Inventory Studio — inventory destructive-operation guards", () 
 
     log(`part B: reopening repository at ${repoPath}`);
     await reactSetValue("repository-open-path-input", repoPath);
-    await (await waitForEnabled("repository-open-path-submit")).click();
+    await clickWhenEnabled("repository-open-path-submit");
     await browser.$('[data-testid="repository-active-root"]').waitForDisplayed({ timeout: 30_000 });
     await expectActiveRepositoryPath(repoPath);
     log("part B: repository reopened");
@@ -453,7 +418,7 @@ describe("Rack Inventory Studio — inventory destructive-operation guards", () 
     log(`part G: reopening repository at ${repoPath}`);
     await browser.$('[data-testid="repository-landing-title"]').waitForDisplayed({ timeout: 10_000 });
     await reactSetValue("repository-open-path-input", repoPath);
-    await (await waitForEnabled("repository-open-path-submit")).click();
+    await clickWhenEnabled("repository-open-path-submit");
     await browser.$('[data-testid="repository-active-root"]').waitForDisplayed({ timeout: 30_000 });
     await expectActiveRepositoryPath(repoPath);
     log("part G: repository reopened");
