@@ -33,7 +33,7 @@ import { browser } from "@wdio/globals";
 import {
   reactSetValue,
   reactSelectValue,
-  waitForEnabled,
+  clickWhenEnabled,
   expectActiveRepositoryPath,
   createRepositoryThroughUi,
 } from "../support/repository-ui";
@@ -204,7 +204,7 @@ describe("Rack Inventory Studio — placement lifecycle", () => {
       await browser.$('[data-testid="location-add-btn"]').click();
       await browser.$('[data-testid="location-form-submit"]').waitForDisplayed({ timeout: 10_000 });
       await reactSetValue("field-name", locationName);
-      await (await waitForEnabled("location-form-submit")).click();
+      await clickWhenEnabled("location-form-submit");
       await findRowByText("[data-location-code]", locationName);
       log("part 1: location created");
 
@@ -220,7 +220,7 @@ describe("Rack Inventory Studio — placement lifecycle", () => {
       await browser.$('[data-testid="rack-form-submit"]').waitForDisplayed({ timeout: 10_000 });
       await reactSetValue("field-name", rackName);
       await reactSetValue("field-height-u", String(RACK_HEIGHT));
-      await (await waitForEnabled("rack-form-submit")).click();
+      await clickWhenEnabled("rack-form-submit");
       await findRowByText("[data-rack-code]", rackName);
       log("part 1: rack created");
 
@@ -233,7 +233,7 @@ describe("Rack Inventory Studio — placement lifecycle", () => {
       await reactSelectValue("field-device-type", "server");
       await reactSetValue("field-name", modelName);
       await reactSetValue("field-height-u", String(MODEL_HEIGHT));
-      await (await waitForEnabled("model-form-submit")).click();
+      await clickWhenEnabled("model-form-submit");
       await findRowByText("[data-model-code]", modelName);
       log("part 1: device model created (2U server)");
 
@@ -269,7 +269,7 @@ describe("Rack Inventory Studio — placement lifecycle", () => {
         },
         { timeout: 15_000, timeoutMsg: `Model option "${modelName}" not found in device form` },
       );
-      await (await waitForEnabled("device-form-submit")).click();
+      await clickWhenEnabled("device-form-submit");
 
       // Capture device code from the device row.
       let deviceCode = "";
@@ -341,7 +341,7 @@ describe("Rack Inventory Studio — placement lifecycle", () => {
       await suInput.addValue(String(INITIAL_U));
 
       log("part 1: submitting placement");
-      await (await waitForEnabled("place-btn")).click();
+      await clickWhenEnabled("place-btn");
 
       // Wait for PlacePlacementModal to close.
       // Uses isExisting() for DOM-removal detection — no false-positive catch on errors.
@@ -434,7 +434,7 @@ describe("Rack Inventory Studio — placement lifecycle", () => {
       await reactSetValue("start-u-input", String(MOVED_U));
 
       log("part 2: clicking save-btn");
-      await (await waitForEnabled("save-btn", 5_000)).click();
+      await clickWhenEnabled("save-btn", 5_000);
 
       log("part 2: waiting for EditPlacementModal to close");
       await waitForEditModalClose();
@@ -492,7 +492,7 @@ describe("Rack Inventory Studio — placement lifecycle", () => {
       await browser.$('[data-testid="repository-close-action"]').click();
 
       log("part 3: saving through UnsavedChangesDialog");
-      await (await waitForEnabled("unsaved-changes-save", 15_000)).click();
+      await clickWhenEnabled("unsaved-changes-save", 15_000);
 
       await browser.$('[data-testid="repository-landing-title"]').waitForDisplayed({ timeout: 60_000 });
       await browser.$('[data-testid="repository-active-path"]').waitForDisplayed({
@@ -503,7 +503,7 @@ describe("Rack Inventory Studio — placement lifecycle", () => {
 
       log(`part 3: reopening repository at ${repoPath}`);
       await reactSetValue("repository-open-path-input", repoPath);
-      await (await waitForEnabled("repository-open-path-submit")).click();
+      await clickWhenEnabled("repository-open-path-submit");
       await browser.$('[data-testid="repository-active-root"]').waitForDisplayed({ timeout: 30_000 });
       await expectActiveRepositoryPath(repoPath);
       log("part 3: repository reopened, active path verified");
@@ -642,7 +642,7 @@ describe("Rack Inventory Studio — placement lifecycle", () => {
       await browser.$('[data-testid="repository-close-action"]').click();
 
       log("part 5: saving through UnsavedChangesDialog");
-      await (await waitForEnabled("unsaved-changes-save", 15_000)).click();
+      await clickWhenEnabled("unsaved-changes-save", 15_000);
 
       await browser.$('[data-testid="repository-landing-title"]').waitForDisplayed({ timeout: 60_000 });
       await browser.$('[data-testid="repository-active-path"]').waitForDisplayed({
@@ -653,7 +653,7 @@ describe("Rack Inventory Studio — placement lifecycle", () => {
 
       log(`part 5: reopening repository at ${repoPath}`);
       await reactSetValue("repository-open-path-input", repoPath);
-      await (await waitForEnabled("repository-open-path-submit")).click();
+      await clickWhenEnabled("repository-open-path-submit");
       await browser.$('[data-testid="repository-active-root"]').waitForDisplayed({ timeout: 30_000 });
       await expectActiveRepositoryPath(repoPath);
       log("part 5: repository reopened");

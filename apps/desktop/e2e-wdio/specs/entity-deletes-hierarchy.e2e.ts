@@ -31,7 +31,7 @@
 import { browser } from "@wdio/globals";
 import {
   reactSetValue,
-  waitForEnabled,
+  clickWhenEnabled,
   expectActiveRepositoryPath,
   createRepositoryThroughUi,
 } from "../support/repository-ui";
@@ -113,7 +113,7 @@ describe("Rack Inventory Studio — hierarchy entity delete flows", () => {
     await browser.$('[data-testid="location-add-btn"]').click();
     await browser.$('[data-testid="location-form-submit"]').waitForDisplayed({ timeout: 10_000 });
     await reactSetValue("field-name", locationName);
-    await (await waitForEnabled("location-form-submit")).click();
+    await clickWhenEnabled("location-form-submit");
     await waitForFormClose("location-form-submit");
     await findRowByExactName("[data-location-code]", locationName);
     log(`part A: location "${locationName}" confirmed`);
@@ -130,7 +130,7 @@ describe("Rack Inventory Studio — hierarchy entity delete flows", () => {
     await reactSetValue("field-name", rackName);
     await reactSetValue("field-height-u", "10");
     await reactSetValue("field-row", `R-${suffix}`);
-    await (await waitForEnabled("rack-form-submit")).click();
+    await clickWhenEnabled("rack-form-submit");
     await waitForFormClose("rack-form-submit");
     await findRowByExactName("[data-rack-code]", rackName);
     log(`part A: rack "${rackName}" confirmed`);
@@ -141,7 +141,7 @@ describe("Rack Inventory Studio — hierarchy entity delete flows", () => {
     await clickNav("repository");
     await browser.$('[data-testid="repository-active-root"]').waitForDisplayed({ timeout: 10_000 });
     await browser.$('[data-testid="repository-close-action"]').click();
-    await (await waitForEnabled("unsaved-changes-save")).click();
+    await clickWhenEnabled("unsaved-changes-save");
     await browser.$('[data-testid="repository-landing-title"]').waitForDisplayed({ timeout: 60_000 });
     await browser
       .$('[data-testid="repository-active-path"]')
@@ -150,7 +150,7 @@ describe("Rack Inventory Studio — hierarchy entity delete flows", () => {
 
     log(`part B: reopening repository at ${repoPath}`);
     await reactSetValue("repository-open-path-input", repoPath);
-    await (await waitForEnabled("repository-open-path-submit")).click();
+    await clickWhenEnabled("repository-open-path-submit");
     await browser.$('[data-testid="repository-active-root"]').waitForDisplayed({ timeout: 30_000 });
     await expectActiveRepositoryPath(repoPath);
     log("part B: repository reopened");
@@ -240,7 +240,7 @@ describe("Rack Inventory Studio — hierarchy entity delete flows", () => {
     await clickNav("repository");
     await browser.$('[data-testid="repository-active-root"]').waitForDisplayed({ timeout: 10_000 });
     await browser.$('[data-testid="repository-close-action"]').click();
-    await (await waitForEnabled("unsaved-changes-save")).click();
+    await clickWhenEnabled("unsaved-changes-save");
     await browser.$('[data-testid="repository-landing-title"]').waitForDisplayed({ timeout: 60_000 });
     await browser
       .$('[data-testid="repository-active-path"]')
@@ -249,7 +249,7 @@ describe("Rack Inventory Studio — hierarchy entity delete flows", () => {
 
     log(`part G: reopening repository at ${repoPath}`);
     await reactSetValue("repository-open-path-input", repoPath);
-    await (await waitForEnabled("repository-open-path-submit")).click();
+    await clickWhenEnabled("repository-open-path-submit");
     await browser.$('[data-testid="repository-active-root"]').waitForDisplayed({ timeout: 30_000 });
     await expectActiveRepositoryPath(repoPath);
     log("part G: repository reopened");

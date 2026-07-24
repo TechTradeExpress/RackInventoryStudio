@@ -25,7 +25,7 @@ import { browser } from "@wdio/globals";
 import {
   reactSetValue,
   reactSelectValue,
-  waitForEnabled,
+  clickWhenEnabled,
   expectActiveRepositoryPath,
   createRepositoryThroughUi,
 } from "../support/repository-ui";
@@ -328,7 +328,7 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
     await browser.$('[data-testid="location-add-btn"]').click();
     await browser.$('[data-testid="location-form-submit"]').waitForDisplayed({ timeout: 10_000 });
     await reactSetValue("field-name", locationName);
-    await (await waitForEnabled("location-form-submit")).click();
+    await clickWhenEnabled("location-form-submit");
     await waitForFormClose("location-form-submit");
     await findRowByExactName("[data-location-code]", locationName);
     log(`part B: location "${locationName}" confirmed`);
@@ -349,7 +349,7 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
     await reactSetValue("field-name", rackName);
     await reactSetValue("field-height-u", initialRackHeight);
     await reactSetValue("field-row", initialRackRow);
-    await (await waitForEnabled("rack-form-submit")).click();
+    await clickWhenEnabled("rack-form-submit");
     await waitForFormClose("rack-form-submit");
     await findRowByExactName("[data-rack-code]", rackName);
     log(`part B: rack "${rackName}" (${initialRackHeight}U, row=${initialRackRow}) confirmed`);
@@ -364,7 +364,7 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
     await reactSetValue("field-name", modelName);
     await reactSetValue("field-height-u", initialModelHeight);
     await reactSetValue("field-model-sku", initialModelSku);
-    await (await waitForEnabled("model-form-submit")).click();
+    await clickWhenEnabled("model-form-submit");
     await waitForFormClose("model-form-submit");
     await findRowByExactName("[data-model-code]", modelName);
     log(`part B: model "${modelName}" (${initialModelHeight}U, SKU=${initialModelSku}) confirmed`);
@@ -397,7 +397,7 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
       { timeout: 15_000, timeoutMsg: `Model option "${modelName}" not found in device form dropdown` },
     );
     await reactSetValue("field-serial", initialDeviceSerial);
-    await (await waitForEnabled("device-form-submit")).click();
+    await clickWhenEnabled("device-form-submit");
     await waitForFormClose("device-form-submit");
     await findRowByExactName("[data-device-code]", deviceName);
     log(`part B: device "${deviceName}" (serial=${initialDeviceSerial}) confirmed`);
@@ -419,7 +419,7 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
     await reactSelectValue("field-status", "installed");
     await reactSetValue("field-serial", updatedDeviceSerial);
 
-    await (await waitForEnabled("device-form-submit")).click();
+    await clickWhenEnabled("device-form-submit");
     await waitForFormClose("device-form-submit");
     log("part C: device form closed");
 
@@ -457,7 +457,7 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
     await reactSetValue("field-height-u", updatedModelHeight);
     await reactSetValue("field-model-sku", updatedModelSku);
 
-    await (await waitForEnabled("model-form-submit")).click();
+    await clickWhenEnabled("model-form-submit");
     await waitForFormClose("model-form-submit");
     log("part D: model form closed");
 
@@ -513,7 +513,7 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
     await reactSetValue("field-height-u", updatedRackHeight);
     await reactSetValue("field-row", updatedRackRow);
 
-    await (await waitForEnabled("rack-form-submit")).click();
+    await clickWhenEnabled("rack-form-submit");
     await waitForFormClose("rack-form-submit");
     log("part E: rack form closed");
 
@@ -544,7 +544,7 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
 
     await reactSetValue("field-name", updatedLocationName);
 
-    await (await waitForEnabled("location-form-submit")).click();
+    await clickWhenEnabled("location-form-submit");
     await waitForFormClose("location-form-submit");
     log("part F: location form closed");
 
@@ -623,7 +623,7 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
     await clickNav("repository");
     await browser.$('[data-testid="repository-active-root"]').waitForDisplayed({ timeout: 10_000 });
     await browser.$('[data-testid="repository-close-action"]').click();
-    await (await waitForEnabled("unsaved-changes-save")).click();
+    await clickWhenEnabled("unsaved-changes-save");
     await browser.$('[data-testid="repository-landing-title"]').waitForDisplayed({ timeout: 60_000 });
     await browser
       .$('[data-testid="repository-active-path"]')
@@ -632,7 +632,7 @@ describe("Rack Inventory Studio — entity updates and work mode", () => {
 
     log(`part H: reopening repository at ${repoPath}`);
     await reactSetValue("repository-open-path-input", repoPath);
-    await (await waitForEnabled("repository-open-path-submit")).click();
+    await clickWhenEnabled("repository-open-path-submit");
     await browser.$('[data-testid="repository-active-root"]').waitForDisplayed({ timeout: 30_000 });
     await expectActiveRepositoryPath(repoPath);
     log("part H: repository reopened, active path verified");

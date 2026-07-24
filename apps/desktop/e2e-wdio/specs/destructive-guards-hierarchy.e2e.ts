@@ -35,7 +35,7 @@ import { browser } from "@wdio/globals";
 import {
   reactSetValue,
   reactSelectValue,
-  waitForEnabled,
+  clickWhenEnabled,
   expectActiveRepositoryPath,
   createRepositoryThroughUi,
 } from "../support/repository-ui";
@@ -140,7 +140,7 @@ describe("Rack Inventory Studio — hierarchy destructive-operation guards", () 
     await browser.$('[data-testid="location-add-btn"]').click();
     await browser.$('[data-testid="location-form-submit"]').waitForDisplayed({ timeout: 10_000 });
     await reactSetValue("field-name", locationName);
-    await (await waitForEnabled("location-form-submit")).click();
+    await clickWhenEnabled("location-form-submit");
     await waitForFormClose("location-form-submit");
     await findRowByExactName("[data-location-code]", locationName);
     log(`part A: location "${locationName}" confirmed`);
@@ -156,7 +156,7 @@ describe("Rack Inventory Studio — hierarchy destructive-operation guards", () 
     await reactSetValue("field-name", rackName);
     await reactSetValue("field-height-u", String(RACK_HEIGHT));
     await reactSetValue("field-row", `GRH-${suffix}`);
-    await (await waitForEnabled("rack-form-submit")).click();
+    await clickWhenEnabled("rack-form-submit");
     await waitForFormClose("rack-form-submit");
     await findRowByExactName("[data-rack-code]", rackName);
     log(`part A: rack "${rackName}" confirmed (${RACK_HEIGHT}U)`);
@@ -170,7 +170,7 @@ describe("Rack Inventory Studio — hierarchy destructive-operation guards", () 
     await reactSelectValue("field-device-type", "server");
     await reactSetValue("field-name", modelName);
     await reactSetValue("field-height-u", String(MODEL_HEIGHT));
-    await (await waitForEnabled("model-form-submit")).click();
+    await clickWhenEnabled("model-form-submit");
     await waitForFormClose("model-form-submit");
     await findRowByExactName("[data-model-code]", modelName);
     log(`part A: model "${modelName}" confirmed`);
@@ -203,7 +203,7 @@ describe("Rack Inventory Studio — hierarchy destructive-operation guards", () 
       { timeout: 15_000, timeoutMsg: `Model option "${modelName}" not found in device form dropdown` },
     );
 
-    await (await waitForEnabled("device-form-submit")).click();
+    await clickWhenEnabled("device-form-submit");
     await waitForFormClose("device-form-submit");
 
     const deviceRow = await findRowByExactName("[data-device-code]", deviceName);
@@ -242,7 +242,7 @@ describe("Rack Inventory Studio — hierarchy destructive-operation guards", () 
     await browser.$('[data-testid="start-u-input"]').addValue(String(PLACE_U));
 
     log("part A: submitting placement");
-    await (await waitForEnabled("place-btn")).click();
+    await clickWhenEnabled("place-btn");
     await waitForPlacePlacementModalClose();
 
     await expectExactlyOnePlacement(deviceCode, PLACE_U);
@@ -254,7 +254,7 @@ describe("Rack Inventory Studio — hierarchy destructive-operation guards", () 
     await clickNav("repository");
     await browser.$('[data-testid="repository-active-root"]').waitForDisplayed({ timeout: 10_000 });
     await browser.$('[data-testid="repository-close-action"]').click();
-    await (await waitForEnabled("unsaved-changes-save")).click();
+    await clickWhenEnabled("unsaved-changes-save");
     await browser.$('[data-testid="repository-landing-title"]').waitForDisplayed({ timeout: 60_000 });
     await browser
       .$('[data-testid="repository-active-path"]')
@@ -263,7 +263,7 @@ describe("Rack Inventory Studio — hierarchy destructive-operation guards", () 
 
     log(`part B: reopening repository at ${repoPath}`);
     await reactSetValue("repository-open-path-input", repoPath);
-    await (await waitForEnabled("repository-open-path-submit")).click();
+    await clickWhenEnabled("repository-open-path-submit");
     await browser.$('[data-testid="repository-active-root"]').waitForDisplayed({ timeout: 30_000 });
     await expectActiveRepositoryPath(repoPath);
     log("part B: repository reopened");
@@ -451,7 +451,7 @@ describe("Rack Inventory Studio — hierarchy destructive-operation guards", () 
     log(`part G: reopening repository at ${repoPath}`);
     await browser.$('[data-testid="repository-landing-title"]').waitForDisplayed({ timeout: 10_000 });
     await reactSetValue("repository-open-path-input", repoPath);
-    await (await waitForEnabled("repository-open-path-submit")).click();
+    await clickWhenEnabled("repository-open-path-submit");
     await browser.$('[data-testid="repository-active-root"]').waitForDisplayed({ timeout: 30_000 });
     await expectActiveRepositoryPath(repoPath);
     log("part G: repository reopened");

@@ -29,7 +29,7 @@ import { browser } from "@wdio/globals";
 import {
   reactSetValue,
   reactSelectValue,
-  waitForEnabled,
+  clickWhenEnabled,
   expectActiveRepositoryPath,
   createRepositoryThroughUi,
 } from "../support/repository-ui";
@@ -111,7 +111,7 @@ describe("Rack Inventory Studio — inventory entity delete flows", () => {
     await reactSelectValue("field-device-type", "server");
     await reactSetValue("field-name", modelName);
     await reactSetValue("field-height-u", "1");
-    await (await waitForEnabled("model-form-submit")).click();
+    await clickWhenEnabled("model-form-submit");
     await waitForFormClose("model-form-submit");
     await findRowByExactName("[data-model-code]", modelName);
     log(`part A: model "${modelName}" confirmed`);
@@ -125,7 +125,7 @@ describe("Rack Inventory Studio — inventory entity delete flows", () => {
     await reactSelectValue("field-device-type", "server");
     await reactSetValue("field-name", deviceName);
     // No model assigned — leave SearchableSelect at default "— none —"
-    await (await waitForEnabled("device-form-submit")).click();
+    await clickWhenEnabled("device-form-submit");
     await waitForFormClose("device-form-submit");
     await findRowByExactName("[data-device-code]", deviceName);
     log(`part A: device "${deviceName}" confirmed (unplaced, no model)`);
@@ -136,7 +136,7 @@ describe("Rack Inventory Studio — inventory entity delete flows", () => {
     await clickNav("repository");
     await browser.$('[data-testid="repository-active-root"]').waitForDisplayed({ timeout: 10_000 });
     await browser.$('[data-testid="repository-close-action"]').click();
-    await (await waitForEnabled("unsaved-changes-save")).click();
+    await clickWhenEnabled("unsaved-changes-save");
     await browser.$('[data-testid="repository-landing-title"]').waitForDisplayed({ timeout: 60_000 });
     await browser
       .$('[data-testid="repository-active-path"]')
@@ -145,7 +145,7 @@ describe("Rack Inventory Studio — inventory entity delete flows", () => {
 
     log(`part B: reopening repository at ${repoPath}`);
     await reactSetValue("repository-open-path-input", repoPath);
-    await (await waitForEnabled("repository-open-path-submit")).click();
+    await clickWhenEnabled("repository-open-path-submit");
     await browser.$('[data-testid="repository-active-root"]').waitForDisplayed({ timeout: 30_000 });
     await expectActiveRepositoryPath(repoPath);
     log("part B: repository reopened");
@@ -245,7 +245,7 @@ describe("Rack Inventory Studio — inventory entity delete flows", () => {
     await clickNav("repository");
     await browser.$('[data-testid="repository-active-root"]').waitForDisplayed({ timeout: 10_000 });
     await browser.$('[data-testid="repository-close-action"]').click();
-    await (await waitForEnabled("unsaved-changes-save")).click();
+    await clickWhenEnabled("unsaved-changes-save");
     await browser.$('[data-testid="repository-landing-title"]').waitForDisplayed({ timeout: 60_000 });
     await browser
       .$('[data-testid="repository-active-path"]')
@@ -254,7 +254,7 @@ describe("Rack Inventory Studio — inventory entity delete flows", () => {
 
     log(`part G: reopening repository at ${repoPath}`);
     await reactSetValue("repository-open-path-input", repoPath);
-    await (await waitForEnabled("repository-open-path-submit")).click();
+    await clickWhenEnabled("repository-open-path-submit");
     await browser.$('[data-testid="repository-active-root"]').waitForDisplayed({ timeout: 30_000 });
     await expectActiveRepositoryPath(repoPath);
     log("part G: repository reopened");
