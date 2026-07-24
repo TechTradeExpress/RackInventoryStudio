@@ -869,7 +869,7 @@ remain as planned).  No optimizations were implemented in this stage.
 
 ### Stage 3B.4 — E2E WDIO latency optimization
 
-**Status: COMPLETE**
+**Status: IN REVIEW**
 
 Branch: `feature/e2e-wdio-latency-optimization`
 Direct base: `roadmap/e2e-wdio`

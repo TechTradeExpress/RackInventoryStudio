@@ -3,7 +3,7 @@
 **Branch:** `feature/e2e-wdio-latency-optimization`
 **Base:** `roadmap/e2e-wdio`
 **Base SHA:** `bd43e90b41bec7237693fe3c845b46bdf4f2f8c2`
-**Status:** COMPLETE
+**Status:** IN REVIEW
 
 ---
 
@@ -92,9 +92,10 @@ during the application startup phase. The app-smoke test runs immediately after 
 WebView session is established, before the React app has finished mounting.
 
 **Mechanism**: WDIO's ChainablePromise element resolution (`browser.$()`) uses internal
-silent polling (~500ms interval, no command hooks per failed attempt). After ~6.4s
-of silent polling, body appears in the WebView. The underlying `findElement` WebDriver
-call then takes a further ~6.2s to confirm the element. Total per element lookup: ~12.5s.
+silent polling (~500ms interval, no command hooks per failed attempt). In the measured
+Linux external-provider environment, this results in ~6.4s of silent polling until the
+body appears in the WebView, followed by a further ~6.2s `findElement` WebDriver call —
+about 12.5s per element lookup on this machine.
 
 After the React app renders at ~T=13s (from first test command), all subsequent
 lookups and `isDisplayed` checks complete in 7–11ms.
@@ -138,10 +139,11 @@ Both runs terminated with `TEST_FAILED` before completing the test:
 
 **Root cause:** `waitUntil` with `$().getText()` inside the predicate.
 `$().getText()` uses WDIO's ChainablePromise which polls at ~500ms intervals
-for the element before issuing the protocol call. On this machine each
-ChainablePromise resolution takes ~6s (silent polling until element found)
-plus ~6s for the actual `getElementText` protocol call = **~12s per iteration**.
-With only a 5 s `waitUntil` timeout the predicate was never evaluated before
+for the element before issuing the protocol call. In the measured Linux
+external-provider environment, each ChainablePromise resolution consistently
+took ~6s (silent polling until element found) plus ~6s for the actual
+`getElementText` protocol call — about 12s per iteration on this machine.
+With only a 5s `waitUntil` timeout the predicate was never evaluated before
 the timeout fired, causing immediate test failure.
 
 ### Steps completed before failure (wall-clock timestamps, both runs consistent)
@@ -172,16 +174,21 @@ the test hit an untracked step (7–12) followed by the fatal step 13.
 | `executeAsync` | 38 | 9ms | 54ms | 17ms | ~1s |
 | `executeAsyncScript` (protocol) | 38 | 7ms | 53ms | 16ms | ~1s |
 
-**Key insight:** `browser.execute()` (executeAsync/executeAsyncScript pair) costs ~17ms.
-Every `$()` or `getElementText` call costs ~12s — 700× slower.
+**Key insight:** In the measured Linux external-provider environment,
+`browser.execute()` (executeAsync/executeAsyncScript pair) costs ~17ms while the
+affected `$()` and `getElementText` paths consistently took ~12s — about 700× slower.
 
-### Intermediate: trigger-fix only (run 1 of bvqas1c4w — mryiqkm0-z6uuy8)
+### Class B diagnostic: trigger-fix only (single run — mryiqkm0-z6uuy8)
 
-A third data point was captured incidentally. A background benchmark task that
+This data point was captured incidentally. A background benchmark task that
 started before Batch A+B was applied ran two sequential spec passes.
 Run 1 ran with only the trigger-text fix applied (the $().getText() → execute()
 change that made the test pass at all); all other $+waitForDisplayed patterns
 remained unchanged.
+
+**This is a single-run diagnostic reference, not a validated median.** It is
+included to show the contribution of the trigger fix alone. No second run was
+captured to validate it. See the data classification section for context.
 
 | Outcome | Test exec | Commands | Median | P95 | Max | >=5s |
 |---------|-----------|----------|--------|-----|-----|------|
@@ -210,8 +217,9 @@ steps were not yet replaced.
 ### Category A — `$()` + getText/isDisplayed/isEnabled inside waitUntil predicates
 
 `browser.waitUntil(() => el.getText())` fires `findElement` + `getElementText`
-on every poll iteration (~6s + 6s = 12s per poll). With a 500ms polling
-interval the first poll fires, takes 12s, and the timeout triggers on the
+on every poll iteration. In the measured Linux external-provider environment
+each iteration consistently took about 12s (~6s + 6s). With a 500ms polling
+interval the first poll fires, takes ~12s, and the timeout triggers on the
 next iteration.
 
 **Effect:** waitUntil loops that should complete in <100ms take 12–91s.
@@ -265,12 +273,13 @@ check), { interval: 100 })`. Zero `$()` calls, 17ms per check.
 
 Applied to `apps/desktop/e2e-wdio/specs/core-inventory.e2e.ts`:
 
-| Location | Old pattern | New pattern |
-|----------|-------------|-------------|
-| `clickNav` helper | `$().waitForDisplayed + execute-click` | `waitUntil(execute(rect check)) + execute(click)` |
-| `waitForModal` helper | `$().waitForDisplayed` | `waitUntil(execute(rect check))` |
+| Location | Old pattern | New pattern (after RP) |
+|----------|-------------|------------------------|
+| `clickNav` helper | `$().waitForDisplayed + execute-click` | `waitUntil(execute(visibility check)) + browser.$().click()` |
+| `waitForModal` helper | `$().waitForDisplayed` | `waitUntil(execute(visibility check))` |
 | `waitForModalClose` helper | `$().isDisplayed` | `waitUntil(execute(rect=0 check))` |
-| `clickWhenVisible` new helper | — | `waitUntil(execute) + execute(click)` |
+| `clickWhenVisible` new helper | — | `waitUntil(execute(visibility check)) + browser.$().click()` |
+| row click patterns | inline `execute(find+click)` | `clickRowViaDom()` helper (WebKit non-interactable `<tr>` exception; comment documents why) |
 | step 5 (location row) | `$().getText` in loop | `execute(textContent.includes)` |
 | step 6 (navigate to racks) | `$().getText` + click | single `execute(find+click)` |
 | step 7 (rack form open) | `$().waitForDisplayed + click` | `clickWhenVisible` |
@@ -304,10 +313,10 @@ Applied to `apps/desktop/e2e-wdio/specs/core-inventory.e2e.ts`:
 
 Applied to `apps/desktop/e2e-wdio/support/repository-ui.ts`:
 
-| Function | Old pattern | New pattern |
-|----------|-------------|-------------|
-| `waitForEnabled` | `$() + waitUntil(el.isEnabled())` | `$() once + waitUntil(execute(!btn.disabled), interval:100)` |
-| `expectActiveRepositoryPath` | `$().waitForDisplayed + $().getText` | single `execute(visibility + textContent check)` |
+| Function | Old pattern | New pattern (after RP) |
+|----------|-------------|------------------------|
+| `waitForEnabled` | `$() + waitUntil(el.isEnabled())` | `waitUntil(execute(!btn.disabled), interval:100)` + re-fetch `$()` after wait |
+| `expectActiveRepositoryPath` | `$().waitForDisplayed + $().getText` | `waitUntil(execute(visibility check))` + `execute(textContent)` + Node-side `canonicalPath()` comparison |
 
 ### Batch B — Reduce polling interval to 100ms
 
@@ -363,29 +372,56 @@ Run date: 2026-07-24
 | `executeAsyncScript` (protocol) | 97 | 8ms | 53ms | 15ms |
 | `waitUntil` | 73 | 8ms | 107ms | 20ms |
 
+### Data classification
+
+Three classes of benchmark data appear in this document; they are not
+directly comparable and must not be conflated:
+
+- **Class A — direct-base partial runs (TEST_FAILED):** Original code, both
+  runs hit the 500-command cap before the test could complete. These show the
+  slow-command profile but do not represent a complete test execution.
+- **Class B — single-run diagnostic reference (trigger-fix only):** One run
+  with only the `$().getText()` trigger fix applied. Included as a reference
+  point to isolate the trigger-fix contribution; it is NOT a formal median
+  and was NOT validated with a second run.
+- **Class C — optimized validation series:** Batch A+B code, repeated twice
+  (×2) to establish a stable baseline. Pre-repair and post-repair runs are
+  tracked separately within this class.
+
 ### Three-level comparison
 
-| Metric | Original (TEST_FAILED) | Trigger-fix only | **Full Batch A+B** |
-|--------|----------------------|-----------------|-------------------|
+| Metric | Class A: Original (TEST_FAILED) | Class B: Trigger-fix only | Class C: Full Batch A+B |
+|--------|--------------------------------|--------------------------|-----------------------|
 | Outcome | TEST_FAILED | CLEAN_PASS | **CLEAN_PASS** |
 | Test execution | 798751ms (partial) | 1366126ms (22.8 min) | **543202ms (9.1 min)** |
 | Commands | 500 (cap) | 855 | **473** |
 | P95 latency | 24491ms | 24368ms | **12200ms** |
 | Max latency | 91170ms | 91713ms | **60507ms** |
-| >=5s count (rate) | 153/500 (30.6%) | 274/855 (32%) | **85/473 (18%)** |
+| >=5s count | 153/500 | 274/855 | **85/473** |
+| >=5s rate | 30.6% | 32% | **18%** |
 | `$` calls | 42 | ~42 | **28** |
 | `click` calls | 12 | ~12 | **0** |
 | `getElementText` calls | 11 | ~11 | **0** |
 | `executeAsync` calls | 38 | ~38 | **97** |
 
-**Batch A+B savings vs trigger-fix-only baseline:**
+**Batch A+B savings vs Class B (trigger-fix-only) reference:**
 - Test time: 1366s → 543s = **−60%**
-- Command count: 855 → 473 = **−45%**
+- Command count: 855 → 473 = **−45% count reduction**
 - P95 latency: 24368ms → 12200ms = **−50%**
-- >=5s rate: 32% → 18% = **−44% rate reduction**
+- >=5s count: 274 → 85 = **−69% count reduction** (absolute number of slow commands)
+- >=5s rate: 32% → 18% = **−44% relative rate reduction** (percentage of commands that are slow)
+
+The >=5s count and >=5s rate reductions are distinct metrics and must not be
+conflated: the count reduction (−69%) reflects fewer total commands issued;
+the rate reduction (−44%) reflects that a smaller fraction of those commands
+are slow.
 
 The `click` and `getElementText` protocol calls are entirely eliminated.
 `executeAsync` increases proportionally as those patterns are replaced.
+
+**Note:** The measured result reflects the combined Batch A+B change. The
+individual contribution of each batch was not isolated — no separate Batch-A-only
+or Batch-B-only run was captured.
 
 ### Notes on remaining slow commands
 
