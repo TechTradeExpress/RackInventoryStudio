@@ -74,10 +74,13 @@ export async function reactSelectValue(testId: string, value: string): Promise<v
 
 /**
  * Waits until the button/element with the given testId is enabled, then returns
- * the element reference.
+ * a fresh element reference fetched after the wait.
+ *
+ * The element reference is re-fetched after waitUntil rather than before to
+ * avoid returning a stale reference if React replaces the DOM node during the
+ * wait.
  */
 export async function waitForEnabled(testId: string, timeout = 10_000): Promise<WebdriverIO.Element> {
-  const el = await browser.$(`[data-testid="${testId}"]`);
   await browser.waitUntil(
     () =>
       browser.execute((tid: string) => {
@@ -88,36 +91,52 @@ export async function waitForEnabled(testId: string, timeout = 10_000): Promise<
       }, testId),
     { timeout, interval: 100, timeoutMsg: `[data-testid="${testId}"] never became enabled` },
   );
-  return el;
+  // ChainablePromiseElement has all Element methods at runtime; cast to
+  // satisfy the declared return type.
+  return browser.$(`[data-testid="${testId}"]`) as unknown as WebdriverIO.Element;
 }
 
 /**
- * Waits until the repository-active-path element is displayed and its text
- * matches the canonical form of expectedPath.
+ * Waits until the repository-active-path element is visible, then verifies
+ * that its text content matches expectedPath after full canonicalisation on
+ * both sides (realpathSync symlink resolution + Windows lowercase).
+ *
+ * The textContent is fetched in browser context and compared in Node context
+ * so that canonicalPath() — which calls realpathSync — never runs inside
+ * browser.execute().
  */
 export async function expectActiveRepositoryPath(expectedPath: string): Promise<void> {
-  const expected = canonicalPath(expectedPath);
+  const testId = "repository-active-path";
+  // Phase 1 — wait for the element to be visible.
+  // Visibility semantics: isDomElementVisible (see dom-helpers.ts).
   await browser.waitUntil(
     () =>
-      browser.execute((testId: string, exp: string) => {
-        const el = document.querySelector(`[data-testid="${testId}"]`);
+      browser.execute((tid: string) => {
+        const el = document.querySelector(`[data-testid="${tid}"]`);
         if (!el) return false;
         const rect = (el as HTMLElement).getBoundingClientRect();
         if (rect.width === 0 && rect.height === 0) return false;
-        try {
-          // Normalise separators for comparison (Windows paths may have \ or /)
-          const text = (el.textContent ?? "").trim().replace(/\\/g, "/");
-          return text === exp.replace(/\\/g, "/");
-        } catch {
-          return false;
-        }
-      }, "repository-active-path", expected),
+        const style = window.getComputedStyle(el as HTMLElement);
+        return style.display !== "none" && style.visibility !== "hidden";
+      }, testId),
     {
       timeout: 30_000,
       interval: 100,
-      timeoutMsg: `Active repository path did not become "${expectedPath}"`,
+      timeoutMsg: `[data-testid="${testId}"] never became visible`,
     },
   );
+  // Phase 2 — fetch text in browser, canonicalise both sides in Node.
+  const raw = await browser.execute(
+    (tid: string) => document.querySelector(`[data-testid="${tid}"]`)?.textContent ?? "",
+    testId,
+  );
+  const displayed = canonicalPath(raw.trim());
+  const expected = canonicalPath(expectedPath);
+  if (displayed !== expected) {
+    throw new Error(
+      `Active repository path mismatch: displayed "${displayed}", expected "${expected}" (input: "${expectedPath}")`,
+    );
+  }
 }
 
 // ── Repository creation helper ────────────────────────────────────────────────

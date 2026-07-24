@@ -40,20 +40,21 @@ function log(msg: string) {
 
 async function clickNav(tab: string): Promise<void> {
   const testId = `nav-${tab}`;
+  // Visibility semantics: isDomElementVisible (see dom-helpers.ts).
   await browser.waitUntil(
     () =>
       browser.execute((tid: string) => {
         const el = document.querySelector(`[data-testid="${tid}"]`);
         if (!el) return false;
         const rect = (el as HTMLElement).getBoundingClientRect();
-        return rect.width > 0 && rect.height > 0;
+        if (rect.width === 0 && rect.height === 0) return false;
+        const style = window.getComputedStyle(el as HTMLElement);
+        return style.display !== "none" && style.visibility !== "hidden";
       }, testId),
     { timeout: 10_000, interval: 100, timeoutMsg: `nav-${tab} not visible` },
   );
-  await browser.execute((tid: string) => {
-    const el = document.querySelector<HTMLElement>(`[data-testid="${tid}"]`);
-    if (el) el.click();
-  }, testId);
+  // Use WebDriver .click() to preserve the full pointer-event sequence.
+  await browser.$(`[data-testid="${testId}"]`).click();
 }
 
 /**
@@ -61,13 +62,16 @@ async function clickNav(tab: string): Promise<void> {
  * given testId; used to confirm the form dialog has opened.
  */
 async function waitForModal(submitTestId: string): Promise<void> {
+  // Visibility semantics: isDomElementVisible (see dom-helpers.ts).
   await browser.waitUntil(
     () =>
       browser.execute((testId: string) => {
         const el = document.querySelector(`[data-testid="${testId}"]`);
         if (!el) return false;
         const rect = (el as HTMLElement).getBoundingClientRect();
-        return rect.width > 0 && rect.height > 0;
+        if (rect.width === 0 && rect.height === 0) return false;
+        const style = window.getComputedStyle(el as HTMLElement);
+        return style.display !== "none" && style.visibility !== "hidden";
       }, submitTestId),
     { timeout: 10_000, interval: 100, timeoutMsg: `Modal with submit "${submitTestId}" did not appear` },
   );
@@ -92,24 +96,56 @@ async function waitForModalClose(submitTestId: string): Promise<void> {
 }
 
 /**
- * Wait for a button/element to be visible then click it via execute() — avoids
- * two separate WebDriver round-trips (findElement + click protocol calls).
+ * Waits for an interactive button/element to be visible then clicks it via
+ * WebDriver .click() to preserve the full pointer-event sequence and
+ * interactability checks.
  */
 async function clickWhenVisible(testId: string, timeout = 10_000): Promise<void> {
+  // Visibility semantics: isDomElementVisible (see dom-helpers.ts).
   await browser.waitUntil(
     () =>
       browser.execute((tid: string) => {
         const el = document.querySelector(`[data-testid="${tid}"]`);
         if (!el) return false;
         const rect = (el as HTMLElement).getBoundingClientRect();
-        return rect.width > 0 && rect.height > 0;
+        if (rect.width === 0 && rect.height === 0) return false;
+        const style = window.getComputedStyle(el as HTMLElement);
+        return style.display !== "none" && style.visibility !== "hidden";
       }, testId),
     { timeout, interval: 100, timeoutMsg: `[data-testid="${testId}"] not visible` },
   );
-  await browser.execute((tid: string) => {
-    const el = document.querySelector<HTMLButtonElement>(`[data-testid="${tid}"]`);
-    if (el) el.click();
-  }, testId);
+  // Use WebDriver .click() to preserve the full pointer-event sequence.
+  await browser.$(`[data-testid="${testId}"]`).click();
+}
+
+/**
+ * Finds a table row matching the given CSS selector and text, then fires
+ * HTMLElement.click() via execute().
+ *
+ * WebKit marks <tr> elements as not-interactable for WebDriver .click(),
+ * which causes elementClick to fail or spin. HTMLElement.click() bypasses
+ * the interactability check and is the documented exception for this specific
+ * case. It must NOT be used for ordinary buttons or nav elements, which rely
+ * on the full WebDriver pointer-event sequence.
+ */
+async function clickRowViaDom(
+  selector: string,
+  matchText: string,
+  errorLabel: string,
+): Promise<void> {
+  const clicked: boolean = await browser.execute(
+    (sel: string, name: string) => {
+      const row = Array.from(document.querySelectorAll(sel)).find((r) =>
+        r.textContent?.includes(name),
+      );
+      if (!row) return false;
+      (row as HTMLElement).click();
+      return true;
+    },
+    selector,
+    matchText,
+  );
+  if (!clicked) throw new Error(`${errorLabel} not found for click`);
 }
 
 function isPlacementFailure(err: unknown): err is Error {
@@ -211,20 +247,7 @@ describe("Rack Inventory Studio — core inventory placement", () => {
     // transition — not just the final wait — so it reflects the full
     // user-observable cost of this navigation.
     await measureStep("navigate-location-to-racks", async () => {
-      // WebKit marks <tr> elements as not-interactable; find and click via execute().
-      const clicked: boolean = await browser.execute(
-        (sel: string, name: string) => {
-          const row = Array.from(document.querySelectorAll(sel)).find((r) =>
-            r.textContent?.includes(name),
-          );
-          if (!row) return false;
-          (row as HTMLElement).click();
-          return true;
-        },
-        "[data-location-code]",
-        locationName,
-      );
-      if (!clicked) throw new Error(`Location row for "${locationName}" not found for click`);
+      await clickRowViaDom("[data-location-code]", locationName, `Location row for "${locationName}"`);
       await browser.waitUntil(
         () =>
           browser.execute(() => {
@@ -436,20 +459,7 @@ describe("Rack Inventory Studio — core inventory placement", () => {
 
     // ── 16. Open the Rack detail view ─────────────────────────────────────────
     log("step 16: opening rack detail view");
-    // WebKit marks <tr> as not-interactable; find and click via execute().
-    const rackClickedForDetail: boolean = await browser.execute(
-      (sel: string, name: string) => {
-        const row = Array.from(document.querySelectorAll(sel)).find((r) =>
-          r.textContent?.includes(name),
-        );
-        if (!row) return false;
-        (row as HTMLElement).click();
-        return true;
-      },
-      "[data-rack-code]",
-      rackName,
-    );
-    if (!rackClickedForDetail) throw new Error(`Rack row for "${rackName}" not found for detail`);
+    await clickRowViaDom("[data-rack-code]", rackName, `Rack row for "${rackName}"`);
     // Palette drop zone is the reliable signal that RackDetailPanel has loaded.
     await browser.waitUntil(
       () =>
@@ -651,20 +661,7 @@ describe("Rack Inventory Studio — core inventory placement", () => {
     );
     log("step 23: location still exists after reopen");
 
-    // Click location row to navigate to Racks.  WebKit marks <tr> as not-interactable.
-    const locClickedReopen: boolean = await browser.execute(
-      (sel: string, name: string) => {
-        const row = Array.from(document.querySelectorAll(sel)).find((r) =>
-          r.textContent?.includes(name),
-        );
-        if (!row) return false;
-        (row as HTMLElement).click();
-        return true;
-      },
-      "[data-location-code]",
-      locationName,
-    );
-    if (!locClickedReopen) throw new Error(`Location row not found after reopen`);
+    await clickRowViaDom("[data-location-code]", locationName, "Location row after reopen");
     await browser.waitUntil(
       () =>
         browser.execute(() => {
@@ -688,19 +685,7 @@ describe("Rack Inventory Studio — core inventory placement", () => {
         }),
       { timeout: 10_000, interval: 100, timeoutMsg: 'rack-add-btn not visible after reopen nav' },
     );
-    const rackClickedReopen: boolean = await browser.execute(
-      (sel: string, name: string) => {
-        const row = Array.from(document.querySelectorAll(sel)).find((r) =>
-          r.textContent?.includes(name),
-        );
-        if (!row) return false;
-        (row as HTMLElement).click();
-        return true;
-      },
-      "[data-rack-code]",
-      rackName,
-    );
-    if (!rackClickedReopen) throw new Error(`Rack row "${rackName}" not found after reopen`);
+    await clickRowViaDom("[data-rack-code]", rackName, `Rack row "${rackName}" after reopen`);
     await browser.waitUntil(
       () =>
         browser.execute(() => {
