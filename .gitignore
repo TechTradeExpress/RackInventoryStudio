@@ -41,3 +41,4 @@ apps/desktop/playwright-report/
 *.p12
 *.pfx
 apps/desktop/src-tauri/capabilities/embedded-test.json
+apps/desktop/src-tauri/capabilities/wdio-plugin-test.json

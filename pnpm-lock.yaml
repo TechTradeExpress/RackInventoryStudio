@@ -61,6 +61,9 @@ importers:
       '@wdio/mocha-framework':
         specifier: ^9.29.1
         version: 9.29.1
+      '@wdio/tauri-plugin':
+        specifier: ^1.2.0
+        version: 1.2.0(tsx@4.23.0)
       '@wdio/tauri-service':
         specifier: ^1.2.0
         version: 1.2.0(expect-webdriverio@5.7.0)(tsx@4.23.0)(webdriverio@9.29.1)
@@ -1179,6 +1182,10 @@ packages:
   '@wdio/spec-reporter@9.27.1':
     resolution: {integrity: sha512-q9UMJJbCcP+nCOojIvOIcsXnerhHICmWu94guRMRYPbW2IsG/5VM/uhzwru8SU/1WRXLtKgTjkuXXsjzjVpf2w==}
     engines: {node: '>=18.20.0'}
+
+  '@wdio/tauri-plugin@1.2.0':
+    resolution: {integrity: sha512-qeQQ4D0Q4BkwC+Cyez1I343DRm9UErCXksZ/DN1qCpJCorEEPKL3IiYb34OtNJBgnbhqwtGukyjOZYvnpPz95A==}
+    engines: {node: ^18.12.0 || ^20.9.0 || >=22.11.0}
 
   '@wdio/tauri-service@1.2.0':
     resolution: {integrity: sha512-/PEmbDKra6Lsodes5x1Sg5H98bG4hObYZWMyrlbv0e5fL0KVMQMxDP798jWWIqT6+iOPsIlkLirRJKfXXGVtsQ==}
@@ -3933,6 +3940,16 @@ snapshots:
       chalk: 5.6.2
       easy-table: 1.2.0
       pretty-ms: 9.3.0
+
+  '@wdio/tauri-plugin@1.2.0(tsx@4.23.0)':
+    dependencies:
+      '@tauri-apps/api': 2.11.0
+      '@tauri-apps/plugin-log': 2.8.0
+      '@wdio/native-spy': 1.1.0
+      '@wdio/native-utils': 2.5.0(tsx@4.23.0)
+    transitivePeerDependencies:
+      - supports-color
+      - tsx
 
   '@wdio/tauri-service@1.2.0(expect-webdriverio@5.7.0)(tsx@4.23.0)(webdriverio@9.29.1)':
     dependencies:
