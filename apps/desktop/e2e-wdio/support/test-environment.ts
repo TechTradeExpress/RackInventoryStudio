@@ -116,13 +116,19 @@ export function cleanupOwnedRunRoot(
   }
 
   validateOwnedRunRoot(runRoot);
-  // maxRetries/retryDelay: the app process's GPU/shader cache (e.g.
-  // mesa_shader_cache under Xvfb software rendering) can still be writing
-  // into runRoot for a brief moment after the WDIO worker considers the
-  // session closed, racing this recursive delete with ENOTEMPTY/EBUSY. Retry
-  // a few times with a short backoff instead of letting a transient race
-  // fail the whole cleanup (and thus the run).
-  rmSync(runRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  // maxRetries/retryDelay: WDIO's onComplete hook (which calls this) fires
+  // before @wdio/tauri-service stops the driver/app process (observed in
+  // every run: "Stopping N driver(s)..." always logs just after "Run
+  // onComplete hook") — so the app can still be writing into runRoot (GPU/
+  // shader cache, git/IPC activity from the spec's own workflow) when this
+  // recursive delete starts, racing it with ENOTEMPTY/EBUSY. A brief spec
+  // like app-smoke settles in well under a second; a spec with heavier
+  // filesystem activity (repository/placement/save workflows) can still be
+  // settling several seconds in (observed: a 5-retry/200ms budget was
+  // insufficient for representative-latency). Retry generously — this is a
+  // one-time cost per run, not per-command — instead of letting a transient
+  // teardown race fail an otherwise-passing run.
+  rmSync(runRoot, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
   console.log(`[test-environment] cleaned up: ${runRoot}`);
   return true;
 }
