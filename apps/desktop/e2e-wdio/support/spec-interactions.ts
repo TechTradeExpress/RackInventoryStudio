@@ -21,14 +21,27 @@ const W3C_ELEMENT_KEY = "element-6066-11e4-a52e-4f735466cecf";
  * algorithm — an occluded element still fails with an interceptability
  * error, a disabled/non-interactable element still fails, and the resulting
  * DOM event sequence is identical to what browser.$().click() eventually
- * dispatches. The difference is entirely client-side: WDIO's own .click()
- * wraps the protocol call in an interactability-retry loop, and — because
- * @wdio/tauri-service's beforeCommand hook re-checks plugin availability on
- * every single command (this app does not have tauri-plugin-wdio installed,
- * so that check always resolves false at ~70-100ms per call) — each retry
- * iteration re-pays that hook cost. A single ordinary, already-visible
- * button does not need that retry loop at all; going straight to one
- * findElement + one elementClick call avoids paying for it.
+ * dispatches.
+ *
+ * Current architecture (see docs/E2E_WDIO_LATENCY_OPTIMIZATION.md §11 for
+ * the full history): the production app never ships tauri-plugin-wdio — it
+ * only exists behind the opt-in `wdio-plugin` Cargo feature, built via
+ * scripts/build-wdio-plugin-binary.mjs into target-wdio-plugin/, and is the
+ * binary every E2E run in this repository now uses. Earlier in this
+ * program, WITHOUT that plugin, @wdio/tauri-service's beforeCommand hook
+ * retried a plugin-availability probe up to 100 times (~7-8s) on every
+ * findElement/elementClick/getTitle/$/$$ command — that historical baseline
+ * is why this helper was originally introduced. With the plugin now always
+ * present for E2E runs, that specific multi-second cost is gone. A residual
+ * gap remains regardless: browser.$(selector).click() still resolves a
+ * ChainablePromiseElement (its own findElement round trip) before issuing
+ * .click() (which does its own interactability checks, then elementClick) —
+ * two protocol round trips plus WDIO's own bookkeeping vs. this helper's
+ * one findElement + one elementClick. Measured on the plugin binary: median
+ * 200ms (browser.$().click()) vs 120ms (clickElementProtocol) over 5 tries
+ * — a stable ~40%/80ms difference, above the threshold for keeping a
+ * dedicated helper. Re-measure before removing this helper if the
+ * WebdriverIO/@wdio/tauri-service dependency versions change materially.
  *
  * Do not use this for SearchableSelect option elements (see clickRowViaDom
  * and the SearchableSelect notes elsewhere) — those still require WDIO's
