@@ -48,6 +48,7 @@ import {
   expectActiveRepositoryPath,
   createRepositoryThroughUi,
 } from "../support/repository-ui";
+import { clickNav } from "../support/spec-interactions";
 
 function log(msg: string) {
   const ts = new Date().toISOString().substring(11, 23);
@@ -72,21 +73,18 @@ const DEVICE_CSV_MISSING_STATUS = [
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-async function clickNav(tab: string): Promise<void> {
-  const el = await browser.$(`[data-testid="nav-${tab}"]`);
-  await el.waitForDisplayed({ timeout: 10_000 });
-  await el.click();
-}
-
 async function findDeviceRowByName(name: string): Promise<boolean> {
-  const rows = await browser.$$("[data-device-code]");
-  for (const row of rows) {
-    try {
-      const text = await row.getText();
-      if (text.includes(name)) return true;
-    } catch { /* stale element — skip */ }
-  }
-  return false;
+  // Single atomic execute() scan instead of $$() + .getText() per row — no
+  // per-row protocol round trips, no stale-element risk (no element
+  // references are held across an await boundary).
+  return browser.execute(
+    (selector: string, target: string) =>
+      Array.from(document.querySelectorAll(selector)).some((row) =>
+        (row.textContent ?? "").includes(target),
+      ),
+    "[data-device-code]",
+    name,
+  );
 }
 
 // ── Suite ─────────────────────────────────────────────────────────────────────
@@ -235,20 +233,22 @@ describe("Rack Inventory Studio — CSV import", () => {
     let foundCsv02 = false;
     await browser.waitUntil(
       async () => {
-        try {
-          const rows = await browser.$$("[data-device-code]");
-          totalRows = rows.length;
-          foundCsv01 = false;
-          foundCsv02 = false;
-          for (const row of rows) {
-            const text = await row.getText();
-            if (text.includes("SWITCH-CSV-01")) foundCsv01 = true;
-            if (text.includes("SWITCH-CSV-02")) foundCsv02 = true;
-          }
-          return foundCsv01 && foundCsv02;
-        } catch { return false; }
+        // Single atomic execute() scan per poll iteration instead of $$() +
+        // .getText() per row — one round trip instead of 1+N.
+        const state = await browser.execute((selector: string) => {
+          const rows = Array.from(document.querySelectorAll(selector));
+          return {
+            totalRows: rows.length,
+            foundCsv01: rows.some((r) => (r.textContent ?? "").includes("SWITCH-CSV-01")),
+            foundCsv02: rows.some((r) => (r.textContent ?? "").includes("SWITCH-CSV-02")),
+          };
+        }, "[data-device-code]");
+        totalRows = state.totalRows;
+        foundCsv01 = state.foundCsv01;
+        foundCsv02 = state.foundCsv02;
+        return foundCsv01 && foundCsv02;
       },
-      { timeout: 15_000, timeoutMsg: "Imported devices not found in Devices panel after reopen" },
+      { timeout: 15_000, interval: 100, timeoutMsg: "Imported devices not found in Devices panel after reopen" },
     );
 
     if (totalRows !== 2) {

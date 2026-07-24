@@ -41,6 +41,7 @@ import {
   expectActiveRepositoryPath,
   createRepositoryThroughUi,
 } from "../support/repository-ui";
+import { clickNav } from "../support/spec-interactions";
 import {
   findRowByExactName,
   expectExactlyOneRowByName,
@@ -60,12 +61,6 @@ import {
 function log(msg: string) {
   const ts = new Date().toISOString().substring(11, 23);
   console.log(`[guards-inv ${ts}] ${msg}`);
-}
-
-async function clickNav(tab: string): Promise<void> {
-  const el = await browser.$(`[data-testid="nav-${tab}"]`);
-  await el.waitForDisplayed({ timeout: 10_000 });
-  await el.click();
 }
 
 async function waitForFormClose(submitTestId: string): Promise<void> {

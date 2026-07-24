@@ -29,6 +29,7 @@ import {
   expectActiveRepositoryPath,
   createRepositoryThroughUi,
 } from "../support/repository-ui";
+import { clickNav } from "../support/spec-interactions";
 
 function log(msg: string) {
   const ts = new Date().toISOString().substring(11, 23);
@@ -36,12 +37,6 @@ function log(msg: string) {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-async function clickNav(tab: string): Promise<void> {
-  const el = await browser.$(`[data-testid="nav-${tab}"]`);
-  await el.waitForDisplayed({ timeout: 10_000 });
-  await el.click();
-}
 
 /**
  * Wait for a form modal to close after submission.
