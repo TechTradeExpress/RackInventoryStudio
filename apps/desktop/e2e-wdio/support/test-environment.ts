@@ -116,7 +116,13 @@ export function cleanupOwnedRunRoot(
   }
 
   validateOwnedRunRoot(runRoot);
-  rmSync(runRoot, { recursive: true, force: true });
+  // maxRetries/retryDelay: the app process's GPU/shader cache (e.g.
+  // mesa_shader_cache under Xvfb software rendering) can still be writing
+  // into runRoot for a brief moment after the WDIO worker considers the
+  // session closed, racing this recursive delete with ENOTEMPTY/EBUSY. Retry
+  // a few times with a short backoff instead of letting a transient race
+  // fail the whole cleanup (and thus the run).
+  rmSync(runRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   console.log(`[test-environment] cleaned up: ${runRoot}`);
   return true;
 }
