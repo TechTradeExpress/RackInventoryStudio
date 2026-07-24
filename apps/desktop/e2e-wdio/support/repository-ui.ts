@@ -7,6 +7,7 @@
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { browser } from "@wdio/globals";
+import { isSelectorVisible } from "./dom-helpers";
 
 // ── Path utilities ────────────────────────────────────────────────────────────
 
@@ -97,44 +98,47 @@ export async function waitForEnabled(testId: string, timeout = 10_000): Promise<
 }
 
 /**
- * Waits until the repository-active-path element is visible, then verifies
- * that its text content matches expectedPath after full canonicalisation on
- * both sides (realpathSync symlink resolution + Windows lowercase).
+ * Waits until the repository-active-path element is visible AND its text
+ * content — after full canonicalisation on both sides (realpathSync symlink
+ * resolution + Windows lowercase) — matches expectedPath.
  *
- * The textContent is fetched in browser context and compared in Node context
- * so that canonicalPath() — which calls realpathSync — never runs inside
- * browser.execute().
+ * This polls: a visible element whose text has not yet caught up with a
+ * just-completed navigation (stale text from the previous path, or an
+ * empty/partial render) must not fail the check on the first read. Each
+ * waitUntil iteration re-reads visibility and textContent from the DOM and
+ * only succeeds once both hold. The textContent is fetched in browser
+ * context and compared in Node context so that canonicalPath() — which
+ * calls realpathSync — never runs inside browser.execute().
  */
-export async function expectActiveRepositoryPath(expectedPath: string): Promise<void> {
+export async function expectActiveRepositoryPath(
+  expectedPath: string,
+  timeout = 30_000,
+): Promise<void> {
   const testId = "repository-active-path";
-  // Phase 1 — wait for the element to be visible.
-  // Visibility semantics: isDomElementVisible (see dom-helpers.ts).
-  await browser.waitUntil(
-    () =>
-      browser.execute((tid: string) => {
-        const el = document.querySelector(`[data-testid="${tid}"]`);
-        if (!el) return false;
-        const rect = (el as HTMLElement).getBoundingClientRect();
-        if (rect.width === 0 && rect.height === 0) return false;
-        const style = window.getComputedStyle(el as HTMLElement);
-        return style.display !== "none" && style.visibility !== "hidden";
-      }, testId),
-    {
-      timeout: 30_000,
-      interval: 100,
-      timeoutMsg: `[data-testid="${testId}"] never became visible`,
-    },
-  );
-  // Phase 2 — fetch text in browser, canonicalise both sides in Node.
-  const raw = await browser.execute(
-    (tid: string) => document.querySelector(`[data-testid="${tid}"]`)?.textContent ?? "",
-    testId,
-  );
-  const displayed = canonicalPath(raw.trim());
+  const selector = `[data-testid="${testId}"]`;
   const expected = canonicalPath(expectedPath);
-  if (displayed !== expected) {
+  let lastDisplayed: string | null = null;
+
+  try {
+    await browser.waitUntil(
+      async () => {
+        // Visibility semantics: isSelectorVisible (see dom-helpers.ts) —
+        // returns false if the element does not exist or is not visible.
+        const visible = await browser.execute(isSelectorVisible, selector);
+        if (!visible) return false;
+        const raw = await browser.execute(
+          (sel: string) => document.querySelector(sel)?.textContent ?? "",
+          selector,
+        );
+        lastDisplayed = canonicalPath(raw.trim());
+        return lastDisplayed === expected;
+      },
+      { timeout, interval: 100 },
+    );
+  } catch {
     throw new Error(
-      `Active repository path mismatch: displayed "${displayed}", expected "${expected}" (input: "${expectedPath}")`,
+      `Active repository path never matched: last displayed "${lastDisplayed ?? "(element never visible)"}", ` +
+        `expected "${expected}" (input: "${expectedPath}")`,
     );
   }
 }

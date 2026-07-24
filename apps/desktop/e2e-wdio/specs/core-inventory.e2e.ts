@@ -30,122 +30,18 @@ import {
   createRepositoryThroughUi,
 } from "../support/repository-ui";
 import { measureStep } from "../support/command-timing";
+import { isSelectorVisible } from "../support/dom-helpers";
+import {
+  clickNav,
+  waitForModal,
+  waitForModalClose,
+  clickWhenVisible,
+  clickRowViaDom,
+} from "../support/spec-interactions";
 
 function log(msg: string) {
   const ts = new Date().toISOString().substring(11, 23);
   console.log(`[inventory ${ts}] ${msg}`);
-}
-
-// ── Selector helpers ──────────────────────────────────────────────────────────
-
-async function clickNav(tab: string): Promise<void> {
-  const testId = `nav-${tab}`;
-  // Visibility semantics: isDomElementVisible (see dom-helpers.ts).
-  await browser.waitUntil(
-    () =>
-      browser.execute((tid: string) => {
-        const el = document.querySelector(`[data-testid="${tid}"]`);
-        if (!el) return false;
-        const rect = (el as HTMLElement).getBoundingClientRect();
-        if (rect.width === 0 && rect.height === 0) return false;
-        const style = window.getComputedStyle(el as HTMLElement);
-        return style.display !== "none" && style.visibility !== "hidden";
-      }, testId),
-    { timeout: 10_000, interval: 100, timeoutMsg: `nav-${tab} not visible` },
-  );
-  // Use WebDriver .click() to preserve the full pointer-event sequence.
-  await browser.$(`[data-testid="${testId}"]`).click();
-}
-
-/**
- * Waits for a modal to appear by looking for a visible submit button with the
- * given testId; used to confirm the form dialog has opened.
- */
-async function waitForModal(submitTestId: string): Promise<void> {
-  // Visibility semantics: isDomElementVisible (see dom-helpers.ts).
-  await browser.waitUntil(
-    () =>
-      browser.execute((testId: string) => {
-        const el = document.querySelector(`[data-testid="${testId}"]`);
-        if (!el) return false;
-        const rect = (el as HTMLElement).getBoundingClientRect();
-        if (rect.width === 0 && rect.height === 0) return false;
-        const style = window.getComputedStyle(el as HTMLElement);
-        return style.display !== "none" && style.visibility !== "hidden";
-      }, submitTestId),
-    { timeout: 10_000, interval: 100, timeoutMsg: `Modal with submit "${submitTestId}" did not appear` },
-  );
-}
-
-/**
- * Waits for a modal to close by looking for its submit button to no longer
- * be displayed; a stale element reference (DOM node removed) also counts as
- * closed.
- */
-async function waitForModalClose(submitTestId: string): Promise<void> {
-  await browser.waitUntil(
-    () =>
-      browser.execute((testId: string) => {
-        const el = document.querySelector(`[data-testid="${testId}"]`);
-        if (!el) return true; // removed from DOM → closed
-        const rect = (el as HTMLElement).getBoundingClientRect();
-        return rect.width === 0 && rect.height === 0;
-      }, submitTestId),
-    { timeout: 15_000, interval: 100, timeoutMsg: `Modal with submit "${submitTestId}" did not close` },
-  );
-}
-
-/**
- * Waits for an interactive button/element to be visible then clicks it via
- * WebDriver .click() to preserve the full pointer-event sequence and
- * interactability checks.
- */
-async function clickWhenVisible(testId: string, timeout = 10_000): Promise<void> {
-  // Visibility semantics: isDomElementVisible (see dom-helpers.ts).
-  await browser.waitUntil(
-    () =>
-      browser.execute((tid: string) => {
-        const el = document.querySelector(`[data-testid="${tid}"]`);
-        if (!el) return false;
-        const rect = (el as HTMLElement).getBoundingClientRect();
-        if (rect.width === 0 && rect.height === 0) return false;
-        const style = window.getComputedStyle(el as HTMLElement);
-        return style.display !== "none" && style.visibility !== "hidden";
-      }, testId),
-    { timeout, interval: 100, timeoutMsg: `[data-testid="${testId}"] not visible` },
-  );
-  // Use WebDriver .click() to preserve the full pointer-event sequence.
-  await browser.$(`[data-testid="${testId}"]`).click();
-}
-
-/**
- * Finds a table row matching the given CSS selector and text, then fires
- * HTMLElement.click() via execute().
- *
- * WebKit marks <tr> elements as not-interactable for WebDriver .click(),
- * which causes elementClick to fail or spin. HTMLElement.click() bypasses
- * the interactability check and is the documented exception for this specific
- * case. It must NOT be used for ordinary buttons or nav elements, which rely
- * on the full WebDriver pointer-event sequence.
- */
-async function clickRowViaDom(
-  selector: string,
-  matchText: string,
-  errorLabel: string,
-): Promise<void> {
-  const clicked: boolean = await browser.execute(
-    (sel: string, name: string) => {
-      const row = Array.from(document.querySelectorAll(sel)).find((r) =>
-        r.textContent?.includes(name),
-      );
-      if (!row) return false;
-      (row as HTMLElement).click();
-      return true;
-    },
-    selector,
-    matchText,
-  );
-  if (!clicked) throw new Error(`${errorLabel} not found for click`);
 }
 
 function isPlacementFailure(err: unknown): err is Error {
@@ -249,13 +145,7 @@ describe("Rack Inventory Studio — core inventory placement", () => {
     await measureStep("navigate-location-to-racks", async () => {
       await clickRowViaDom("[data-location-code]", locationName, `Location row for "${locationName}"`);
       await browser.waitUntil(
-        () =>
-          browser.execute(() => {
-            const nav = document.querySelector('[data-testid="nav-racks"]');
-            if (!nav) return false;
-            const rect = (nav as HTMLElement).getBoundingClientRect();
-            return rect.width > 0 && rect.height > 0;
-          }),
+        () => browser.execute(isSelectorVisible, '[data-testid="nav-racks"]'),
         { timeout: 10_000, interval: 100, timeoutMsg: 'nav-racks did not appear after location click' },
       );
     });
@@ -351,13 +241,7 @@ describe("Rack Inventory Studio — core inventory placement", () => {
     log("step 13: assigning device model");
     await clickWhenVisible("field-device-model-trigger");
     await browser.waitUntil(
-      () =>
-        browser.execute(() => {
-          const el = document.querySelector('[data-testid="field-device-model-search"]');
-          if (!el) return false;
-          const rect = (el as HTMLElement).getBoundingClientRect();
-          return rect.width > 0 && rect.height > 0;
-        }),
+      () => browser.execute(isSelectorVisible, '[data-testid="field-device-model-search"]'),
       { timeout: 10_000, interval: 100, timeoutMsg: 'field-device-model-search did not appear' },
     );
     await browser.$('[data-testid="field-device-model-search"]').addValue(modelName);
@@ -447,13 +331,7 @@ describe("Rack Inventory Studio — core inventory placement", () => {
     log("step 15: navigating to Racks for placement");
     await clickNav("racks");
     await browser.waitUntil(
-      () =>
-        browser.execute(() => {
-          const el = document.querySelector('[data-testid="rack-add-btn"]');
-          if (!el) return false;
-          const rect = (el as HTMLElement).getBoundingClientRect();
-          return rect.width > 0 && rect.height > 0;
-        }),
+      () => browser.execute(isSelectorVisible, '[data-testid="rack-add-btn"]'),
       { timeout: 10_000, interval: 100, timeoutMsg: 'rack-add-btn not visible after nav to racks' },
     );
 
@@ -462,13 +340,7 @@ describe("Rack Inventory Studio — core inventory placement", () => {
     await clickRowViaDom("[data-rack-code]", rackName, `Rack row for "${rackName}"`);
     // Palette drop zone is the reliable signal that RackDetailPanel has loaded.
     await browser.waitUntil(
-      () =>
-        browser.execute(() => {
-          const el = document.querySelector('[data-testid="palette-drop-zone"]');
-          if (!el) return false;
-          const rect = (el as HTMLElement).getBoundingClientRect();
-          return rect.width > 0 && rect.height > 0;
-        }),
+      () => browser.execute(isSelectorVisible, '[data-testid="palette-drop-zone"]'),
       { timeout: 15_000, interval: 100, timeoutMsg: 'palette-drop-zone did not appear' },
     );
     log("step 16: rack detail panel loaded, palette visible");
@@ -479,13 +351,7 @@ describe("Rack Inventory Studio — core inventory placement", () => {
     log("step 17: clicking Place… for device in palette");
     const paletteBtnSel = `button[data-testid^="place-btn-device-"][data-device-code="${deviceCode}"]`;
     await browser.waitUntil(
-      () =>
-        browser.execute((sel: string) => {
-          const el = document.querySelector(sel);
-          if (!el) return false;
-          const rect = (el as HTMLElement).getBoundingClientRect();
-          return rect.width > 0 && rect.height > 0;
-        }, paletteBtnSel),
+      () => browser.execute(isSelectorVisible, paletteBtnSel),
       { timeout: 15_000, interval: 100, timeoutMsg: `Palette Place button for device "${deviceCode}" never appeared` },
     );
     await browser.$(paletteBtnSel).click();
@@ -508,13 +374,7 @@ describe("Rack Inventory Studio — core inventory placement", () => {
     // addValue() sends trusted WebDriver keyboard events that React 18 flushes
     // synchronously, avoiding the state-batching race that reactSetValue can trigger.
     await browser.waitUntil(
-      () =>
-        browser.execute(() => {
-          const el = document.querySelector('[data-testid="start-u-input"]');
-          if (!el) return false;
-          const rect = (el as HTMLElement).getBoundingClientRect();
-          return rect.width > 0 && rect.height > 0;
-        }),
+      () => browser.execute(isSelectorVisible, '[data-testid="start-u-input"]'),
       { timeout: 10_000, interval: 100, timeoutMsg: 'start-u-input never appeared' },
     );
     const suInput = browser.$('[data-testid="start-u-input"]');
@@ -533,11 +393,17 @@ describe("Rack Inventory Studio — core inventory placement", () => {
       // A single execute() reads both the button and error state atomically.
       await browser.waitUntil(
         async () => {
+          // btn/error visibility inlined here (not via isSelectorVisible) because
+          // this must remain a single atomic execute() reading both the button
+          // and the error banner in one round trip; semantics match
+          // isSelectorVisible (rect > 0 in both dimensions, not display:none/hidden).
           const state: { closed: boolean; error: string | null } = await browser.execute(() => {
             const btn = document.querySelector('[data-testid="place-btn"]');
             if (!btn) return { closed: true, error: null };
             const rect = (btn as HTMLElement).getBoundingClientRect();
-            if (rect.width === 0 && rect.height === 0) return { closed: true, error: null };
+            const style = window.getComputedStyle(btn as HTMLElement);
+            const btnVisible = rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+            if (!btnVisible) return { closed: true, error: null };
             const errEl = document.querySelector(".ft-msg.err");
             if (errEl) {
               const er = (errEl as HTMLElement).getBoundingClientRect();
@@ -558,16 +424,11 @@ describe("Rack Inventory Studio — core inventory placement", () => {
     log("step 20: waiting for placed device card at U1");
     const placedCardTitle: string | null = await (async () => {
       const cardSel = `[data-device-code="${deviceCode}"][data-start-u="1"]`;
-      await browser.waitUntil(
-        () =>
-          browser.execute((sel: string) => {
-            const el = document.querySelector(sel);
-            if (!el) return false;
-            const rect = (el as HTMLElement).getBoundingClientRect();
-            return rect.width > 0 && rect.height > 0;
-          }, cardSel),
-        { timeout: 30_000, interval: 100, timeoutMsg: `Placed card for device "${deviceCode}" at U1 never appeared` },
-      );
+      await browser.waitUntil(() => browser.execute(isSelectorVisible, cardSel), {
+        timeout: 30_000,
+        interval: 100,
+        timeoutMsg: `Placed card for device "${deviceCode}" at U1 never appeared`,
+      });
       // getAttribute via execute avoids a separate protocol round-trip.
       return browser.execute(
         (sel: string) => document.querySelector(sel)?.getAttribute("title") ?? null,
@@ -585,13 +446,7 @@ describe("Rack Inventory Studio — core inventory placement", () => {
     log("step 21: navigating to Repository tab to save and close");
     await clickNav("repository");
     await browser.waitUntil(
-      () =>
-        browser.execute(() => {
-          const el = document.querySelector('[data-testid="repository-active-root"]');
-          if (!el) return false;
-          const rect = (el as HTMLElement).getBoundingClientRect();
-          return rect.width > 0 && rect.height > 0;
-        }),
+      () => browser.execute(isSelectorVisible, '[data-testid="repository-active-root"]'),
       { timeout: 10_000, interval: 100, timeoutMsg: 'repository-active-root not visible after nav to repository tab' },
     );
 
@@ -605,23 +460,13 @@ describe("Rack Inventory Studio — core inventory placement", () => {
 
       // Wait for save + close to complete: landing title appears, active-path disappears.
       await browser.waitUntil(
-        () =>
-          browser.execute(() => {
-            const el = document.querySelector('[data-testid="repository-landing-title"]');
-            if (!el) return false;
-            const rect = (el as HTMLElement).getBoundingClientRect();
-            return rect.width > 0 && rect.height > 0;
-          }),
+        () => browser.execute(isSelectorVisible, '[data-testid="repository-landing-title"]'),
         { timeout: 60_000, interval: 100, timeoutMsg: 'repository-landing-title never appeared after save-and-close' },
       );
+      // "gone" = does not exist OR fails the shared visibility definition —
+      // not limited to a zero bounding rect.
       await browser.waitUntil(
-        () =>
-          browser.execute(() => {
-            const el = document.querySelector('[data-testid="repository-active-path"]');
-            if (!el) return true; // removed → gone
-            const rect = (el as HTMLElement).getBoundingClientRect();
-            return rect.width === 0 && rect.height === 0;
-          }),
+        async () => !(await browser.execute(isSelectorVisible, '[data-testid="repository-active-path"]')),
         { timeout: 5_000, interval: 100, timeoutMsg: 'repository-active-path still visible after save-and-close' },
       );
     });
@@ -633,13 +478,7 @@ describe("Rack Inventory Studio — core inventory placement", () => {
       await reactSetValue("repository-open-path-input", repoPath);
       await (await waitForEnabled("repository-open-path-submit")).click();
       await browser.waitUntil(
-        () =>
-          browser.execute(() => {
-            const el = document.querySelector('[data-testid="repository-active-root"]');
-            if (!el) return false;
-            const rect = (el as HTMLElement).getBoundingClientRect();
-            return rect.width > 0 && rect.height > 0;
-          }),
+        () => browser.execute(isSelectorVisible, '[data-testid="repository-active-root"]'),
         { timeout: 30_000, interval: 100, timeoutMsg: 'repository-active-root not visible after reopen' },
       );
       await expectActiveRepositoryPath(repoPath);
@@ -663,37 +502,19 @@ describe("Rack Inventory Studio — core inventory placement", () => {
 
     await clickRowViaDom("[data-location-code]", locationName, "Location row after reopen");
     await browser.waitUntil(
-      () =>
-        browser.execute(() => {
-          const nav = document.querySelector('[data-testid="nav-racks"]');
-          if (!nav) return false;
-          const rect = (nav as HTMLElement).getBoundingClientRect();
-          return rect.width > 0 && rect.height > 0;
-        }),
+      () => browser.execute(isSelectorVisible, '[data-testid="nav-racks"]'),
       { timeout: 10_000, interval: 100, timeoutMsg: 'nav-racks did not appear after location reopen click' },
     );
     log("step 23: navigated to Racks after reopen");
 
     // Click the rack row to open the rack detail view.
     await browser.waitUntil(
-      () =>
-        browser.execute(() => {
-          const el = document.querySelector('[data-testid="rack-add-btn"]');
-          if (!el) return false;
-          const rect = (el as HTMLElement).getBoundingClientRect();
-          return rect.width > 0 && rect.height > 0;
-        }),
+      () => browser.execute(isSelectorVisible, '[data-testid="rack-add-btn"]'),
       { timeout: 10_000, interval: 100, timeoutMsg: 'rack-add-btn not visible after reopen nav' },
     );
     await clickRowViaDom("[data-rack-code]", rackName, `Rack row "${rackName}" after reopen`);
     await browser.waitUntil(
-      () =>
-        browser.execute(() => {
-          const el = document.querySelector('[data-testid="palette-drop-zone"]');
-          if (!el) return false;
-          const rect = (el as HTMLElement).getBoundingClientRect();
-          return rect.width > 0 && rect.height > 0;
-        }),
+      () => browser.execute(isSelectorVisible, '[data-testid="palette-drop-zone"]'),
       { timeout: 15_000, interval: 100, timeoutMsg: 'palette-drop-zone did not appear after reopen' },
     );
     log("step 23: rack detail loaded after reopen");
@@ -703,13 +524,7 @@ describe("Rack Inventory Studio — core inventory placement", () => {
     const persistedTitle: string | null = await (async () => {
       const cardSel = `[data-device-code="${deviceCode}"][data-start-u="1"]`;
       await browser.waitUntil(
-        () =>
-          browser.execute((sel: string) => {
-            const el = document.querySelector(sel);
-            if (!el) return false;
-            const rect = (el as HTMLElement).getBoundingClientRect();
-            return rect.width > 0 && rect.height > 0;
-          }, cardSel),
+        () => browser.execute(isSelectorVisible, cardSel),
         { timeout: 15_000, interval: 100, timeoutMsg: `Placed device "${deviceCode}" at U1 not found after reopen` },
       );
       return browser.execute(

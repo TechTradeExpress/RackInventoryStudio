@@ -18,7 +18,7 @@ vi.mock("@wdio/globals", () => ({
   },
 }));
 
-import { canonicalPath, waitForEnabled } from "./repository-ui";
+import { canonicalPath, expectActiveRepositoryPath, waitForEnabled } from "./repository-ui";
 import { browser } from "@wdio/globals";
 
 // ── canonicalPath comparison ──────────────────────────────────────────────────
@@ -115,5 +115,75 @@ describe("waitForEnabled", () => {
   it("queries element with the correct data-testid selector", async () => {
     await waitForEnabled("confirm-btn");
     expect(vi.mocked(browser.$)).toHaveBeenCalledWith('[data-testid="confirm-btn"]');
+  });
+});
+
+// ── expectActiveRepositoryPath ──────────────────────────────────────────────
+
+describe("expectActiveRepositoryPath", () => {
+  let oldDir: string;
+  let expectedDir: string;
+
+  beforeEach(() => {
+    oldDir = mkdtempSync(join(tmpdir(), "ris-test-old-"));
+    expectedDir = mkdtempSync(join(tmpdir(), "ris-test-expected-"));
+  });
+
+  afterEach(() => {
+    rmSync(oldDir, { recursive: true, force: true });
+    rmSync(expectedDir, { recursive: true, force: true });
+    vi.clearAllMocks();
+  });
+
+  // Simulates real browser.waitUntil: repeatedly invokes the predicate
+  // (awaiting it, since expectActiveRepositoryPath's predicate is async)
+  // until it returns a truthy value, or throws after a bounded number of
+  // attempts (standing in for a real timeout).
+  function installLoopingWaitUntilMock(maxAttempts = 5) {
+    vi.mocked(browser.waitUntil).mockImplementation(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      async (predicate: () => unknown) => {
+        for (let i = 0; i < maxAttempts; i++) {
+          if (await predicate()) return undefined as any;
+        }
+        throw new Error("mock waitUntil exhausted without predicate returning true");
+      },
+    );
+  }
+
+  it("does not resolve on the first read of a stale path — succeeds only after a second read reflects the expected path", async () => {
+    let executeCallCount = 0;
+    // Call pattern per iteration: 1) visibility check (isSelectorVisible), 2) textContent read.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(browser.execute).mockImplementation(async (..._args: unknown[]): Promise<any> => {
+      executeCallCount++;
+      const isVisibilityCall = executeCallCount % 2 === 1;
+      if (isVisibilityCall) return true; // element is visible from the first iteration onward
+      // First text read (call #2) returns the stale/old path; second text read
+      // (call #4) returns the path that matches expectedPath.
+      return executeCallCount === 2 ? oldDir : expectedDir;
+    });
+    installLoopingWaitUntilMock();
+
+    await expectActiveRepositoryPath(expectedDir);
+
+    // Two full iterations (visibility + text, twice) were required — the
+    // helper did not accept the first (stale) read.
+    expect(executeCallCount).toBe(4);
+  });
+
+  it("throws a clear error naming both the last-displayed and expected path on timeout", async () => {
+    let call = 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(browser.execute).mockImplementation(async (..._args: unknown[]): Promise<any> => {
+      call++;
+      if (call % 2 === 1) return true; // always "visible"
+      return oldDir; // never matches expectedDir
+    });
+    installLoopingWaitUntilMock(3);
+
+    await expect(expectActiveRepositoryPath(expectedDir)).rejects.toThrow(
+      new RegExp(`last displayed.*expected`, "s"),
+    );
   });
 });
