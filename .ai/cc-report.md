@@ -171,7 +171,14 @@ node scripts/check-repo-hygiene.mjs
 # Run 1 (mryjgiov): CLEAN_PASS in 00:09:06
 # Run 2 (mryjtts3): CLEAN_PASS in 00:09:07
 
-# Post-repair final benchmarks: PENDING (to run after CI gate)
+# Post-repair final benchmarks (2026-07-24)
+# app-smoke ×2: CLEAN_PASS (37 cmds, 14/37 >=5s, P95 12466ms — identical to pre-RP, no regression)
+# core-inventory ×2:
+#   Run 1 (mrylvzca): CLEAN_PASS 528 cmds 14m49s P95=12250ms 120/528 >=5s
+#   Run 2 (mrymf66z): CLEAN_PASS 528 cmds 14m56s P95=12307ms 120/528 >=5s
+# Delta vs pre-RP: +5.7 min (+55 cmds) — expected regression from WebDriver .click()
+# semantic fix on clickNav/clickWhenVisible (5 WDIO click calls at ~42s each via
+# WebKit interactability retry). Still −35% faster than trigger-fix-only baseline.
 ```
 
 ## Risks

@@ -484,7 +484,92 @@ Both runs are consistent within normal run-to-run variance (1–2%).
 
 ---
 
-## 9. Remaining bottlenecks
+## 9. Post-repair final results (Class C post-RP)
+
+Binary: `target/release/rack-inventory-studio-desktop` (same build)
+Run date: 2026-07-24. Code: Batch A+B + RP semantic fixes.
+
+### core-inventory ×2
+
+| Run | Outcome | Test exec | Commands | Median | P95 | Max | >=5s |
+|-----|---------|-----------|----------|--------|-----|-----|------|
+| 1 (mrylvzca) | **CLEAN_PASS** | 889498ms (14m49s) | 528 | 8ms | 12250ms | 66813ms | 120/528 |
+| 2 (mrymf66z) | **CLEAN_PASS** | 895845ms (14m56s) | 528 | 8ms | 12307ms | 67343ms | 120/528 |
+
+Both runs consistent (identical command count, P95 within 57ms).
+
+#### Step timings (run 1 / run 2)
+
+| Step | Run 1 | Run 2 | Pre-RP (run 1) | Delta vs pre-RP |
+|------|-------|-------|----------------|-----------------|
+| create-repository | 79831ms | 80681ms | 79890ms | ~0% |
+| open-location-form | 30352ms | 30720ms | 75ms | +30 277ms |
+| fill-location-form | 12018ms | 11917ms | 12003ms | ~0% |
+| submit-location-form | 30451ms | 30774ms | 30555ms | ~0% |
+| wait-for-location-row | 44ms | 42ms | 41ms | ~0% |
+| navigate-location-to-racks | 75ms | 31ms | 81ms | ~0% |
+| submit-placement | 30210ms | 30526ms | 18492ms | +11 718ms |
+| save-and-close | 61439ms | 61199ms | 61138ms | ~0% |
+| reopen-repository | 42984ms | 42707ms | 42683ms | ~0% |
+
+#### Command profile (run 1 mrylvzca)
+
+| Command | Count | Median | P95 | Mean |
+|---------|-------|--------|-----|------|
+| `$` (ChainablePromise) | 40 | 12144ms | 12292ms | 12156ms |
+| `findElement` (protocol) | 40 | 6126ms | 6209ms | 6124ms |
+| `click` (WDIO with retry) | 5 | 42591ms | 54636ms | 44968ms |
+| `elementClick` (protocol) | 34 | 6126ms | 30670ms | 13620ms |
+| `getAttribute` | 3 | 24572ms | 36291ms | 28333ms |
+| `getElementAttribute` | 8 | — | — | — |
+| `executeAsync` | 85 | 8ms | 52ms | 17ms |
+| `waitForDisplayed` (WDIO retry) | 24 | 8ms | 13ms | 8ms |
+| `isDisplayed` (WDIO retry) | 26 | 7ms | 12ms | 8ms |
+| `waitUntil` | 72 | 8ms | 107ms | 20ms |
+
+### Pre-RP vs post-RP comparison (Class C)
+
+| Metric | Class C pre-RP | Class C post-RP | Delta |
+|--------|---------------|----------------|-------|
+| Test exec | 543202ms (9.1 min) | 889498ms (14.8 min) | **+5.7 min** |
+| Commands | 473 | 528 | +55 |
+| Median | 9ms | 8ms | −1ms |
+| P95 | 12200ms | 12250ms | +50ms |
+| Max | 60507ms | 66813ms | +6306ms |
+| >=5s count | 85/473 | 120/528 | +35 |
+| >=5s rate | 18% | 22.7% | +4.7pp |
+| `click` (WDIO) | 0 | 5 (median 42591ms) | new |
+| `$` calls | 28 | 40 | +12 |
+| `elementClick` | 18 | 34 | +16 |
+| `executeAsync` | 97 | 85 | −12 |
+
+**Explanation of regression:** The RP restored WebDriver `.click()` for `clickNav`
+and `clickWhenVisible` to preserve the full pointer-event sequence. Under WebKit
+(Xvfb), WDIO's `.click()` triggers an interactability-retry loop (`isDisplayed` +
+`waitForDisplayed` + `elementClick` retries), causing each click to take 42–54s.
+The 5 WDIO `click` commands account for ~215s of the 5.7-min regression; the
+remaining comes from extra `findElement` calls.
+
+This is correct behavior — nav and button elements must use the full WebDriver
+click path. The execute()-based click previously bypassed interactability and
+pointer-event semantics.
+
+**vs Class B diagnostic (trigger-fix only):** Post-RP is still faster:
+14.8 min vs 22.8 min (−35%), 528 vs 855 commands (−38%), P95 12307ms vs 24368ms
+(−50%).
+
+### app-smoke ×2 (post-RP regression check)
+
+| Run | Outcome | Test exec | Commands | Median | P95 | >=5s |
+|-----|---------|-----------|----------|--------|-----|------|
+| 1 (mrylsf58) | **CLEAN_PASS** | — | 37 | 10ms | 12409ms | 14/37 |
+| 2 (mrylu4ty) | **CLEAN_PASS** | — | 37 | 19ms | 12466ms | 14/37 |
+
+No regression. Identical to pre-RP app-smoke (37 cmds, 14/37 ≥5s).
+
+---
+
+## 10. Remaining bottlenecks
 
 After the optimizations:
 
