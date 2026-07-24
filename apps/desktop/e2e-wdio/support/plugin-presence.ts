@@ -70,6 +70,23 @@ async function probeOnce(browser: WebdriverIO.Browser): Promise<boolean> {
   }
 }
 
+// tauri-service's own before() hook issues its own executeScript/
+// executeAsyncScript calls to detect and wait for plugin initialization
+// (see "Waiting for Tauri plugin initialization..." in its logs) and
+// resolves as soon as it receives that response. Firing our own execute()
+// immediately in the same tick — before tauri-driver/WebKitWebDriver has
+// fully settled from that prior round trip — has been observed to hang the
+// underlying HTTP request for the full connectionRetryTimeout (90 s) with
+// no WebDriver command ever logged, surfacing as an UND_ERR_HEADERS_TIMEOUT
+// once it finally gives up. A short settle delay before the first probe
+// reliably avoids the race (confirmed: probe resolves in ~10 ms once
+// delayed) without materially affecting overall run latency.
+const SETTLE_DELAY_MS = 500;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
  * Runs the opt-in plugin-presence contract check against the given
  * WebdriverIO browser session. No-op when RIS_WDIO_EXPECT_PLUGIN is unset.
@@ -92,6 +109,10 @@ export async function assertPluginPresenceContract(
   const expected = resolveExpectedPluginPresence();
   if (expected === null) return;
 
+  // See SETTLE_DELAY_MS above — applies to both branches since tauri-service
+  // runs its own before()-hook plugin probe ahead of either of ours.
+  await delay(SETTLE_DELAY_MS);
+
   if (expected === "present") {
     const deadline = Date.now() + 5_000;
     while (Date.now() < deadline) {
@@ -102,7 +123,7 @@ export async function assertPluginPresenceContract(
         recordPluginPresenceProbe(true);
         return;
       }
-      await new Promise((resolvePause) => setTimeout(resolvePause, 100));
+      await delay(100);
     }
     recordPluginPresenceProbe(false);
     throw new Error(
