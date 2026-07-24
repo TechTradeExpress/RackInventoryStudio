@@ -926,6 +926,42 @@ deferred, not a merge gate for this pass. See
 `docs/E2E_WDIO_LATENCY_OPTIMIZATION.md` §12 for full detail, including the
 list of remaining costly patterns consciously left for a future pass.
 
+**Linux canonical-runner repair pass (same branch/PR, two parts):** Linux
+is now the primary Stage 3B.4 validation environment (all validation below
+ran directly on Linux/WebKitWebDriver, not carried over from Windows).
+
+- **Part 1** (static/unit-tested only, no E2E environment available in that
+  session): hardened `scripts/run-wdio-e2e.mjs`'s port contract to a hard
+  pre-run/post-run gate (occupied port or unverifiable `ss` probe now fails
+  the run, never just warns), made the child environment deterministic
+  (inherited `RIS_WDIO_EXPECT_PLUGIN`/`RIS_WDIO_DRIVER_PROVIDER`/
+  `TAURI_BINARY_PATH` are discarded before this run's own values are set;
+  `--binary` now requires an explicit `--expect-plugin`), fixed
+  `plugin-presence.ts` and `expectActiveRepositoryPath` to distinguish a
+  genuine WebDriver infrastructure failure from a real plugin-absence/
+  path-mismatch result instead of conflating the two, and restored the
+  placement modal's specific `"Placement failed"` diagnostic in the shared
+  `waitForFormCloseOrError` helper.
+- **Part 2** (full Linux E2E validation on real `xvfb-run`/`WebKitWebDriver`):
+  validated the canonical runner's port contract with a real occupied-port
+  negative test, ran the integration smoke (`app-smoke`) and all six specs
+  modified by this repair pass, and ran `representative-latency ×2` and
+  `core-inventory ×2` — the first plugin-backed Linux runs of either,
+  establishing fresh Linux baselines rather than comparing against Windows.
+  Also confirmed the production-shaped binary (no `wdio-plugin` feature)
+  still correctly reports `wdioPluginAvailable=false`/`buildVariant=plain`
+  through the same runner. Real E2E execution surfaced two further,
+  previously-undetected bugs, fixed and re-validated in place: a driver-level
+  race where the plugin-presence probe's first `browser.execute()` call
+  (issued in the same tick as `@wdio/tauri-service`'s own before-hook probe)
+  could hang for the full `connectionRetryTimeout` (90 s), and a
+  `cleanupOwnedRunRoot` teardown race (`ENOTEMPTY`) against the app
+  process's own still-settling filesystem writes, since WDIO's `onComplete`
+  hook fires before the driver/app process is stopped. See
+  `docs/E2E_WDIO_LATENCY_OPTIMIZATION.md` §13 for full environment details,
+  the occupied-port test transcript, and all before/after metrics. Full
+  11-spec suite remains intentionally deferred — not a gate for this pass.
+
 ---
 
 ### Stage 3C — Remaining placement workflows

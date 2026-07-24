@@ -5,6 +5,16 @@
 **Status:** COMPLETE — Decision: **KEEP EXTERNAL — temporary**
 (Windows matrix complete, 8 runs over two passes; see §Decision and §"submit-placement root cause".)
 
+> **Primary environment note:** as of the Stage 3B.4 Linux canonical-runner
+> repair pass, Linux (via `pnpm test:e2e:wdio -- --spec <name>`) is the
+> primary Stage 3B.4 validation environment. The Windows data in this
+> document is retained as a historical driver-provider comparison (external
+> vs. embedded) and is not superseded by anything Linux-specific — the two
+> measure different things. See
+> `docs/E2E_WDIO_LATENCY_OPTIMIZATION.md` §13 for the Linux validation
+> results and `docs/E2E_WDIO_PLAN.md`'s Stage 3B.4 section for the full
+> repair-pass history.
+
 ---
 
 ## Purpose

@@ -78,6 +78,15 @@
  * The test-environment helper is initialized at module-load time so that the
  * XDG and git isolation env vars are in process.env before the WDIO launcher
  * spawns workers and before tauri-driver launches the Tauri binary.
+ *
+ * ── Linux validation status ───────────────────────────────────────────────────
+ *
+ * The canonical runner's port contract, the plugin-presence probe (both
+ * present/absent), the six specs modified by the Stage 3B.4 Linux repair
+ * pass, `representative-latency ×2`, and `core-inventory ×2` have all been
+ * validated directly on Linux/WebKitWebDriver — see
+ * docs/E2E_WDIO_LATENCY_OPTIMIZATION.md §13 for full results. The full
+ * 11-spec suite remains intentionally deferred, not a merge gate.
  */
 import type { Options } from "@wdio/types";
 import path from "path";

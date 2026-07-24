@@ -1218,3 +1218,232 @@ specs directly (the 7 modified + `core-inventory`, per the operator brief's
 "every modified spec must be run directly on Windows" rule) plus the
 `representative-latency` regression benchmark; it did not run the full
 suite as a single execution, and does not claim to.
+
+---
+
+## 13. Linux canonical-runner repair pass (same branch/PR, two parts)
+
+Work continued back on Linux, same branch (`feature/e2e-wdio-latency-optimization`)
+and PR (#154). §1–10 above are the historical Linux Class A/B/C
+baseline/diagnosis/optimization; §11–12 are the Windows repair passes.
+Everything in this section is Linux again, external provider, using the
+canonical runner (`pnpm test:e2e:wdio -- --spec <name>`) built in the first
+Linux RP rather than raw `xvfb-run`/`wdio run` invocations.
+
+### 13.1. Part 1 — static/unit-tested repair (no E2E environment available)
+
+That session had no `xvfb-run`/`WebKitWebDriver` installed, so every fix
+was validated by unit tests and static checks only:
+
+1. **Hard port contract** (`scripts/run-wdio-e2e.mjs`): pure functions
+   `parseListeningPorts`, `inspectPortProbeResult`, `deriveFinalRunnerExitCode`.
+   Pre-run: an occupied port or an unverifiable `ss` probe aborts before the
+   benchmark starts (never auto-kills a pre-existing process). Post-run: an
+   occupied port or unverifiable probe forces a non-zero final exit code,
+   even when the child benchmark exited 0, without clobbering a genuine
+   non-zero child exit code.
+2. **Deterministic child environment**: `buildChildEnv()` deletes any
+   inherited `RIS_WDIO_EXPECT_PLUGIN`/`RIS_WDIO_DRIVER_PROVIDER`/
+   `TAURI_BINARY_PATH` before setting this run's own values. `--binary` now
+   requires an explicit `--expect-plugin present|absent`; the default
+   binary silently accepting `--expect-plugin absent` is rejected.
+3. **Plugin-presence infrastructure-failure classification**
+   (`plugin-presence.ts`): the `"present"` case used `browser.waitUntil`,
+   which treats a thrown predicate error identically to a timeout, so a
+   session crash or `execute()` rejection during the poll was silently
+   recorded as plain plugin absence. Replaced with manual polling: an
+   infrastructure failure now propagates immediately with the original
+   error preserved as `cause`; only a probe that runs to completion and
+   legitimately returns `false` for the full window is recorded as absent.
+4. **`expectActiveRepositoryPath` infra-failure diagnostic**
+   (`repository-ui.ts`): a thrown `browser.execute()` inside the poll
+   predicate was indistinguishable from a genuine path mismatch. Now
+   reports `"Active repository path check failed"` (cause preserved)
+   separately from the existing timeout/mismatch message.
+5. **Form-submit diagnostics** (`spec-interactions.ts`):
+   `waitForFormCloseOrError` hardcoded `"Form submit failed"` for every
+   caller, degrading the placement modal's previous `"Placement failed —
+   modal error:"` message. Added `errorLabel`/`timeoutLabel` options
+   (defaulting to the previous generic wording); the two `place-btn` call
+   sites in `destructive-guards-hierarchy.e2e.ts` and
+   `destructive-guards-inventory.e2e.ts` now pass `"Placement failed"` /
+   `"Placement modal"`.
+
+All five landed as separate commits with new/updated unit tests; static
+validation (typecheck, full Vitest suite, hygiene, version consistency,
+`cargo fmt`/`check`/`clippy` default + `wdio-embedded` + `wdio-plugin`) was
+green. See the Part 1 `.ai/cc-report.md` entry for the full commit list.
+
+### 13.2. Part 2 — Linux environment and canonical-runner verification
+
+**Environment** (fresh sandbox with `xvfb-run`/`WebKitWebDriver` available
+this time):
+
+| Item | Value |
+|------|-------|
+| OS | Ubuntu 24.04.4 LTS, kernel 6.8.0-117-generic |
+| CPU | Intel(R) Core(TM) i5-6500T @ 2.50GHz (4 cores) |
+| RAM | 7717 MB |
+| Node.js | v18.19.1 |
+| pnpm | 9.15.9 (repo pins 10.33.4, which requires Node ≥22; this sandbox has Node 18 — pnpm 9 used instead, behaviourally equivalent for these commands) |
+| rustc / cargo | 1.95.0 |
+| tauri-driver | present at `/cache/cargo/bin/tauri-driver` |
+| WebKitWebDriver | present at `/usr/bin/WebKitWebDriver` |
+| xvfb-run | present at `/usr/bin/xvfb-run` |
+| Provider | `external` (unchanged) |
+
+### 13.3. Occupied-port negative test
+
+Started a plain Node listener bound to `127.0.0.1:4444`, confirmed via
+`ss -ltnp`, then ran `pnpm test:e2e:wdio --spec app-smoke --skip-build`:
+
+```
+[run-wdio-e2e] pre-run: port 4444 is occupied
+[run-wdio-e2e]   LISTEN 0      511        127.0.0.1:4444       0.0.0.0:*    users:(("node",pid=14483,fd=18))
+[run-wdio-e2e]   pid=14483 process=node
+[run-wdio-e2e] pre-run: refusing to start the benchmark while ports 4444/4445 are occupied.
+```
+
+`occupied_port_exit=1`; the benchmark was never spawned; the diagnostic
+names port 4444, the exact `ss` line, and the owning PID/process. Killed
+only the known test-listener PID (no `pkill`/`killall`); ports confirmed
+free immediately after.
+
+### 13.4. Integration smoke — two real bugs found and fixed
+
+The first real `app-smoke` run (and its immediate retry) both hung for
+~90 s in the `before` hook and then failed with `UND_ERR_HEADERS_TIMEOUT`,
+correctly classified per §13.1 item 3 as an infrastructure failure rather
+than plugin absence — but this was a *new*, previously-undetected bug, not
+the thing that fix was validating. Root cause, found via targeted timing
+instrumentation: firing the plugin-presence probe's `browser.execute()`
+immediately after `@wdio/tauri-service`'s own before-hook plugin check (in
+the same event-loop tick) reliably raced the underlying WebDriver HTTP
+request into hanging for the full `connectionRetryTimeout` (90 s) — no
+WebDriver command was ever logged during the wait. A 500 ms settle delay
+before the first probe (both `present`/`absent` branches) reliably avoids
+the race; confirmed the probe then resolves in ~10 ms.
+
+With that fixed, `app-smoke` still failed — `TEST_FAILED` despite
+"Spec Files: 1 passed" — because WDIO's `onComplete` hook (which runs
+`cleanupOwnedRunRoot`) fires *before* `@wdio/tauri-service` stops the
+driver/app process, so the app's own GPU/shader-cache writes (e.g.
+`mesa_shader_cache` under Xvfb software rendering) could still be landing
+in the run root when the recursive delete started, throwing `ENOTEMPTY`.
+Fixed with `fs.rmSync`'s built-in `maxRetries`/`retryDelay` (first at 5/200ms,
+widened to 40/250ms after `representative-latency`'s heavier filesystem
+activity exhausted the smaller budget — see §13.6). Both fixes are one-time
+per-run costs, not per-command, so latency-optimization goals are
+unaffected.
+
+**Final `app-smoke` result** (`runId=mrzahstn-6a7z26`): `CLEAN_PASS`,
+`totalRunMs=6424`, `testExecutionMs=470`, `commandCount=39`, `median=16ms`,
+`p95=191ms`, commands ≥5s: 0, `wdioPluginAvailable=true`,
+`buildVariant=wdio-plugin`, `cleanupRequired=false`, ports free before and
+after, exit 0.
+
+### 13.5. Six modified specs — validated at the final HEAD
+
+Modified specs list = validated specs list (identical, all 6). All results
+below are from the exact final HEAD that was pushed (re-run after the
+§13.4/§13.6 fixes landed, to keep every reported number traceable to one
+commit):
+
+| Spec | Result | Total | Commands | Median | P95 | Max | ≥5s | Plugin | Cleanup | Ports |
+|------|--------|-------|----------|--------|-----|-----|-----|--------|---------|-------|
+| `entity-deletes-hierarchy` | CLEAN_PASS | 19s | 980 | 10ms | 173ms | 1771ms | 0 | true | safe | free |
+| `entity-deletes-inventory` | CLEAN_PASS | 21s | 1141 | 10ms | 130ms | 1586ms | 0 | true | safe | free |
+| `entity-updates-work-mode` | CLEAN_PASS | 27s | 1860 | 6ms | 106ms | 970ms | 0 | true | safe | free |
+| `destructive-guards-hierarchy` | CLEAN_PASS | 33s | 2274 | 7ms | 120ms | 1693ms | 0 | true | safe | free |
+| `destructive-guards-inventory` | CLEAN_PASS | 32s | 2296 | 7ms | 122ms | 1602ms | 0 | true | safe | free |
+| `placement-lifecycle` | CLEAN_PASS | 21s | 1001 | 13ms | 223ms | 2359ms | 0 | true | safe | free |
+
+All six: `wdioPluginAvailable=true`, `buildVariant=wdio-plugin`, exit 0,
+ports free before and after. Down from historical Linux/pre-plugin times of
+minutes-to-~70min (§6, §11.5.1) — consistent with the Windows-validated
+`tauri-plugin-wdio` fix (§11.5.3) now also confirmed directly on Linux.
+
+### 13.6. `representative-latency ×2` — first Linux plugin-backed baseline
+
+No prior Linux run of `representative-latency` with the plugin existed to
+regress against (the Windows final in §11.6 is kept as historical
+reference only, not the primary comparison, per the operator brief). This
+run establishes that baseline.
+
+| Run | Outcome | Total | Commands | Median | P90 | P95 | P99 | Max | ≥5s |
+|-----|---------|-------|----------|--------|-----|-----|-----|-----|-----|
+| 1 (`mrzauol1-7lywai`) | CLEAN_PASS | 11,333ms | 299 | 13ms | 70ms | 106ms | 191ms | 502ms | 0 |
+| 2 (`mrzauxc2-jp0pid`) | CLEAN_PASS | 10,957ms | 303 | 11ms | 70ms | 83ms | 180ms | 503ms | 0 |
+
+Variance 3.3% (well under the 10% third-run threshold). `status: OK`,
+`measurementEligibleRuns: 2/2`, `wdioPluginAvailable: true`,
+`buildVariant: "wdio-plugin"` both runs, all 9 `measureStep` cases
+`successful: 1/1` both runs, `cleanupRequired: false` both (clean driver
+shutdown, no forced cleanup), ports free after both.
+
+Gate results: all 9 cases pass ✓; `CLEAN_PASS ×2` ✓; plugin present ✓;
+commands ≥5s = 0 ✓; ports free ✓. (No prior Linux baseline to regress
+against — see above.)
+
+### 13.7. `core-inventory ×2` — first Linux plugin-backed run
+
+Same situation as §13.6: no prior Linux+plugin `core-inventory` run
+exists; this establishes the baseline.
+
+| Run | Outcome | Total | Commands | Median | P95 | Max | ≥5s |
+|-----|---------|-------|----------|--------|-----|-----|-----|
+| 1 (`mrzb1cvd-ywvinv`) | CLEAN_PASS | 11,456ms | 327 | 11ms | 105ms | 491ms | 0 |
+| 2 (`mrzb1lpq-s7lpx3`) | CLEAN_PASS | 10,926ms | 325 | 9ms | 102ms | 488ms | 0 |
+
+Variance 4.6% (under the 10% third-run threshold). Both runs:
+`wdioPluginAvailable: true`, `buildVariant: "wdio-plugin"`,
+`cleanupRequired: false`, ports free after both, no new failure point, all
+workflow assertions (creation, placement, save/close/reopen, persistence
+verification) held.
+
+### 13.8. Production binary (plugin absent) check
+
+Built a production-shaped binary into a separate `target-production-check/`
+`CARGO_TARGET_DIR` (`pnpm -C apps/desktop tauri build --no-bundle`, no
+`wdio-plugin` feature), then ran it through the canonical runner:
+
+```
+pnpm test:e2e:wdio -- --spec app-smoke \
+  --binary "$PWD/target-production-check/release/rack-inventory-studio-desktop" \
+  --expect-plugin absent
+```
+
+Result: `CLEAN_PASS`, `buildVariant: "plain"`, `wdioPluginAvailable: false`,
+`commandCount: 39`, `totalRunMs≈81s` (vs. ~6s for the plugin binary —
+correctly reproduces the pre-plugin `@wdio/tauri-service` retry-loop cost
+documented in §11.5.1, confirming the plugin genuinely is absent from this
+binary rather than the check being a no-op), exit 0, ports free after.
+
+Directory separation confirmed: `target-wdio-plugin/release/` (16,418,400
+bytes), `target-production-check/release/` (15,667,008 bytes), and the
+regular `target/release/` (15,660,704 bytes, unchanged mtime from the Part
+1 build) are three distinct files — the regular production build path was
+never used as a test binary.
+
+### 13.9. Static validation (re-run after the Part 2 fixes)
+
+```
+git diff --check                                          PASS
+node --test (3 script test files)                         231/231 PASS
+pnpm -C apps/desktop typecheck                             PASS — 0 errors
+pnpm -C apps/desktop test                                  917/917 PASS
+node scripts/check-repo-hygiene.mjs                        8/8 PASS
+node scripts/check-version-consistency.mjs                 PASS
+cargo fmt --all --check                                    PASS
+cargo check/clippy --workspace                             PASS
+cargo check/clippy --features wdio-embedded                PASS
+cargo check/clippy --features wdio-plugin                  PASS
+```
+
+### 13.10. Full 11-spec suite — still intentionally deferred
+
+Unchanged position from §11.9/§12.9: this pass validated the integration
+smoke, the six modified specs, `representative-latency ×2`, and
+`core-inventory ×2` (9 of 11 specs plus the representative benchmark) — not
+a single full-suite execution. The full 11-spec suite remains explicitly
+deferred and is not a merge gate for Stage 3B.4.
