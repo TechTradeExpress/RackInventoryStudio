@@ -25,7 +25,7 @@ import { browser, expect } from "@wdio/globals";
 import {
   reactSetValue,
   reactSelectValue,
-  waitForEnabled,
+  clickWhenEnabled,
   expectActiveRepositoryPath,
   createRepositoryThroughUi,
 } from "../support/repository-ui";
@@ -111,7 +111,7 @@ describe("Rack Inventory Studio — core inventory placement", () => {
 
     log("step 4: submitting location form");
     await measureStep("submit-location-form", async () => {
-      await (await waitForEnabled("location-form-submit")).click();
+      await clickWhenEnabled("location-form-submit");
       await waitForModalClose("location-form-submit");
     });
 
@@ -161,7 +161,7 @@ describe("Rack Inventory Studio — core inventory placement", () => {
     // height_u defaults to 42 — no need to override.
 
     log("step 7: submitting rack form");
-    await (await waitForEnabled("rack-form-submit")).click();
+    await clickWhenEnabled("rack-form-submit");
 
     // ── 8. Verify rack row ────────────────────────────────────────────────────
     log("step 8: waiting for rack row");
@@ -200,7 +200,7 @@ describe("Rack Inventory Studio — core inventory placement", () => {
     await reactSetValue("field-height-u", "1");
 
     log("step 10: submitting model form");
-    await (await waitForEnabled("model-form-submit")).click();
+    await clickWhenEnabled("model-form-submit");
 
     // ── 11. Verify device model row ───────────────────────────────────────────
     log("step 11: waiting for model row");
@@ -281,7 +281,7 @@ describe("Rack Inventory Studio — core inventory placement", () => {
     log("step 13: device model assigned");
 
     log("step 13: submitting device form");
-    await (await waitForEnabled("device-form-submit")).click();
+    await clickWhenEnabled("device-form-submit");
 
     // ── 14. Verify device row and unplaced status ─────────────────────────────
     log("step 14: waiting for device row");
@@ -387,7 +387,7 @@ describe("Rack Inventory Studio — core inventory placement", () => {
     // which are a distinct concern (DOM content, not placement success).
     log("step 19: submitting placement");
     await measureStep("submit-placement", async () => {
-      await (await waitForEnabled("place-btn")).click();
+      await clickWhenEnabled("place-btn");
 
       // Wait for modal to close; surface any error from the modal footer (.ft-msg.err).
       // A single execute() reads both the button and error state atomically.
@@ -456,7 +456,7 @@ describe("Rack Inventory Studio — core inventory placement", () => {
 
       // UnsavedChangesDialog opens (created entities + placement = unsaved changes)
       log("step 21: waiting for Save and continue in UnsavedChangesDialog");
-      await (await waitForEnabled("unsaved-changes-save")).click();
+      await clickWhenEnabled("unsaved-changes-save");
 
       // Wait for save + close to complete: landing title appears, active-path disappears.
       await browser.waitUntil(
@@ -476,7 +476,7 @@ describe("Rack Inventory Studio — core inventory placement", () => {
     log(`step 22: reopening repository at ${repoPath}`);
     await measureStep("reopen-repository", async () => {
       await reactSetValue("repository-open-path-input", repoPath);
-      await (await waitForEnabled("repository-open-path-submit")).click();
+      await clickWhenEnabled("repository-open-path-submit");
       await browser.waitUntil(
         () => browser.execute(isSelectorVisible, '[data-testid="repository-active-root"]'),
         { timeout: 30_000, interval: 100, timeoutMsg: 'repository-active-root not visible after reopen' },

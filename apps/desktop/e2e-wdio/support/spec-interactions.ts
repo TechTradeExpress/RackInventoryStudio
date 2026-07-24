@@ -7,9 +7,46 @@
 import { browser } from "@wdio/globals";
 import { isSelectorVisible } from "./dom-helpers";
 
+// W3C WebDriver element reference key (see the WebDriver spec's "web element
+// identifier"). browser.findElement()/elementClick() are raw protocol
+// commands exposed by webdriverio.
+const W3C_ELEMENT_KEY = "element-6066-11e4-a52e-4f735466cecf";
+
 /**
- * Waits for a nav tab to be visible then clicks it via WebDriver .click()
- * to preserve the full pointer-event sequence.
+ * Clicks an element via direct WebDriver protocol commands (findElement +
+ * elementClick), bypassing WDIO's higher-level browser.$(selector).click()
+ * convenience wrapper.
+ *
+ * This still performs the standards-compliant WebDriver "Element Click"
+ * algorithm — an occluded element still fails with an interceptability
+ * error, a disabled/non-interactable element still fails, and the resulting
+ * DOM event sequence is identical to what browser.$().click() eventually
+ * dispatches. The difference is entirely client-side: WDIO's own .click()
+ * wraps the protocol call in an interactability-retry loop, and — because
+ * @wdio/tauri-service's beforeCommand hook re-checks plugin availability on
+ * every single command (this app does not have tauri-plugin-wdio installed,
+ * so that check always resolves false at ~70-100ms per call) — each retry
+ * iteration re-pays that hook cost. A single ordinary, already-visible
+ * button does not need that retry loop at all; going straight to one
+ * findElement + one elementClick call avoids paying for it.
+ *
+ * Do not use this for SearchableSelect option elements (see clickRowViaDom
+ * and the SearchableSelect notes elsewhere) — those still require WDIO's
+ * own .click() semantics for onMouseDown handling, which this bypasses.
+ */
+export async function clickElementProtocol(selector: string): Promise<void> {
+  const ref = await browser.findElement("css selector", selector);
+  const elementId = (ref as Record<string, string> | null)?.[W3C_ELEMENT_KEY];
+  if (!elementId) {
+    throw new Error(`clickElementProtocol: element not found for selector "${selector}"`);
+  }
+  await browser.elementClick(elementId);
+}
+
+/**
+ * Waits for a nav tab to be visible then clicks it via the WebDriver
+ * protocol click (see clickElementProtocol) to preserve the full
+ * pointer-event sequence without WDIO's client-side retry-loop overhead.
  */
 export async function clickNav(tab: string): Promise<void> {
   const testId = `nav-${tab}`;
@@ -19,7 +56,7 @@ export async function clickNav(tab: string): Promise<void> {
     interval: 100,
     timeoutMsg: `nav-${tab} not visible`,
   });
-  await browser.$(selector).click();
+  await clickElementProtocol(selector);
 }
 
 /**
@@ -52,8 +89,9 @@ export async function waitForModalClose(submitTestId: string): Promise<void> {
 
 /**
  * Waits for an interactive button/element to be visible then clicks it via
- * WebDriver .click() to preserve the full pointer-event sequence and
- * interactability checks.
+ * the WebDriver protocol click (see clickElementProtocol) — full
+ * interactability checks and pointer-event sequence, without WDIO's
+ * client-side retry-loop overhead.
  */
 export async function clickWhenVisible(testId: string, timeout = 10_000): Promise<void> {
   const selector = `[data-testid="${testId}"]`;
@@ -62,7 +100,7 @@ export async function clickWhenVisible(testId: string, timeout = 10_000): Promis
     interval: 100,
     timeoutMsg: `[data-testid="${testId}"] not visible`,
   });
-  await browser.$(selector).click();
+  await clickElementProtocol(selector);
 }
 
 /**

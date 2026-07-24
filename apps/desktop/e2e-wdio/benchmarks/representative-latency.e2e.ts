@@ -34,7 +34,7 @@ import { browser } from "@wdio/globals";
 import {
   reactSetValue,
   reactSelectValue,
-  waitForEnabled,
+  clickWhenEnabled,
   expectActiveRepositoryPath,
   createRepositoryThroughUi,
 } from "../support/repository-ui";
@@ -86,7 +86,7 @@ describe("Representative latency benchmark", () => {
     );
 
     // ── Case B — controlled React input (repository creation) ─────────────
-    // Measures reactSetValue x3 + waitForEnabled + submit + confirmation.
+    // Measures reactSetValue x3 + clickWhenEnabled + submit + confirmation.
     log("case B: creating repository (controlled input)");
     const repoPath = await measureStep("case-b-controlled-input", () =>
       createRepositoryThroughUi({ repoParent, repoCode, repoName }),
@@ -106,7 +106,7 @@ describe("Representative latency benchmark", () => {
     log("case D: filling and submitting location form");
     await measureStep("case-d-modal-fill-submit-close", async () => {
       await reactSetValue("field-name", locationName);
-      await (await waitForEnabled("location-form-submit")).click();
+      await clickWhenEnabled("location-form-submit");
       await waitForModalClose("location-form-submit");
     });
 
@@ -138,7 +138,7 @@ describe("Representative latency benchmark", () => {
     await clickWhenVisible("rack-add-btn");
     await waitForModal("rack-form-submit");
     await reactSetValue("field-name", rackName);
-    await (await waitForEnabled("rack-form-submit")).click();
+    await clickWhenEnabled("rack-form-submit");
     await browser.waitUntil(
       () =>
         browser.execute(
@@ -158,7 +158,7 @@ describe("Representative latency benchmark", () => {
     await reactSelectValue("field-device-type", "server");
     await reactSetValue("field-name", modelName);
     await reactSetValue("field-height-u", "1");
-    await (await waitForEnabled("model-form-submit")).click();
+    await clickWhenEnabled("model-form-submit");
     await browser.waitUntil(
       () =>
         browser.execute(
@@ -225,7 +225,7 @@ describe("Representative latency benchmark", () => {
 
     // ── Setup (unmeasured): submit device form ─────────────────────────────
     log("setup: submitting device form");
-    await (await waitForEnabled("device-form-submit")).click();
+    await clickWhenEnabled("device-form-submit");
     const deviceCode: string = await (async () => {
       await browser.waitUntil(
         () =>
@@ -306,7 +306,7 @@ describe("Representative latency benchmark", () => {
     log("case H: submitting placement");
     const cardSel = `[data-device-code="${deviceCode}"][data-start-u="1"]`;
     await measureStep("case-h-submit-placement", async () => {
-      await (await waitForEnabled("place-btn")).click();
+      await clickWhenEnabled("place-btn");
       await browser.waitUntil(
         async () => {
           // Single atomic execute() reading both button and error state — see
@@ -358,7 +358,7 @@ describe("Representative latency benchmark", () => {
     );
     await measureStep("case-i-save-close-reopen", async () => {
       await browser.$('[data-testid="repository-close-action"]').click();
-      await (await waitForEnabled("unsaved-changes-save")).click();
+      await clickWhenEnabled("unsaved-changes-save");
       await browser.waitUntil(
         () => browser.execute(isSelectorVisible, '[data-testid="repository-landing-title"]'),
         { timeout: 60_000, interval: 100, timeoutMsg: "repository-landing-title never appeared after save-and-close" },
@@ -369,7 +369,7 @@ describe("Representative latency benchmark", () => {
       );
 
       await reactSetValue("repository-open-path-input", repoPath);
-      await (await waitForEnabled("repository-open-path-submit")).click();
+      await clickWhenEnabled("repository-open-path-submit");
       await browser.waitUntil(
         () => browser.execute(isSelectorVisible, '[data-testid="repository-active-root"]'),
         { timeout: 30_000, interval: 100, timeoutMsg: "repository-active-root not visible after reopen" },

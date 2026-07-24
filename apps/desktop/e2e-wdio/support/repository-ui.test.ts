@@ -15,11 +15,15 @@ vi.mock("@wdio/globals", () => ({
     waitUntil: vi.fn(),
     execute: vi.fn(),
     $: vi.fn(),
+    findElement: vi.fn(),
+    elementClick: vi.fn(),
   },
 }));
 
-import { canonicalPath, expectActiveRepositoryPath, waitForEnabled } from "./repository-ui";
+import { canonicalPath, clickWhenEnabled, expectActiveRepositoryPath, waitForEnabled } from "./repository-ui";
 import { browser } from "@wdio/globals";
+
+const W3C_ELEMENT_KEY = "element-6066-11e4-a52e-4f735466cecf";
 
 // ── canonicalPath comparison ──────────────────────────────────────────────────
 
@@ -115,6 +119,55 @@ describe("waitForEnabled", () => {
   it("queries element with the correct data-testid selector", async () => {
     await waitForEnabled("confirm-btn");
     expect(vi.mocked(browser.$)).toHaveBeenCalledWith('[data-testid="confirm-btn"]');
+  });
+});
+
+// ── clickWhenEnabled ─────────────────────────────────────────────────────────
+
+describe("clickWhenEnabled", () => {
+  beforeEach(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(browser.execute).mockResolvedValue(true as any);
+    vi.mocked(browser.waitUntil).mockImplementation(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      async (predicate: () => unknown) => { await predicate(); return undefined as any; },
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(browser.findElement).mockResolvedValue({ [W3C_ELEMENT_KEY]: "submit-elem" } as any);
+    vi.mocked(browser.elementClick).mockResolvedValue(undefined as never);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("waits for the element to be enabled, then clicks via the protocol path (not browser.$().click())", async () => {
+    await clickWhenEnabled("submit-btn");
+
+    expect(browser.findElement).toHaveBeenCalledWith("css selector", '[data-testid="submit-btn"]');
+    expect(browser.elementClick).toHaveBeenCalledWith("submit-elem");
+    expect(browser.$).not.toHaveBeenCalled();
+  });
+
+  it("does not click before the enabled-wait resolves", async () => {
+    const callOrder: string[] = [];
+    vi.mocked(browser.waitUntil).mockImplementation(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      async (predicate: () => unknown) => {
+        callOrder.push("waitUntil");
+        await predicate();
+        return undefined as any;
+      },
+    );
+    vi.mocked(browser.findElement).mockImplementation(async () => {
+      callOrder.push("findElement");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return { [W3C_ELEMENT_KEY]: "submit-elem" } as any;
+    });
+
+    await clickWhenEnabled("submit-btn");
+
+    expect(callOrder).toEqual(["waitUntil", "findElement"]);
   });
 });
 

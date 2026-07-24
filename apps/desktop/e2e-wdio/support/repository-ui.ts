@@ -8,6 +8,7 @@ import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { browser } from "@wdio/globals";
 import { isSelectorVisible } from "./dom-helpers";
+import { clickElementProtocol } from "./spec-interactions";
 
 // ── Path utilities ────────────────────────────────────────────────────────────
 
@@ -27,12 +28,24 @@ export function canonicalPath(value: string): string {
  * value setter + bubbling input/change events.  This bypasses React's internal
  * tracked-value guard that otherwise prevents programmatic value changes from
  * triggering onChange.
+ *
+ * Waits via isSelectorVisible (a fast DOM read) rather than resolving a
+ * ChainablePromiseElement + calling .waitForDisplayed() — the ChainablePromise
+ * resolution path carries its own internal polling/findElement overhead on
+ * top of the visibility check itself. No `$()` call is made at all; the
+ * setter runs in the same execute() round trip as the final visibility read.
  */
-export async function reactSetValue(testId: string, value: string): Promise<void> {
-  const el = await browser.$(`[data-testid="${testId}"]`);
-  await el.waitForDisplayed({ timeout: 10_000 });
+export async function reactSetValue(testId: string, value: string, timeout = 10_000): Promise<void> {
+  const selector = `[data-testid="${testId}"]`;
+  await browser.waitUntil(() => browser.execute(isSelectorVisible, selector), {
+    timeout,
+    interval: 100,
+    timeoutMsg: `[data-testid="${testId}"] never became visible (reactSetValue)`,
+  });
   await browser.execute(
-    function (inputEl: HTMLInputElement, val: string) {
+    (sel: string, val: string) => {
+      const inputEl = document.querySelector(sel) as HTMLInputElement | null;
+      if (!inputEl) throw new Error(`reactSetValue: element not found for selector "${sel}"`);
       const proto = Object.getPrototypeOf(inputEl);
       const descriptor = Object.getOwnPropertyDescriptor(proto, "value");
       if (descriptor && descriptor.set) {
@@ -43,19 +56,27 @@ export async function reactSetValue(testId: string, value: string): Promise<void
       inputEl.dispatchEvent(new Event("input", { bubbles: true }));
       inputEl.dispatchEvent(new Event("change", { bubbles: true }));
     },
-    el as unknown as HTMLInputElement,
+    selector,
     value,
   );
 }
 
 /**
- * Set a value on a React controlled <select> by triggering a native change event.
+ * Set a value on a React controlled <select> by triggering a native change
+ * event. Same rationale as reactSetValue: isSelectorVisible instead of
+ * $()+waitForDisplayed(), setter dispatched via a single execute() call.
  */
-export async function reactSelectValue(testId: string, value: string): Promise<void> {
-  const el = await browser.$(`[data-testid="${testId}"]`);
-  await el.waitForDisplayed({ timeout: 10_000 });
+export async function reactSelectValue(testId: string, value: string, timeout = 10_000): Promise<void> {
+  const selector = `[data-testid="${testId}"]`;
+  await browser.waitUntil(() => browser.execute(isSelectorVisible, selector), {
+    timeout,
+    interval: 100,
+    timeoutMsg: `[data-testid="${testId}"] never became visible (reactSelectValue)`,
+  });
   await browser.execute(
-    function (selectEl: HTMLSelectElement, val: string) {
+    (sel: string, val: string) => {
+      const selectEl = document.querySelector(sel) as HTMLSelectElement | null;
+      if (!selectEl) throw new Error(`reactSelectValue: element not found for selector "${sel}"`);
       const proto = Object.getPrototypeOf(selectEl);
       const descriptor = Object.getOwnPropertyDescriptor(proto, "value");
       if (descriptor && descriptor.set) {
@@ -66,7 +87,7 @@ export async function reactSelectValue(testId: string, value: string): Promise<v
       selectEl.dispatchEvent(new Event("input", { bubbles: true }));
       selectEl.dispatchEvent(new Event("change", { bubbles: true }));
     },
-    el as unknown as HTMLSelectElement,
+    selector,
     value,
   );
 }
@@ -95,6 +116,28 @@ export async function waitForEnabled(testId: string, timeout = 10_000): Promise<
   // ChainablePromiseElement has all Element methods at runtime; cast to
   // satisfy the declared return type.
   return browser.$(`[data-testid="${testId}"]`) as unknown as WebdriverIO.Element;
+}
+
+/**
+ * Waits for the button/element with the given testId to be enabled, then
+ * clicks it via the WebDriver protocol click (clickElementProtocol) instead
+ * of resolving a ChainablePromiseElement and calling .click() on it — see
+ * clickElementProtocol for why this avoids WDIO's client-side retry-loop
+ * overhead. Prefer this over `(await waitForEnabled(id)).click()`, which
+ * still pays that cost (and which the returned element reference from
+ * waitForEnabled is otherwise unused for).
+ */
+export async function clickWhenEnabled(testId: string, timeout = 10_000): Promise<void> {
+  const selector = `[data-testid="${testId}"]`;
+  await browser.waitUntil(
+    () =>
+      browser.execute((sel: string) => {
+        const btn = document.querySelector<HTMLButtonElement | HTMLInputElement>(sel);
+        return !!btn && !btn.disabled;
+      }, selector),
+    { timeout, interval: 100, timeoutMsg: `[data-testid="${testId}"] never became enabled` },
+  );
+  await clickElementProtocol(selector);
 }
 
 /**
@@ -169,11 +212,12 @@ export async function createRepositoryThroughUi(
   await reactSetValue("repository-create-code-input", repoCode);
   await reactSetValue("repository-create-name-input", repoName);
 
-  await (await waitForEnabled("repository-create-submit")).click();
+  await clickWhenEnabled("repository-create-submit");
 
-  await browser
-    .$('[data-testid="repository-active-root"]')
-    .waitForDisplayed({ timeout: 30_000 });
+  await browser.waitUntil(
+    () => browser.execute(isSelectorVisible, '[data-testid="repository-active-root"]'),
+    { timeout: 30_000, interval: 100, timeoutMsg: "repository-active-root not visible after create" },
+  );
 
   const { join } = await import("node:path");
   return join(repoParent, repoCode);
