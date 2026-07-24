@@ -3,7 +3,7 @@
 **Branch:** `feature/e2e-wdio-latency-optimization`
 **Base:** `roadmap/e2e-wdio`
 **Base SHA:** `bd43e90b41bec7237693fe3c845b46bdf4f2f8c2`
-**Status:** COMPLETE (run 2 in progress for confirmation)
+**Status:** COMPLETE
 
 ---
 
@@ -111,7 +111,7 @@ test-code perspective.
 Binary: `target/release/rack-inventory-studio-desktop` (no embedded feature)
 Run date: 2026-07-24
 
-### Run results
+### Run results — full original code (TEST_FAILED)
 
 Both runs terminated with `TEST_FAILED` before completing the test:
 
@@ -160,6 +160,34 @@ the test hit an untracked step (7–12) followed by the fatal step 13.
 
 **Key insight:** `browser.execute()` (executeAsync/executeAsyncScript pair) costs ~17ms.
 Every `$()` or `getElementText` call costs ~12s — 700× slower.
+
+### Intermediate: trigger-fix only (run 1 of bvqas1c4w — mryiqkm0-z6uuy8)
+
+A third data point was captured incidentally. A background benchmark task that
+started before Batch A+B was applied ran two sequential spec passes.
+Run 1 ran with only the trigger-text fix applied (the $().getText() → execute()
+change that made the test pass at all); all other $+waitForDisplayed patterns
+remained unchanged.
+
+| Outcome | Test exec | Commands | Median | P95 | Max | >=5s |
+|---------|-----------|----------|--------|-----|-----|------|
+| CLEAN_PASS | 1366126ms (22.8 min) | 855 | 9ms | 24368ms | 91713ms | 274/855 |
+
+| Step | Trigger-fix only | Full original (partial) |
+|------|-----------------|------------------------|
+| create-repository | 79902ms | 80410ms |
+| open-location-form | 55034ms | 54506ms |
+| fill-location-form | 12294ms | 12158ms |
+| submit-location-form | 55600ms | 54927ms |
+| wait-for-location-row | 12196ms | 12168ms |
+| navigate-location-to-racks | 24547ms | 24218ms |
+| submit-placement | 42403ms | — (test failed before) |
+| save-and-close | 97296ms | — |
+| reopen-repository | 65916ms | — |
+
+With only the trigger fixed, the test passes but takes 22.8 minutes. Steps 1–6
+are nearly identical to the failing baseline — the $+getText patterns in those
+steps were not yet replaced.
 
 ---
 
@@ -321,20 +349,26 @@ Run date: 2026-07-24
 | `executeAsyncScript` (protocol) | 97 | 8ms | 53ms | 15ms |
 | `waitUntil` | 73 | 8ms | 107ms | 20ms |
 
-### Comparison (run 1 after vs run 2 before)
+### Three-level comparison
 
-| Metric | Before | After | Change |
-|--------|--------|-------|--------|
-| Outcome | TEST_FAILED | **CLEAN_PASS** | Fixed |
-| Test execution | 798751ms (partial, failed) | 543202ms (complete) | −32% (full pass) |
-| Commands | 500 (cap) | 473 | −5% |
-| P95 latency | 24491ms | 12200ms | **−50%** |
-| Max latency | 91170ms | 60507ms | **−34%** |
-| >=5s count | 153/500 (30.6%) | 85/473 (18.0%) | **−41% rate** |
-| `$` calls | 42 | 28 | −33% |
-| `click` calls | 12 | 0 | **−100%** |
-| `getElementText` calls | 11 | 0 | **−100%** |
-| `executeAsync` calls | 38 | 97 | +155% (replaces $+getText) |
+| Metric | Original (TEST_FAILED) | Trigger-fix only | **Full Batch A+B** |
+|--------|----------------------|-----------------|-------------------|
+| Outcome | TEST_FAILED | CLEAN_PASS | **CLEAN_PASS** |
+| Test execution | 798751ms (partial) | 1366126ms (22.8 min) | **543202ms (9.1 min)** |
+| Commands | 500 (cap) | 855 | **473** |
+| P95 latency | 24491ms | 24368ms | **12200ms** |
+| Max latency | 91170ms | 91713ms | **60507ms** |
+| >=5s count (rate) | 153/500 (30.6%) | 274/855 (32%) | **85/473 (18%)** |
+| `$` calls | 42 | ~42 | **28** |
+| `click` calls | 12 | ~12 | **0** |
+| `getElementText` calls | 11 | ~11 | **0** |
+| `executeAsync` calls | 38 | ~38 | **97** |
+
+**Batch A+B savings vs trigger-fix-only baseline:**
+- Test time: 1366s → 543s = **−60%**
+- Command count: 855 → 473 = **−45%**
+- P95 latency: 24368ms → 12200ms = **−50%**
+- >=5s rate: 32% → 18% = **−44% rate reduction**
 
 The `click` and `getElementText` protocol calls are entirely eliminated.
 `executeAsync` increases proportionally as those patterns are replaced.
@@ -357,9 +391,46 @@ The `click` and `getElementText` protocol calls are entirely eliminated.
   calls `reactSetValue` ×3 (3 × 12s = 36s) + `waitForEnabled` + click + active-root
   wait. Unchanged by optimization; `reactSetValue` is the floor.
 
-### Run 2
+### Run 2 (mryjtts3-iwqr6i)
 
-*(In progress)*
+| Item | Value |
+|------|-------|
+| Outcome | **CLEAN_PASS** |
+| Total wall | ~547s (9m07s) |
+| Test execution | 544595ms |
+| Commands | 473 |
+| Median latency | 9ms |
+| P95 latency | 12197ms |
+| Max latency | 61176ms |
+| >=5s commands | 85 / 473 |
+
+#### Step timings (run 2)
+
+| Step | Run 2 | Run 1 |
+|------|-------|-------|
+| create-repository | 79376ms | 79890ms |
+| open-location-form | 88ms | 75ms |
+| fill-location-form | 12089ms | 12003ms |
+| submit-location-form | 30674ms | 30555ms |
+| wait-for-location-row | 8ms | 41ms |
+| navigate-location-to-racks | 30ms | 81ms |
+| submit-placement | 18411ms | 18492ms |
+| save-and-close | 61258ms | 61138ms |
+| reopen-repository | 42784ms | 42683ms |
+
+Both runs are consistent within normal run-to-run variance (1–2%).
+
+### After ×2 aggregate
+
+| Metric | Run 1 | Run 2 | Notes |
+|--------|-------|-------|-------|
+| Outcome | CLEAN_PASS | CLEAN_PASS | Both pass |
+| Test exec | 543202ms | 544595ms | Consistent |
+| Commands | 473 | 473 | Identical |
+| Median | 9ms | 9ms | Identical |
+| P95 | 12200ms | 12197ms | Essentially identical |
+| Max | 60507ms | 61176ms | Backend write variance |
+| >=5s | 85/473 | 85/473 | Identical |
 
 ---
 
