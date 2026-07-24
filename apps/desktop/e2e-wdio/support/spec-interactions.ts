@@ -43,10 +43,10 @@ const W3C_ELEMENT_KEY = "element-6066-11e4-a52e-4f735466cecf";
  * dedicated helper. Re-measure before removing this helper if the
  * WebdriverIO/@wdio/tauri-service dependency versions change materially.
  *
- * Do not use this for SearchableSelect option elements (see clickRowViaDom
- * and the SearchableSelect notes elsewhere) — those require WDIO's higher-level
- * element.click() wrapper; observed in testing to be necessary for correct
- * onMouseDown dispatch in the SearchableSelect dropdown.
+ * Do not use this for SearchableSelect option elements — see
+ * selectSearchableOption below, which requires WDIO's Actions-routed
+ * element.click({}) for correct onMouseDown dispatch in the SearchableSelect
+ * dropdown (this raw elementClick protocol command does not provide that).
  */
 export async function clickElementProtocol(selector: string): Promise<void> {
   const ref = await browser.findElement("css selector", selector);
@@ -55,6 +55,51 @@ export async function clickElementProtocol(selector: string): Promise<void> {
     throw new Error(`clickElementProtocol: element not found for selector "${selector}"`);
   }
   await browser.elementClick(elementId);
+}
+
+/**
+ * Selects a SearchableSelect (apps/desktop/src/components/ui/SearchableSelect.tsx)
+ * dropdown option by visible text.
+ *
+ * SearchableSelect's option elements are plain <div role="option"> nodes that
+ * rely on a real onMouseDown listener (not onClick) to select a value before
+ * the trigger's own outside-click handler can close the dropdown first. WDIO's
+ * bare element.click() — and the raw elementClick protocol command used by
+ * clickElementProtocol — issue the WebDriver classic "Element Click" command,
+ * which on the embedded Tauri WebDriver driver (tauri-plugin-wdio-webdriver)
+ * resolves to a plain JS `el.click()`: this synthesizes a `click` event but
+ * never a `mousedown`, so the option is never selected under the embedded
+ * provider. Passing a (possibly empty) options object — element.click({}) —
+ * routes WDIO through the W3C Actions API instead (pointerMove + pointerDown
+ * + pointerUp), which both providers implement with real mousedown/mouseup
+ * dispatch. This is the correct, provider-agnostic way to interact with
+ * SearchableSelect options; do not substitute HTMLElement.click() executed
+ * via browser.execute() as a workaround for the missing mousedown — that
+ * bypasses the same pointer-event sequence real user input produces.
+ */
+export async function selectSearchableOption(matchText: string, timeout = 15_000): Promise<void> {
+  await browser.waitUntil(
+    async () => {
+      try {
+        const options = await browser.$$('[role="option"]');
+        for (const option of options) {
+          const text = await option.getText();
+          if (text.includes(matchText)) {
+            await option.click({});
+            return true;
+          }
+        }
+        return false;
+      } catch {
+        // A poll iteration can race a re-render (e.g. the dropdown's option
+        // list refreshing as the search query updates) and hit a stale
+        // element reference — retry on the next waitUntil tick instead of
+        // failing the whole selection.
+        return false;
+      }
+    },
+    { timeout, interval: 100, timeoutMsg: `SearchableSelect option "${matchText}" not found` },
+  );
 }
 
 /**

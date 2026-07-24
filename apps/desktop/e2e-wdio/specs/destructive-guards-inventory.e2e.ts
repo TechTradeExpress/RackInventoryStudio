@@ -41,7 +41,7 @@ import {
   expectActiveRepositoryPath,
   createRepositoryThroughUi,
 } from "../support/repository-ui";
-import { clickNav, waitForFormCloseOrError } from "../support/spec-interactions";
+import { clickNav, waitForFormCloseOrError, selectSearchableOption } from "../support/spec-interactions";
 import {
   findRowByExactName,
   expectExactlyOneRowByName,
@@ -167,20 +167,7 @@ describe("Rack Inventory Studio — inventory destructive-operation guards", () 
     await browser.$('[data-testid="field-device-model-trigger"]').click();
     await browser.$('[data-testid="field-device-model-search"]').waitForDisplayed({ timeout: 10_000 });
     await browser.$('[data-testid="field-device-model-search"]').addValue(modelName);
-    await browser.waitUntil(
-      async () => {
-        const options = await browser.$$('[role="option"]');
-        for (const option of options) {
-          const text = await option.getText();
-          if (text.includes(modelName)) {
-            await option.click();
-            return true;
-          }
-        }
-        return false;
-      },
-      { timeout: 15_000, timeoutMsg: `Model option "${modelName}" not found in device form dropdown` },
-    );
+    await selectSearchableOption(modelName);
 
     await clickWhenEnabled("device-form-submit");
     await waitForFormCloseOrError("device-form-submit");

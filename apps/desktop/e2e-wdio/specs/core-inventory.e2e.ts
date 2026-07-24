@@ -38,6 +38,7 @@ import {
   clickWhenVisible,
   clickRowViaDom,
   clickElementProtocol,
+  selectSearchableOption,
 } from "../support/spec-interactions";
 
 function log(msg: string) {
@@ -246,19 +247,7 @@ describe("Rack Inventory Studio — core inventory placement", () => {
       { timeout: 10_000, interval: 100, timeoutMsg: 'field-device-model-search did not appear' },
     );
     await browser.$('[data-testid="field-device-model-search"]').addValue(modelName);
-    await browser.waitUntil(
-      () =>
-        browser.execute(
-          (name: string) =>
-            Array.from(document.querySelectorAll('[role="option"]')).some((o) =>
-              o.textContent?.includes(name),
-            ),
-          modelName,
-        ),
-      { timeout: 15_000, interval: 100, timeoutMsg: `Model option "${modelName}" not found in device form dropdown` },
-    );
-    // Click via XPath after confirming option is present; SearchableSelect uses onMouseDown.
-    await browser.$(`//*[@role='option'][contains(.,'${modelName}')]`).click();
+    await selectSearchableOption(modelName);
 
     // Clicking the option closes the dropdown and updates the parent form's
     // React state via onChange, but that state update is not guaranteed to

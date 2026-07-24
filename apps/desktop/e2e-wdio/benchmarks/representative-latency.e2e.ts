@@ -45,6 +45,7 @@ import {
   clickWhenVisible,
   clickRowViaDom,
   clickElementProtocol,
+  selectSearchableOption,
 } from "../support/spec-interactions";
 import { isSelectorVisible } from "../support/dom-helpers";
 import { measureStep } from "../support/command-timing";
@@ -191,21 +192,7 @@ describe("Representative latency benchmark", () => {
         { timeout: 10_000, interval: 100, timeoutMsg: "field-device-model-search did not appear" },
       );
       await browser.$('[data-testid="field-device-model-search"]').addValue(modelName);
-      await browser.waitUntil(
-        () =>
-          browser.execute(
-            (name: string) =>
-              Array.from(document.querySelectorAll('[role="option"]')).some((o) =>
-                o.textContent?.includes(name),
-              ),
-            modelName,
-          ),
-        { timeout: 15_000, interval: 100, timeoutMsg: `Model option "${modelName}" not found in dropdown` },
-      );
-      // Native WDIO click required — SearchableSelect uses onMouseDown, which
-      // execute()-based HTMLElement.click() does not dispatch. Must NOT be
-      // replaced with an execute()-based click.
-      await browser.$(`//*[@role='option'][contains(.,'${modelName}')]`).click();
+      await selectSearchableOption(modelName);
       await browser.waitUntil(
         () =>
           browser.execute(

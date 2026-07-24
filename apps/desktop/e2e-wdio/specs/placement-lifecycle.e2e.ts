@@ -37,7 +37,7 @@ import {
   expectActiveRepositoryPath,
   createRepositoryThroughUi,
 } from "../support/repository-ui";
-import { clickNav, waitForFormCloseOrError } from "../support/spec-interactions";
+import { clickNav, waitForFormCloseOrError, selectSearchableOption } from "../support/spec-interactions";
 
 function log(msg: string) {
   const ts = new Date().toISOString().substring(11, 23);
@@ -219,24 +219,7 @@ describe("Rack Inventory Studio — placement lifecycle", () => {
       await browser.$('[data-testid="field-device-model-trigger"]').click();
       await browser.$('[data-testid="field-device-model-search"]').waitForDisplayed({ timeout: 10_000 });
       await browser.$('[data-testid="field-device-model-search"]').addValue(modelName);
-      await browser.waitUntil(
-        async () => {
-          try {
-            const opts = await browser.$$('[role="option"]');
-            for (const opt of opts) {
-              const text = await opt.getText();
-              if (text.includes(modelName)) {
-                await opt.click();
-                return true;
-              }
-            }
-            return false;
-          } catch {
-            return false;
-          }
-        },
-        { timeout: 15_000, timeoutMsg: `Model option "${modelName}" not found in device form` },
-      );
+      await selectSearchableOption(modelName);
       await clickWhenEnabled("device-form-submit");
 
       // Capture device code from the device row.
