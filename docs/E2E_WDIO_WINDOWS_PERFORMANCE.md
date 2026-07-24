@@ -644,13 +644,33 @@ No claim can be made about Windows without running the full matrix there.
 
 ---
 
+## Follow-up: Stage 3B.4 and tauri-plugin-wdio
+
+This document's "Further optimization candidates" table (above) predates
+the discovery, in the later Stage 3B.4 Windows repair pass, that the
+dominant Windows external-provider cost was not driver-channel overhead as
+such but a specific `@wdio/tauri-service` behavior: `beforeCommand` retries
+a plugin-availability probe up to 100 times (~7-8s) on every
+`findElement`/`elementClick`/`getTitle`/`$`/`$$` command when
+`tauri-plugin-wdio` is not installed, and never caches the negative result.
+Installing that plugin (behind a new, strictly test-only `wdio-plugin`
+Cargo feature — unrelated to the `wdio-embedded` feature this document
+describes, and with no bearing on the external-vs-embedded provider
+decision above, which stands unchanged) reduced the representative
+benchmark from ~1,070s to ~12s median. See
+`docs/E2E_WDIO_LATENCY_OPTIMIZATION.md` §11-12 for the full diagnosis,
+fix, and the subsequent migration of these optimizations into the real
+specs.
+
 ## Related files
 
 - `apps/desktop/e2e-wdio/support/command-timing.ts` — timing instrumentation
 - `apps/desktop/e2e-wdio/wdio.conf.ts` — provider env + hook registration
 - `apps/desktop/e2e-wdio/specs/core-inventory.e2e.ts` — measureStep integration
-- `apps/desktop/src-tauri/Cargo.toml` — wdio-embedded feature
+- `apps/desktop/src-tauri/Cargo.toml` — wdio-embedded feature (+ wdio-plugin,
+  Stage 3B.4 — see docs/E2E_WDIO_LATENCY_OPTIMIZATION.md §11.5.3)
 - `apps/desktop/src-tauri/build.rs` — conditional capability file generation
 - `apps/desktop/src-tauri/src/lib.rs` — conditional plugin registration
 - `scripts/run-wdio-performance-benchmark.mjs` — benchmark runner
+- `scripts/build-wdio-plugin-binary.mjs` — wdio-plugin test binary build (Stage 3B.4)
 - `docs/E2E_WDIO_PLAN.md` — Stage 3B.3 section

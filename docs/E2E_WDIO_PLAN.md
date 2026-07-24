@@ -900,9 +900,31 @@ existing specs), a Windows baseline ×2 (1,069,722ms median), root-cause
 diagnosis of a `@wdio/tauri-service` plugin-availability retry loop, three
 optimization batches (client-side retry bypass, then installing
 `tauri-plugin-wdio` behind a test-only Cargo feature — the actual root fix),
-and a Windows final ×2 (12,287ms median, **−98.9%**). Full WDIO suite
-intentionally deferred, not a merge gate for this pass. See
+and a Windows final ×2 (12,287ms median, **−98.9%**). See
 `docs/E2E_WDIO_LATENCY_OPTIMIZATION.md` §11 for full detail.
+
+**Second Windows repair pass (target-spec migration, same branch/PR):**
+moved the verified optimizations from the diagnostic benchmark into the
+real specs. Hardened `expectActiveRepositoryPath`'s `canonicalPath()`
+exception handling. Formalized the `wdio-plugin` test binary as a
+committed, scripted build (`scripts/build-wdio-plugin-binary.mjs`,
+`target-wdio-plugin/`, never the regular `target/release/`), with an opt-in
+`RIS_WDIO_EXPECT_PLUGIN` presence contract. A/B-confirmed
+`clickElementProtocol` remains ~40%/80ms faster than `browser.$().click()`
+even with the plugin installed. Migrated 7 of 11 specs (`csv-import`,
+`destructive-guards-hierarchy`, `destructive-guards-inventory`,
+`entity-deletes-hierarchy`, `entity-deletes-inventory`,
+`entity-updates-work-mode`, `placement-lifecycle`) to the shared
+`clickWhenEnabled`/`clickNav` helpers; every modified spec validated
+directly on Windows (6-28s each, down from historical Linux times of
+minutes-to-~70min — see the before/after caveat in
+`docs/E2E_WDIO_LATENCY_OPTIMIZATION.md` §12.5). `core-inventory ×2` and
+`representative-latency ×2` re-validated on the final HEAD; the
+representative benchmark passed its regression gate against the previous
+final (all deltas within threshold). Full WDIO suite remains intentionally
+deferred, not a merge gate for this pass. See
+`docs/E2E_WDIO_LATENCY_OPTIMIZATION.md` §12 for full detail, including the
+list of remaining costly patterns consciously left for a future pass.
 
 ---
 

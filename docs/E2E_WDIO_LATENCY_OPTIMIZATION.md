@@ -957,7 +957,7 @@ and unaffected by this optimization pass).
   behavior (§11.5.1) is an upstream library characteristic, not something
   this repository can fix directly; it was worked around, not patched.
 
-### 11.9. Full WDIO suite — intentionally deferred
+### 11.9. Full WDIO suite — intentionally deferred (superseded by §12.9)
 
 Per the Stage 3B.4 Windows repair-pass scope, the full 11-spec WDIO suite
 is **not** a merge gate for this PR and was not run in this pass. Validation
@@ -966,3 +966,255 @@ above (baseline ×2, final ×2), which covers nine interaction-pattern
 classes drawn from the existing specs. Full-suite validation is deferred to
 a separate stabilization stage or a later E2E program milestone, per
 explicit operator direction for this pass.
+
+---
+
+## 12. Target-spec migration (second Windows repair pass)
+
+Continuation of §11 on the same branch/PR (start HEAD `40c24a8`, matching
+§11's final HEAD exactly). §11 established the `representative-latency`
+benchmark as a controlled diagnostic and fixed the actual root cause
+(installing `tauri-plugin-wdio` behind an opt-in Cargo feature). This pass
+moves the verified optimizations into the **real WDIO specs** under
+`apps/desktop/e2e-wdio/specs/` — the representative benchmark remains a
+diagnostic/regression tool, not the end product.
+
+### 12.1. `expectActiveRepositoryPath` — canonicalPath exception hardening
+
+`canonicalPath()` (`realpathSync.native`) throws for a path that does not
+yet exist on disk. The polling predicate called it unconditionally on every
+read; an empty, partial, or stale displayed value threw and aborted the
+whole `waitUntil` instead of being treated as "not yet matching, keep
+polling". Fixed: an empty read returns `false` immediately; a thrown
+`canonicalPath()` is caught and treated identically to a non-matching read.
+Regression test: three-read sequence (empty → nonexistent path → valid
+path) confirms the helper survives both failure modes and only resolves on
+the third read. Commit `fix(e2e): harden repository path polling` (`3d01b05`).
+
+### 12.2. Official `wdio-plugin` test-binary contract
+
+The ad-hoc PowerShell build from §11.5.3 (temp config file, inline
+`--config` JSON, same `target/release/` as production) is replaced with a
+committed, scripted, fully separated build:
+
+| Item | Value |
+|------|-------|
+| Committed config | `apps/desktop/src-tauri/tauri.wdio-plugin.conf.json` (`{"app":{"withGlobalTauri":true}}`) |
+| Build script | `scripts/build-wdio-plugin-binary.mjs` (`pnpm build:e2e:wdio-plugin`) |
+| Test binary `CARGO_TARGET_DIR` | `target-wdio-plugin/` (never `target/`) |
+| Test binary path | `target-wdio-plugin\release\rack-inventory-studio-desktop.exe` |
+| Production binary path | `target\release\rack-inventory-studio-desktop.exe` (unaffected) |
+| Build command | `node scripts/build-wdio-plugin-binary.mjs` |
+
+The script sets `VITE_WDIO_PLUGIN`/`CARGO_TARGET_DIR` only in the spawned
+build child's environment (never mutates its own `process.env`), verifies
+the build's exit code and the binary's existence, and refuses to proceed if
+the resolved binary path would fall under the regular `target/release/`
+directory. 17 unit tests cover path resolution, env construction, and
+exit-code propagation without spawning a real build.
+
+**Plugin-presence contract** (`apps/desktop/e2e-wdio/support/plugin-presence.ts`,
+wired into `wdio.conf.ts`'s `before` hook): opt-in via
+`RIS_WDIO_EXPECT_PLUGIN=present|absent`, no-op when unset. `present` asserts
+`window.wdioTauri` exists; `absent` asserts it does not. The actual runtime
+probe result — never inferred from a binary path string — is recorded into
+`summary.json` as `buildVariant`/`wdioPluginAvailable` via
+`recordPluginPresenceProbe()` in `command-timing.ts`.
+
+**Production build verified on this pass's final HEAD**: built to
+`target-production-check/` (throwaway, gitignored), launched, `app-smoke`
+run with `RIS_WDIO_EXPECT_PLUGIN=absent` — passed, confirming
+`window.wdioTauri` is genuinely absent from the plain build (not just
+visually inspected). Commit `test(e2e): add reproducible WDIO plugin build`
+(`4450cba`).
+
+### 12.3. A/B result: `clickElementProtocol` remains justified
+
+With the plugin installed, the ~7-8s per-command retry-loop tax from §11.5.1
+is gone — the open question was whether `clickElementProtocol` was now
+unnecessary complexity. Measured on the plugin binary (5 clicks each,
+visibility pre-confirmed identically for both variants so only the click
+mechanism itself was compared): `browser.$(selector).click()` median
+**200ms** vs `clickElementProtocol` median **120ms** — a stable 40%/80ms
+difference, above the "keep the shared helper" threshold (>10% and >50ms)
+from the operator brief. Variant B was also far more consistent (120-123ms
+range vs variant A's 183-313ms). **Decision: keep `clickElementProtocol`.**
+The residual gap is `browser.$()`'s own `ChainablePromiseElement` resolution
+(a `findElement` round trip) stacked on top of WDIO's `.click()` (its own
+interactability checks + `elementClick`) — two round trips plus bookkeeping
+vs. `clickElementProtocol`'s one `findElement` + one `elementClick`.
+
+### 12.4. Spec inventory and migration batches
+
+Costly-pattern count (`rg` across `apps/desktop/e2e-wdio/specs/` +
+`support/`) before this pass: 566 occurrences across 11 files. After: 491
+(the drop reflects de-duplicating 7 independently-copied `clickNav`
+implementations down to one shared, already-optimized version — not
+merely a textual pattern-count coincidence).
+
+**Batch 1 — repository lifecycle helpers** (`perf(e2e): optimize repository
+lifecycle interactions`, `9f239fc`): the `waitForEnabled().click()` →
+`clickWhenEnabled()` migration already applied to `core-inventory.e2e.ts`
+in §11 was applied identically to the seven other specs that import
+`repository-ui.ts`'s shared helpers: `csv-import`,
+`destructive-guards-hierarchy`, `destructive-guards-inventory`,
+`entity-deletes-hierarchy`, `entity-deletes-inventory`,
+`entity-updates-work-mode`, `placement-lifecycle`. Mechanical, same call
+sites, same semantics.
+
+**Batch 2 — navigation helper consolidation** (`perf(e2e): reuse optimized
+navigation helper across remaining specs`, `b66800c`): all seven specs
+defined a byte-identical local `clickNav()` using
+`$()+.waitForDisplayed()+.click()`. Deleted all seven copies, imported the
+shared (already `clickElementProtocol`-based) `clickNav` from
+`support/spec-interactions.ts` instead.
+
+**Batch 3 — row-lookup pattern (representative fix)**: `csv-import.e2e.ts`'s
+`findDeviceRowByName` and an inline row-scan inside a `waitUntil` poll both
+used `browser.$$()` + `.getText()` per row. Replaced with single atomic
+`browser.execute()` DOM scans — one round trip instead of 1+N, and no
+per-element stale-reference risk. Included in the Batch 2 commit above
+(`b66800c`) as a representative fix, not applied to every remaining
+instance of this pattern (see §12.8).
+
+**Batch 4 — re-scan and document**: see §12.8 for what was consciously left.
+
+### 12.5. Modified specs — validated on Windows
+
+Every spec listed here was run directly on Windows against the
+`target-wdio-plugin` binary with `RIS_WDIO_EXPECT_PLUGIN=present`, on the
+final HEAD of this pass. **Modified specs and validated specs are the same
+list** (per the operator brief's rule: a modified spec that isn't run is
+not changed in this pass).
+
+| Spec | Result | Wall time |
+|------|--------|-----------|
+| `csv-import` | PASSED | 6s |
+| `destructive-guards-hierarchy` | PASSED | 27s |
+| `destructive-guards-inventory` | PASSED | 28s |
+| `entity-deletes-hierarchy` | PASSED | 13s |
+| `entity-deletes-inventory` | PASSED | 15s |
+| `entity-updates-work-mode` | PASSED | 23s |
+| `placement-lifecycle` | PASSED | 15s |
+| `core-inventory` | PASSED ×2 (see §12.6) | 13s, 12s |
+
+**Not modified this pass** (left untouched, not run): `app-smoke`,
+`repository-lifecycle`, `safety-recovery`.
+
+**Before/after caveat — read this before citing these numbers as a
+per-batch delta.** The "before" figures available for these specs are the
+*historical* Linux/WebKit wall-clock times recorded when each spec was
+first written (`docs/E2E_WDIO_PLAN.md`; e.g. `destructive-guards-hierarchy`
+~70 min, `entity-updates-work-mode` ~57 min) — captured on a different OS,
+different driver stack (WebKitWebDriver vs. Edge/WebView2), and *without*
+`tauri-plugin-wdio` installed. The "after" figures above were captured
+*with* the plugin installed **and** all of §12's spec-code changes applied
+simultaneously — no intermediate measurement isolates "plugin only" from
+"plugin + spec-code changes" for these seven specs (unlike
+`representative-latency`, which has a clean plugin-only before/after in
+§11.6 vs §12.6). Treat the wall-time column above as "this spec passes,
+fast, on the current architecture" evidence, not as a precise isolated
+delta attributable to the Batch 1-3 code changes alone.
+
+### 12.6. `core-inventory ×2` — final, wdio-plugin binary
+
+```powershell
+node scripts\run-wdio-performance-benchmark.mjs `
+  --provider external --spec core-inventory --repeat 2 `
+  --binary "C:\ris\RackInventoryStudio\target-wdio-plugin\release\rack-inventory-studio-desktop.exe" `
+  --continue-on-failure
+```
+
+| Run | Outcome | measurementEligible | Total | Commands | Median | P95 | P99 | Max |
+|-----|---------|----------------------|-------|----------|--------|-----|-----|-----|
+| 1 (`mrz09mds-0m69wl`) | PASS_WITH_FORCED_CLEANUP | true | 13s | 319 | 16ms | 74ms | 124ms | 220ms |
+| 2 (`mrz0a3rt-g3nt8w`) | PASS_WITH_FORCED_CLEANUP | true | 12s | 317 | 16ms | 72ms | 125ms | 130ms |
+
+`status: OK`, `measurementEligibleRuns: 2/2`. For reference, the very first
+Windows baseline for this spec-equivalent workload (§11.4,
+`representative-latency`, no plugin) was 1,069,722ms median — `core-inventory`
+itself was never benchmarked pre-plugin on Windows in this program (only on
+Linux, minutes-scale, and informally via the `wdio-plugin` A/B in
+Stage 3B.3 where it hit the `submit-placement` `SearchableSelect` driver
+bug under the *embedded* provider — unrelated to this `external`-provider
+result).
+
+### 12.7. `representative-latency ×2` — final, regression gate
+
+```powershell
+$env:RIS_WDIO_EXPECT_PLUGIN = "present"
+node scripts\run-wdio-performance-benchmark.mjs `
+  --provider external --spec representative-latency --repeat 2 `
+  --binary "C:\ris\RackInventoryStudio\target-wdio-plugin\release\rack-inventory-studio-desktop.exe" `
+  --continue-on-failure
+```
+
+| Run | Outcome | measurementEligible | wdioPluginAvailable | Total | Commands | P95 | ≥5s |
+|-----|---------|----------------------|----------------------|-------|----------|-----|-----|
+| 1 (`mrz0cwaq-owzahv`) | PASS_WITH_FORCED_CLEANUP | true | true | 12,774ms | 297 | 76ms | 0 |
+| 2 (`mrz0dddp-57vsac`) | PASS_WITH_FORCED_CLEANUP | true | true | 12,598ms | 297 | 73ms | 0 |
+
+All 9 `measureStep` cases `successful: 1/1` in both runs. `status: OK`,
+`measurementEligibleRuns: 2/2`, `buildVariant: "wdio-plugin"` confirmed via
+the plugin-presence probe (§12.2) in both runs' `summary.json`.
+
+**Regression gate vs. §11.6's final ×2** (12,287ms median / 296 commands /
+73ms P95 / 0 commands ≥5s):
+
+| Metric | §11.6 final | §12.7 final | Delta | Gate | Result |
+|--------|-------------|-------------|-------|------|--------|
+| Median total | 12,287ms | 12,598ms | +2.5% | ≤10% | PASS |
+| P95 | 73ms | 73-76ms | +0-3ms | ≤150ms | PASS |
+| Commands ≥5s | 0 | 0 | 0 | must stay 0 | PASS |
+| Command count | 296 | 297 | +0.3% | ≤15% | PASS |
+| Every case succeeds | yes | yes | — | required | PASS |
+
+Small positive deltas are consistent with `waitForEnabled` being retained
+(unchanged, still used a few places) and normal run-to-run variance — not a
+regression from the spec migration. All gate criteria pass comfortably.
+
+### 12.8. Remaining costly patterns (consciously deferred)
+
+- **`waitForFormClose`** (`destructive-guards-hierarchy`,
+  `destructive-guards-inventory`, `entity-deletes-hierarchy`,
+  `entity-deletes-inventory`, `entity-updates-work-mode` — 5 specs,
+  byte-identical local copies): uses `$()+.isExisting()+.isDisplayed()+.getText()`
+  in a `waitUntil`, but *also* surfaces `.ft-msg.err` banner content on
+  failure — a real behavior the shared `waitForModalClose` does not have.
+  Not replaced with the shared helper (would silently drop error
+  surfacing). A shared `waitForFormCloseOrError()` — mirroring the atomic
+  closed/error read already used in `core-inventory.e2e.ts`'s
+  `submit-placement` step — would be the right fix; deferred to a future
+  pass.
+- **`support/destructive-ui.ts`** (shared by 4 specs): `clickRowDeleteAction`,
+  `expectDeleteDialog`, `clickConfirmDialogAction`, `expectDeleteError`,
+  `ensureRackListView` all still use `$()`/`.waitForDisplayed()`/
+  `.waitForEnabled()`/`.isExisting()`/`.getText()` chains. Correctness-critical
+  (documented WebKitGTK backdrop-dismissal workarounds, relational-count
+  assertions), shared by four specs, and judged too complex/high-risk for a
+  mechanical sweep in this pass. Left untouched.
+- **`entity-updates-work-mode.e2e.ts`'s `clickEditAction`**: row-scoped
+  `row.$(...) + .waitForDisplayed() + .waitForEnabled() + .click()` chain — not
+  directly replaceable by a `[data-testid]`-based shared helper without
+  further refactoring. Left untouched.
+- **`placement-lifecycle.e2e.ts`'s `findRowByText`/`navigateToRackDetail`**
+  and **`entity-updates-work-mode.e2e.ts`'s `findRowByExactName`-adjacent
+  scan**: same `$$()+.getText()` per-row-loop pattern fixed in
+  `csv-import.e2e.ts` (§12.4 Batch 3), not yet applied here.
+- **`repository-lifecycle.e2e.ts`, `safety-recovery.e2e.ts`,
+  `app-smoke.e2e.ts`**: not modified this pass at all (see §12.5). Still use
+  `expect(...).toBeDisplayed()` and manual `.isEnabled()` polling loops in
+  places.
+
+None of these affect correctness or coverage — they are the same,
+already-passing patterns, just not yet migrated to the faster shared
+helpers. Each is a small, independent follow-up.
+
+### 12.9. Full WDIO suite — still intentionally deferred
+
+Unchanged from §11.9: the full 11-spec suite remains explicitly out of
+scope and not a merge gate for Stage 3B.4. This pass validated 8 of the 11
+specs directly (the 7 modified + `core-inventory`, per the operator brief's
+"every modified spec must be run directly on Windows" rule) plus the
+`representative-latency` regression benchmark; it did not run the full
+suite as a single execution, and does not claim to.
