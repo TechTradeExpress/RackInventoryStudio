@@ -5,7 +5,7 @@
  * exercised through the device form's "Model" field (DeviceFormModal). This is the
  * component whose option elements rely on a real onMouseDown listener rather than
  * onClick — see selectSearchableOption in ../support/spec-interactions.ts for why
- * that matters across driver providers (external vs. embedded).
+ * that matters and why it uses an Actions-routed click.
  *
  * Covers, in order:
  *   1. opening the dropdown

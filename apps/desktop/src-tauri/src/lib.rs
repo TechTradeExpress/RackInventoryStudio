@@ -61,11 +61,6 @@ pub fn run() {
 
     let builder = tauri::Builder::default();
 
-    // Embedded WebDriver server — compiled in only when the wdio-embedded
-    // Cargo feature is active.  Zero impact on the production binary.
-    #[cfg(feature = "wdio-embedded")]
-    let builder = builder.plugin(tauri_plugin_wdio_webdriver::init());
-
     let builder = builder.plugin(
         tauri_plugin_log::Builder::new()
             .targets([

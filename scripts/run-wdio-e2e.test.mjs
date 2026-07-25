@@ -227,11 +227,6 @@ describe("shouldBuildPlugin", () => {
 // ── buildChildEnv ─────────────────────────────────────────────────────────────
 
 describe("buildChildEnv", () => {
-  it("sets RIS_WDIO_DRIVER_PROVIDER=external", () => {
-    const env = buildChildEnv({}, { expectPlugin: "present", binaryPath: "/bin/app" });
-    assert.equal(env["RIS_WDIO_DRIVER_PROVIDER"], "external");
-  });
-
   it("sets RIS_WDIO_EXPECT_PLUGIN=present when specified", () => {
     const env = buildChildEnv({}, { expectPlugin: "present", binaryPath: "/bin/app" });
     assert.equal(env["RIS_WDIO_EXPECT_PLUGIN"], "present");
@@ -267,10 +262,12 @@ describe("buildChildEnv", () => {
   it("does not modify global process.env", () => {
     const before = { ...process.env };
     buildChildEnv(process.env, { expectPlugin: "present", binaryPath: "/x" });
-    // Check that none of the keys we set appeared in process.env (unless they were already there)
-    if (!("RIS_WDIO_DRIVER_PROVIDER" in before)) {
-      assert.ok(!("RIS_WDIO_DRIVER_PROVIDER" in process.env) || process.env["RIS_WDIO_DRIVER_PROVIDER"] === before["RIS_WDIO_DRIVER_PROVIDER"],
-        "buildChildEnv must not mutate process.env");
+    if (!("RIS_WDIO_EXPECT_PLUGIN" in before)) {
+      assert.ok(
+        !("RIS_WDIO_EXPECT_PLUGIN" in process.env) ||
+          process.env["RIS_WDIO_EXPECT_PLUGIN"] === before["RIS_WDIO_EXPECT_PLUGIN"],
+        "buildChildEnv must not mutate process.env",
+      );
     }
   });
 
@@ -306,16 +303,8 @@ describe("buildChildEnv", () => {
     assert.equal(env["TAURI_BINARY_PATH"], "/fresh/binary");
   });
 
-  it("replaces an inherited RIS_WDIO_DRIVER_PROVIDER=embedded with 'external'", () => {
-    const env = buildChildEnv(
-      { RIS_WDIO_DRIVER_PROVIDER: "embedded" },
-      { expectPlugin: "present", binaryPath: "/bin/app" },
-    );
-    assert.equal(env["RIS_WDIO_DRIVER_PROVIDER"], "external");
-  });
-
   it("leaves baseEnv unchanged when it carries inherited controlled vars", () => {
-    const base = { RIS_WDIO_EXPECT_PLUGIN: "absent", RIS_WDIO_DRIVER_PROVIDER: "embedded", TAURI_BINARY_PATH: "/stale" };
+    const base = { RIS_WDIO_EXPECT_PLUGIN: "absent", TAURI_BINARY_PATH: "/stale" };
     const baseCopy = { ...base };
     buildChildEnv(base, { expectPlugin: "present", binaryPath: "/bin/app" });
     assert.deepEqual(base, baseCopy, "buildChildEnv must not mutate baseEnv even when deleting inherited keys");
@@ -355,13 +344,6 @@ describe("buildRunCommand — Linux", () => {
       args.includes("/repo/scripts/run-wdio-performance-benchmark.mjs"),
       `benchmark script not in args: ${args.join(" ")}`,
     );
-  });
-
-  it("passes --provider external", () => {
-    const { args } = buildRunCommand({ ...base, platform: "linux" });
-    const idx = args.indexOf("--provider");
-    assert.ok(idx !== -1, "--provider not found in args");
-    assert.equal(args[idx + 1], "external");
   });
 
   it("passes --spec correctly", () => {
@@ -415,13 +397,6 @@ describe("buildRunCommand — Windows / other platforms", () => {
     const { args } = buildRunCommand({ ...base, platform: "win32" });
     assert.ok(!args.includes("xvfb-run"), "xvfb-run must not appear on Windows");
     assert.ok(!args.includes("-a"), "-a (xvfb-run flag) must not appear on Windows");
-  });
-
-  it("still passes --provider external on win32", () => {
-    const { args } = buildRunCommand({ ...base, platform: "win32" });
-    const idx = args.indexOf("--provider");
-    assert.ok(idx !== -1);
-    assert.equal(args[idx + 1], "external");
   });
 
   it("does not use xvfb-run on darwin either", () => {

@@ -986,6 +986,13 @@ detail. Stage 3B.4 remains **IN REVIEW**; PR #154 remains **not merged**.
 
 **Status: COMPLETE** — not a program stage; Stage 3C has not started.
 
+> **Historical.** The embedded WDIO driver restored by this pass was later
+> fully removed — see "Embedded WDIO provider removal" below. The
+> `pnpm test:e2e:wdio:embedded` command, `target-embedded/`,
+> `RIS_WDIO_DRIVER_PROVIDER=embedded`/`RIS_WDIO_EMBEDDED_PORT`, and the
+> `wdio-embedded` Cargo feature described in this section no longer exist.
+> Kept as-is below for the historical record of what this pass did and why.
+
 Branch: `chore/e2e-dependency-audit-embedded-driver`
 Direct base: `roadmap/e2e-wdio`
 Checkpoint HEAD: `4db16bc1fb5fe1dd700b66cfab5e839f769cff85`
@@ -1176,23 +1183,66 @@ workflows) was **not started**.
 
 ### Technical pass — WDIO provider benchmark (external vs. embedded)
 
-**Status: COMPLETE** — not a program stage; Stage 3C has not started.
+**Status: COMPLETE (historical)** — not a program stage; Stage 3C had not
+started. This benchmark is the basis for the later decision to fully remove
+the embedded provider — see "Embedded WDIO provider removal" below.
 
 Branch: `chore/e2e-provider-benchmark`, direct base `roadmap/e2e-wdio`.
 
 Benchmarked the external and embedded providers head-to-head on the same
-HEAD, same binaries, alternating runs. `app-smoke` (5 measured runs each,
-fully completed): embedded 1123% slower (≈12.2×), both providers stable
-(CV <2%). Combined with prior validated `core-inventory` data (embedded
-≈28× slower): both specs with a direct comparison fail the ≥10%-faster
-threshold by roughly three orders of magnitude in the wrong direction.
+HEAD, same fresh binaries (build time excluded), alternating runs (1
+discarded warm-up + 5 measured runs per provider, interleaved to control
+for system-load drift).
 
-**Decision: external remains the default provider.** No default-provider
-code changes made. Full detail, methodology, tooling bugs found and fixed
-along the way (a `spawnSync` ENOBUFS bug in the new benchmark script, and a
-`brace-expansion`/`minimatch` incompatibility left over from PR #155's
-audit fix), and the full results table: see
-`docs/E2E_WDIO_PROVIDER_BENCHMARK.md`.
+**`app-smoke` (this pass, 5 measured runs each, fully completed):**
+
+| Metric | External | Embedded |
+|---|---|---|
+| Runs | 5/5 CLEAN_PASS | 5/5 CLEAN_PASS |
+| Median | 5318 ms | 65042 ms |
+| Mean | 5315 ms | 65036 ms |
+| CV | 1.41% | 0.04% |
+| Ports free before/after | 5/5 | 5/5 |
+
+Embedded is **1123% slower (≈12.2×)**. Both providers individually stable
+(CV well under 2%) — a large, consistent, reproducible gap, not noise.
+
+**`core-inventory`** (prior validated data, same HEAD lineage, one commit
+earlier): external ~10s (1/1 CLEAN_PASS, `--skip-build`) vs. embedded 280s,
+279s (2/2 CLEAN_PASS) — embedded ≈**28× slower**.
+
+**`representative-latency`** (prior validated data): embedded 239s, 239s
+(2/2 CLEAN_PASS, 0% variance); no directly comparable external run in this
+pass, but the consistent order-of-magnitude gap on the other two specs
+gives no basis to expect a reversal.
+
+Both specs with a direct external comparison fail the pre-declared
+≥10%-faster-median decision threshold by roughly three orders of magnitude
+in the wrong direction. Stability was not the deciding factor — every
+completed run on both providers was `CLEAN_PASS` with ports free
+before/after; total wall-clock time was.
+
+This does not contradict the earlier finding (§"Stage 3B.3") that embedded
+has lower *in-session* per-command latency once a session is established —
+this benchmark measures **total wall-clock time per run**, including
+embedded's own process-spawn-and-become-ready sequence, which in this
+environment cost roughly a fixed minute per run, dwarfing the per-command
+savings for anything but a very long-running spec.
+
+Two tooling bugs were found and fixed along the way (both benchmark-tooling
+issues, not embedded-driver correctness issues): a `spawnSync` ENOBUFS
+crash from capturing verbose WDIO output into an in-memory buffer instead
+of a file, and a `brace-expansion@5.0.8`/`minimatch` incompatibility left
+over from PR #155's own audit fix (fixed by also overriding `minimatch` to
+`>=10.2.5`, whose `package.json` already requires a compatible
+`brace-expansion` — this override remains in `package.json` today and is
+unrelated to the embedded provider: it fixes a real dependency-resolution
+issue in `@wdio/cli`'s own dev-tooling chain, needed by the external
+provider too).
+
+**Decision at the time: external remains the default provider**, embedded
+kept as opt-in. No default-provider code changes were made in this pass.
+(Superseded: embedded was later removed entirely — see below.)
 
 ---
 
@@ -1376,14 +1426,12 @@ completed `CLEAN_PASS` remains the last valid embedded data point on this
 HEAD. The static provider-agnostic-interaction check below was performed in
 its place.
 
-**Embedded provider — removal decided, not yet executed.** Full removal
-(build scripts, canonical runner, CI wiring if any, benchmark tooling,
-documentation) is intentionally **not** part of this PR — it is unrelated
+**Embedded provider — removal decided in this pass, executed as a separate
+follow-up.** Full removal was deliberately kept out of this PR — unrelated
 to Stage 3C's placement-workflow scope and, per this repo's workflow rules,
-belongs on its own branch/PR so it stays independently reviewable and
-revertable. It is tracked as the immediate next follow-up after this PR.
-Until that follow-up lands, external remains the only actively validated
-provider and embedded should be treated as deprecated, not merely optional.
+belonging on its own branch/PR so it stayed independently reviewable and
+revertable. It was carried out immediately after as its own technical pass
+— see "Embedded WDIO provider removal" below for the full record.
 
 **Static check — no provider-specific workarounds:** the new spec's element
 interactions reuse only already-established, provider-agnostic patterns
@@ -1395,17 +1443,174 @@ confirmation, needed because a native click's `mousedown` can land on the
 dialog's own backdrop first). No `HTMLElement.click()` workaround was used
 as a substitute for a real WebDriver click anywhere.
 
-## Future stages
+### Embedded WDIO provider removal
 
-**Immediate next follow-up (not a numbered stage):** remove the embedded
-WDIO provider entirely — `scripts/run-wdio-e2e-embedded.mjs`,
-`scripts/build-wdio-embedded-binary.mjs`, the `tauri-plugin-wdio-webdriver`
-integration, `pnpm test:e2e:wdio:embedded`, and embedded-specific sections
-of this document and `docs/E2E_WDIO_PROVIDER_BENCHMARK.md`. Decided during
-the Stage 3C pass (see "Embedded regression — superseded by a provider
-decision" above) after the provider was already confirmed ~12x slower than
-external with no stability advantage. Deliberately scoped to its own
-branch/PR rather than folded into Stage 3C.
+**Status: COMPLETE** — not a program stage; Stage 3C remains COMPLETE;
+Stage 3D not started.
+
+Branch: `chore/e2e-remove-embedded-provider`
+Direct base: `roadmap/e2e-wdio` (PR #157 merged, HEAD `7e8b53e`)
+
+**Reason:** the WDIO provider benchmark above found embedded ~12x slower
+than external on `app-smoke` (and ~28x on `core-inventory`) with no
+stability advantage, and Stage 3C's own attempted embedded regression run
+for `placement-inspector-workflows` was still in its first part after 8
+minutes. Carrying an unused, far-slower, no-longer-validated driver path
+forward had no benefit — it was fully removed rather than kept as a
+nominally-available but effectively-dead option. **external is now the
+only supported WDIO driver provider.**
+
+**Embedded implementation removed:**
+- Cargo feature `wdio-embedded` and its `tauri-plugin-wdio-webdriver`
+  optional dependency (`apps/desktop/src-tauri/Cargo.toml`, `Cargo.lock`).
+- The feature-gated `tauri_plugin_wdio_webdriver::init()` registration in
+  `apps/desktop/src-tauri/src/lib.rs`.
+- The `capabilities/embedded-test.json` generation in
+  `apps/desktop/src-tauri/build.rs` (and its now-unused `.gitignore` entry).
+- `scripts/run-wdio-e2e-embedded.mjs`, `scripts/build-wdio-embedded-binary.mjs`
+  and their test files; the `build:e2e:wdio-embedded` and
+  `test:e2e:wdio:embedded` `package.json` scripts.
+- `RIS_WDIO_DRIVER_PROVIDER` / `RIS_WDIO_EMBEDDED_PORT` env-var plumbing and
+  the embedded branch of `apps/desktop/e2e-wdio/wdio.conf.ts`'s driver
+  config (`driverProvider` is now a hardcoded `"external"` literal).
+  `command-timing.ts`'s `PROVIDER` export and
+  `run-wdio-performance-benchmark.mjs`'s `PROVIDER` constant are similarly
+  hardcoded to `"external"` — kept as labeled constants (not deleted
+  outright) since they are written into every timing report for
+  readability, not because a choice still exists.
+- `target-embedded/` (Cargo target dir), including a stray 1.4 GB build
+  artifact directory found on disk and deleted (was git-ignored, never
+  tracked).
+
+**Provider benchmark tooling removed:** `scripts/run-provider-benchmark.mjs`
+and its test file (the external-vs-embedded A/B comparison orchestrator —
+its one purpose no longer applies with a single provider) and
+`docs/E2E_WDIO_PROVIDER_BENCHMARK.md` (folded into this document's
+"Technical pass — WDIO provider benchmark" section above, then deleted to
+avoid duplication).
+
+**`scripts/run-wdio-performance-benchmark.mjs` — kept, simplified.** Still
+the primitive behind the canonical external runner and used directly for
+`core-inventory` / `representative-latency` performance diagnostics.
+Removed: `--provider`/`--compare` CLI options, `ALLOWED_PROVIDERS`, compare-
+mode sequencing (`buildCompareSequence`), the A/B comparison report
+(`computeComparison`, `writeCompareModeReport`), and pure helpers that
+existed only to support it (`computeDelta`, `medianOf`,
+`poolCommandDurationsFromNdjsonText`, `poolStepDurationsByName`,
+`validatePort`, `readCargoLockVersion`). `PROVIDER = "external"` is now a
+plain constant instead of a CLI-selected value.
+
+**Port contract — intentionally unchanged.** Both `EXTERNAL_DRIVER_PORT`
+(4444, tauri-driver) and the second monitored port (4445) are still
+checked before/after every external run. Port 4445 was never
+embedded-exclusive: on Windows, tauri-driver's own `msedgedriver.exe`
+child legitimately lands on it (confirmed in
+`docs/E2E_WDIO_WINDOWS_PERFORMANCE.md`'s architecture diagram and raw
+per-run port-owner data — `4444→tauri-driver.exe, 4445→msedgedriver.exe`
+in every external run recorded there), and it is the same "native browser
+driver" role WebKitWebDriver plays on Linux. The constant was renamed
+(`EMBEDDED_PORT_DEFAULT` → `EXTERNAL_NATIVE_DRIVER_PORT`) to reflect that,
+but the actual port numbers monitored and the cleanup behavior are
+unchanged — no external-provider behavior change.
+
+**Dependencies removed:** `tauri-plugin-wdio-webdriver` (Rust/Cargo only —
+confirmed via `cargo tree -i tauri-plugin-wdio-webdriver` returning no
+match after removal). No npm/pnpm package was embedded-exclusive.
+
+**Dependencies retained (checked, not embedded-related):**
+- `pnpm.overrides["brace-expansion"]` / `["minimatch"]` — `pnpm why
+  minimatch -r` / `pnpm why brace-expansion -r` trace both to `@wdio/cli`'s
+  own dev-tooling chain (`jake`/`ejs`/`create-wdio`, `glob`, `mocha`,
+  `archiver-utils`) and to `@wdio/config`/`webdriver`/`webdriverio`/
+  `@wdio/tauri-service` themselves — all required by the **external**
+  provider's own toolchain, not embedded. Fixes a real
+  `brace-expansion` DoS advisory (GHSA-mh99-v99m-4gvg) found during PR
+  #155's own audit pass. Left in place.
+- `@wdio/tauri-service`, `@wdio/tauri-plugin`, the `wdio-plugin` Cargo
+  feature and `tauri-plugin-wdio` dependency — all required by the
+  external-provider canonical runner (window-focus tracking, execute API,
+  plugin-presence contract); confirmed distinct from the removed
+  `wdio-embedded` feature/`tauri-plugin-wdio-webdriver` pair throughout
+  this pass, per the audit's explicit instruction not to assume every
+  `wdio`-named dependency is embedded-only.
+
+**External provider (unchanged):**
+- Canonical build: `pnpm build:e2e:wdio-plugin`
+- Canonical test: `pnpm test:e2e:wdio -- --spec <name>`
+- Driver: `tauri-driver` (external process)
+- Ports: 4444 (tauri-driver) + 4445 (native browser driver child, platform-
+  dependent) — both checked free before/after every run
+- Cleanup: PID-safe, unchanged (`scripts/run-wdio-performance-benchmark.mjs`)
+
+**Validation (final HEAD):**
+
+```
+pnpm install --frozen-lockfile          PASS
+pnpm audit                               PASS, 0 vulnerabilities
+pnpm -C apps/desktop typecheck           PASS
+pnpm -C apps/desktop test                923/923 PASS
+node --test scripts/*.test.mjs           223/223 PASS
+node scripts/check-repo-hygiene.mjs      PASS
+node scripts/check-version-consistency.mjs   PASS
+cargo fmt --all --check                  PASS
+cargo check --workspace                  PASS
+cargo clippy --workspace -- -D warnings  PASS
+git diff --check                         PASS
+
+pnpm build:e2e:wdio-plugin                                          PASS
+pnpm test:e2e:wdio -- --spec app-smoke --skip-build                 CLEAN_PASS, 5s
+pnpm test:e2e:wdio -- --spec placement-inspector-workflows --skip-build   CLEAN_PASS, 26s
+pnpm test:e2e:wdio -- --spec destructive-guards --skip-build        CLEAN_PASS, 34s
+```
+
+Every external run: ports 4444/4445 free before and after, no lingering
+`tauri-driver`/`WebKitWebDriver`/`Xvfb`/application-binary processes. No
+embedded test was run (none exists to run). 223 `node --test` cases is
+lower than the pre-removal count (353, at the end of Stage 3C) purely
+because 3 test files (`run-wdio-e2e-embedded.test.mjs`,
+`build-wdio-embedded-binary.test.mjs`, `run-provider-benchmark.test.mjs`)
+were deleted along with the code they tested, and
+`run-wdio-performance-benchmark.test.mjs`/`run-wdio-e2e.test.mjs` lost the
+tests for the removed compare-mode/provider-selection functions — not a
+coverage regression on anything that still exists.
+
+**Documentation:**
+- This document: Stage 3C's embedded-regression paragraphs updated to
+  reflect the removal actually happened (was "removal decided, not yet
+  executed"); the provider-benchmark section expanded with the full
+  results table (previously only summarized, full detail lived in the
+  now-deleted `E2E_WDIO_PROVIDER_BENCHMARK.md`) and marked historical;
+  the Node-24/embedded-driver-restoration section marked historical with
+  an explicit "these commands no longer exist" note; the stray "Immediate
+  next follow-up" bullet under "Future stages" removed (superseded by this
+  section).
+- `docs/E2E_WDIO_PROVIDER_BENCHMARK.md` — deleted (content folded above).
+- `docs/E2E_WDIO_WINDOWS_PERFORMANCE.md`, `docs/E2E_WDIO_LATENCY_OPTIMIZATION.md`
+  — left as-is: genuinely historical, dated experiment records describing
+  what was true at the time, with no active commands a reader could
+  mistakenly try to run today.
+- `apps/desktop/e2e-wdio/support/spec-interactions.ts` and
+  `apps/desktop/e2e-wdio/specs/searchable-select-regression.e2e.ts` —
+  comments explaining the Actions-routed-click technique updated to
+  describe the embedded-driver quirk that originally motivated it as
+  historical context, not a currently-relevant provider distinction.
+
+**Grep verification (final HEAD):**
+- Active embedded references (code/config/scripts, excluding intentional
+  historical prose in docs and comments naming what was removed and why):
+  none.
+- `4445`: present only in the (unchanged, external-provider) port contract
+  and in historical docs/data tables — no embedded meaning remains.
+- `run-provider-benchmark`: none (file deleted).
+- `tauri-plugin-wdio-webdriver`: present only in historical prose (PR #155
+  section, this section) explaining what was removed and why — no active
+  `Cargo.toml`/`Cargo.lock`/import reference remains.
+- Old consolidated spec names (`destructive-guards-hierarchy`/`-inventory`,
+  `entity-deletes-hierarchy`/`-inventory`): present only in historical
+  prose (Stage 3B.2 delivery record, Stage 3C consolidation record) — no
+  active script/command/spec-list reference remains.
+
+## Future stages
 
 Placeholder areas for stages beyond Stage 3. Scope and order will be decided during
 program planning.
