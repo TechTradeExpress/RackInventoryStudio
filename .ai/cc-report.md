@@ -1,117 +1,116 @@
 ## Summary
 
-Documentation-only maintenance/planning pass, committed directly to
-`roadmap/e2e-wdio` (no PR, no branch — per explicit instruction). Base:
-`db6752d` (PR #158 merged — embedded WDIO provider removal). Final:
-`7ec419b`.
+Stage 3D per NSP, on `feature/e2e-stage-3d-placement-validation` →
+`roadmap/e2e-wdio` (base `399eeb5`). **Status: PARTIAL** — Placement
+Validation task fully delivered; Rack Export task analyzed and explicitly
+not implemented, per the NSP's own instruction not to work around a
+blocker it couldn't clear cleanly.
 
-Reconciled `docs/E2E_WDIO_PLAN.md` and `docs/E2E_WDIO_COVERAGE_GAPS.md`
-with actual repo state, treating the repo (not the prior docs) as source
-of truth throughout.
+**Task 1 — Placement validation: COMPLETE.** New spec
+`placement-validation.e2e.ts`, the first in the suite dedicated to
+placement *rejection*. Backend error strings were traced to their exact
+source before writing any assertion (`ApplicationError::Collision`/
+`OutOfRackBounds` in `crates/ris-application/src/session.rs` and
+`error.rs`, forwarded verbatim to the frontend via `.map_err(|e|
+e.to_string())`) rather than guessed from UI behavior. Six cases: occupied
+U, partial overlap, full overlap/containment, exceeds rack height, invalid
+start U, invalid height override — each asserts the specific error, that
+no placement was created, that the diagram is unchanged, and that this
+holds after a real save/close/reopen cycle. Reused every relevant Stage 3C
+helper unmodified; added exactly one small spec-local (not exported)
+helper for the shared open/fill/submit/expect-rejection sequence, since no
+existing helper covered "submit and expect failure."
 
-**`E2E_WDIO_PLAN.md`:** the "Program status" table and every per-stage
-status line were stale — "Stage 2 COMPLETED" at the top while Stage 3
-(3A–3C) and two subsequent technical passes (provider benchmark, embedded
-removal) were already fully merged; Stage 3B.2 and 3B.4 still marked "IN
-REVIEW" despite their PRs (#152, #154) having merged long ago. All fixed,
-each with the actual merge commit cited. The pre-Stage-3 "Remaining
-candidate areas" planning list was marked historical/superseded (several
-items it listed as open were actually done). Stage 3B.3's forward-looking
-"embedded deferred to a future stage, contingent on an upstream fix"
-prediction — which did not hold (embedded was later restored via a
-test-side fix, benchmarked, then fully removed) — got an explicit
-"what actually happened next" annotation rather than being silently left
-to mislead a reader. Two now-resolved risk-table items (`tauri-plugin-wdio`
-scope/overhead) were moved to a "Resolved" note. A stale "~51 minute full
-suite" runtime claim was replaced with an honest statement of what is
-and isn't currently known (no fresh full-suite timing exists post
-Stage 3B.4/3C optimization — I did not run one, per the instruction not to
-run large validations in this pass). The generic "Future stages"
-placeholder was replaced with a concrete Stage 3D (scoped in detail:
-rack export SVG/PNG + U-occupancy negative-path spec, zero new selectors)
-plus sketched Stage 3E (low-risk selector additions) and 3F (git workflow,
-kept separate for its distinct risk profile), derived from the rewritten
-gap analysis rather than copied from the old placeholder list.
+**Task 2 — Rack export: analyzed, not implemented.** Read
+`tauriClient.ts`'s `saveRackViewSvgViaDialog`/`saveRackViewPngViaDialog`
+and confirmed both call `@tauri-apps/plugin-dialog`'s `save()`
+unconditionally — a real native OS dialog outside the WebView, which
+WebDriver cannot drive. Checked whether the app has a non-dialog
+alternative (the way repository-open/create's text-path input bypasses its
+own native picker) — it does not; export has no such fallback. Per the
+NSP's explicit constraints (no test-only hooks, no workarounds), did not
+implement anything for this workflow. Instead added a new
+**NEEDS APPLICATION CHANGE** status to the coverage doc's key and moved
+both rows there, distinct from NEEDS SELECTOR since a `data-testid` alone
+wouldn't unblock this — the missing thing is a testable code path, not a
+selector.
 
-**`E2E_WDIO_COVERAGE_GAPS.md`:** fully re-verified against current source,
-not carried forward.
-- Existing-specs table updated for the Stage 3C consolidation
-  (`entity-deletes-inventory`/`-hierarchy` → `entity-deletes`;
-  `destructive-guards-inventory`/`-hierarchy` → `destructive-guards`) and
-  the two Stage 3C-era specs (`placement-inspector-workflows`,
-  `searchable-select-regression`, the latter existed before but was never
-  in this table).
-- 4 placement workflows promoted MISSING → COVERED (edit height U, remove
-  via `EditPlacementModal`, inspector navigate to device/model — all
-  covered by `placement-inspector-workflows.e2e.ts` in Stage 3C).
-- 3 workflows reclassified MISSING → NEEDS SELECTOR after checking the
-  actual component source: the prior version's own notes already said
-  "selector absent" for these rows, which contradicts this document's own
-  MISSING/NEEDS SELECTOR definitions (checked directly:
-  `UnsavedChangesDialog.tsx`'s discard button and
-  `CsvImportPanel.tsx`'s `DeviceModelPreviewTable` genuinely have no
-  `data-testid`).
-- 2 workflows added that weren't tracked before: U-occupancy/collision
-  negative-path testing (MISSING — no dedicated negative spec exists, but
-  selectors are the same as every existing placement spec) and
-  move-between-racks (DEFERRED — confirmed via `EditPlacementModal.tsx`
-  and `RackDetailPanel.tsx` that the application has no UI for it at all,
-  so it isn't a testing gap, just genuinely unsupported).
-- Confirmed `export-svg-btn`/`export-png-btn` still exist in
-  `RackDetailPanel.tsx` (spot-checked directly, since an earlier grep
-  attempt in this pass falsely returned no match).
-- Summary counts fully recomputed by hand-counting every row (then
-  cross-checked with a small counting script) rather than trusting the
-  prior table — the 2026-07-22 version's own summary (67 total, 6 MISSING)
-  did not match its own matrix (69 rows counted, 9 tagged MISSING).
-  Corrected total: **73 workflows, 45 COVERED (62%)**.
+Both `docs/E2E_WDIO_PLAN.md` and `docs/E2E_WDIO_COVERAGE_GAPS.md` updated
+to match reality: Stage 3D marked PARTIAL with the reason; coverage
+recounted 45/73 (62%) → 51/78 (65%).
 
-No test, TypeScript, Rust, selector, helper, `package.json`, CI, or
-benchmark changes — this pass was documentation only, per explicit
-instruction.
+No selectors added, no new helpers beyond the one described above, no new
+frameworks/libraries/providers/benchmarks/runners, no CI changes — all per
+explicit NSP constraints.
+
+Final HEAD: see `git log -1`. PR to be opened against `roadmap/e2e-wdio`,
+not merged.
 
 ## Files changed
 
 | File | Change |
 |------|--------|
-| `docs/E2E_WDIO_PLAN.md` | Status reconciliation (Program status table, per-stage status lines, resolved-risks note, stale runtime claim, historical annotations); "Future stages" replaced with concrete Stage 3D scope + 3E/3F sketch |
-| `docs/E2E_WDIO_COVERAGE_GAPS.md` | Fully re-verified rewrite: spec list, 4 MISSING→COVERED promotions, 3 MISSING→NEEDS SELECTOR reclassifications, 2 newly-tracked workflows, recomputed summary counts |
+| `apps/desktop/e2e-wdio/specs/placement-validation.e2e.ts` | New — 6 negative placement-validation cases |
+| `docs/E2E_WDIO_PLAN.md` | Stage 3D section rewritten to PARTIAL with full delivered/not-implemented breakdown; Program status and Future-stages intro updated; coverage figures refreshed |
+| `docs/E2E_WDIO_COVERAGE_GAPS.md` | New NEEDS APPLICATION CHANGE status; Rack placement matrix updated (6 new COVERED rows, 2 reclassified); selector-readiness sections updated; summary counts recomputed (51/78, 65%) |
 | `.ai/cc-report.md` | This report |
 
 ## Tests
 
-None run — this pass is documentation-only per explicit instruction ("Nie
-uruchamiać dużych walidacji"). All classification/status claims were
-verified by reading current source/spec files directly (`grep`/`Read`),
-not by executing tests or builds.
+```
+pnpm -C apps/desktop typecheck           PASS
+pnpm -C apps/desktop test                923/923 PASS
+node --test scripts/*.test.mjs           223/223 PASS
+node scripts/check-repo-hygiene.mjs      PASS
+node scripts/check-version-consistency.mjs   PASS
+cargo fmt --all --check                  PASS
+cargo check --workspace                  PASS
+cargo clippy --workspace -- -D warnings  PASS
+git diff --check                         PASS
+
+pnpm test:e2e:wdio -- --spec placement-validation   CLEAN_PASS, 116s (run 1)
+pnpm test:e2e:wdio -- --spec placement-validation --skip-build   CLEAN_PASS, 117s (run 2)
+pnpm test:e2e:wdio -- --spec app-smoke --skip-build   CLEAN_PASS, 6s
+```
+
+Ports 4444/4445 free before/after every run; no lingering
+tauri-driver/WebKitWebDriver/Xvfb/application-binary processes (checked
+via `ps aux` after each run). Full 11-spec suite not re-run: no shared
+helper was modified in this pass, only used as-is, consistent with this
+program's established "don't re-run untouched specs that don't use
+changed helpers" policy.
+
+Note: this repo has no configured lint tool (no ESLint config, no `lint`
+script in either `package.json`) — the NSP's "lint" validation step has
+nothing to run against; `typecheck` is the closest equivalent and passes.
+`apps/desktop/tsconfig.json`'s `include` is `["src"]` only, so
+`e2e-wdio/**` is not covered by `pnpm -C apps/desktop typecheck` — a
+pre-existing project characteristic, not something introduced or fixed in
+this pass; the new spec's correctness was validated by actually running it
+(twice, both `CLEAN_PASS`) rather than by static typecheck.
 
 ## Risks
 
-- The "~51 minute full suite" runtime figure was removed rather than
-  replaced with a fresh number, since producing one would require running
-  the full suite (out of scope for this pass). A future pass that does run
-  the full suite should record the actual current figure.
-- Stage 3D's rack-export scope flags an open question (native save-dialog
-  automation feasibility) for its own NSP rather than resolving it here —
-  intentional, since resolving it would require reading/testing
-  application behavior beyond a docs pass.
-- The corrected coverage-gap counts (73 total, 45 COVERED, 62%) supersede
-  the 2026-07-22 version's numbers; anything referencing the old "67
-  total / 57%" figures elsewhere (if any exist outside these two
-  documents) was not searched for in this pass, since the task scope was
-  limited to these two files.
+- Rack export remains untested. This is a deliberate, documented decision,
+  not an oversight — see Task 2 above and the NEEDS APPLICATION CHANGE
+  entries in the coverage doc.
+- The full WDIO suite was not re-run against this change. Judged
+  acceptable since the new spec only reads existing helpers, doesn't
+  modify them, and its own external validation (2x CLEAN_PASS) covers
+  everything it touches.
 
 ## Not done
 
-- No selector implementation, no new specs, no CI changes — explicitly out
-  of scope per the task brief.
-- Stage 3D/3E/3F are proposals only, not started.
-- Full-suite runtime re-measurement (see Risks).
+- Rack export SVG/PNG — moved to NEEDS APPLICATION CHANGE, requires a
+  product decision before it can become a testing-stage candidate.
+- Stage 3E/3F — not started, per the program's staged plan.
+- No lint run — no lint tooling configured in this repo (see Tests note).
 
 ## Suggested next step
 
-Pick up Stage 3D (rack export SVG/PNG + U-occupancy negative-path spec) —
-it's the only fully-scoped, zero-new-selector item in the current gap
-analysis. Start with an NSP resolving the rack-export native-dialog
-question flagged in `docs/E2E_WDIO_PLAN.md`'s Stage 3D section before
-committing to full coverage there.
+Human review of this PR. Stage 3E (validation panel, global search,
+recent repositories, unsaved-changes-discard, CSV device-model preview
+selectors) is the next fully-derivable stage per
+`docs/E2E_WDIO_PLAN.md`'s "Future stages" — it should get its own NSP when
+picked up. Rack export needs a product-level decision (is a non-dialog
+export path worth adding?) before any further E2E work on it makes sense.
