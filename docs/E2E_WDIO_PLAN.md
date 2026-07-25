@@ -1174,6 +1174,28 @@ workflows) was **not started**.
 
 ---
 
+### Technical pass — WDIO provider benchmark (external vs. embedded)
+
+**Status: COMPLETE** — not a program stage; Stage 3C has not started.
+
+Branch: `chore/e2e-provider-benchmark`, direct base `roadmap/e2e-wdio`.
+
+Benchmarked the external and embedded providers head-to-head on the same
+HEAD, same binaries, alternating runs. `app-smoke` (5 measured runs each,
+fully completed): embedded 1123% slower (≈12.2×), both providers stable
+(CV <2%). Combined with prior validated `core-inventory` data (embedded
+≈28× slower): both specs with a direct comparison fail the ≥10%-faster
+threshold by roughly three orders of magnitude in the wrong direction.
+
+**Decision: external remains the default provider.** No default-provider
+code changes made. Full detail, methodology, tooling bugs found and fixed
+along the way (a `spawnSync` ENOBUFS bug in the new benchmark script, and a
+`brace-expansion`/`minimatch` incompatibility left over from PR #155's
+audit fix), and the full results table: see
+`docs/E2E_WDIO_PROVIDER_BENCHMARK.md`.
+
+---
+
 ### Stage 3C — Remaining placement workflows
 
 **Status: PLANNED**
