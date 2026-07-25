@@ -5,16 +5,18 @@ Generated: 2026-07-22 (Stage 3B.2, PR #152); fully re-verified and rewritten
 `roadmap/e2e-wdio` @ `db6752d`) — see "Maintenance pass (2026-07-25)" below
 for what changed and why. Updated again same-day after Stage 3D
 (`placement-validation.e2e.ts` delivered; rack export analyzed and
-reclassified to NEEDS APPLICATION CHANGE) and again after Stage 3E (5 new
-specs closing every low-risk NEEDS SELECTOR workflow — see the coverage
-matrix, "Selectors added in Stage 3E", and Summary counts below).
+reclassified to NEEDS APPLICATION CHANGE), after Stage 3E (5 new specs
+closing every low-risk NEEDS SELECTOR workflow), and after the Stage 3F.0
+audit (git workflow section re-verified against current backend/UI/test
+source; one previously-untracked workflow found — SSH passphrase prompt;
+two Clone rows' reasons refined; no tests or selectors added — audit only).
 
-Branch: `feature/e2e-stage-3e-selectors` (targeting `roadmap/e2e-wdio`)
+Branch: `feature/git-workflow-audit` (targeting `roadmap/e2e-wdio`)
 
 ## Purpose
 
 This document inventories the application's user-facing workflows against existing
-WDIO E2E specs to identify gaps that inform Stage 3F and later stage planning.
+WDIO E2E specs to identify gaps that inform Stage 3F.1/3F.2 and later stage planning.
 
 Coverage is assessed against the real compiled Tauri binary only.  Playwright
 browser-mode and Vitest/Rust unit tests are separate layers not considered here.
@@ -121,26 +123,46 @@ default spec suite and not counted as workflow coverage here.
 | Recent repositories — list and click | COVERED | `recent-repositories-workflow` (Stage 3E) |
 | Clone repository — URL safety (unsafe patterns) | COVERED | `safety-recovery` |
 | Clone repository — URL safety (HTTPS control) | COVERED | `safety-recovery` |
-| Clone repository — network: HTTPS happy path | DEFERRED | Requires network; no local mock |
-| Clone repository — network: SSH + passphrase | DEFERRED | Requires network + SSH credentials |
+| Clone repository — network: HTTPS happy path | DEFERRED | Requires network; no local mock. **Selectors already fully present** (`CloneRepositoryForm.tsx` has 11 testids — `clone-form`, `clone-url`, `clone-parent`, `clone-browse`, `clone-dirname`, `clone-submit`, `clone-preview`, plus 4 error-message testids); the only blocker is the network dependency itself (Stage 3F.0 audit, 2026-07-25). |
+| Clone repository — network: SSH + passphrase | DEFERRED | Network-dependent, **and a genuine product gap, not just a testing gap**: `clone_repository_cmd` calls the plain `ris_git::clone()`, not the askpass-hardened path push/pull use — SSH clone of a passphrase-protected key has no in-app passphrase prompt at all (Stage 3F.0 audit, 2026-07-25; see the Git Workflow section in `docs/E2E_WDIO_PLAN.md`). Not fixed here — audit-only stage. |
 | Open recovery — path does not exist | COVERED | `safety-recovery` |
 | Open recovery — non-RIS directory | COVERED | `safety-recovery` |
 
 **Git workflow (RepositoryPanel)**
 
-The RepositoryPanel git section has no `data-testid` attributes on its action
-buttons (Init, Validate, Commit, Add remote, Push, Pull) — confirmed unchanged
-in this pass (`grep -c data-testid RepositoryPanel.tsx` → 4, none on the git
-action buttons themselves).
+Re-audited against current HEAD 2026-07-25 (Stage 3F.0) — see
+`docs/E2E_WDIO_PLAN.md`'s "Git Workflow — foundation audit" section for the
+full backend/UI/test inventory this table summarizes. The RepositoryPanel
+git section still has no `data-testid` attributes on its action buttons.
+One nuance found this pass: **Push and Pull each render as two separate,
+functionally-identical button pairs simultaneously** once a remote is
+configured — one inline in the "Safe publish" stepper (Steps 4/5, always
+acts on the branch's tracked remote), one in the "Remote" panel next to a
+remote-selector dropdown (`selectedRemote`). Both call the exact same
+`handlePush`/`handlePull`. A future selector-addition pass must scope
+`data-testid`s to their containing `Panel` (or otherwise disambiguate) —
+a single unscoped `git-push-btn` would match two elements.
 
 | Workflow | Status | Notes |
 |----------|--------|-------|
 | Git init (convert non-git directory) | NEEDS SELECTOR | No testid; requires repo with no `.git` |
-| Validate for publish | NEEDS SELECTOR | No testid on validate button |
-| Commit with message | NEEDS SELECTOR | No testid on commit input or commit button |
+| Validate for publish | NEEDS SELECTOR | No testid; same backend call (`validateCurrentRepository`) as `ValidationPanel`'s already-covered Validate button, triggered from a different UI location |
+| Commit with message | NEEDS SELECTOR | No testid on commit input or commit button. Always full-tree (`git add -A` then commit) — there is no selective-staging/staged-files-list UI to test |
 | Add remote | NEEDS SELECTOR | No testid on remote URL input or add-remote button |
-| Push to remote | NEEDS SELECTOR | No testid; network-dependent |
-| Pull from remote | NEEDS SELECTOR | No testid; network-dependent + ff-only |
+| Push to remote | NEEDS SELECTOR | No testid on either button pair (see duplication note above); network-dependent |
+| Pull from remote | NEEDS SELECTOR | No testid on either button pair; network-dependent + `--ff-only` (a diverged branch is surfaced as "resolve manually" — no in-app merge/rebase UI exists) |
+| SSH passphrase prompt | NEEDS SELECTOR | Partially selectorized: `SshPassphraseModal.tsx` already has `ssh-passphrase-input` on the text field; Submit and Cancel buttons have no testid |
+
+**Confirmed not implemented anywhere in the application** (Stage 3F.0
+audit — not a testing gap, nothing to select or test): branch
+creation/switching/checkout, merge (beyond the automatic `--ff-only` pull),
+rebase, stash, tags, a standalone fetch (only combined pull), a
+staged-files list or selective staging, `user.name`/`user.email`
+configuration (the app never sets or reads it — commits rely entirely on
+the system git's own global config), and HTTPS credential management (no
+in-app prompt/storage — relies entirely on the system git credential
+helper). See `docs/E2E_WDIO_PLAN.md` for the full audit detail and why
+these are product-scope boundaries, not gaps to close with tests.
 
 ---
 
@@ -359,48 +381,55 @@ can use stable selectors.
 
 ## Summary counts
 
-Updated after Stage 3E (2026-07-25). Counted programmatically from every
-workflow row in this document (one status tag per row).
+Updated after the Stage 3F.0 audit (2026-07-25, no implementation — audit
+and documentation only). Counted programmatically from every workflow row
+in this document (one status tag per row).
 
 | Status | Count |
 |--------|-------|
 | COVERED | 61 |
 | PARTIAL | 0 |
 | MISSING | 0 |
-| NEEDS SELECTOR | 6 |
+| NEEDS SELECTOR | 7 |
 | NEEDS APPLICATION CHANGE | 2 |
 | DEFERRED | 4 |
 | NOT JUSTIFIED | 5 |
-| **Total workflows inventoried** | **78** |
+| **Total workflows inventoried** | **79** |
 
-Current E2E coverage: **61 / 78 workflows (78%)**.
+Current E2E coverage: **61 / 79 workflows (77%)**.
 
-Since the Stage 3D snapshot (78 total, 51 COVERED, 65%): COVERED +10, NEEDS
-SELECTOR −10 → 6 (all indicative Stage 3E scope items: unsaved-changes
-discard, recent repositories, global search ×2, Device Model CSV ×2,
-validation panel ×4). The 6 remaining NEEDS SELECTOR workflows are all git
-workflow actions (init/validate/commit/add-remote/push/pull) — explicitly
-out of scope for Stage 3E (different risk profile; see
-`docs/E2E_WDIO_PLAN.md`'s Stage 3F sketch). NEEDS APPLICATION CHANGE (rack
-export, 2) and DEFERRED/NOT JUSTIFIED are unchanged from Stage 3D — no
-Stage 3E work touched those areas.
+Since the Stage 3E snapshot (78 total, 61 COVERED, 78%): +1 newly-tracked
+workflow (SSH passphrase prompt, NEEDS SELECTOR — found during the Stage
+3F.0 audit, not previously listed anywhere in this document) and 2
+DEFERRED rows' reasons refined (Clone HTTPS: selectors confirmed already
+present, network is the only blocker; Clone SSH: confirmed to be a real
+product gap — no askpass wiring for clone — not just a network/testing
+blocker) — see the Repository management and Git workflow sections above.
+No COVERED/MISSING/NEEDS APPLICATION CHANGE/NOT JUSTIFIED counts changed;
+Stage 3F.0 added no tests and no selectors, per its own scope.
 
 ---
 
 ## Recommended next scope
 
-See `docs/E2E_WDIO_PLAN.md` → "Future stages" (Stage 3F) for the concrete
-next-stage proposal. With Stage 3E closing every low-risk NEEDS SELECTOR
-workflow, only two gap categories remain:
-- **NEEDS SELECTOR (6)** — all git workflow actions (init, validate,
-  commit, add-remote, push, pull). This is now the entire remaining
-  selector-addition backlog, matching Stage 3F's already-sketched scope
-  (local-only git operations; push/pull stay DEFERRED regardless of
-  selectors since they're network-dependent).
+See `docs/E2E_WDIO_PLAN.md` → "Git Workflow — foundation audit" and
+"Future stages" for the full Stage 3F breakdown. Two gap categories remain:
+- **NEEDS SELECTOR (7)** — all git workflow actions: init, validate,
+  commit, add-remote, push, pull, and SSH passphrase prompt (the last
+  found during the Stage 3F.0 audit). Of these, init/validate/commit/
+  add-remote are fully local — `add_remote` only writes a URL into
+  `.git/config`, the remote never needs to actually be reachable — and are
+  proposed for Stage 3F.1. Push/pull's *disabled-state and error-path*
+  behavior (no upstream, unreachable remote) is also local-testable in
+  3F.1; a genuine successful push/pull/clone round-trip needs a real
+  reachable remote, which `validate_remote_url` restricts to HTTPS or SSH
+  only (local filesystem paths are deliberately rejected — see the Git
+  Workflow audit) — that round-trip, plus the SSH passphrase prompt it can
+  trigger, is Stage 3F.2's scope.
 - **NEEDS APPLICATION CHANGE (2)** — rack export SVG/PNG. Not a
   testing-stage candidate until a product decision is made about adding a
   non-dialog export path.
 
-Stage 3F should get its own NSP before implementation, per the program's
-working model, given git operations mutate real repository state
-(commits, branches) and warrant a dedicated risk review.
+Stage 3F.1/3F.2 should each get their own NSP before implementation, per
+the program's working model, given git operations mutate real repository
+state (commits, branches) and warrant a dedicated risk review.
