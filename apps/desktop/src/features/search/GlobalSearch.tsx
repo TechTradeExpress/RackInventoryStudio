@@ -187,6 +187,7 @@ export function GlobalSearch({ onNavigate, refreshKey, fullWidth }: Props) {
             if (results.length > 0 || error) setOpen(true);
           }}
           placeholder="Search… (min 2 chars)"
+          data-testid="global-search-input"
           aria-label="Global search"
           aria-expanded={open}
           aria-haspopup="listbox"

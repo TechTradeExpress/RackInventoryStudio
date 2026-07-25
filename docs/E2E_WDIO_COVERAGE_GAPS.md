@@ -5,15 +5,16 @@ Generated: 2026-07-22 (Stage 3B.2, PR #152); fully re-verified and rewritten
 `roadmap/e2e-wdio` @ `db6752d`) — see "Maintenance pass (2026-07-25)" below
 for what changed and why. Updated again same-day after Stage 3D
 (`placement-validation.e2e.ts` delivered; rack export analyzed and
-reclassified to NEEDS APPLICATION CHANGE — see the Rack placement matrix
-and Summary counts below).
+reclassified to NEEDS APPLICATION CHANGE) and again after Stage 3E (5 new
+specs closing every low-risk NEEDS SELECTOR workflow — see the coverage
+matrix, "Selectors added in Stage 3E", and Summary counts below).
 
-Branch: `feature/e2e-stage-3d-placement-validation` (targeting `roadmap/e2e-wdio`)
+Branch: `feature/e2e-stage-3e-selectors` (targeting `roadmap/e2e-wdio`)
 
 ## Purpose
 
 This document inventories the application's user-facing workflows against existing
-WDIO E2E specs to identify gaps that inform Stage 3E and later stage planning.
+WDIO E2E specs to identify gaps that inform Stage 3F and later stage planning.
 
 Coverage is assessed against the real compiled Tauri binary only.  Playwright
 browser-mode and Vitest/Rust unit tests are separate layers not considered here.
@@ -93,6 +94,11 @@ spec files rather than trusting the prior version. Changes:
 | `placement-inspector-workflows.e2e.ts` | Edit placement height U; remove placement via `EditPlacementModal`; `PlacementInspectorPanel` navigate to device/model; rack-object placement (Stage 3C) |
 | `searchable-select-regression.e2e.ts` | `SearchableSelect` dropdown regression via device-model field (open, search, select, persist) |
 | `placement-validation.e2e.ts` | Negative-path placement coverage (Stage 3D): occupied U, partial overlap, full overlap/containment, exceeds rack height, invalid start U, invalid height override — every case verifies rejection, no state change, and persistence of that unchanged state after reopen |
+| `unsaved-changes-discard.e2e.ts` | UnsavedChangesDialog "Continue without saving" (Stage 3E): unsaved location is genuinely discarded, not persisted |
+| `recent-repositories-workflow.e2e.ts` | Landing screen recent-repositories panel (Stage 3E): row appears after close, path-cell click fills the open field without opening, Open button reopens the exact repository |
+| `global-search-workflow.e2e.ts` | GlobalSearch (Stage 3E): typing surfaces a matching result, selecting it navigates to the correct panel and entity |
+| `csv-device-model-import.e2e.ts` | Device Model CSV import (Stage 3E): sibling workflow to `csv-import.e2e.ts`'s Device CSV — preview, import, persist, negative validation |
+| `validation-panel-workflows.e2e.ts` | ValidationPanel (Stage 3E): validate reflects on-disk state only, save-from-panel, level filter pills, navigate from issue to entity |
 
 `apps/desktop/e2e-wdio/benchmarks/representative-latency.e2e.ts` is a
 benchmark-only harness (9 interaction-pattern cases), not part of the
@@ -111,8 +117,8 @@ default spec suite and not counted as workflow coverage here.
 | Open repository by path (happy path) | COVERED | `repository-lifecycle`, `core-inventory` |
 | Close repository — no unsaved changes | COVERED | `repository-lifecycle` |
 | Close repository — unsaved → Save and continue | COVERED | `core-inventory`, `csv-import` |
-| Close repository — unsaved → Discard | NEEDS SELECTOR | `UnsavedChangesDialog`'s "Continue without saving" button has no `data-testid` |
-| Recent repositories — list and click | NEEDS SELECTOR | `RepositoryPanel` recent repos panel; no testids |
+| Close repository — unsaved → Discard | COVERED | `unsaved-changes-discard` (Stage 3E) |
+| Recent repositories — list and click | COVERED | `recent-repositories-workflow` (Stage 3E) |
 | Clone repository — URL safety (unsafe patterns) | COVERED | `safety-recovery` |
 | Clone repository — URL safety (HTTPS control) | COVERED | `safety-recovery` |
 | Clone repository — network: HTTPS happy path | DEFERRED | Requires network; no local mock |
@@ -219,8 +225,8 @@ action buttons themselves).
 |----------|--------|-------|
 | Device CSV — paste → preview → import → persist | COVERED | `csv-import` |
 | Device CSV — negative: missing required column | COVERED | `csv-import` |
-| Device Model CSV — paste → preview → import | NEEDS SELECTOR | `import-type-device-models` present; `DeviceModelPreviewTable` has no testid (confirmed) |
-| Device Model CSV — negative validation | NEEDS SELECTOR | Same |
+| Device Model CSV — paste → preview → import | COVERED | `csv-device-model-import` (Stage 3E) |
+| Device Model CSV — negative validation | COVERED | `csv-device-model-import` (Stage 3E) |
 | CSV sample download | NOT JUSTIFIED | `btn-download-sample` present; triggers Tauri native save dialog |
 
 ---
@@ -231,10 +237,10 @@ All validation panel action buttons lack `data-testid` attributes.
 
 | Workflow | Status | Notes |
 |----------|--------|-------|
-| Run validation — see issue list | NEEDS SELECTOR | No testid on validate button |
-| Filter issues by level | NEEDS SELECTOR | No testid on level filter buttons |
-| Navigate from issue to entity | NEEDS SELECTOR | No testid on issue rows |
-| Save from validation panel | NEEDS SELECTOR | No testid on save button |
+| Run validation — see issue list | COVERED | `validation-panel-workflows` (Stage 3E) |
+| Filter issues by level | COVERED | `validation-panel-workflows` (Stage 3E) |
+| Navigate from issue to entity | COVERED | `validation-panel-workflows` (Stage 3E) |
+| Save from validation panel | COVERED | `validation-panel-workflows` (Stage 3E) |
 
 ---
 
@@ -255,8 +261,8 @@ unchanged: `grep -c data-testid GlobalSearch.tsx` → 0).
 
 | Workflow | Status | Notes |
 |----------|--------|-------|
-| Search for entity by name | NEEDS SELECTOR | No testid on search input or result items |
-| Navigate to entity from search result | NEEDS SELECTOR | Same |
+| Search for entity by name | COVERED | `global-search-workflow` (Stage 3E) |
+| Navigate to entity from search result | COVERED | `global-search-workflow` (Stage 3E) |
 
 ---
 
@@ -298,6 +304,30 @@ validation) were covered in Stage 3D.
 | Rack export — SVG | `export-svg-btn` exists, but the save destination is only reachable through a native OS dialog with no in-app alternative path |
 | Rack export — PNG | Same |
 
+### Selectors added in Stage 3E
+
+| Selector | Element | Location |
+|----------|---------|----------|
+| `unsaved-changes-discard` | "Continue without saving" button | `UnsavedChangesDialog.tsx` |
+| `csv-device-model-preview-table` | Preview `<table>` | `CsvImportPanel.tsx`'s `DeviceModelPreviewTable` |
+| `global-search-input` | Search `<input>` | `GlobalSearch.tsx` |
+| `recent-repo-row` / `data-recent-repo-path` | Recent-repos `<tr>` | `RepositoryPanel.tsx` (Open button reuses the existing `aria-label="Open <path>"` convention — no new selector needed for it) |
+| `recent-repo-remove-btn` | Remove button, scoped per row | `RepositoryPanel.tsx` |
+| `validation-validate-btn` / `validation-save-btn` | Validate / Save action buttons | `ValidationPanel.tsx` |
+| `validation-filter-{all,error,warning,info}` | Level filter pills | `ValidationPanel.tsx` |
+| `validation-issue-row` / `data-validation-issue-code` | Issue `<tr>` | `ValidationPanel.tsx` |
+| `validation-issue-navigate-btn` | Per-row navigate button | `ValidationPanel.tsx` |
+| `validation-save-summary` | Wrapper `<div>` around the save-result `Banner` | `ValidationPanel.tsx` |
+
+Global search results (`GlobalSearch.tsx`'s `<li role="option">` items) got
+no new selector — they are dynamically generated content with no fixed
+identity, matched by content instead of a testid, same as
+`SearchableSelect`'s own options. Note: unlike `SearchableSelect`, WebDriver
+`getText()` does not reliably return this element's full text (a
+driver-level quirk of its `text-overflow: ellipsis` styling — confirmed by
+debugging, not assumed); `global-search-workflow.e2e.ts` matches on raw
+`textContent` via `browser.execute()` instead.
+
 ### Needs one or more selectors
 
 These workflows need `data-testid` added to application source before a spec
@@ -305,12 +335,7 @@ can use stable selectors.
 
 | Workflow | What needs a testid |
 |----------|---------------------|
-| Close repository — unsaved → Discard | `UnsavedChangesDialog`'s "Continue without saving" button |
-| Device Model CSV preview | `DeviceModelPreviewTable` needs a testid (like `csv-device-model-preview-table`) |
-| Global search | Search input, result items, or result container |
-| Validation panel actions | Validate button, save button, issue rows |
 | Git workflow actions | All RepositoryPanel git buttons |
-| Recent repositories | Repository list items and remove buttons |
 
 ### Deferred (out of scope for near-term stages)
 
@@ -334,49 +359,48 @@ can use stable selectors.
 
 ## Summary counts
 
-Updated after Stage 3D (2026-07-25). Counted programmatically from every
+Updated after Stage 3E (2026-07-25). Counted programmatically from every
 workflow row in this document (one status tag per row).
 
 | Status | Count |
 |--------|-------|
-| COVERED | 51 |
+| COVERED | 61 |
 | PARTIAL | 0 |
 | MISSING | 0 |
-| NEEDS SELECTOR | 16 |
+| NEEDS SELECTOR | 6 |
 | NEEDS APPLICATION CHANGE | 2 |
 | DEFERRED | 4 |
 | NOT JUSTIFIED | 5 |
 | **Total workflows inventoried** | **78** |
 
-Current E2E coverage: **51 / 78 workflows (65%)**.
+Current E2E coverage: **61 / 78 workflows (78%)**.
 
-Since the 2026-07-25 maintenance-pass snapshot (73 total, 45 COVERED, 62%):
-COVERED +6 (6 new negative-path placement-validation workflows —
-`placement-validation.e2e.ts`); MISSING −3 → 0 (the U-occupancy/collision
-row was split into the 6 specific cases above, all COVERED; the 2 rack
-export rows were reclassified, not closed); a new status,
-**NEEDS APPLICATION CHANGE**, introduced for the 2 rack export rows —
-distinct from NEEDS SELECTOR because a `data-testid` addition alone
-wouldn't unblock them (see the Rack placement matrix and
-`docs/E2E_WDIO_PLAN.md`'s Stage 3D section for the full analysis). MISSING
-is now empty — every remaining gap is either NEEDS SELECTOR, NEEDS
-APPLICATION CHANGE, DEFERRED, or NOT JUSTIFIED, none of which are
-"ready to spec against the existing binary" the way MISSING items were.
+Since the Stage 3D snapshot (78 total, 51 COVERED, 65%): COVERED +10, NEEDS
+SELECTOR −10 → 6 (all indicative Stage 3E scope items: unsaved-changes
+discard, recent repositories, global search ×2, Device Model CSV ×2,
+validation panel ×4). The 6 remaining NEEDS SELECTOR workflows are all git
+workflow actions (init/validate/commit/add-remote/push/pull) — explicitly
+out of scope for Stage 3E (different risk profile; see
+`docs/E2E_WDIO_PLAN.md`'s Stage 3F sketch). NEEDS APPLICATION CHANGE (rack
+export, 2) and DEFERRED/NOT JUSTIFIED are unchanged from Stage 3D — no
+Stage 3E work touched those areas.
 
 ---
 
 ## Recommended next scope
 
-See `docs/E2E_WDIO_PLAN.md` → "Future stages" (Stage 3E/3F) for the
-concrete next-stage proposal. With Stage 3D closing the last
-zero-selector-cost workflows, every remaining gap needs either a selector
-addition (NEEDS SELECTOR, 16 workflows — validation panel, global search,
-recent repositories, unsaved-changes-discard, CSV device-model preview, git
-workflow) or a product-level decision (NEEDS APPLICATION CHANGE, 2
-workflows — rack export). The highest-value next work is the low-risk
-selector batch (validation panel, global search, recent repositories,
-unsaved-changes-discard, CSV device-model preview — Stage 3E), followed by
-git workflow as its own stage (Stage 3F) given its distinct risk profile.
-Rack export (NEEDS APPLICATION CHANGE) is not a testing-stage candidate at
-all until a product decision is made about adding a non-dialog export
-path.
+See `docs/E2E_WDIO_PLAN.md` → "Future stages" (Stage 3F) for the concrete
+next-stage proposal. With Stage 3E closing every low-risk NEEDS SELECTOR
+workflow, only two gap categories remain:
+- **NEEDS SELECTOR (6)** — all git workflow actions (init, validate,
+  commit, add-remote, push, pull). This is now the entire remaining
+  selector-addition backlog, matching Stage 3F's already-sketched scope
+  (local-only git operations; push/pull stay DEFERRED regardless of
+  selectors since they're network-dependent).
+- **NEEDS APPLICATION CHANGE (2)** — rack export SVG/PNG. Not a
+  testing-stage candidate until a product decision is made about adding a
+  non-dialog export path.
+
+Stage 3F should get its own NSP before implementation, per the program's
+working model, given git operations mutate real repository state
+(commits, branches) and warrant a dedicated risk review.

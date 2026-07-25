@@ -907,7 +907,7 @@ export function RepositoryPanel({
                     </thead>
                     <tbody>
                       {recentRepos.map((path) => (
-                        <tr key={path} className="tbl-clickable">
+                        <tr key={path} className="tbl-clickable" data-testid="recent-repo-row" data-recent-repo-path={path}>
                           <td
                             className="tbl-mono"
                             onClick={() => onRepoPathChange(path)}
@@ -930,6 +930,7 @@ export function RepositoryPanel({
                               onClick={() => onRemoveRecentRepo?.(path)}
                               disabled={working}
                               title="Remove from list"
+                              data-testid="recent-repo-remove-btn"
                             >
                               <IcX size={11} />
                             </button>
