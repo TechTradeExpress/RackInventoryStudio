@@ -4,12 +4,6 @@ version = "0.1.0-beta.2"
 edition = "2021"
 
 [features]
-# Compiles an embedded W3C WebDriver HTTP server into the binary for WDIO
-# performance experiments.  Must be explicit — not enabled in normal builds.
-# Build command: cargo build --release --features wdio-embedded
-# (or via Tauri CLI: tauri build --no-bundle -- --features wdio-embedded)
-wdio-embedded = ["dep:tauri-plugin-wdio-webdriver"]
-
 # Registers tauri-plugin-wdio (execute API, window-focus tracking used by
 # @wdio/tauri-service's beforeCommand hook, log forwarding). Test-only —
 # never enabled in production/release builds. Without it,
@@ -38,10 +32,6 @@ log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 getrandom = "0.2"
-
-# Optional: embedded WebDriver server for WDIO testing (feature wdio-embedded).
-# Not included in production builds; zero impact when the feature is inactive.
-tauri-plugin-wdio-webdriver = { version = "1", optional = true }
 
 # Optional: execute API / window-focus tracking / log forwarding for WDIO
 # testing (feature wdio-plugin). Not included in production builds; zero

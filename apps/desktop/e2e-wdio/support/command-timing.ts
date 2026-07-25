@@ -60,7 +60,11 @@ if (TIMING_ENABLED && process.env["RIS_WDIO_RUN_ID"] && !isValidRunId(process.en
 
 export const RUN_ID: string = process.env["RIS_WDIO_RUN_ID"] ?? "noop";
 
-export const PROVIDER: string = process.env["RIS_WDIO_DRIVER_PROVIDER"] ?? "external";
+// external is the only supported WDIO driver provider — see wdio.conf.ts's
+// module doc comment for why the embedded alternative was removed. Kept as
+// a labeled constant (rather than removed outright) because it is written
+// into every command/step record and the summary report.
+export const PROVIDER = "external";
 
 export const REPORT_DIR: string | null = TIMING_ENABLED
   ? join(tmpdir(), "ris-wdio-bench", RUN_ID)

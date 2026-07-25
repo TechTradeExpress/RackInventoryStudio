@@ -65,14 +65,15 @@ export async function clickElementProtocol(selector: string): Promise<void> {
  * rely on a real onMouseDown listener (not onClick) to select a value before
  * the trigger's own outside-click handler can close the dropdown first. WDIO's
  * bare element.click() — and the raw elementClick protocol command used by
- * clickElementProtocol — issue the WebDriver classic "Element Click" command,
- * which on the embedded Tauri WebDriver driver (tauri-plugin-wdio-webdriver)
- * resolves to a plain JS `el.click()`: this synthesizes a `click` event but
- * never a `mousedown`, so the option is never selected under the embedded
- * provider. Passing a (possibly empty) options object — element.click({}) —
- * routes WDIO through the W3C Actions API instead (pointerMove + pointerDown
- * + pointerUp), which both providers implement with real mousedown/mouseup
- * dispatch. This is the correct, provider-agnostic way to interact with
+ * clickElementProtocol — issue the WebDriver classic "Element Click" command.
+ * An in-process WebDriver server evaluated during the WDIO provider benchmark
+ * (removed — see docs/E2E_WDIO_PLAN.md's "Embedded WDIO provider removal"
+ * section) resolved that command to a plain JS `el.click()`, which
+ * synthesizes a `click` event but never a `mousedown`, so the option was
+ * never selected under it. Passing a (possibly empty) options object —
+ * element.click({}) — routes WDIO through the W3C Actions API instead
+ * (pointerMove + pointerDown + pointerUp), which dispatches real
+ * mousedown/mouseup events. This remains the correct way to interact with
  * SearchableSelect options; do not substitute HTMLElement.click() executed
  * via browser.execute() as a workaround for the missing mousedown — that
  * bypasses the same pointer-event sequence real user input produces.

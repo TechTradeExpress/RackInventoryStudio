@@ -11,34 +11,27 @@
  *
  * The wrapper:
  *   - builds the wdio-plugin test binary into target-wdio-plugin/ (not target/release/)
- *   - sets RIS_WDIO_DRIVER_PROVIDER=external, RIS_WDIO_EXPECT_PLUGIN=present,
+ *   - sets RIS_WDIO_EXPECT_PLUGIN=present,
  *     TAURI_BINARY_PATH=<repo>/target-wdio-plugin/release/rack-inventory-studio-desktop
- *     — any of these three inherited from the invoking shell is discarded first,
- *     so the child environment is always fully determined by this run, never a
- *     mix with a stale leftover value
+ *     — either inherited from the invoking shell is discarded first, so the
+ *     child environment is always fully determined by this run, never a mix
+ *     with a stale leftover value
  *   - wraps with xvfb-run -a on Linux
  *   - uses PID-safe cleanup via scripts/run-wdio-performance-benchmark.mjs
  *   - refuses to report success if ports 4444/4445 are occupied before the run,
  *     remain occupied after it, or their state cannot be verified — see
- *     deriveFinalRunnerExitCode in scripts/run-wdio-e2e.mjs
+ *     deriveFinalRunnerExitCode in scripts/run-wdio-e2e.mjs. On Windows,
+ *     tauri-driver's own msedgedriver child can land on 4445; both ports are
+ *     part of the external driver chain's own cleanup contract, not an
+ *     artifact of any other provider.
  *   - a custom --binary always requires an explicit --expect-plugin
  *     present|absent; a custom binary's plugin status is never assumed
  *
- * ── Embedded provider canonical wrapper ───────────────────────────────────────
- *
- * The embedded-provider counterpart of the wrapper above — builds the
- * wdio-embedded binary into target-embedded/ (--features wdio-embedded,
- * never target/release/ or target-wdio-plugin/), sets
- * RIS_WDIO_DRIVER_PROVIDER=embedded and RIS_WDIO_EMBEDDED_PORT, and enforces
- * the same port-free contract (4445 only — embedded never spawns
- * tauri-driver on 4444):
- *
- *   pnpm test:e2e:wdio:embedded -- --spec core-inventory
- *   pnpm test:e2e:wdio:embedded -- --spec app-smoke --repeat 2
- *
- * See scripts/run-wdio-e2e-embedded.mjs and docs/E2E_WDIO_PLAN.md's
- * "Technical pass — Node 24, dependency audit, embedded driver restoration"
- * section for the full embedded-driver validation history.
+ * external (tauri-driver) is the only supported WDIO driver provider. An
+ * embedded in-process WebDriver server was evaluated (see
+ * docs/E2E_WDIO_PLAN.md's "Technical pass — WDIO provider benchmark" and
+ * "Embedded WDIO provider removal" sections) and found ~12x slower with no
+ * stability advantage; it was removed rather than kept as an unused option.
  *
  * ── Prerequisites (one-time) ─────────────────────────────────────────────────
  *
@@ -70,14 +63,6 @@
  * Without tauri-plugin-wdio, @wdio/tauri-service retries a plugin-availability
  * probe up to 100 times (~7–8 s) on every findElement/elementClick/getTitle/$/$$ command.
  *
- * ── Driver provider (default: external) ──────────────────────────────────────
- *
- *   RIS_WDIO_DRIVER_PROVIDER=external   — tauri-driver process (default)
- *   RIS_WDIO_DRIVER_PROVIDER=embedded   — embedded WebDriver server in the binary
- *                                         (requires the binary compiled with
- *                                          --features wdio-embedded)
- *   RIS_WDIO_EMBEDDED_PORT=4445         — port for the embedded server (default 4445)
- *
  * ── Command timing ────────────────────────────────────────────────────────────
  *
  *   RIS_WDIO_TIMING=1                   — enable per-command timing instrumentation
@@ -102,11 +87,8 @@
  * pass, `representative-latency ×2`, and `core-inventory ×2` have all been
  * validated directly on Linux/WebKitWebDriver — see
  * docs/E2E_WDIO_LATENCY_OPTIMIZATION.md §13 for full results. The full
- * 12-spec external suite remains intentionally deferred, not a merge gate
- * for external-provider work. The full 12-spec suite HAS been validated
- * under the embedded provider (`pnpm test:e2e:wdio:embedded`) — see
- * docs/E2E_WDIO_PLAN.md's "Technical pass — Node 24, dependency audit,
- * embedded driver restoration" section.
+ * spec suite remains intentionally deferred from every-commit CI, not a
+ * merge gate for external-provider work.
  */
 import type { Options } from "@wdio/types";
 import path from "path";
@@ -117,39 +99,6 @@ import { assertPluginPresenceContract } from "./support/plugin-presence";
 // Initialize isolated temp environment before any WDIO process starts.
 // Returns cleanup function registered in onComplete below.
 const cleanupTestEnvironment = initTestEnvironment();
-
-// ── Driver provider ───────────────────────────────────────────────────────────
-
-const ALLOWED_PROVIDERS = ["external", "embedded"] as const;
-type DriverProvider = (typeof ALLOWED_PROVIDERS)[number];
-
-function resolveProvider(): DriverProvider {
-  const raw = process.env["RIS_WDIO_DRIVER_PROVIDER"];
-  if (raw === undefined) return "external";
-  if ((ALLOWED_PROVIDERS as readonly string[]).includes(raw)) {
-    return raw as DriverProvider;
-  }
-  throw new Error(
-    `[wdio.conf] Invalid RIS_WDIO_DRIVER_PROVIDER="${raw}". ` +
-      `Allowed values: ${ALLOWED_PROVIDERS.join(", ")}.`,
-  );
-}
-
-function resolveEmbeddedPort(): number {
-  const raw = process.env["RIS_WDIO_EMBEDDED_PORT"];
-  if (raw === undefined) return 4445;
-  const n = Number(raw);
-  if (!Number.isInteger(n) || n < 1024 || n > 65535) {
-    throw new Error(
-      `[wdio.conf] Invalid RIS_WDIO_EMBEDDED_PORT="${raw}". ` +
-        `Must be an integer in [1024, 65535].`,
-    );
-  }
-  return n;
-}
-
-const driverProvider = resolveProvider();
-const embeddedPort = resolveEmbeddedPort();
 
 // ── Binary path ───────────────────────────────────────────────────────────────
 
@@ -171,16 +120,9 @@ const appBinaryPath =
 type ServiceEntry = [string, Record<string, unknown>];
 
 function buildServiceEntry(): ServiceEntry {
-  const base: Record<string, unknown> = {
-    appBinaryPath,
-    driverProvider,
-  };
-  if (driverProvider === "embedded") {
-    // embeddedPort tells the service which port to expect the in-app WebDriver
-    // server to listen on.  The service sets TAURI_WEBDRIVER_PORT for the binary.
-    base["embeddedPort"] = embeddedPort;
-  }
-  return ["@wdio/tauri-service", base];
+  // "external" is the only supported driverProvider — see the module doc
+  // comment for why the embedded alternative was removed.
+  return ["@wdio/tauri-service", { appBinaryPath, driverProvider: "external" }];
 }
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -207,8 +149,9 @@ export const config: Options.Testrunner = {
     // verification (~13 min).  Stage 3A adds edit, remove, and two more close/reopen
     // cycles (~10 min additional); Stage 3B.1 adds 4 more edit cycles plus work mode
     // toggle across 5 entities (~57 min observed).
-    // Stage 3B.2 guard specs (destructive-guards-inventory, destructive-guards-hierarchy)
-    // include 3× navigateToRackDetail + full 7-part graph assertions, observed ~70 min.
+    // Stage 3B.2's guard spec (destructive-guards, consolidated from the former
+    // destructive-guards-inventory/-hierarchy pair in Stage 3C) includes 3×
+    // navigateToRackDetail + full graph assertions, observed ~70 min pre-consolidation.
     // Longest individual spec observed: ~70 min → 90 min with margin (~20 min margin).
     timeout: 5_400_000,
   },
