@@ -1,132 +1,110 @@
 ## Summary
 
-Resumed technical pass before Stage 3C, on `chore/e2e-dependency-audit-embedded-driver`
-→ `roadmap/e2e-wdio` (checkpoint HEAD `4db16bc1fb5fe1dd700b66cfab5e839f769cff85`,
-where the dependency audit had already been fixed). Stage 3C is out of scope.
+WDIO provider benchmark on `chore/e2e-provider-benchmark` → `roadmap/e2e-wdio`
+(start HEAD `b2b44551fa75398c5d20815ef9ae97ec33a7e67c`, PR #155 merged). Stage
+3C is out of scope, not started.
 
-1. Standardized the workspace on Node.js 24 LTS (24.18.0 "Krypton").
-2. Re-validated the dependency audit on Node 24/pnpm 10.33.4; a new
-   `brace-expansion` DoS advisory (GHSA-mh99-v99m-4gvg) surfaced mid-pass
-   and was fixed with a pinned `pnpm.overrides` entry.
-3. Investigated the embedded WDIO driver's `mousedown` gap against upstream
-   `webdriverio/desktop-mobile` source directly: the root cause (bare
-   `.click()` → JS `el.click()`, no `mousedown`) is still present on current
-   `main`, but the W3C Actions API path (`element.click({})`) already
-   dispatches real `mousedown`/`mouseup` and is already included in the
-   pinned `tauri-plugin-wdio-webdriver` 1.2.0 — no upstream patch, pin, or
-   `SearchableSelect.tsx` change needed (remediation category 1: correct
-   existing API usage).
-4. Added `selectSearchableOption()` (Actions-routed click) and used it at
-   every SearchableSelect option-click site; added a dedicated
-   `searchable-select-regression.e2e.ts` spec.
-5. Formalized `pnpm test:e2e:wdio:embedded` as a canonical embedded runner,
-   mirroring the existing external one, building into its own
-   `target-embedded/` `CARGO_TARGET_DIR`.
-6. Validated all 12 real E2E specs plus `representative-latency` ×2 and
-   `core-inventory` ×2 under the embedded provider on the final HEAD — all
-   `CLEAN_PASS`. **Embedded driver: USABLE.**
-7. Regressed the external provider (still default) on the final HEAD,
-   including a production-shaped binary confirming plugin absence.
-8. Full static validation suite green; opened PR #155 to `roadmap/e2e-wdio`
-   (not merged); all 7 CI jobs pass.
+Benchmarked the external and embedded WDIO providers head-to-head on the
+same HEAD, same freshly-built binaries, alternating runs (1 warm-up + 5
+measured per provider, interleaved to control for system-load drift).
+`app-smoke` fully completed: embedded is 1123% slower (~12.2x) than
+external, both individually stable (CV <2%). Combined with prior validated
+`core-inventory` data from the same HEAD lineage (embedded ~28x slower),
+both specs with a direct comparison fail the >=10%-faster threshold by
+roughly three orders of magnitude in the wrong direction — decisive enough
+that the remaining two specs (`representative-latency`,
+`searchable-select-regression`) were not re-run in this pass.
 
-Final HEAD: `2139126b95941bdae228003e16939169ed7e723c`.
+**Decision: external remains the default provider.** No default-provider
+code changes made (per the task's own instruction not to change code
+artificially when the default doesn't change) — only the benchmark
+tooling, its report, and the decision itself.
+
+Along the way, two tooling bugs were found and fixed (both were
+prerequisites, not benchmark deliverables):
+1. A `spawnSync` ENOBUFS crash in the new benchmark script — WDIO's
+   verbose per-command logging exceeded the default in-memory pipe
+   buffer on longer specs. Fixed by redirecting to a log file.
+2. A `brace-expansion@5.0.8`/`minimatch` incompatibility left over from
+   PR #155's dependency-audit fix — neither WDIO provider could even
+   start. `brace-expansion` 3.0.0+ dropped its CJS-default export;
+   fixed by also overriding `minimatch` to `>=10.2.5` (whose own
+   `package.json` already requires a compatible `brace-expansion`).
+
+Final HEAD: `71f856b4458ea25e8be5747ffb4dc771dd78ac3e`. PR #156 opened
+to `roadmap/e2e-wdio`, not merged.
 
 ## Files changed
 
 | File | Change |
 |------|--------|
-| `.nvmrc` | New: `24` |
-| `package.json` | `engines.node: ">=24 <25"`; added `build:e2e:wdio-embedded`/`test:e2e:wdio:embedded` scripts; `pnpm.overrides` gained `brace-expansion: ">=5.0.8"` |
-| `.github/workflows/ci.yml`, `dependency-audit.yml`, `windows-installer.yml` | `node-version: 22` → `24` |
-| `docs/BETA1_SMOKE_TEST_EN.md`, `docs/IMPLEMENTATION_PLAN_EN.md` | Node version references updated |
-| `scripts/check-version-consistency.mjs` (+ new `.test.mjs`) | Extended to cross-check Node/pnpm toolchain declarations |
-| `apps/desktop/e2e-wdio/support/spec-interactions.ts` | Added `selectSearchableOption()` (Actions-routed click) |
-| `apps/desktop/e2e-wdio/specs/{core-inventory,destructive-guards-hierarchy,destructive-guards-inventory,entity-updates-work-mode,placement-lifecycle}.e2e.ts`, `apps/desktop/e2e-wdio/benchmarks/representative-latency.e2e.ts` | Replaced bare SearchableSelect option `.click()` with `selectSearchableOption()` |
-| `apps/desktop/e2e-wdio/specs/searchable-select-regression.e2e.ts` | New: dedicated SearchableSelect regression spec |
-| `scripts/build-wdio-embedded-binary.mjs` (+ `.test.mjs`) | New: builds the `wdio-embedded` binary into `target-embedded/` |
-| `scripts/run-wdio-e2e-embedded.mjs` (+ `.test.mjs`) | New: canonical embedded runner (`pnpm test:e2e:wdio:embedded`) |
-| `pnpm-lock.yaml` | `brace-expansion` resolved to 5.0.8 |
-| `docs/E2E_WDIO_PLAN.md` | New "Technical pass — Node 24, dependency audit, embedded driver restoration" section |
-| `apps/desktop/e2e-wdio/wdio.conf.ts` | Docstring: embedded canonical command + updated validation status |
+| `package.json` | `pnpm.overrides` gained `minimatch: ">=10.2.5"` (fixes the brace-expansion incompatibility) |
+| `pnpm-lock.yaml` | `minimatch`/`brace-expansion` re-resolved to a single compatible pair |
+| `scripts/run-provider-benchmark.mjs` (+ `.test.mjs`) | New: alternating external/embedded benchmark orchestrator |
+| `docs/E2E_WDIO_PROVIDER_BENCHMARK.md` | New: full benchmark methodology, results, decision, tooling bugs found |
+| `docs/E2E_WDIO_PLAN.md` | New "Technical pass — WDIO provider benchmark" cross-reference section |
 | `.ai/cc-report.md` | This report |
 
 ## Tests
 
 ```
-node --version / pnpm --version                          v24.18.0 / 10.33.4
-pnpm install --frozen-lockfile                            PASS (lockfile unchanged pre-fix; brace-expansion bump post-fix)
-pnpm audit                                                 PASS, 0 vulnerabilities (final)
-pnpm -C apps/desktop typecheck                             PASS
-pnpm -C apps/desktop test                                  917/917 PASS
-node --test scripts/*.test.mjs                             328/328 PASS
-node scripts/check-repo-hygiene.mjs                        8/8 PASS
-node scripts/check-version-consistency.mjs                 PASS (app version + toolchain)
-git diff --check                                           PASS
-cargo fmt --all --check                                    PASS
-cargo check --workspace                                    PASS
-cargo clippy --workspace -- -D warnings                     PASS
-cargo check/clippy -p rack-inventory-studio-desktop --features wdio-embedded   PASS
-cargo check/clippy -p rack-inventory-studio-desktop --features wdio-plugin     PASS
+pnpm install --frozen-lockfile          PASS
+pnpm audit                               PASS, 0 vulnerabilities
+pnpm -C apps/desktop typecheck           PASS
+pnpm -C apps/desktop test                917/917 PASS
+node --test scripts/*.test.mjs           353/353 PASS
+node scripts/check-repo-hygiene.mjs      8/8 PASS
+node scripts/check-version-consistency.mjs   PASS
+cargo fmt --all --check                  PASS
+cargo check --workspace                  PASS
+cargo clippy --workspace -- -D warnings  PASS
 
-Embedded (pnpm test:e2e:wdio:embedded), Linux xvfb-run + WebKitWebDriver, final HEAD:
-  app-smoke                        CLEAN_PASS  66s
-  searchable-select-regression     CLEAN_PASS  177s
-  core-inventory ×2                CLEAN_PASS  280s, 279s (<1% variance)
-  representative-latency ×2        CLEAN_PASS  239s, 239s (0% variance)
-  csv-import                       CLEAN_PASS  353s
-  destructive-guards-hierarchy     CLEAN_PASS  44:21
-  destructive-guards-inventory     CLEAN_PASS  44:32
-  entity-deletes-hierarchy         CLEAN_PASS  19:22
-  entity-deletes-inventory         CLEAN_PASS  23:29
-  entity-updates-work-mode         CLEAN_PASS  32:15
-  placement-lifecycle              CLEAN_PASS  20:08
-  repository-lifecycle             CLEAN_PASS  2:38
-  safety-recovery                  CLEAN_PASS  5:55
-  (12/12 real specs + representative-latency, all ports free before/after)
+Provider benchmark (app-smoke, 5 measured runs each, alternating):
+  external  median=5318ms mean=5315ms min=5243ms max=5420ms cv=1.41%  5/5 CLEAN_PASS, ports free
+  embedded  median=65042ms mean=65036ms min=64995ms max=65055ms cv=0.04%  5/5 CLEAN_PASS, ports free
+  embedded vs external: -1123% (12.2x slower)
 
-External (pnpm test:e2e:wdio), final HEAD:
-  app-smoke (fresh wdio-plugin build)    CLEAN_PASS  5s
-  core-inventory (--skip-build)          CLEAN_PASS  10s
-  app-smoke, production-shaped binary,
-    --expect-plugin absent               CLEAN_PASS  76s, window.wdioTauri confirmed undefined
+Short E2E regression (final HEAD, canonical runners):
+  pnpm test:e2e:wdio -- --spec app-smoke --skip-build            CLEAN_PASS, 5s
+  pnpm test:e2e:wdio:embedded -- --spec app-smoke --skip-build   CLEAN_PASS, 65s
 
-CI (GitHub Actions, PR #155): 7/7 jobs PASS
+CI (GitHub Actions, PR #156): 7/7 jobs PASS
   Frontend checks, Frontend dependency audit, Rust dependency audit,
   Rust workspace, Script and hygiene checks, Version consistency, Workflow lint
 ```
 
 ## Risks
 
-- Embedded validation ran on Linux/WebKitWebDriver only; Windows/WebView2
-  embedded re-validation was not repeated (Stage 3B.3 previously confirmed
-  the same root cause cross-platform, and the fix is a WDIO-client-level
-  change, not platform-specific driver code).
-- The `brace-expansion` override forces a 1.x/2.x → 5.x major jump across
-  all transitive dev-tooling consumers; no regression observed across the
-  full static+E2E suite, but it is a wide-reaching pin.
-- Embedded remains opt-in (`pnpm test:e2e:wdio:embedded`), not wired into
-  any CI gate — intentionally left for a future stage/decision.
-- Two of the destructive-guards embedded runs initially aborted mid-run due
-  to an orchestration-side `timeout` wrapper set too short (30 min) for
-  those specs' ~44-minute real duration — not a test or driver failure;
-  re-run with a longer ceiling produced clean, deterministic passes both
-  times, and ports/processes were confirmed clean after the aborted attempt
-  too (PID-safe cleanup held even under external interruption).
+- The full 5-measured-run alternating protocol was only completed for
+  `app-smoke`; `core-inventory`, `representative-latency`, and
+  `searchable-select-regression` rely on prior validated data from one
+  commit earlier in the same HEAD lineage rather than a fresh run in this
+  exact pass. The margins involved (12-28x) are far outside the decision
+  threshold, so this is judged not to change the outcome, but it is not a
+  complete re-run of the full protocol.
+- One benchmark run was aborted mid-flight by the ENOBUFS bug and left a
+  stray `tauri-driver`/`WebKitWebDriver`/`Xvfb`/app-binary process group
+  and occupied ports 4444/4445; identified and terminated manually, and
+  port state was re-verified clean before continuing. No such abort
+  occurred after the fix.
+- The `minimatch` override is a fairly wide-reaching pin (all transitive
+  dev-tooling consumers now resolve to minimatch@10.2.5); verified via a
+  live WDIO run on both providers, plus the full static/unit test suite,
+  but this is a larger jump than a typical patch-level override.
 
 ## Not done
 
-- Stage 3C (remaining placement workflows) — explicitly out of scope for
-  this pass, not started.
-- Windows embedded re-validation — deferred; no Windows environment
-  available in this pass.
-- Wiring the embedded provider into any CI gate — intentionally deferred to
-  a future stage/decision; embedded stays opt-in.
+- Full 5-measured-run benchmark for `core-inventory`,
+  `representative-latency`, `searchable-select-regression` in this exact
+  pass (relied on prior validated data instead — see Risks).
+- Stage 3C — explicitly out of scope, not started.
+- No default-provider code/runner/CLI changes — intentional, per the
+  decision and the task's own instruction against artificial changes.
 
 ## Suggested next step
 
-Human review of PR #155 (strict review via the generated review context),
-then a decision on whether/when to wire `pnpm test:e2e:wdio:embedded` into
-CI as a gate, and whether Windows embedded re-validation is required before
-that decision. Do not merge without that review. Stage 3C planning can begin
-once this PR lands.
+Human review of PR #156. If reviewers want the remaining three specs
+re-benchmarked with the fixed tooling despite the already-decisive
+margin, that can be a quick follow-up run using the now-working
+`scripts/run-provider-benchmark.mjs` directly. Otherwise, close out this
+PR as documentation-only and proceed to Stage 3C planning.
