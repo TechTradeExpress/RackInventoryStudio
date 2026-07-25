@@ -49,32 +49,12 @@ import {
   navigateToRackDetail,
   clickConfirmDialogAction,
   waitForConfirmDialogClosed,
+  placeDeviceAtU,
 } from "../support/destructive-ui";
 
 function log(msg: string) {
   const ts = new Date().toISOString().substring(11, 23);
   console.log(`[inspector ${ts}] ${msg}`);
-}
-
-async function placeDeviceAtU(deviceCode: string, startU: number): Promise<void> {
-  const paletteBtnSel = `button[data-testid^="place-btn-device-"][data-device-code="${deviceCode}"]`;
-  await browser.waitUntil(() => browser.$(paletteBtnSel).isDisplayed(), {
-    timeout: 15_000,
-    timeoutMsg: `Palette Place button for device "${deviceCode}" not displayed`,
-  });
-  await browser.$(paletteBtnSel).click();
-  await browser.waitUntil(() => browser.$('[data-testid="place-btn"]').isEnabled(), {
-    timeout: 30_000,
-    timeoutMsg: "PlacePlacementModal place-btn never became enabled",
-  });
-  await browser.$('[data-testid="start-u-input"]').waitForDisplayed({ timeout: 10_000 });
-  await browser.$('[data-testid="start-u-input"]').addValue(String(startU));
-  await clickWhenEnabled("place-btn");
-  await waitForFormCloseOrError("place-btn", {
-    timeout: 60_000,
-    errorLabel: "Placement failed",
-    timeoutLabel: "Placement modal",
-  });
 }
 
 /**

@@ -20,8 +20,9 @@
  * the full PART breakdown.
  */
 import { browser } from "@wdio/globals";
-import { clickNav } from "./spec-interactions";
+import { clickNav, waitForFormCloseOrError } from "./spec-interactions";
 import { isSelectorVisible } from "./dom-helpers";
+import { clickWhenEnabled } from "./repository-ui";
 
 // ── Atomic DOM read ───────────────────────────────────────────────────────────
 
@@ -523,4 +524,35 @@ export async function expectExactlyOnePlacement(
       `startU=${startU} exists but is not displayed`,
     );
   }
+}
+
+/**
+ * Place an already-created device at a given U position via the rack
+ * detail's palette Place button and PlacePlacementModal.
+ *
+ * Assumes the caller is already on a rack's detail view (e.g. via
+ * navigateToRackDetail) with the device's palette entry visible.
+ */
+export async function placeDeviceAtU(deviceCode: string, startU: number): Promise<void> {
+  const paletteBtnSel = `button[data-testid^="place-btn-device-"][data-device-code="${deviceCode}"]`;
+  await browser.waitUntil(() => browser.$(paletteBtnSel).isDisplayed(), {
+    timeout: 15_000,
+    timeoutMsg: `Palette Place button for device "${deviceCode}" not displayed`,
+  });
+  await browser.$(paletteBtnSel).click();
+
+  await browser.waitUntil(() => browser.$('[data-testid="place-btn"]').isEnabled(), {
+    timeout: 30_000,
+    timeoutMsg: "PlacePlacementModal place-btn never became enabled",
+  });
+
+  await browser.$('[data-testid="start-u-input"]').waitForDisplayed({ timeout: 10_000 });
+  await browser.$('[data-testid="start-u-input"]').addValue(String(startU));
+
+  await clickWhenEnabled("place-btn");
+  await waitForFormCloseOrError("place-btn", {
+    timeout: 60_000,
+    errorLabel: "Placement failed",
+    timeoutLabel: "Placement modal",
+  });
 }

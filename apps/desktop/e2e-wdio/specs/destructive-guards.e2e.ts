@@ -67,6 +67,7 @@ import {
   ensureRackListView,
   navigateToRackDetail,
   clickLocationRowAndEnterRacks,
+  placeDeviceAtU,
 } from "../support/destructive-ui";
 
 function log(msg: string) {
@@ -209,31 +210,8 @@ describe("Rack Inventory Studio — destructive-operation guards", () => {
     log("part A: navigating to rack detail for placement");
     await navigateToRackDetail(locationName, rackName);
 
-    log(`part A: clicking palette Place button for device ${deviceCode}`);
-    const paletteBtnSel = `button[data-testid^="place-btn-device-"][data-device-code="${deviceCode}"]`;
-    await browser.waitUntil(
-      async () => browser.$(paletteBtnSel).isDisplayed(),
-      { timeout: 15_000, timeoutMsg: `Palette Place button for device "${deviceCode}" not displayed` },
-    );
-    await browser.$(paletteBtnSel).click();
-
-    log("part A: waiting for PlacePlacementModal");
-    await browser.waitUntil(
-      async () => browser.$('[data-testid="place-btn"]').isEnabled(),
-      { timeout: 30_000, timeoutMsg: "PlacePlacementModal place-btn never became enabled" },
-    );
-
-    log(`part A: filling start U = ${PLACE_U}`);
-    await browser.$('[data-testid="start-u-input"]').waitForDisplayed({ timeout: 10_000 });
-    await browser.$('[data-testid="start-u-input"]').addValue(String(PLACE_U));
-
-    log("part A: submitting placement");
-    await clickWhenEnabled("place-btn");
-    await waitForFormCloseOrError("place-btn", {
-      timeout: 60_000,
-      errorLabel: "Placement failed",
-      timeoutLabel: "Placement modal",
-    });
+    log(`part A: placing device ${deviceCode} at U${PLACE_U}`);
+    await placeDeviceAtU(deviceCode, PLACE_U);
 
     await expectExactlyOnePlacement(deviceCode, PLACE_U);
     log(`part A: placement card confirmed at U${PLACE_U} — fixture complete`);
