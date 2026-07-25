@@ -1,140 +1,133 @@
 ## Summary
 
-Stage 3E per NSP, on `feature/e2e-stage-3e-selectors` → `roadmap/e2e-wdio`
-(base `192720c` — PR #159/Stage 3D merged). **Status: COMPLETE.**
+Stage 3F.0 per NSP, on `feature/git-workflow-audit` → `roadmap/e2e-wdio`
+(base = current `roadmap/e2e-wdio` HEAD after PR #160/Stage 3E merged).
+**Status: COMPLETE (audit + documentation only).**
 
-Closed every remaining low-risk NEEDS SELECTOR workflow: unsaved-changes
-discard, recent repositories, global search, Device Model CSV import, and
-the validation panel (validate/save/filter/navigate — 4 sub-workflows in
-one panel). 5 new specs, 10 workflows total, 5 `data-testid`-bearing
-application files touched (attribute additions only).
+Per the NSP's explicit instruction, this stage implements **no new
+functionality and no new E2E tests**. It is a ground-up audit of every
+git-related capability in the application — init, detection, status,
+staged files, commit, branch, checkout, switch, create branch, merge,
+rebase, stash, tags, remotes, fetch, pull, push, clone, `user.name`/
+`user.email` config, credential handling, SSH, HTTPS, error handling,
+libgit2 vs. system-git usage, UI locations, existing unit tests, existing
+E2E tests, existing selectors — based strictly on current code, with no
+assumptions carried forward from prior planning docs.
 
-**Audit-first discipline followed throughout:**
-- Re-read `docs/E2E_WDIO_PLAN.md` and `docs/E2E_WDIO_COVERAGE_GAPS.md` in
-  full before starting; found them already consistent with HEAD (both were
-  rewritten in the immediately preceding Stage 3D pass, merged as PR #159,
-  no drift since) — no doc corrections needed before implementing.
-- Re-verified every target area against actual current component source
-  rather than trusting the docs' selector claims: read `ValidationPanel.tsx`,
-  `GlobalSearch.tsx`, `RepositoryPanel.tsx` (recent repos),
-  `UnsavedChangesDialog.tsx`, and `CsvImportPanel.tsx`'s
-  `DeviceModelPreviewTable` directly, confirming each genuinely had zero
-  `data-testid` coverage before adding anything.
+**Audit method:** read `crates/ris-git/src/lib.rs` (1927 lines, in full),
+`crates/ris-git/Cargo.toml` (confirmed no `git2`/libgit2 dependency — all
+git operations shell out to the system `git` binary via
+`std::process::Command`), `apps/desktop/src-tauri/src/commands/git.rs`
+(459 lines, full command surface), `apps/desktop/src-tauri/src/commands/
+repository.rs` (clone command), `apps/desktop/src-tauri/src/
+ssh_askpass.rs` (1233 lines, public API + 24 unit tests), and the full
+`RepositoryPanel.tsx`, `SshPassphraseModal.tsx`, `CloneRepositoryForm.tsx`
+frontend surface. Cross-checked every finding against
+`safety-recovery.e2e.ts` (the only existing E2E spec touching git) and a
+grep of all `data-testid` usage across the git-related components.
 
-**Two things found only by running the specs and debugging, not assumed
-in advance** (both documented in the relevant spec files and in
-`docs/E2E_WDIO_PLAN.md`'s Stage 3E section):
-1. `GlobalSearch`'s result `<li role="option">` uses the identical
-   `onMouseDown`-based selection pattern as `SearchableSelect`'s own
-   options, so `selectSearchableOption()` looked directly reusable — but
-   WebKitWebDriver's `getText()` does not reliably return that element's
-   full text (a `text-overflow: ellipsis` styling quirk, confirmed by
-   comparing `getText()` output against the same element's raw
-   `textContent` in the same run). Wrote one small spec-local helper
-   matching via `textContent` through `browser.execute()` instead, keeping
-   the same Actions-routed click and stale-element-tolerant retry loop.
-2. `RepositorySession::validate()` validates the **last-saved on-disk
-   state only**, never in-memory unsaved edits — confirmed via its own doc
-   comment and implementation in
-   `crates/ris-application/src/session.rs`. My first fixture design
-   assumed validation would reflect an unsaved device and failed
-   consistently; rewrote the spec to exercise this real behavior directly
-   (validate before saving → only the pre-existing on-disk issue appears;
-   save from the panel; validate again → the new issue appears) rather
-   than working around it.
+**Key findings** (full detail in `docs/E2E_WDIO_PLAN.md`'s new "Git
+Workflow — foundation audit" section):
+- Implemented and working: init, status (aggregate counts, no per-file
+  UI), log, whole-tree commit, list/add remote, push, pull (`--ff-only`
+  only), clone, a real SSH askpass subsystem (in-process self-re-exec
+  helper, TCP passphrase bridge to the frontend via Tauri events,
+  ssh-agent probing/guidance, repo-local `core.sshCommand` neutralisation
+  applied to push/pull), and consistent credential redaction in error
+  messages.
+- Confirmed **not implemented anywhere** — product-scope boundaries, not
+  test gaps: branch create/switch, merge beyond `--ff-only` pull, rebase,
+  stash, tags, standalone fetch, selective/partial staging, `user.name`/
+  `user.email` configuration UI, HTTPS credential management.
+- UI selector coverage: only one `data-testid` exists on any git-related
+  control (`ssh-passphrase-input`). Push and Pull each render as two
+  simultaneous, functionally-identical button pairs (the "Safe publish"
+  stepper and the Remote panel) invoking the same handlers — a real
+  finding for future selector work, which must scope any new testid
+  per-panel rather than adding one ambiguous shared id.
+- `CloneRepositoryForm.tsx` already has full selector coverage (11
+  testids) — Clone's only blocker for E2E is the network dependency
+  itself for HTTPS, not selectors.
+- Genuine product gap found (not a testing gap, not fixed at this stage):
+  `clone_repository_cmd` uses the plain (non-askpass) clone path, so
+  SSH-cloning a passphrase-protected private key has no in-app prompt at
+  all today.
+- `validate_remote_url()` rejects local filesystem paths by design
+  (HTTPS/SSH-only allowlist), so a fully local push/pull/clone E2E
+  fixture is not reachable through the app's own UI — any future stage
+  attempting a real round-trip needs a remote-fixture strategy decision
+  (local SSH daemon vs. disposable external target) as a prerequisite.
+- Test coverage: 82 Rust unit tests in `ris-git`, 24 in `ssh_askpass.rs`,
+  ~1857 lines of frontend unit tests across 8 files — unit-level coverage
+  is already substantial. E2E coverage of actual git operations is zero;
+  `safety-recovery.e2e.ts` only covers URL rejection and open-path
+  recovery, no real git operation.
 
-Selector policy respected throughout: no `nth-child`, no xpath, no raw CSS
-class selectors, no unscoped text matching in new code (the one text-based
-exception — `GlobalSearch` result matching — was already an established
-pattern for dynamically-generated content with no fixed identity, same
-justification `selectSearchableOption()` itself already relies on).
+Documentation was updated to describe current state, existing
+capabilities, identified gaps, and a proposed stage ordering — explicitly
+**not** an implementation plan, per the NSP.
 
-No new shared helpers were added — the two spec-local exceptions
-(`selectSearchResult()` in `global-search-workflow.e2e.ts`,
-`getIssueRowCodes()`/`expectFilteredIssueCodes()` in
-`validation-panel-workflows.e2e.ts`) are each used only within their own
-spec file, per the helper policy's explicit preference.
-
-Final HEAD: see `git log -1`. PR to be opened against `roadmap/e2e-wdio`,
-not merged.
+PR opened against `roadmap/e2e-wdio` (direct base per CLAUDE.md's
+review-context policy table), not merged.
 
 ## Files changed
 
 | File | Change |
 |------|--------|
-| `apps/desktop/src/components/ui/UnsavedChangesDialog.tsx` | Added `unsaved-changes-discard` testid |
-| `apps/desktop/src/features/csvImport/CsvImportPanel.tsx` | Added `csv-device-model-preview-table` testid |
-| `apps/desktop/src/features/search/GlobalSearch.tsx` | Added `global-search-input` testid |
-| `apps/desktop/src/features/repository/RepositoryPanel.tsx` | Added `recent-repo-row`/`data-recent-repo-path`, `recent-repo-remove-btn` |
-| `apps/desktop/src/features/validation/ValidationPanel.tsx` | Added `validation-validate-btn`, `validation-save-btn`, `validation-filter-{all,error,warning,info}`, `validation-issue-row`/`data-validation-issue-code`, `validation-issue-navigate-btn`, `validation-save-summary` |
-| `apps/desktop/e2e-wdio/specs/unsaved-changes-discard.e2e.ts` | New |
-| `apps/desktop/e2e-wdio/specs/recent-repositories-workflow.e2e.ts` | New |
-| `apps/desktop/e2e-wdio/specs/global-search-workflow.e2e.ts` | New |
-| `apps/desktop/e2e-wdio/specs/csv-device-model-import.e2e.ts` | New |
-| `apps/desktop/e2e-wdio/specs/validation-panel-workflows.e2e.ts` | New |
-| `docs/E2E_WDIO_PLAN.md` | Stage 3E section rewritten COMPLETE with full delivered breakdown; Program status, Future-stages intro, coverage figures updated |
-| `docs/E2E_WDIO_COVERAGE_GAPS.md` | 10 rows NEEDS SELECTOR → COVERED; new "Selectors added in Stage 3E" section; existing-specs table updated; summary counts recomputed (61/78, 78%) |
+| `docs/E2E_WDIO_PLAN.md` | New "Git Workflow — foundation audit" section (Stage 3F.0 findings); prior single Stage 3F sketch replaced with two refined sections — "Stage 3F.1 — Local git workflows" and "Stage 3F.2 — Remote git over SSH"; Program status table and Future-stages coverage figure updated |
+| `docs/E2E_WDIO_COVERAGE_GAPS.md` | Git workflow section enriched with audit findings; new "SSH passphrase prompt" row (NEEDS SELECTOR); Clone DEFERRED-row reasons refined (HTTPS: selectors already present, blocked only by network; SSH: a real product gap, not just network-dependent); Summary counts recomputed (61/79, 77%) |
 | `.ai/cc-report.md` | This report |
+
+No application code, test files, or selectors were touched in this pass.
 
 ## Tests
 
 ```
-pnpm -C apps/desktop typecheck           PASS
-pnpm -C apps/desktop test                923/923 PASS
-node --test scripts/*.test.mjs           223/223 PASS
-node scripts/check-repo-hygiene.mjs      PASS
-node scripts/check-version-consistency.mjs   PASS
-cargo fmt --all --check                  PASS
-cargo check --workspace                  PASS
-cargo clippy --workspace -- -D warnings  PASS
-git diff --check                         PASS
-
-pnpm test:e2e:wdio -- --spec unsaved-changes-discard          CLEAN_PASS x2 (10s, 9s)
-pnpm test:e2e:wdio -- --spec recent-repositories-workflow     CLEAN_PASS x2 (7s, 7s)
-pnpm test:e2e:wdio -- --spec global-search-workflow           CLEAN_PASS x2 (9s, 9s)
-pnpm test:e2e:wdio -- --spec csv-device-model-import          CLEAN_PASS x2 (10s, 10s)
-pnpm test:e2e:wdio -- --spec validation-panel-workflows       CLEAN_PASS x2 (13s, 13s)
-pnpm test:e2e:wdio -- --spec app-smoke --skip-build            CLEAN_PASS (5s)
+git diff --check                     PASS
+node scripts/check-repo-hygiene.mjs  PASS (8/8 checks)
 ```
 
-Ports 4444/4445 free before/after every run; no lingering
-tauri-driver/WebKitWebDriver/Xvfb/application-binary processes. Full
-11+-spec suite not re-run — no shared support/ helper was modified in this
-pass (only application-source `data-testid` additions and two spec-local
-functions), consistent with the program's established re-run policy.
-
-No lint tool is configured in this repo (no ESLint config, no `lint`
-script) — nothing to run for that step, same as noted in the Stage 3D
-report.
+No functional/test-suite run performed. This is intentional: the NSP
+explicitly excludes new functionality and new E2E tests at this stage,
+and nothing outside the two documentation files changed, so the
+project's format/lint/unit/E2E suites have no surface to exercise. CI on
+PR #161 additionally ran: Script and hygiene checks (PASS), Version
+consistency (PASS), Workflow lint (PASS), Frontend checks (PASS), Rust
+workspace (ran as part of standard PR CI regardless of change scope).
 
 ## Risks
 
-- `global-search-workflow.e2e.ts`'s WebKitWebDriver `getText()` quirk was
-  confirmed on this environment/driver version; if the driver changes
-  behavior in the future, the spec-local `textContent`-based workaround
-  may become unnecessary (harmless either way) or, less likely, could
-  itself need revisiting if `textContent` semantics ever change for
-  ellipsis-clipped elements.
-- `validation-panel-workflows.e2e.ts` depends on two specific validation
-  issue codes (`VAL-DEV-013`, `VAL-LOC-005`) continuing to fire under the
-  exact fixture shape used (one unplaced device with a model, zero
-  locations). If validation rules change in a future pass, this spec would
-  need re-verification against the new rule set — same category of risk
-  every other spec that asserts on a specific backend-generated string
-  already carries.
+- This stage's findings (especially the duplicate Push/Pull button pair
+  and the SSH-clone-askpass gap) are read directly from source and are
+  accurate as of this HEAD, but by nature of being audit findings rather
+  than enforced-by-test facts, they can silently go stale if application
+  code changes before Stage 3F.1/3F.2 begins implementation. Re-verify
+  against current source before starting either stage.
+- The proposed 3F.1/3F.2 split assumes a remote-fixture strategy will be
+  chosen before 3F.2 starts; no such strategy exists yet and is called
+  out as an open prerequisite, not a decision made by this audit.
+- The SSH-clone-askpass gap identified is a genuine product behavior gap,
+  not merely a test gap — it may warrant its own product/engineering
+  decision before Stage 3F.2 can meaningfully test SSH clone of
+  passphrase-protected keys.
 
 ## Not done
 
-- Stage 3F (git workflow) — not started, per the program's staged plan and
-  this NSP's explicit exclusion.
-- Rack export (NEEDS APPLICATION CHANGE) — unchanged from Stage 3D, still
-  requires a product decision before any further E2E work.
-- No lint run — no lint tooling exists in this repo.
+- No new E2E tests, selectors, or application code — explicitly out of
+  scope for this stage per the NSP.
+- No implementation planning for Stage 3F.1/3F.2 beyond the proposed
+  scope split and its stated prerequisites — the NSP explicitly asks for
+  audit and roadmap proposal only, not a stage-ready implementation plan.
+- Rack export (NEEDS APPLICATION CHANGE, from Stage 3D) — unchanged,
+  still requires a product decision, unrelated to this stage's scope.
 
 ## Suggested next step
 
-Human review of this PR. Stage 3F (git init/validate/commit/add-remote —
-the entire remaining NEEDS SELECTOR backlog) is the next fully-derivable
-stage per `docs/E2E_WDIO_PLAN.md`'s "Future stages"; it should get its own
-NSP given git operations mutate real repository state and warrant a
-dedicated risk review, per this program's own working model.
+Human review of PR #161. Once accepted, open a dedicated NSP for Stage
+3F.1 (Local git workflows: init, validate/status, commit, add-remote,
+push/pull disabled-state and error-path coverage — no real network
+operations required) as the next fully-derivable, lowest-risk slice; hold
+Stage 3F.2 (remote-over-SSH round-trip + SSH passphrase flow) until a
+remote-fixture strategy is chosen, since it is a hard prerequisite called
+out in this audit rather than an implementation detail to resolve
+mid-stage.
