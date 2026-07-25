@@ -33,7 +33,6 @@
  *   - Builds the wdio-plugin binary via scripts/build-wdio-plugin-binary.mjs
  *   - Uses target-wdio-plugin/release/rack-inventory-studio-desktop
  *   - Sets RIS_WDIO_EXPECT_PLUGIN=present
- *   - Sets RIS_WDIO_DRIVER_PROVIDER=external
  *
  * Diagnostic mode (--binary <path> --expect-plugin absent):
  *   - Skips the plugin build
@@ -42,9 +41,10 @@
  *   - Does NOT set TAURI_BINARY_PATH to the plugin variant
  *
  * The child process environment is always deterministic: any
- * RIS_WDIO_EXPECT_PLUGIN / RIS_WDIO_DRIVER_PROVIDER / TAURI_BINARY_PATH
- * inherited from the invoking shell is discarded before this run's own
- * values are applied (see buildChildEnv).
+ * RIS_WDIO_EXPECT_PLUGIN / TAURI_BINARY_PATH inherited from the invoking
+ * shell is discarded before this run's own values are applied (see
+ * buildChildEnv). external is the only supported WDIO driver provider — see
+ * docs/E2E_WDIO_PLAN.md's "Embedded WDIO provider removal" section.
  *
  * Ports 4444 and 4445 are checked before and after every run. If either is
  * occupied before the run, or the port state cannot be verified (ss missing
@@ -179,14 +179,12 @@ export function shouldBuildPlugin(opts) {
  * Builds the child-process environment for the benchmark runner.
  * Returns a new object — never mutates baseEnv or process.env.
  *
- * Any RIS_WDIO_EXPECT_PLUGIN / RIS_WDIO_DRIVER_PROVIDER / TAURI_BINARY_PATH
- * inherited from baseEnv (e.g. left over in the invoking shell) is deleted
- * first, so the child process's environment is fully determined by this
- * run's own decisions — never a mix of an explicit decision and a stale
- * inherited value.
+ * Any RIS_WDIO_EXPECT_PLUGIN / TAURI_BINARY_PATH inherited from baseEnv
+ * (e.g. left over in the invoking shell) is deleted first, so the child
+ * process's environment is fully determined by this run's own decisions —
+ * never a mix of an explicit decision and a stale inherited value.
  *
  * Always sets:
- *   RIS_WDIO_DRIVER_PROVIDER=external
  *   RIS_WDIO_EXPECT_PLUGIN=<expectPlugin>   (omitted when expectPlugin is null)
  *   TAURI_BINARY_PATH=<binaryPath>          (omitted when binaryPath is null)
  */
@@ -194,10 +192,7 @@ export function buildChildEnv(baseEnv, { expectPlugin, binaryPath }) {
   const env = { ...baseEnv };
 
   delete env["RIS_WDIO_EXPECT_PLUGIN"];
-  delete env["RIS_WDIO_DRIVER_PROVIDER"];
   delete env["TAURI_BINARY_PATH"];
-
-  env["RIS_WDIO_DRIVER_PROVIDER"] = "external";
 
   if (expectPlugin !== null && expectPlugin !== undefined) {
     env["RIS_WDIO_EXPECT_PLUGIN"] = expectPlugin;
@@ -224,17 +219,7 @@ export function buildRunCommand({
   continueOnFailure,
   platform = process.platform,
 }) {
-  const benchArgs = [
-    benchmarkScript,
-    "--provider",
-    "external",
-    "--spec",
-    spec,
-    "--repeat",
-    String(repeat),
-    "--binary",
-    binary,
-  ];
+  const benchArgs = [benchmarkScript, "--spec", spec, "--repeat", String(repeat), "--binary", binary];
   if (continueOnFailure) benchArgs.push("--continue-on-failure");
 
   if (platform === "linux") {

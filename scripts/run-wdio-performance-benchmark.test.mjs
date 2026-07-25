@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import {
-  ALLOWED_PROVIDERS,
+  PROVIDER,
   BENCHMARK_ONLY_SPECS,
   REQUIRED_CORE_INVENTORY_STEPS,
   parseArgs,
@@ -19,18 +19,10 @@ import {
   listAvailableSpecNames,
   isKnownSpecName,
   generateRunId,
-  validatePort,
   resolveWdioEntrypoint,
-  readCargoLockVersion,
   pct,
   avg,
-  medianOf,
-  computeDelta,
-  buildCompareSequence,
   validateSummary,
-  poolCommandDurationsFromNdjsonText,
-  poolStepDurationsByName,
-  computeComparison,
   computeSingleModeAggregate,
   buildBenchmarkOutputBasename,
   OUTCOMES,
@@ -49,12 +41,10 @@ import {
 // ── parseArgs ────────────────────────────────────────────────────────────────
 
 describe("parseArgs", () => {
-  it("parses provider/spec/repeat/binary", () => {
+  it("parses spec/repeat/binary", () => {
     const opts = parseArgs([
       "node",
       "script.mjs",
-      "--provider",
-      "external",
       "--spec",
       "app-smoke",
       "--repeat",
@@ -62,19 +52,16 @@ describe("parseArgs", () => {
       "--binary",
       "C:\\bin\\app.exe",
     ]);
-    assert.equal(opts.provider, "external");
     assert.equal(opts.spec, "app-smoke");
     assert.equal(opts.repeat, 2);
     assert.equal(opts.binary, "C:\\bin\\app.exe");
-    assert.equal(opts.compare, false);
     assert.equal(opts.continueOnFailure, false);
   });
 
-  it("parses --compare and --continue-on-failure flags", () => {
+  it("parses --continue-on-failure flag", () => {
     const opts = parseArgs([
       "node",
       "script.mjs",
-      "--compare",
       "--spec",
       "core-inventory",
       "--repeat",
@@ -83,7 +70,6 @@ describe("parseArgs", () => {
       "app.exe",
       "--continue-on-failure",
     ]);
-    assert.equal(opts.compare, true);
     assert.equal(opts.continueOnFailure, true);
   });
 
@@ -92,7 +78,7 @@ describe("parseArgs", () => {
   });
 
   it("does not accept a repeat value with trailing garbage", () => {
-    const opts = parseArgs(["node", "script.mjs", "--provider", "external", "--spec", "app-smoke", "--repeat", "2abc"]);
+    const opts = parseArgs(["node", "script.mjs", "--spec", "app-smoke", "--repeat", "2abc"]);
     assert.ok(Number.isNaN(opts.repeat), "Number('2abc') must be NaN, not silently truncated to 2");
   });
 });
@@ -100,58 +86,38 @@ describe("parseArgs", () => {
 // ── validateArgs ─────────────────────────────────────────────────────────────
 
 describe("validateArgs", () => {
-  it("accepts a valid single-provider config", () => {
-    const errors = validateArgs({ provider: "external", spec: "app-smoke", repeat: 2, binary: null, compare: false });
+  it("accepts a valid config", () => {
+    const errors = validateArgs({ spec: "app-smoke", repeat: 2, binary: null });
     assert.deepEqual(errors, []);
   });
 
-  it("rejects a provider outside the allowed set", () => {
-    const errors = validateArgs({ provider: "chrome", spec: "app-smoke", repeat: 1, binary: null, compare: false });
-    assert.ok(errors.some((e) => e.includes("--provider")));
-  });
-
   it("rejects missing --spec", () => {
-    const errors = validateArgs({ provider: "external", spec: null, repeat: 1, binary: null, compare: false });
+    const errors = validateArgs({ spec: null, repeat: 1, binary: null });
     assert.ok(errors.some((e) => e.includes("--spec")));
   });
 
   it("rejects repeat = 0", () => {
-    const errors = validateArgs({ provider: "external", spec: "app-smoke", repeat: 0, binary: null, compare: false });
+    const errors = validateArgs({ spec: "app-smoke", repeat: 0, binary: null });
     assert.ok(errors.some((e) => e.includes("--repeat")));
   });
 
   it("rejects a non-integer repeat", () => {
-    const errors = validateArgs({ provider: "external", spec: "app-smoke", repeat: 1.5, binary: null, compare: false });
+    const errors = validateArgs({ spec: "app-smoke", repeat: 1.5, binary: null });
     assert.ok(errors.some((e) => e.includes("--repeat")));
   });
 
   it("rejects NaN repeat", () => {
-    const errors = validateArgs({ provider: "external", spec: "app-smoke", repeat: NaN, binary: null, compare: false });
+    const errors = validateArgs({ spec: "app-smoke", repeat: NaN, binary: null });
     assert.ok(errors.some((e) => e.includes("--repeat")));
   });
 
-  it("requires --binary in compare mode", () => {
-    const errors = validateArgs({ provider: null, spec: "app-smoke", repeat: 1, binary: null, compare: true });
-    assert.ok(errors.some((e) => e.includes("--binary")));
-  });
-
-  it("rejects --provider combined with --compare", () => {
-    const errors = validateArgs({ provider: "external", spec: "app-smoke", repeat: 1, binary: "app.exe", compare: true });
-    assert.ok(errors.some((e) => e.includes("--compare")));
-  });
-
-  it("accepts a valid compare config", () => {
-    const errors = validateArgs({ provider: null, spec: "app-smoke", repeat: 2, binary: "app.exe", compare: true });
-    assert.deepEqual(errors, []);
-  });
-
   it("rejects a --spec value with unsafe characters", () => {
-    const errors = validateArgs({ provider: "external", spec: "../../etc/passwd", repeat: 1, binary: null, compare: false });
+    const errors = validateArgs({ spec: "../../etc/passwd", repeat: 1, binary: null });
     assert.ok(errors.some((e) => e.includes("--spec")));
   });
 
   it("accepts the representative-latency spec name", () => {
-    const errors = validateArgs({ provider: "external", spec: "representative-latency", repeat: 2, binary: null, compare: false });
+    const errors = validateArgs({ spec: "representative-latency", repeat: 2, binary: null });
     assert.deepEqual(errors, []);
   });
 });
@@ -309,34 +275,6 @@ describe("run ID validation", () => {
   });
 });
 
-// ── Port validation ──────────────────────────────────────────────────────────
-
-describe("validatePort", () => {
-  it("accepts a valid port", () => {
-    assert.equal(validatePort("4445"), 4445);
-  });
-
-  it("rejects trailing garbage like '4445abc'", () => {
-    assert.throws(() => validatePort("4445abc"));
-  });
-
-  it("rejects a port below 1024", () => {
-    assert.throws(() => validatePort("80"));
-  });
-
-  it("rejects a port above 65535", () => {
-    assert.throws(() => validatePort("70000"));
-  });
-
-  it("rejects a non-integer port", () => {
-    assert.throws(() => validatePort("4445.5"));
-  });
-
-  it("rejects an empty string", () => {
-    assert.throws(() => validatePort(""));
-  });
-});
-
 // ── resolveWdioEntrypoint ────────────────────────────────────────────────────
 
 describe("resolveWdioEntrypoint", () => {
@@ -378,51 +316,6 @@ describe("resolveWdioEntrypoint", () => {
   });
 });
 
-// ── readCargoLockVersion ─────────────────────────────────────────────────────
-
-describe("readCargoLockVersion", () => {
-  it("finds a package version in a CRLF Cargo.lock (Windows checkout line endings)", () => {
-    const root = mkdtempSync(join(tmpdir(), "ris-cargolock-test-"));
-    try {
-      const lockPath = join(root, "Cargo.lock");
-      const content =
-        '[[package]]\r\nname = "other-crate"\r\nversion = "9.9.9"\r\n\r\n' +
-        '[[package]]\r\nname = "tauri-plugin-wdio-webdriver"\r\nversion = "1.2.0"\r\n' +
-        'source = "registry+..."\r\n';
-      writeFileSync(lockPath, content);
-      assert.equal(readCargoLockVersion(lockPath, "tauri-plugin-wdio-webdriver"), "1.2.0");
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  it("finds a package version in an LF Cargo.lock", () => {
-    const root = mkdtempSync(join(tmpdir(), "ris-cargolock-test-"));
-    try {
-      const lockPath = join(root, "Cargo.lock");
-      writeFileSync(lockPath, '[[package]]\nname = "tauri-plugin-wdio-webdriver"\nversion = "1.2.0"\n');
-      assert.equal(readCargoLockVersion(lockPath, "tauri-plugin-wdio-webdriver"), "1.2.0");
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  it("returns null when the package is not present", () => {
-    const root = mkdtempSync(join(tmpdir(), "ris-cargolock-test-"));
-    try {
-      const lockPath = join(root, "Cargo.lock");
-      writeFileSync(lockPath, '[[package]]\r\nname = "unrelated-crate"\r\nversion = "1.0.0"\r\n');
-      assert.equal(readCargoLockVersion(lockPath, "tauri-plugin-wdio-webdriver"), null);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  it("returns null when Cargo.lock does not exist", () => {
-    assert.equal(readCargoLockVersion(join(tmpdir(), "does-not-exist", "Cargo.lock"), "foo"), null);
-  });
-});
-
 // ── Statistics helpers ───────────────────────────────────────────────────────
 
 describe("statistics helpers", () => {
@@ -438,55 +331,6 @@ describe("statistics helpers", () => {
 
   it("avg rounds to nearest integer", () => {
     assert.equal(avg([1, 2, 4]), 2);
-  });
-
-  it("medianOf sorts unsorted input", () => {
-    assert.equal(medianOf([5, 1, 3]), 3);
-  });
-
-  it("computeDelta: positive means embedded is faster", () => {
-    const d = computeDelta(1000, 800);
-    assert.equal(d.absolute, 200);
-    assert.equal(d.percent, 20);
-  });
-
-  it("computeDelta: negative means embedded is slower", () => {
-    const d = computeDelta(800, 1000);
-    assert.equal(d.absolute, -200);
-    assert.equal(d.percent, -25);
-  });
-
-  it("computeDelta: null when either input is null", () => {
-    assert.deepEqual(computeDelta(null, 100), { absolute: null, percent: null });
-    assert.deepEqual(computeDelta(100, null), { absolute: null, percent: null });
-  });
-
-  it("computeDelta: percent is null when external value is 0", () => {
-    const d = computeDelta(0, 0);
-    assert.equal(d.absolute, 0);
-    assert.equal(d.percent, null);
-  });
-});
-
-// ── buildCompareSequence ─────────────────────────────────────────────────────
-
-describe("buildCompareSequence", () => {
-  it("alternates external/embedded for repeat=2", () => {
-    const seq = buildCompareSequence(2);
-    assert.deepEqual(seq, [
-      { provider: "external", runN: 1 },
-      { provider: "embedded", runN: 1 },
-      { provider: "external", runN: 2 },
-      { provider: "embedded", runN: 2 },
-    ]);
-  });
-
-  it("produces exactly 2*repeat entries", () => {
-    assert.equal(buildCompareSequence(5).length, 10);
-  });
-
-  it("returns an empty sequence for repeat=0", () => {
-    assert.deepEqual(buildCompareSequence(0), []);
   });
 });
 
@@ -561,7 +405,7 @@ describe("validateSummary", () => {
   });
 
   it("fails when provider does not match", () => {
-    const summary = validSummaryFixture({ provider: "embedded" });
+    const summary = validSummaryFixture({ provider: "chrome" });
     const errors = validateSummary({ summary, runId: "run-1", provider: "external", spec: "app-smoke", expectedPlatform: "win32" });
     assert.ok(errors.some((e) => e.includes("provider")));
   });
@@ -625,178 +469,15 @@ describe("validateSummary", () => {
   });
 });
 
-// ── Command-duration pooling ──────────────────────────────────────────────────
-
-describe("poolCommandDurationsFromNdjsonText", () => {
-  it("pools only command-type records across multiple NDJSON texts, sorted ascending", () => {
-    const text1 = [
-      JSON.stringify({ type: "command", durationMs: 300 }),
-      JSON.stringify({ type: "step", durationMs: 9999 }),
-      JSON.stringify({ type: "command", durationMs: 100 }),
-    ].join("\n");
-    const text2 = JSON.stringify({ type: "command", durationMs: 200 }) + "\n";
-
-    const pooled = poolCommandDurationsFromNdjsonText([text1, text2]);
-    assert.deepEqual(pooled, [100, 200, 300]);
-  });
-
-  it("skips unparsable lines without throwing", () => {
-    const text = "not json\n" + JSON.stringify({ type: "command", durationMs: 50 });
-    assert.deepEqual(poolCommandDurationsFromNdjsonText([text]), [50]);
-  });
-
-  it("returns an empty array for empty input", () => {
-    assert.deepEqual(poolCommandDurationsFromNdjsonText([]), []);
-  });
-});
-
-describe("poolStepDurationsByName", () => {
-  it("only pools steps from passed runs", () => {
-    const runs = [
-      { passed: true, summary: { steps: [{ stepName: "a", durationMs: 10 }] } },
-      { passed: false, summary: { steps: [{ stepName: "a", durationMs: 9999 }] } },
-      { passed: true, summary: { steps: [{ stepName: "a", durationMs: 20 }] } },
-    ];
-    const map = poolStepDurationsByName(runs);
-    assert.deepEqual(map.get("a"), [10, 20]);
-  });
-});
-
-// ── computeComparison ─────────────────────────────────────────────────────────
-
-function fakeRun({ provider, runN, passed, totalRunMs, sessionStartupMs, testExecutionMs, commandDurations, steps }) {
-  const ndjsonRecords = (commandDurations ?? []).map((d) => JSON.stringify({ type: "command", durationMs: d }));
-  return {
-    provider,
-    runN,
-    passed,
-    totalRunMs,
-    ndjsonText: ndjsonRecords.length ? ndjsonRecords.join("\n") + "\n" : "",
-    summary: {
-      sessionStartupMs,
-      testExecutionMs,
-      p95: commandDurations?.length ? Math.max(...commandDurations) : null,
-      steps: (steps ?? []).map((s) => ({ stepName: s.stepName, durationMs: s.durationMs, success: true, testName: "t", startMs: 0, endMs: 0 })),
-    },
-  };
-}
-
-describe("computeComparison", () => {
-  it("computes medians, pooled p95, and improvement-direction deltas", () => {
-    const runs = [
-      fakeRun({ provider: "external", runN: 1, passed: true, totalRunMs: 1000, sessionStartupMs: 300, testExecutionMs: 600, commandDurations: [100, 200, 1200] }),
-      fakeRun({ provider: "embedded", runN: 1, passed: true, totalRunMs: 700, sessionStartupMs: 150, testExecutionMs: 500, commandDurations: [50, 80, 90] }),
-      fakeRun({ provider: "external", runN: 2, passed: true, totalRunMs: 1100, sessionStartupMs: 320, testExecutionMs: 650, commandDurations: [110, 220] }),
-      fakeRun({ provider: "embedded", runN: 2, passed: true, totalRunMs: 750, sessionStartupMs: 160, testExecutionMs: 520, commandDurations: [60, 70] }),
-    ];
-
-    const comparison = computeComparison({ runs, spec: "app-smoke" });
-
-    // medianOf uses nearest-rank percentiles (consistent with pct()), not interpolated averages.
-    assert.equal(comparison.external.medianTotalRunMs, 1000);
-    assert.equal(comparison.embedded.medianTotalRunMs, 700);
-    assert.equal(comparison.deltas.medianTotalRunMs.absolute, 300);
-    assert.ok(comparison.deltas.medianTotalRunMs.percent > 0, "positive percent means embedded is faster");
-
-    assert.equal(comparison.external.pooledCommandCount, 5);
-    assert.equal(comparison.embedded.pooledCommandCount, 5);
-    assert.equal(comparison.external.commandsGe1s, 1);
-    assert.equal(comparison.embedded.commandsGe1s, 0);
-  });
-
-  it("excludes failed runs from provider stats", () => {
-    const runs = [
-      fakeRun({ provider: "external", runN: 1, passed: true, totalRunMs: 1000, sessionStartupMs: 100, testExecutionMs: 200, commandDurations: [10] }),
-      fakeRun({ provider: "external", runN: 2, passed: false, totalRunMs: 99999, sessionStartupMs: 999, testExecutionMs: 999, commandDurations: [99999] }),
-    ];
-    const comparison = computeComparison({ runs, spec: "app-smoke" });
-    assert.equal(comparison.external.passedCount, 1);
-    assert.equal(comparison.external.medianTotalRunMs, 1000);
-  });
-
-  it("includes a step comparison table for core-inventory, absent for other specs", () => {
-    const runs = [
-      fakeRun({
-        provider: "external",
-        runN: 1,
-        passed: true,
-        totalRunMs: 1000,
-        sessionStartupMs: 100,
-        testExecutionMs: 200,
-        commandDurations: [10],
-        steps: [{ stepName: "create-repository", durationMs: 500 }],
-      }),
-      fakeRun({
-        provider: "embedded",
-        runN: 1,
-        passed: true,
-        totalRunMs: 800,
-        sessionStartupMs: 80,
-        testExecutionMs: 150,
-        commandDurations: [10],
-        steps: [{ stepName: "create-repository", durationMs: 300 }],
-      }),
-    ];
-
-    const withSteps = computeComparison({ runs, spec: "core-inventory" });
-    assert.ok(withSteps.steps);
-    assert.equal(withSteps.steps[0].stepName, "create-repository");
-    assert.equal(withSteps.steps[0].externalMedianMs, 500);
-    assert.equal(withSteps.steps[0].embeddedMedianMs, 300);
-
-    const withoutSteps = computeComparison({ runs, spec: "app-smoke" });
-    assert.equal(withoutSteps.steps, null);
-  });
-
-  it("reports null medians (not zero) when a provider has no passed runs", () => {
-    const runs = [fakeRun({ provider: "external", runN: 1, passed: false, totalRunMs: 1000, sessionStartupMs: 100, testExecutionMs: 200, commandDurations: [10] })];
-    const comparison = computeComparison({ runs, spec: "app-smoke" });
-    assert.equal(comparison.external.medianTotalRunMs, null);
-    assert.equal(comparison.embedded.medianTotalRunMs, null);
-    assert.equal(comparison.deltas.medianTotalRunMs.absolute, null);
-  });
-
-  it("excludes PASS_WITH_FORCED_CLEANUP runs from aggregation even though the test itself passed", () => {
-    const cleanRun = fakeRun({ provider: "external", runN: 1, passed: true, totalRunMs: 1000, sessionStartupMs: 100, testExecutionMs: 200, commandDurations: [10] });
-    const forcedRun = fakeRun({ provider: "external", runN: 2, passed: false, totalRunMs: 99999, sessionStartupMs: 999, testExecutionMs: 999, commandDurations: [99999] });
-    forcedRun.outcome = OUTCOMES.PASS_WITH_FORCED_CLEANUP;
-    const runs = [cleanRun, forcedRun];
-    const comparison = computeComparison({ runs, spec: "app-smoke" });
-    assert.equal(comparison.external.passedCount, 1, "forced-cleanup run must not count toward passedCount");
-    assert.equal(comparison.external.medianTotalRunMs, 1000, "forced-cleanup run's duration must not pollute the median");
-    assert.equal(comparison.external.outcomeCounts.PASS_WITH_FORCED_CLEANUP, 1);
-  });
-
-  it("reports status INSUFFICIENT_CLEAN_RUNS when a provider has fewer than 2 CLEAN_PASS runs", () => {
-    const runs = [
-      fakeRun({ provider: "external", runN: 1, passed: true, totalRunMs: 1000, sessionStartupMs: 100, testExecutionMs: 200, commandDurations: [10] }),
-      fakeRun({ provider: "embedded", runN: 1, passed: true, totalRunMs: 800, sessionStartupMs: 80, testExecutionMs: 150, commandDurations: [10] }),
-    ];
-    const comparison = computeComparison({ runs, spec: "app-smoke" });
-    assert.equal(comparison.status, "INSUFFICIENT_CLEAN_RUNS");
-  });
-
-  it("reports status OK when both providers have at least 2 CLEAN_PASS runs", () => {
-    const runs = [
-      fakeRun({ provider: "external", runN: 1, passed: true, totalRunMs: 1000, sessionStartupMs: 100, testExecutionMs: 200, commandDurations: [10] }),
-      fakeRun({ provider: "external", runN: 2, passed: true, totalRunMs: 1000, sessionStartupMs: 100, testExecutionMs: 200, commandDurations: [10] }),
-      fakeRun({ provider: "embedded", runN: 1, passed: true, totalRunMs: 800, sessionStartupMs: 80, testExecutionMs: 150, commandDurations: [10] }),
-      fakeRun({ provider: "embedded", runN: 2, passed: true, totalRunMs: 800, sessionStartupMs: 80, testExecutionMs: 150, commandDurations: [10] }),
-    ];
-    const comparison = computeComparison({ runs, spec: "app-smoke" });
-    assert.equal(comparison.status, "OK");
-  });
-});
-
 // ── buildBenchmarkOutputBasename ─────────────────────────────────────────────
 
 describe("buildBenchmarkOutputBasename", () => {
-  it("builds a provider-spec basename for representative-latency", () => {
-    assert.equal(buildBenchmarkOutputBasename("external", "representative-latency"), "external-representative-latency");
+  it("builds an external-spec basename for representative-latency", () => {
+    assert.equal(buildBenchmarkOutputBasename("representative-latency"), "external-representative-latency");
   });
 
-  it("builds a provider-spec basename for any other spec", () => {
-    assert.equal(buildBenchmarkOutputBasename("embedded", "app-smoke"), "embedded-app-smoke");
+  it("builds an external-spec basename for any other spec", () => {
+    assert.equal(buildBenchmarkOutputBasename("app-smoke"), "external-app-smoke");
   });
 });
 
@@ -917,7 +598,6 @@ describe("computeSingleModeAggregate", () => {
       fakeSingleRun({ runN: 2, outcome: OUTCOMES.CLEAN_PASS, measurementEligible: true, totalRunMs: 1100, median: 12, p95: 110 }),
     ];
     const aggregate = computeSingleModeAggregate({
-      provider: "external",
       spec: "representative-latency",
       repeat: 2,
       runResults,
@@ -948,7 +628,6 @@ describe("computeSingleModeAggregate", () => {
       }),
     ];
     const aggregate = computeSingleModeAggregate({
-      provider: "external",
       spec: "representative-latency",
       repeat: 2,
       runResults,
@@ -969,7 +648,6 @@ describe("computeSingleModeAggregate", () => {
       fakeSingleRun({ runN: 2, outcome: OUTCOMES.TEST_FAILED, measurementEligible: false, totalRunMs: 999999, median: 999, p95: 999 }),
     ];
     const aggregate = computeSingleModeAggregate({
-      provider: "external",
       spec: "representative-latency",
       repeat: 2,
       runResults,
@@ -981,11 +659,11 @@ describe("computeSingleModeAggregate", () => {
   });
 });
 
-// ── ALLOWED_PROVIDERS sanity ───────────────────────────────────────────────────
+// ── constants ────────────────────────────────────────────────────────────────
 
 describe("constants", () => {
-  it("ALLOWED_PROVIDERS is exactly external/embedded", () => {
-    assert.deepEqual(ALLOWED_PROVIDERS, ["external", "embedded"]);
+  it("PROVIDER is external", () => {
+    assert.equal(PROVIDER, "external");
   });
 
   it("REQUIRED_CORE_INVENTORY_STEPS has the 9 documented steps", () => {

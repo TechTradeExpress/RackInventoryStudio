@@ -1,26 +1,21 @@
 #!/usr/bin/env node
 /**
- * WDIO performance benchmark runner — external vs. embedded driver provider.
+ * WDIO performance benchmark runner — external driver provider only.
  *
- * Single-provider (smoke) usage:
- *   node scripts/run-wdio-performance-benchmark.mjs \
- *     --provider external --spec app-smoke --repeat 1
+ * external (tauri-driver) is the only supported WDIO driver provider. An
+ * embedded in-process WebDriver server was evaluated here via this script's
+ * former --provider/--compare options; see docs/E2E_WDIO_PLAN.md's "Embedded
+ * WDIO provider removal" section for the outcome and removal decision.
  *
- *   node scripts/run-wdio-performance-benchmark.mjs \
- *     --provider embedded --spec core-inventory --repeat 1 \
- *     --binary "C:\path\to\rack-inventory-studio-desktop.exe"
- *
- * Controlled A/B comparison (same binary, alternating provider order):
- *   node scripts/run-wdio-performance-benchmark.mjs \
- *     --compare --spec app-smoke --repeat 2 \
+ * Usage:
+ *   node scripts/run-wdio-performance-benchmark.mjs --spec app-smoke --repeat 1
+ *   node scripts/run-wdio-performance-benchmark.mjs --spec core-inventory --repeat 1 \
  *     --binary "C:\path\to\rack-inventory-studio-desktop.exe"
  *
  * Options:
- *   --provider  external | embedded          (required unless --compare)
  *   --spec      spec name without .e2e.ts    (required)
  *   --repeat    number of runs, >= 1         (required)
- *   --binary    path to the Tauri binary     (required with --compare; optional otherwise)
- *   --compare   run the alternating external/embedded A/B matrix on one binary
+ *   --binary    path to the Tauri binary     (optional — auto-detected otherwise)
  *   --continue-on-failure   keep running after a failed run (default: stop)
  *
  * Result semantics (see OUTCOMES below): a run's `outcome` is one of a closed
@@ -29,12 +24,11 @@
  * driver processes tore down without requiring a forced safety-net cleanup.
  * A run that passed its test but needed forced cleanup is reported as
  * PASS_WITH_FORCED_CLEANUP — it is kept for diagnostics but excluded from
- * every aggregate/percentile computation and from the A/B comparison.
+ * every aggregate/percentile computation.
  *
  * Output:
  *   <os.tmpdir()>/ris-wdio-bench/<run-id>/          per-run timing data (written by command-timing.ts)
- *   <os.tmpdir()>/ris-wdio-bench/benchmark-<date>/  aggregate JSON + Markdown (single mode)
- *                                                    or comparison.json + comparison.md (compare mode)
+ *   <os.tmpdir()>/ris-wdio-bench/benchmark-<date>/  aggregate JSON + Markdown
  *
  * Uses only Node.js built-in modules — no extra dependencies.
  */
@@ -47,7 +41,10 @@ import { fileURLToPath } from "node:url";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-export const ALLOWED_PROVIDERS = ["external", "embedded"];
+// external is the only supported WDIO driver provider — see the module doc
+// comment. Kept as a labeled constant (rather than removed outright) because
+// it is written into every report's meta/summary for readability.
+export const PROVIDER = "external";
 
 // Specs that live under e2e-wdio/benchmarks/ instead of e2e-wdio/specs/ —
 // opt-in benchmark harnesses, never part of the default WDIO spec glob
@@ -118,7 +115,6 @@ export const REQUIRED_CORE_INVENTORY_STEPS = [
 ];
 
 const WDIO_TIMEOUT_MS = 120 * 60 * 1000; // 120 minutes
-const EMBEDDED_PORT_DEFAULT = 4445;
 const SIGTERM_GRACE_MS = 3000;
 
 // ── Argument parsing / validation (pure — unit tested) ─────────────────────────
@@ -126,19 +122,14 @@ const SIGTERM_GRACE_MS = 3000;
 export function parseArgs(argv) {
   const args = argv.slice(2);
   const result = {
-    provider: null,
     spec: null,
     repeat: null,
     binary: null,
     continueOnFailure: false,
-    compare: false,
   };
 
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
-      case "--provider":
-        result.provider = args[++i] ?? null;
-        break;
       case "--spec":
         result.spec = args[++i] ?? null;
         break;
@@ -152,9 +143,6 @@ export function parseArgs(argv) {
         break;
       case "--continue-on-failure":
         result.continueOnFailure = true;
-        break;
-      case "--compare":
-        result.compare = true;
         break;
       default:
         throw new Error(`Unknown argument: ${args[i]}`);
@@ -176,16 +164,6 @@ export function validateArgs(opts) {
   if (opts.repeat === null || !Number.isInteger(opts.repeat) || opts.repeat < 1) {
     errors.push("--repeat must be a positive integer");
   }
-  if (opts.compare) {
-    if (opts.provider) {
-      errors.push("--provider cannot be combined with --compare (compare mode runs both)");
-    }
-    if (!opts.binary) {
-      errors.push("--compare requires --binary (both providers must use the same binary)");
-    }
-  } else if (!opts.provider || !ALLOWED_PROVIDERS.includes(opts.provider)) {
-    errors.push(`--provider must be one of: ${ALLOWED_PROVIDERS.join(", ")}`);
-  }
 
   return errors;
 }
@@ -202,16 +180,6 @@ export function generateRunId() {
     throw new Error(`[benchmark] generated run id failed its own validation: "${id}"`);
   }
   return id;
-}
-
-// ── Port validation ──────────────────────────────────────────────────────────
-
-export function validatePort(raw) {
-  const n = Number(raw);
-  if (!Number.isInteger(n) || n < 1024 || n > 65535) {
-    throw new Error(`Invalid port "${raw}". Must be an integer in [1024, 65535].`);
-  }
-  return n;
 }
 
 // ── WDIO CLI entrypoint resolution ──────────────────────────────────────────
@@ -250,36 +218,6 @@ export function pct(sortedAscending, p) {
 export function avg(values) {
   if (values.length === 0) return 0;
   return Math.round(values.reduce((a, b) => a + b, 0) / values.length);
-}
-
-export function medianOf(values) {
-  if (values.length === 0) return 0;
-  return pct([...values].sort((a, b) => a - b), 50);
-}
-
-/**
- * Delta between external and embedded, defined so a positive value always
- * means "embedded is better" (faster / fewer slow commands).
- */
-export function computeDelta(externalValue, embeddedValue) {
-  if (externalValue === null || externalValue === undefined || embeddedValue === null || embeddedValue === undefined) {
-    return { absolute: null, percent: null };
-  }
-  const absolute = externalValue - embeddedValue;
-  const percent = externalValue === 0 ? null : (absolute / externalValue) * 100;
-  return { absolute, percent };
-}
-
-// ── Compare-mode sequencing (pure — unit tested) ────────────────────────────────
-
-/** Alternating external/embedded order: ext1, emb1, ext2, emb2, ... */
-export function buildCompareSequence(repeat) {
-  const seq = [];
-  for (let runN = 1; runN <= repeat; runN++) {
-    seq.push({ provider: "external", runN });
-    seq.push({ provider: "embedded", runN });
-  }
-  return seq;
 }
 
 // ── Report validation (pure — unit tested) ──────────────────────────────────────
@@ -344,39 +282,6 @@ export function validateSummary({ summary, runId, provider, spec, ndjsonCommandC
   }
 
   return errors;
-}
-
-// ── Command-duration pooling for A/B comparison (pure given inputs) ────────────
-
-export function poolCommandDurationsFromNdjsonText(ndjsonTexts) {
-  const durations = [];
-  for (const text of ndjsonTexts) {
-    for (const line of text.split("\n")) {
-      if (!line.trim()) continue;
-      try {
-        const rec = JSON.parse(line);
-        if (rec.type === "command" && typeof rec.durationMs === "number") {
-          durations.push(rec.durationMs);
-        }
-      } catch {
-        // skip malformed line — surfaced separately by validateSummary's ndjson count check
-      }
-    }
-  }
-  return durations.sort((a, b) => a - b);
-}
-
-export function poolStepDurationsByName(runs) {
-  const map = new Map();
-  for (const r of runs) {
-    if (!r.passed || !r.summary?.steps) continue;
-    for (const s of r.summary.steps) {
-      const arr = map.get(s.stepName) ?? [];
-      arr.push(s.durationMs);
-      map.set(s.stepName, arr);
-    }
-  }
-  return map;
 }
 
 // ── Outcome classification (pure — unit tested) ─────────────────────────────────
@@ -716,6 +621,11 @@ function runWdioProcess({ wdioEntrypoint, wdioConf, specPath, cwd, env, timeoutM
 }
 
 const EXTERNAL_DRIVER_PORT = 4444; // tauri-driver's own WebDriver-facing port
+// tauri-driver proxies to a native browser driver (msedgedriver.exe on
+// Windows, WebKitWebDriver on Linux) which may itself occupy this port —
+// part of the external driver chain's own cleanup contract, monitored
+// alongside EXTERNAL_DRIVER_PORT for every run.
+const EXTERNAL_NATIVE_DRIVER_PORT = 4445;
 
 function runPowershellCapture(script) {
   const r = spawnSync("powershell.exe", ["-NoProfile", "-Command", script], { encoding: "utf8" });
@@ -920,15 +830,6 @@ function readPkgVersion(pkgJsonPath) {
   }
 }
 
-export function readCargoLockVersion(cargoLockPath, packageName) {
-  if (!existsSync(cargoLockPath)) return null;
-  const text = readFileSync(cargoLockPath, "utf8");
-  // Cargo.lock is CRLF on Windows checkouts — match either line ending.
-  const re = new RegExp(`name = "${packageName}"\\r?\\nversion = "([^"]+)"`);
-  const m = text.match(re);
-  return m ? m[1] : null;
-}
-
 function getEdgeVersion() {
   if (os.platform() !== "win32") return "N/A (not Windows)";
   // `msedge.exe --version` does not reliably print to stdout — on some builds
@@ -968,7 +869,7 @@ function getEdgeDriverVersion(desktopDir) {
   return "not reliably determinable (msedgedriver not found in known cache paths)";
 }
 
-function collectEnvironmentInfo({ repoRoot, desktopDir, provider, spec, repeat, binary }) {
+function collectEnvironmentInfo({ desktopDir, spec, repeat, binary }) {
   return {
     platform: os.platform(),
     osVersion: os.version(),
@@ -986,11 +887,9 @@ function collectEnvironmentInfo({ repoRoot, desktopDir, provider, spec, repeat, 
     wdioCli: readPkgVersion(join(desktopDir, "node_modules", "@wdio", "cli", "package.json")) ?? "unavailable",
     wdioTauriService:
       readPkgVersion(join(desktopDir, "node_modules", "@wdio", "tauri-service", "package.json")) ?? "unavailable",
-    tauriPluginWdioWebdriver:
-      readCargoLockVersion(join(repoRoot, "Cargo.lock"), "tauri-plugin-wdio-webdriver") ?? "unavailable",
     edge: getEdgeVersion(),
     edgeDriver: getEdgeDriverVersion(desktopDir),
-    provider,
+    provider: PROVIDER,
     spec,
     repeat,
     binary: binary ?? "(auto-detect)",
@@ -1000,26 +899,13 @@ function collectEnvironmentInfo({ repoRoot, desktopDir, provider, spec, repeat, 
 
 // ── Single-run execution ─────────────────────────────────────────────────────
 
-async function runSingle({ provider, spec, runN, binary, desktopDir, wdioEntrypoint, wdioConf, specPath }) {
+async function runSingle({ spec, runN, binary, desktopDir, wdioEntrypoint, wdioConf, specPath }) {
   const runId = generateRunId();
   const runStartMs = Date.now();
 
-  console.log(`\n[benchmark] === Run ${runN} provider=${provider} spec=${spec} runId=${runId} ===`);
+  console.log(`\n[benchmark] === Run ${runN} spec=${spec} runId=${runId} ===`);
 
-  // Requested embedded port: honours a caller-provided RIS_WDIO_EMBEDDED_PORT
-  // (defaulting to 4445) rather than silently overriding it — see
-  // docs/E2E_WDIO_PLAN.md §"Porty zależne od providera".
-  const requestedEmbeddedPort =
-    process.env["RIS_WDIO_EMBEDDED_PORT"] !== undefined
-      ? validatePort(process.env["RIS_WDIO_EMBEDDED_PORT"])
-      : EMBEDDED_PORT_DEFAULT;
-
-  // Both ports are monitored for every provider: external's tauri-driver
-  // listens on 4444 and proxies to a native msedgedriver that may itself
-  // land on the embedded-default port, and embedded's in-process server
-  // listens on the configured port — either can be left listening if the
-  // WDIO/tauri-service process doesn't tear its driver down before exiting.
-  const cleanupPorts = [...new Set([EXTERNAL_DRIVER_PORT, requestedEmbeddedPort])];
+  const cleanupPorts = [EXTERNAL_DRIVER_PORT, EXTERNAL_NATIVE_DRIVER_PORT];
 
   const preRunPids = snapshotPreRunPids(cleanupPorts);
   currentRunCleanupContext = { ports: cleanupPorts, preRunPids, runStartMs };
@@ -1027,12 +913,10 @@ async function runSingle({ provider, spec, runN, binary, desktopDir, wdioEntrypo
   const env = {
     ...process.env,
     RIS_WDIO_TIMING: "1",
-    RIS_WDIO_DRIVER_PROVIDER: provider,
     RIS_WDIO_RUN_ID: runId,
     RIS_WDIO_SLOW_COMMAND_MS: "500",
   };
   if (binary) env["TAURI_BINARY_PATH"] = resolve(binary);
-  if (provider === "embedded") env["RIS_WDIO_EMBEDDED_PORT"] = String(requestedEmbeddedPort);
 
   const wdioResult = await runWdioProcess({
     wdioEntrypoint,
@@ -1084,7 +968,7 @@ async function runSingle({ provider, spec, runN, binary, desktopDir, wdioEntrypo
       ...validateSummary({
         summary,
         runId,
-        provider,
+        provider: PROVIDER,
         spec,
         ndjsonCommandCount,
         expectedPlatform: os.platform(),
@@ -1142,7 +1026,7 @@ async function runSingle({ provider, spec, runN, binary, desktopDir, wdioEntrypo
   const result = {
     runN,
     runId,
-    provider,
+    provider: PROVIDER,
     spec,
     exitCode: wdioResult.exitCode,
     timedOut: wdioResult.timedOut,
@@ -1172,7 +1056,7 @@ async function runSingle({ provider, spec, runN, binary, desktopDir, wdioEntrypo
   };
 
   console.log(
-    `[benchmark] Run ${runN} (${provider}) outcome=${outcome} passed=${passed} measurementEligible=${measurementEligible} ` +
+    `[benchmark] Run ${runN} outcome=${outcome} passed=${passed} measurementEligible=${measurementEligible} ` +
       `in ${Math.round(totalRunMs / 1000)}s exitCode=${wdioResult.exitCode} reportValid=${reportValid}`,
   );
   if (!reportValid) {
@@ -1212,17 +1096,17 @@ function outcomeLabel(outcome) {
 }
 
 /**
- * Basename (no extension) shared by a single-mode run's JSON/Markdown
- * output files — spec-name-agnostic, so representative-latency produces
+ * Basename (no extension) shared by a run series's JSON/Markdown output
+ * files — spec-name-agnostic, so representative-latency produces
  * `external-representative-latency.{json,md}` exactly like any other spec.
  */
-export function buildBenchmarkOutputBasename(provider, spec) {
-  return `${provider}-${spec}`;
+export function buildBenchmarkOutputBasename(spec) {
+  return `${PROVIDER}-${spec}`;
 }
 
 /**
- * Aggregates a single-mode run series (one provider, one spec, N repeats)
- * into the summary object written alongside the per-run results.
+ * Aggregates a run series (one spec, N repeats) into the summary object
+ * written alongside the per-run results.
  *
  * Duration/latency statistics are computed from measurementEligible runs
  * (see isMeasurementEligible()) rather than strictly CLEAN_PASS runs: on
@@ -1234,7 +1118,7 @@ export function buildBenchmarkOutputBasename(provider, spec) {
  * the distinction remains visible in the output — this does not change
  * `passed`, which stays true only for CLEAN_PASS everywhere else.
  */
-export function computeSingleModeAggregate({ provider, spec, repeat, runResults }) {
+export function computeSingleModeAggregate({ spec, repeat, runResults }) {
   function pctArr(values, p) {
     return pct([...values].sort((a, b) => a - b), p);
   }
@@ -1247,7 +1131,7 @@ export function computeSingleModeAggregate({ provider, spec, repeat, runResults 
   const outcomeCounts = summarizeRunOutcomes(runResults);
 
   return {
-    provider,
+    provider: PROVIDER,
     spec,
     totalRuns: repeat,
     cleanPassRuns: cleanRuns.length,
@@ -1270,8 +1154,8 @@ export function computeSingleModeAggregate({ provider, spec, repeat, runResults 
   };
 }
 
-function writeSingleModeReport({ benchDir, provider, spec, repeat, runResults, envInfo }) {
-  const aggregate = computeSingleModeAggregate({ provider, spec, repeat, runResults });
+function writeSingleModeReport({ benchDir, spec, repeat, runResults, envInfo }) {
+  const aggregate = computeSingleModeAggregate({ spec, repeat, runResults });
 
   const benchmarkResult = {
     meta: envInfo,
@@ -1280,17 +1164,17 @@ function writeSingleModeReport({ benchDir, provider, spec, repeat, runResults, e
     benchmarkCompleted: new Date().toISOString(),
   };
 
-  const basename = buildBenchmarkOutputBasename(provider, spec);
+  const basename = buildBenchmarkOutputBasename(spec);
   const jsonPath = join(benchDir, `${basename}.json`);
   writeFileSync(jsonPath, JSON.stringify(benchmarkResult, null, 2));
 
   const md = [
-    `# Benchmark: ${provider} / ${spec}`,
+    `# Benchmark: ${PROVIDER} / ${spec}`,
     ``,
     `Date: ${envInfo.benchmarkStarted}`,
     `Platform: ${envInfo.platform} ${envInfo.arch} | CPU: ${envInfo.cpuModel} (${envInfo.cpuCount} cores) | RAM: ${envInfo.totalRamMB} MB`,
     `Node: ${envInfo.node} | Rust: ${envInfo.rustc}`,
-    `Provider: **${provider}** | Spec: \`${spec}\` | Repeat: ${repeat}`,
+    `Provider: **${PROVIDER}** | Spec: \`${spec}\` | Repeat: ${repeat}`,
     ``,
     aggregate.status === "INSUFFICIENT_MEASUREMENT_RUNS"
       ? `> **INSUFFICIENT MEASUREMENT-ELIGIBLE RUNS** — fewer than ${MIN_CLEAN_RUNS_FOR_COMPARISON} measurementEligible runs; no percentage conclusions should be drawn.`
@@ -1324,183 +1208,6 @@ function writeSingleModeReport({ benchDir, provider, spec, repeat, runResults, e
   writeFileSync(mdPath, md);
 
   return { jsonPath, mdPath, aggregate };
-}
-
-/**
- * Builds the A/B comparison object for one spec's runs. `runs` must already
- * carry `outcome`, `passed`, `totalRunMs`, `summary` (parsed summary.json or
- * null), and `ndjsonText` (raw commands.ndjson content or null) for each run.
- * Only CLEAN_PASS runs feed medians/percentiles/deltas — PASS_WITH_FORCED_CLEANUP,
- * failed, and excluded runs are reported but never aggregated.
- */
-export function computeComparison({ runs, spec }) {
-  const externalRuns = runs.filter((r) => r.provider === "external");
-  const embeddedRuns = runs.filter((r) => r.provider === "embedded");
-
-  function providerStats(providerRuns) {
-    const clean = providerRuns.filter((r) => r.outcome === OUTCOMES.CLEAN_PASS || (r.passed && !r.outcome));
-    const totalDurations = clean.map((r) => r.totalRunMs).filter((v) => v != null);
-    const testExecDurations = clean.map((r) => r.summary?.testExecutionMs).filter((v) => v != null);
-    const sessionStartupDurations = clean.map((r) => r.summary?.sessionStartupMs).filter((v) => v != null);
-    const pooledCommandDurations = poolCommandDurationsFromNdjsonText(
-      clean.map((r) => r.ndjsonText).filter((t) => t != null),
-    );
-    const perRunP95 = clean.map((r) => r.summary?.p95).filter((v) => v != null);
-    const outcomeCounts = summarizeRunOutcomes(providerRuns);
-    const excludedRuns = providerRuns
-      .filter((r) => r.outcome && r.outcome !== OUTCOMES.CLEAN_PASS)
-      .map((r) => ({ runN: r.runN, outcome: r.outcome }));
-
-    return {
-      runCount: providerRuns.length,
-      passedCount: clean.length,
-      outcomeCounts,
-      excludedRuns,
-      medianTotalRunMs: totalDurations.length ? medianOf(totalDurations) : null,
-      medianTestExecutionMs: testExecDurations.length ? medianOf(testExecDurations) : null,
-      medianSessionStartupMs: sessionStartupDurations.length ? medianOf(sessionStartupDurations) : null,
-      medianCommandLatencyMs: pooledCommandDurations.length ? medianOf(pooledCommandDurations) : null,
-      p95CommandLatencyMs: pooledCommandDurations.length ? pct(pooledCommandDurations, 95) : null,
-      commandsGe1s: pooledCommandDurations.filter((d) => d >= 1000).length,
-      commandsGe5s: pooledCommandDurations.filter((d) => d >= 5000).length,
-      pooledCommandCount: pooledCommandDurations.length,
-      perRunP95,
-    };
-  }
-
-  const externalStats = providerStats(externalRuns);
-  const embeddedStats = providerStats(embeddedRuns);
-
-  const status =
-    externalStats.passedCount < MIN_CLEAN_RUNS_FOR_COMPARISON || embeddedStats.passedCount < MIN_CLEAN_RUNS_FOR_COMPARISON
-      ? "INSUFFICIENT_CLEAN_RUNS"
-      : "OK";
-
-  const deltas = {
-    medianTotalRunMs: computeDelta(externalStats.medianTotalRunMs, embeddedStats.medianTotalRunMs),
-    medianTestExecutionMs: computeDelta(externalStats.medianTestExecutionMs, embeddedStats.medianTestExecutionMs),
-    medianSessionStartupMs: computeDelta(externalStats.medianSessionStartupMs, embeddedStats.medianSessionStartupMs),
-    medianCommandLatencyMs: computeDelta(externalStats.medianCommandLatencyMs, embeddedStats.medianCommandLatencyMs),
-    p95CommandLatencyMs: computeDelta(externalStats.p95CommandLatencyMs, embeddedStats.p95CommandLatencyMs),
-    commandsGe1s: computeDelta(externalStats.commandsGe1s, embeddedStats.commandsGe1s),
-    commandsGe5s: computeDelta(externalStats.commandsGe5s, embeddedStats.commandsGe5s),
-  };
-
-  let steps = null;
-  if (spec === "core-inventory") {
-    const externalSteps = poolStepDurationsByName(externalRuns);
-    const embeddedSteps = poolStepDurationsByName(embeddedRuns);
-    const allStepNames = new Set([...externalSteps.keys(), ...embeddedSteps.keys()]);
-    steps = Array.from(allStepNames)
-      .sort()
-      .map((stepName) => {
-        const extDurs = externalSteps.get(stepName) ?? [];
-        const embDurs = embeddedSteps.get(stepName) ?? [];
-        const externalMedianMs = extDurs.length ? medianOf(extDurs) : null;
-        const embeddedMedianMs = embDurs.length ? medianOf(embDurs) : null;
-        return {
-          stepName,
-          externalMedianMs,
-          embeddedMedianMs,
-          delta: computeDelta(externalMedianMs, embeddedMedianMs),
-        };
-      });
-  }
-
-  return {
-    spec,
-    status,
-    directionNote: "positive delta / positive percent = embedded faster or better than external",
-    external: externalStats,
-    embedded: embeddedStats,
-    deltas,
-    steps,
-  };
-}
-
-function writeCompareModeReport({ benchDir, spec, repeat, runResults, envInfo, comparison }) {
-  const output = {
-    meta: envInfo,
-    spec,
-    repeat,
-    runs: runResults.map(({ ndjsonText: _ndjsonText, ...rest }) => rest),
-    comparison,
-    benchmarkCompleted: new Date().toISOString(),
-  };
-
-  const jsonPath = join(benchDir, "comparison.json");
-  writeFileSync(jsonPath, JSON.stringify(output, null, 2));
-
-  const fmt = (v, unit = "ms") => (v === null || v === undefined ? "-" : `${Math.round(v)}${unit}`);
-  const fmtPct = (v) => (v === null || v === undefined ? "-" : `${v.toFixed(1)}%`);
-
-  const lines = [
-    `# WDIO Provider Comparison: ${spec}`,
-    ``,
-    `Date: ${envInfo.benchmarkStarted}`,
-    `Platform: ${envInfo.platform} ${envInfo.arch} (${envInfo.osVersion} / ${envInfo.osRelease}) | CPU: ${envInfo.cpuModel} (${envInfo.cpuCount} cores) | RAM: ${envInfo.totalRamMB} MB`,
-    `Node: ${envInfo.node} | Rust: ${envInfo.rustc} | Tauri CLI: ${envInfo.tauriCli}`,
-    `WebdriverIO: ${envInfo.webdriverio} | @wdio/tauri-service: ${envInfo.wdioTauriService} | tauri-plugin-wdio-webdriver: ${envInfo.tauriPluginWdioWebdriver}`,
-    `Edge: ${envInfo.edge} | EdgeDriver: ${envInfo.edgeDriver}`,
-    `Binary (both providers): \`${envInfo.binary}\``,
-    ``,
-    `Positive delta / positive % = embedded faster or better than external.`,
-    `Only CLEAN_PASS runs feed medians/percentiles/deltas below; PASS_WITH_FORCED_CLEANUP, FAILED, and EXCLUDED runs are shown for diagnostics only.`,
-    ``,
-    comparison.status === "INSUFFICIENT_CLEAN_RUNS"
-      ? `> **Comparison status: INSUFFICIENT CLEAN RUNS** — at least one provider has fewer than ${MIN_CLEAN_RUNS_FOR_COMPARISON} CLEAN_PASS runs for this spec. No percentage conclusions should be drawn from the table below.`
-      : `> **Comparison status: OK** — both providers have at least ${MIN_CLEAN_RUNS_FOR_COMPARISON} CLEAN_PASS runs.`,
-    ``,
-    `## Runs`,
-    ``,
-    `| # | Provider | Run | Outcome | Total | WDIO proc | Session startup | Test exec | Commands | Median | P95 | Cleanup required | Cleanup safe | Cleanup succeeded |`,
-    `|---|----------|-----|---------|-------|-----------|------------------|-----------|----------|--------|-----|-------------------|--------------|--------------------|`,
-    ...runResults.map((r, i) => {
-      const s = r.summary;
-      return `| ${i + 1} | ${r.provider} | ${r.runN} | ${outcomeLabel(r.outcome)} (${r.outcome}) | ${Math.round(r.totalRunMs / 1000)}s | ${Math.round(r.wdioProcessMs / 1000)}s | ${fmt(s?.sessionStartupMs)} | ${fmt(s?.testExecutionMs)} | ${s?.commandCount ?? "-"} | ${s?.median ?? "-"}ms | ${s?.p95 ?? "-"}ms | ${r.cleanupRequired} | ${r.cleanupSafe} | ${r.cleanupSucceeded} |`;
-    }),
-    ``,
-    `## Outcome breakdown`,
-    ``,
-    `| Provider | CLEAN PASS | PASS / FORCED CLEANUP | FAILED | EXCLUDED |`,
-    `|----------|-----------|------------------------|--------|----------|`,
-    `| external | ${comparison.external.outcomeCounts.CLEAN_PASS} | ${comparison.external.outcomeCounts.PASS_WITH_FORCED_CLEANUP} | ${comparison.external.outcomeCounts.TEST_FAILED + comparison.external.outcomeCounts.REPORT_INVALID + comparison.external.outcomeCounts.TIMED_OUT + comparison.external.outcomeCounts.INTERRUPTED} | ${comparison.external.outcomeCounts.CLEANUP_UNSAFE + comparison.external.outcomeCounts.CLEANUP_FAILED} |`,
-    `| embedded | ${comparison.embedded.outcomeCounts.CLEAN_PASS} | ${comparison.embedded.outcomeCounts.PASS_WITH_FORCED_CLEANUP} | ${comparison.embedded.outcomeCounts.TEST_FAILED + comparison.embedded.outcomeCounts.REPORT_INVALID + comparison.embedded.outcomeCounts.TIMED_OUT + comparison.embedded.outcomeCounts.INTERRUPTED} | ${comparison.embedded.outcomeCounts.CLEANUP_UNSAFE + comparison.embedded.outcomeCounts.CLEANUP_FAILED} |`,
-    ``,
-    `## Aggregate comparison (CLEAN_PASS only)`,
-    ``,
-    `| Metric | external | embedded | Delta (abs) | Delta (%) |`,
-    `|--------|----------|----------|--------------|-----------|`,
-    `| Median total run duration | ${fmt(comparison.external.medianTotalRunMs)} | ${fmt(comparison.embedded.medianTotalRunMs)} | ${fmt(comparison.deltas.medianTotalRunMs.absolute)} | ${fmtPct(comparison.deltas.medianTotalRunMs.percent)} |`,
-    `| Median testExecutionMs | ${fmt(comparison.external.medianTestExecutionMs)} | ${fmt(comparison.embedded.medianTestExecutionMs)} | ${fmt(comparison.deltas.medianTestExecutionMs.absolute)} | ${fmtPct(comparison.deltas.medianTestExecutionMs.percent)} |`,
-    `| Median sessionStartupMs | ${fmt(comparison.external.medianSessionStartupMs)} | ${fmt(comparison.embedded.medianSessionStartupMs)} | ${fmt(comparison.deltas.medianSessionStartupMs.absolute)} | ${fmtPct(comparison.deltas.medianSessionStartupMs.percent)} |`,
-    `| Median command latency (pooled) | ${fmt(comparison.external.medianCommandLatencyMs)} | ${fmt(comparison.embedded.medianCommandLatencyMs)} | ${fmt(comparison.deltas.medianCommandLatencyMs.absolute)} | ${fmtPct(comparison.deltas.medianCommandLatencyMs.percent)} |`,
-    `| P95 command latency (pooled) | ${fmt(comparison.external.p95CommandLatencyMs)} | ${fmt(comparison.embedded.p95CommandLatencyMs)} | ${fmt(comparison.deltas.p95CommandLatencyMs.absolute)} | ${fmtPct(comparison.deltas.p95CommandLatencyMs.percent)} |`,
-    `| Commands >=1s | ${comparison.external.commandsGe1s} | ${comparison.embedded.commandsGe1s} | ${fmt(comparison.deltas.commandsGe1s.absolute, "")} | ${fmtPct(comparison.deltas.commandsGe1s.percent)} |`,
-    `| Commands >=5s | ${comparison.external.commandsGe5s} | ${comparison.embedded.commandsGe5s} | ${fmt(comparison.deltas.commandsGe5s.absolute, "")} | ${fmtPct(comparison.deltas.commandsGe5s.percent)} |`,
-    ``,
-  ];
-
-  if (comparison.steps) {
-    lines.push(
-      `## Step comparison (core-inventory, CLEAN_PASS runs only)`,
-      ``,
-      `| Step | external median | embedded median | Delta (abs) | Delta (%) |`,
-      `|------|-----------------|-----------------|--------------|-----------|`,
-      ...comparison.steps.map(
-        (s) =>
-          `| ${s.stepName} | ${fmt(s.externalMedianMs)} | ${fmt(s.embeddedMedianMs)} | ${fmt(s.delta.absolute)} | ${fmtPct(s.delta.percent)} |`,
-      ),
-      ``,
-    );
-  }
-
-  lines.push(`## Report files`, ``, ...runResults.map((r, i) => `- Run ${i + 1} (${r.provider}): \`${r.reportDir}\``), `- Comparison JSON: \`${jsonPath}\``, ``);
-
-  const mdPath = join(benchDir, "comparison.md");
-  writeFileSync(mdPath, lines.join("\n"));
-
-  return { jsonPath, mdPath };
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
@@ -1560,9 +1267,7 @@ async function main() {
   mkdirSync(benchDir, { recursive: true });
 
   const envInfo = collectEnvironmentInfo({
-    repoRoot,
     desktopDir,
-    provider: opts.compare ? "compare(external+embedded)" : opts.provider,
     spec: opts.spec,
     repeat: opts.repeat,
     binary: opts.binary,
@@ -1573,81 +1278,41 @@ async function main() {
   const runResults = [];
   let allPassed = true;
 
-  if (opts.compare) {
-    const sequence = buildCompareSequence(opts.repeat);
-    for (const { provider, runN } of sequence) {
-      const result = await runSingle({
-        provider,
-        spec: opts.spec,
-        runN,
-        binary: opts.binary,
-        desktopDir,
-        wdioEntrypoint,
-        wdioConf,
-        specPath,
-      });
-      runResults.push(result);
-      if (!result.passed) {
-        allPassed = false;
-        if (!opts.continueOnFailure) {
-          console.error(`[benchmark] Stopping matrix after non-CLEAN_PASS run (provider=${provider}, run ${runN}, outcome=${result.outcome}).`);
-          break;
-        }
+  for (let runN = 1; runN <= opts.repeat; runN++) {
+    const result = await runSingle({
+      spec: opts.spec,
+      runN,
+      binary: opts.binary,
+      desktopDir,
+      wdioEntrypoint,
+      wdioConf,
+      specPath,
+    });
+    runResults.push(result);
+    if (!result.passed) {
+      allPassed = false;
+      if (!opts.continueOnFailure) {
+        console.error(`[benchmark] Stopping after non-CLEAN_PASS run ${runN} (outcome=${result.outcome}). Use --continue-on-failure to proceed.`);
+        break;
       }
     }
-
-    const comparison = computeComparison({ runs: runResults, spec: opts.spec });
-    const { jsonPath, mdPath } = writeCompareModeReport({
-      benchDir,
-      spec: opts.spec,
-      repeat: opts.repeat,
-      runResults,
-      envInfo,
-      comparison,
-    });
-
-    console.log(`\n[benchmark] === Compare complete (status=${comparison.status}) ===`);
-    console.log(`[benchmark] Comparison JSON: ${jsonPath}`);
-    console.log(`[benchmark] Comparison MD:   ${mdPath}`);
-  } else {
-    for (let runN = 1; runN <= opts.repeat; runN++) {
-      const result = await runSingle({
-        provider: opts.provider,
-        spec: opts.spec,
-        runN,
-        binary: opts.binary,
-        desktopDir,
-        wdioEntrypoint,
-        wdioConf,
-        specPath,
-      });
-      runResults.push(result);
-      if (!result.passed) {
-        allPassed = false;
-        if (!opts.continueOnFailure) {
-          console.error(`[benchmark] Stopping after non-CLEAN_PASS run ${runN} (outcome=${result.outcome}). Use --continue-on-failure to proceed.`);
-          break;
-        }
-      }
-    }
-
-    const { jsonPath, mdPath, aggregate } = writeSingleModeReport({
-      benchDir,
-      provider: opts.provider,
-      spec: opts.spec,
-      repeat: opts.repeat,
-      runResults,
-      envInfo,
-    });
-
-    console.log(`\n[benchmark] === Complete (status=${aggregate.status}) ===`);
-    console.log(
-      `[benchmark] measurementEligible: ${aggregate.measurementEligibleRuns}/${aggregate.totalRuns} ` +
-        `(CLEAN_PASS: ${aggregate.cleanPassRuns}/${aggregate.totalRuns})`,
-    );
-    console.log(`[benchmark] Aggregate JSON: ${jsonPath}`);
-    console.log(`[benchmark] Markdown:       ${mdPath}`);
   }
+
+  const { jsonPath, mdPath, aggregate } = writeSingleModeReport({
+    benchDir,
+    spec: opts.spec,
+    repeat: opts.repeat,
+    runResults,
+    envInfo,
+  });
+
+  console.log(`\n[benchmark] === Complete (status=${aggregate.status}) ===`);
+  console.log(
+    `[benchmark] measurementEligible: ${aggregate.measurementEligibleRuns}/${aggregate.totalRuns} ` +
+      `(CLEAN_PASS: ${aggregate.cleanPassRuns}/${aggregate.totalRuns})`,
+  );
+  console.log(`[benchmark] Aggregate JSON: ${jsonPath}`);
+  console.log(`[benchmark] Markdown:       ${mdPath}`);
 
   console.log(`[benchmark] Benchmark dir: ${benchDir}`);
   process.exit(allPassed && runResults.length > 0 ? 0 : 1);
