@@ -1,47 +1,59 @@
 ## Summary
 
-Stage 3D per NSP, on `feature/e2e-stage-3d-placement-validation` →
-`roadmap/e2e-wdio` (base `399eeb5`). **Status: PARTIAL** — Placement
-Validation task fully delivered; Rack Export task analyzed and explicitly
-not implemented, per the NSP's own instruction not to work around a
-blocker it couldn't clear cleanly.
+Stage 3E per NSP, on `feature/e2e-stage-3e-selectors` → `roadmap/e2e-wdio`
+(base `192720c` — PR #159/Stage 3D merged). **Status: COMPLETE.**
 
-**Task 1 — Placement validation: COMPLETE.** New spec
-`placement-validation.e2e.ts`, the first in the suite dedicated to
-placement *rejection*. Backend error strings were traced to their exact
-source before writing any assertion (`ApplicationError::Collision`/
-`OutOfRackBounds` in `crates/ris-application/src/session.rs` and
-`error.rs`, forwarded verbatim to the frontend via `.map_err(|e|
-e.to_string())`) rather than guessed from UI behavior. Six cases: occupied
-U, partial overlap, full overlap/containment, exceeds rack height, invalid
-start U, invalid height override — each asserts the specific error, that
-no placement was created, that the diagram is unchanged, and that this
-holds after a real save/close/reopen cycle. Reused every relevant Stage 3C
-helper unmodified; added exactly one small spec-local (not exported)
-helper for the shared open/fill/submit/expect-rejection sequence, since no
-existing helper covered "submit and expect failure."
+Closed every remaining low-risk NEEDS SELECTOR workflow: unsaved-changes
+discard, recent repositories, global search, Device Model CSV import, and
+the validation panel (validate/save/filter/navigate — 4 sub-workflows in
+one panel). 5 new specs, 10 workflows total, 5 `data-testid`-bearing
+application files touched (attribute additions only).
 
-**Task 2 — Rack export: analyzed, not implemented.** Read
-`tauriClient.ts`'s `saveRackViewSvgViaDialog`/`saveRackViewPngViaDialog`
-and confirmed both call `@tauri-apps/plugin-dialog`'s `save()`
-unconditionally — a real native OS dialog outside the WebView, which
-WebDriver cannot drive. Checked whether the app has a non-dialog
-alternative (the way repository-open/create's text-path input bypasses its
-own native picker) — it does not; export has no such fallback. Per the
-NSP's explicit constraints (no test-only hooks, no workarounds), did not
-implement anything for this workflow. Instead added a new
-**NEEDS APPLICATION CHANGE** status to the coverage doc's key and moved
-both rows there, distinct from NEEDS SELECTOR since a `data-testid` alone
-wouldn't unblock this — the missing thing is a testable code path, not a
-selector.
+**Audit-first discipline followed throughout:**
+- Re-read `docs/E2E_WDIO_PLAN.md` and `docs/E2E_WDIO_COVERAGE_GAPS.md` in
+  full before starting; found them already consistent with HEAD (both were
+  rewritten in the immediately preceding Stage 3D pass, merged as PR #159,
+  no drift since) — no doc corrections needed before implementing.
+- Re-verified every target area against actual current component source
+  rather than trusting the docs' selector claims: read `ValidationPanel.tsx`,
+  `GlobalSearch.tsx`, `RepositoryPanel.tsx` (recent repos),
+  `UnsavedChangesDialog.tsx`, and `CsvImportPanel.tsx`'s
+  `DeviceModelPreviewTable` directly, confirming each genuinely had zero
+  `data-testid` coverage before adding anything.
 
-Both `docs/E2E_WDIO_PLAN.md` and `docs/E2E_WDIO_COVERAGE_GAPS.md` updated
-to match reality: Stage 3D marked PARTIAL with the reason; coverage
-recounted 45/73 (62%) → 51/78 (65%).
+**Two things found only by running the specs and debugging, not assumed
+in advance** (both documented in the relevant spec files and in
+`docs/E2E_WDIO_PLAN.md`'s Stage 3E section):
+1. `GlobalSearch`'s result `<li role="option">` uses the identical
+   `onMouseDown`-based selection pattern as `SearchableSelect`'s own
+   options, so `selectSearchableOption()` looked directly reusable — but
+   WebKitWebDriver's `getText()` does not reliably return that element's
+   full text (a `text-overflow: ellipsis` styling quirk, confirmed by
+   comparing `getText()` output against the same element's raw
+   `textContent` in the same run). Wrote one small spec-local helper
+   matching via `textContent` through `browser.execute()` instead, keeping
+   the same Actions-routed click and stale-element-tolerant retry loop.
+2. `RepositorySession::validate()` validates the **last-saved on-disk
+   state only**, never in-memory unsaved edits — confirmed via its own doc
+   comment and implementation in
+   `crates/ris-application/src/session.rs`. My first fixture design
+   assumed validation would reflect an unsaved device and failed
+   consistently; rewrote the spec to exercise this real behavior directly
+   (validate before saving → only the pre-existing on-disk issue appears;
+   save from the panel; validate again → the new issue appears) rather
+   than working around it.
 
-No selectors added, no new helpers beyond the one described above, no new
-frameworks/libraries/providers/benchmarks/runners, no CI changes — all per
-explicit NSP constraints.
+Selector policy respected throughout: no `nth-child`, no xpath, no raw CSS
+class selectors, no unscoped text matching in new code (the one text-based
+exception — `GlobalSearch` result matching — was already an established
+pattern for dynamically-generated content with no fixed identity, same
+justification `selectSearchableOption()` itself already relies on).
+
+No new shared helpers were added — the two spec-local exceptions
+(`selectSearchResult()` in `global-search-workflow.e2e.ts`,
+`getIssueRowCodes()`/`expectFilteredIssueCodes()` in
+`validation-panel-workflows.e2e.ts`) are each used only within their own
+spec file, per the helper policy's explicit preference.
 
 Final HEAD: see `git log -1`. PR to be opened against `roadmap/e2e-wdio`,
 not merged.
@@ -50,9 +62,18 @@ not merged.
 
 | File | Change |
 |------|--------|
-| `apps/desktop/e2e-wdio/specs/placement-validation.e2e.ts` | New — 6 negative placement-validation cases |
-| `docs/E2E_WDIO_PLAN.md` | Stage 3D section rewritten to PARTIAL with full delivered/not-implemented breakdown; Program status and Future-stages intro updated; coverage figures refreshed |
-| `docs/E2E_WDIO_COVERAGE_GAPS.md` | New NEEDS APPLICATION CHANGE status; Rack placement matrix updated (6 new COVERED rows, 2 reclassified); selector-readiness sections updated; summary counts recomputed (51/78, 65%) |
+| `apps/desktop/src/components/ui/UnsavedChangesDialog.tsx` | Added `unsaved-changes-discard` testid |
+| `apps/desktop/src/features/csvImport/CsvImportPanel.tsx` | Added `csv-device-model-preview-table` testid |
+| `apps/desktop/src/features/search/GlobalSearch.tsx` | Added `global-search-input` testid |
+| `apps/desktop/src/features/repository/RepositoryPanel.tsx` | Added `recent-repo-row`/`data-recent-repo-path`, `recent-repo-remove-btn` |
+| `apps/desktop/src/features/validation/ValidationPanel.tsx` | Added `validation-validate-btn`, `validation-save-btn`, `validation-filter-{all,error,warning,info}`, `validation-issue-row`/`data-validation-issue-code`, `validation-issue-navigate-btn`, `validation-save-summary` |
+| `apps/desktop/e2e-wdio/specs/unsaved-changes-discard.e2e.ts` | New |
+| `apps/desktop/e2e-wdio/specs/recent-repositories-workflow.e2e.ts` | New |
+| `apps/desktop/e2e-wdio/specs/global-search-workflow.e2e.ts` | New |
+| `apps/desktop/e2e-wdio/specs/csv-device-model-import.e2e.ts` | New |
+| `apps/desktop/e2e-wdio/specs/validation-panel-workflows.e2e.ts` | New |
+| `docs/E2E_WDIO_PLAN.md` | Stage 3E section rewritten COMPLETE with full delivered breakdown; Program status, Future-stages intro, coverage figures updated |
+| `docs/E2E_WDIO_COVERAGE_GAPS.md` | 10 rows NEEDS SELECTOR → COVERED; new "Selectors added in Stage 3E" section; existing-specs table updated; summary counts recomputed (61/78, 78%) |
 | `.ai/cc-report.md` | This report |
 
 ## Tests
@@ -68,49 +89,52 @@ cargo check --workspace                  PASS
 cargo clippy --workspace -- -D warnings  PASS
 git diff --check                         PASS
 
-pnpm test:e2e:wdio -- --spec placement-validation   CLEAN_PASS, 116s (run 1)
-pnpm test:e2e:wdio -- --spec placement-validation --skip-build   CLEAN_PASS, 117s (run 2)
-pnpm test:e2e:wdio -- --spec app-smoke --skip-build   CLEAN_PASS, 6s
+pnpm test:e2e:wdio -- --spec unsaved-changes-discard          CLEAN_PASS x2 (10s, 9s)
+pnpm test:e2e:wdio -- --spec recent-repositories-workflow     CLEAN_PASS x2 (7s, 7s)
+pnpm test:e2e:wdio -- --spec global-search-workflow           CLEAN_PASS x2 (9s, 9s)
+pnpm test:e2e:wdio -- --spec csv-device-model-import          CLEAN_PASS x2 (10s, 10s)
+pnpm test:e2e:wdio -- --spec validation-panel-workflows       CLEAN_PASS x2 (13s, 13s)
+pnpm test:e2e:wdio -- --spec app-smoke --skip-build            CLEAN_PASS (5s)
 ```
 
 Ports 4444/4445 free before/after every run; no lingering
-tauri-driver/WebKitWebDriver/Xvfb/application-binary processes (checked
-via `ps aux` after each run). Full 11-spec suite not re-run: no shared
-helper was modified in this pass, only used as-is, consistent with this
-program's established "don't re-run untouched specs that don't use
-changed helpers" policy.
+tauri-driver/WebKitWebDriver/Xvfb/application-binary processes. Full
+11+-spec suite not re-run — no shared support/ helper was modified in this
+pass (only application-source `data-testid` additions and two spec-local
+functions), consistent with the program's established re-run policy.
 
-Note: this repo has no configured lint tool (no ESLint config, no `lint`
-script in either `package.json`) — the NSP's "lint" validation step has
-nothing to run against; `typecheck` is the closest equivalent and passes.
-`apps/desktop/tsconfig.json`'s `include` is `["src"]` only, so
-`e2e-wdio/**` is not covered by `pnpm -C apps/desktop typecheck` — a
-pre-existing project characteristic, not something introduced or fixed in
-this pass; the new spec's correctness was validated by actually running it
-(twice, both `CLEAN_PASS`) rather than by static typecheck.
+No lint tool is configured in this repo (no ESLint config, no `lint`
+script) — nothing to run for that step, same as noted in the Stage 3D
+report.
 
 ## Risks
 
-- Rack export remains untested. This is a deliberate, documented decision,
-  not an oversight — see Task 2 above and the NEEDS APPLICATION CHANGE
-  entries in the coverage doc.
-- The full WDIO suite was not re-run against this change. Judged
-  acceptable since the new spec only reads existing helpers, doesn't
-  modify them, and its own external validation (2x CLEAN_PASS) covers
-  everything it touches.
+- `global-search-workflow.e2e.ts`'s WebKitWebDriver `getText()` quirk was
+  confirmed on this environment/driver version; if the driver changes
+  behavior in the future, the spec-local `textContent`-based workaround
+  may become unnecessary (harmless either way) or, less likely, could
+  itself need revisiting if `textContent` semantics ever change for
+  ellipsis-clipped elements.
+- `validation-panel-workflows.e2e.ts` depends on two specific validation
+  issue codes (`VAL-DEV-013`, `VAL-LOC-005`) continuing to fire under the
+  exact fixture shape used (one unplaced device with a model, zero
+  locations). If validation rules change in a future pass, this spec would
+  need re-verification against the new rule set — same category of risk
+  every other spec that asserts on a specific backend-generated string
+  already carries.
 
 ## Not done
 
-- Rack export SVG/PNG — moved to NEEDS APPLICATION CHANGE, requires a
-  product decision before it can become a testing-stage candidate.
-- Stage 3E/3F — not started, per the program's staged plan.
-- No lint run — no lint tooling configured in this repo (see Tests note).
+- Stage 3F (git workflow) — not started, per the program's staged plan and
+  this NSP's explicit exclusion.
+- Rack export (NEEDS APPLICATION CHANGE) — unchanged from Stage 3D, still
+  requires a product decision before any further E2E work.
+- No lint run — no lint tooling exists in this repo.
 
 ## Suggested next step
 
-Human review of this PR. Stage 3E (validation panel, global search,
-recent repositories, unsaved-changes-discard, CSV device-model preview
-selectors) is the next fully-derivable stage per
-`docs/E2E_WDIO_PLAN.md`'s "Future stages" — it should get its own NSP when
-picked up. Rack export needs a product-level decision (is a non-dialog
-export path worth adding?) before any further E2E work on it makes sense.
+Human review of this PR. Stage 3F (git init/validate/commit/add-remote —
+the entire remaining NEEDS SELECTOR backlog) is the next fully-derivable
+stage per `docs/E2E_WDIO_PLAN.md`'s "Future stages"; it should get its own
+NSP given git operations mutate real repository state and warrant a
+dedicated risk review, per this program's own working model.

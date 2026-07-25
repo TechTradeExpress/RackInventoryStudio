@@ -101,7 +101,7 @@ function DevicePreviewTable({ preview }: { preview: CsvImportPreviewDto }) {
 
 function DeviceModelPreviewTable({ preview }: { preview: CsvDeviceModelImportPreviewDto }) {
   return (
-    <table className="tbl">
+    <table className="tbl" data-testid="csv-device-model-preview-table">
       <thead>
         <tr>
           <th style={{ width: 36 }}>#</th>

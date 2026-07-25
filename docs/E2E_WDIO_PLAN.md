@@ -5,7 +5,7 @@
 | Item | Detail |
 |------|--------|
 | Integration branch | `roadmap/e2e-wdio` (long-lived) |
-| Current stage | Stage 3 COMPLETED (3A, 3B.1–3B.4, 3C) — embedded WDIO provider fully removed (PR #158); Stage 3D PARTIAL (Placement Validation COMPLETE, Rack Export moved to NEEDS APPLICATION CHANGE, not merged yet) |
+| Current stage | Stage 3 COMPLETED (3A, 3B.1–3B.4, 3C) — embedded WDIO provider fully removed (PR #158); Stage 3D PARTIAL (merged as PR #159 — Placement Validation COMPLETE, Rack Export moved to NEEDS APPLICATION CHANGE); Stage 3E COMPLETE (not yet merged) — low-risk selector additions; Stage 3F (git workflow) not yet started |
 | Integration PR to development | None open |
 | Decision | Further stages continue on `roadmap/e2e-wdio`; integration into `development` only after whole-program review |
 
@@ -1641,7 +1641,7 @@ coverage regression on anything that still exists.
 ## Future stages
 
 Derived from `docs/E2E_WDIO_COVERAGE_GAPS.md`'s analysis, not carried
-forward from an older plan — 51/78 workflows COVERED (65%) as of Stage 3D.
+forward from an older plan — 61/78 workflows COVERED (78%) as of Stage 3E.
 Ordered by proposed sequence; 3E/3F are sketched to show the intended path
 but should each get their own NSP when picked up, per the normal E2E
 working model.
@@ -1715,21 +1715,83 @@ new frameworks/libraries/providers/benchmarks/runners, no workaround for
 the export dialog, no further spec consolidation, no CI changes,
 embedded-provider work (removed, not returning).
 
-### Stage 3E — Low-risk selector additions (sketch, not yet scoped)
+### Stage 3E — Low-risk selector additions
 
-**Scope (indicative):** validation panel actions (run/filter/navigate/save
-— 4 selectors), global search (input + results — 1–2 selectors), recent
-repositories list, `UnsavedChangesDialog`'s discard button, Device Model
-CSV preview table. All are read-only-ish or simple-form UI elements with
-no destructive operations and no native dialogs.
+**Status: COMPLETE** (branch `feature/e2e-stage-3e-selectors`, PR pending
+— not merged)
 
-**Why this tier:** closes 11 of the 16 NEEDS SELECTOR workflows at low
-risk — none of these areas involve deletion, git state, or file-system
-side effects, so the selector additions themselves carry little
-regression risk to the application.
+Branch: `feature/e2e-stage-3e-selectors`, direct base `roadmap/e2e-wdio`.
 
-**Explicitly NOT in scope:** git workflow (Stage 3F, below — different
-risk profile); anything network-dependent.
+**Delivered — 5 new specs, 10 workflows, all indicative Stage 3E scope
+items:**
+- `unsaved-changes-discard.e2e.ts` — `UnsavedChangesDialog`'s "Continue
+  without saving" button
+- `recent-repositories-workflow.e2e.ts` — landing-screen recent-repos
+  panel (row, path-cell fill behavior, Open button)
+- `global-search-workflow.e2e.ts` — search input + result selection +
+  navigation
+- `csv-device-model-import.e2e.ts` — Device Model CSV preview/import/
+  persist/negative-validation (sibling to the existing Device CSV spec)
+- `validation-panel-workflows.e2e.ts` — validate, save-from-panel, level
+  filter pills, navigate-from-issue
+
+**Every workflow re-verified against actual HEAD before implementing**
+(per this stage's own NSP, not trusting the prior gap-analysis document):
+confirmed each area still had zero `data-testid` coverage, was not
+already covered, and that no new selectors were needed beyond what each
+workflow genuinely required to be automatable without text/CSS/xpath
+selectors.
+
+**New selectors** (see `docs/E2E_WDIO_COVERAGE_GAPS.md`'s "Selectors added
+in Stage 3E" for the full list with exact locations) — all plain
+`data-testid` additions, no logic, UX, or visual changes, no refactors.
+
+**One helper policy exception, explained:** `global-search-workflow.e2e.ts`
+does **not** reuse the existing `selectSearchableOption()` helper for
+clicking a search result, despite `GlobalSearch`'s result `<li
+role="option">` using the identical `onMouseDown`-based selection pattern
+as `SearchableSelect`'s own options. Confirmed by debugging (not assumed):
+WebKitWebDriver's `getText()` does not reliably return that element's full
+text — a driver-level quirk of its `text-overflow: ellipsis` styling — so
+text-matching via `getText()` silently never matches. A small spec-local
+helper (`selectSearchResult()`, not moved to shared support/ — this is the
+only place the quirk has been found) matches via raw `textContent` through
+`browser.execute()` instead, keeping the same Actions-routed click and
+stale-element-tolerant retry loop `selectSearchableOption()` already
+established as correct.
+
+**Real application behavior discovered while writing
+`validation-panel-workflows.e2e.ts`, not a bug:**
+`RepositorySession::validate()` (`crates/ris-application/src/session.rs`)
+validates the **last-saved on-disk state** via
+`ValidationEngine::validate(&self.repo_path)` — never the current
+in-memory/unsaved session state, confirmed via the function's own doc
+comment and implementation. The spec exercises this directly (validates
+before saving, confirms the unsaved device is invisible, saves from the
+panel, validates again, confirms it now appears) rather than working
+around it.
+
+**Why this tier first:** closed all 10 low-risk NEEDS SELECTOR workflows —
+none of these areas involve deletion, git state, or file-system side
+effects, so the selector additions themselves carried little regression
+risk to the application.
+
+**Explicitly NOT in scope (respected):** git workflow (Stage 3F, below —
+different risk profile); anything network-dependent; rack export (NEEDS
+APPLICATION CHANGE, not a selector gap); no new helpers beyond the one
+spec-local exception above; no frameworks/libraries/architecture/
+benchmarks/CI changes.
+
+**Validation:** `pnpm -C apps/desktop typecheck` PASS; `pnpm -C
+apps/desktop test` 923/923 PASS; `node --test scripts/*.test.mjs` 223/223
+PASS; hygiene/version-consistency PASS; `cargo fmt/check/clippy` PASS;
+`git diff --check` PASS. All 5 new specs `CLEAN_PASS` ×2 (run + `--skip-build`
+run) via the canonical external runner, `app-smoke` `CLEAN_PASS`, ports
+free before/after every run, no lingering processes. Full suite not
+re-run — no shared helper was modified (only new spec-local code and
+application-source `data-testid` additions).
+
+Coverage: 51/78 (65%) → **61/78 (78%)**.
 
 ### Stage 3F — Git workflow coverage (sketch, not yet scoped)
 

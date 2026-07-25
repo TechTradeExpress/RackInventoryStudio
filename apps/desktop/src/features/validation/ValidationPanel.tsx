@@ -102,10 +102,10 @@ export function ValidationPanel({ onSaveSuccess, onNavigate }: Props) {
         subtitle="Check the repository for errors and warnings before saving or publishing."
         actions={
           <>
-            <button className="btn" onClick={handleValidate} disabled={isBusy}>
+            <button className="btn" onClick={handleValidate} disabled={isBusy} data-testid="validation-validate-btn">
               <IcRefresh size={12} /> Validate repository
             </button>
-            <button className="btn btn-primary" onClick={handleSave} disabled={isBusy}>
+            <button className="btn btn-primary" onClick={handleSave} disabled={isBusy} data-testid="validation-save-btn">
               <IcSave size={12} /> Save changes
             </button>
           </>
@@ -118,7 +118,7 @@ export function ValidationPanel({ onSaveSuccess, onNavigate }: Props) {
           </div>
         )}
         {saveSummary && (
-          <div style={{ marginBottom: 16 }}>
+          <div style={{ marginBottom: 16 }} data-testid="validation-save-summary">
             <Banner tone="ok">
               Save complete — Created: {saveSummary.created}, Updated: {saveSummary.updated},
               Unchanged: {saveSummary.unchanged}, Total: {saveSummary.total}
@@ -141,6 +141,7 @@ export function ValidationPanel({ onSaveSuccess, onNavigate }: Props) {
                         key={f.k}
                         className={`btn btn-sm${levelFilter === f.k ? " btn-primary" : ""}`}
                         onClick={() => setLevelFilter(f.k)}
+                        data-testid={`validation-filter-${f.k}`}
                       >
                         {f.label} <span style={{ marginLeft: 4, opacity: 0.7 }}>{f.count}</span>
                       </button>
@@ -176,7 +177,7 @@ export function ValidationPanel({ onSaveSuccess, onNavigate }: Props) {
                     {filtered.slice(0, 50).map((issue, idx) => {
                       const navTarget = issueToNavigationTarget(issue);
                       return (
-                        <tr key={idx}>
+                        <tr key={idx} data-testid="validation-issue-row" data-validation-issue-code={issue.code}>
                           <td>{valLevelBadge(issue.level)}</td>
                           <td className="tbl-mono"><strong>{issue.code}</strong></td>
                           <td>{issue.message}</td>
@@ -187,6 +188,7 @@ export function ValidationPanel({ onSaveSuccess, onNavigate }: Props) {
                                 type="button"
                                 className="btn btn-sm"
                                 onClick={() => onNavigate(navTarget)}
+                                data-testid="validation-issue-navigate-btn"
                               >
                                 <IcCornerArrow size={11} /> {navigationTargetLabel(navTarget)}
                               </button>
