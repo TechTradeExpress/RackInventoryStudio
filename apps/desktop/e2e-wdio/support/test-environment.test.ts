@@ -10,6 +10,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -249,6 +250,39 @@ describe.sequential("initTestEnvironment", () => {
     // Cleanup should delete the run root.
     cleanup();
     expect(existsSync(runRoot)).toBe(false);
+  });
+
+  // Stage 3F.0.5: verifies the exact mechanism downstream Git-isolation
+  // inheritance depends on. @wdio/tauri-service spawns tauri-driver with
+  // `env: env ?? { ...process.env, ... }` (see
+  // DriverPool.startTauriDriverForWorker in @wdio/tauri-service's dist
+  // bundle), and tauri-driver (a plain `std::process::Command` spawn)
+  // inherits its own env into the launched Tauri app by default — so
+  // asserting these values on process.env here is asserting exactly what
+  // both tauri-driver and the app process end up seeing. It is not enough
+  // for these vars to merely be "set somewhere"; they must be set on
+  // process.env itself, which is what the spread operator captures.
+  it("launcher: sets Git/XDG/HOME isolation vars on process.env for downstream child-process inheritance", () => {
+    const cleanup = initTestEnvironment();
+    try {
+      const runRoot = process.env[RUN_ROOT_VAR]!;
+
+      expect(process.env["HOME"]).toBe(join(runRoot, "home"));
+      expect(existsSync(process.env["HOME"]!)).toBe(true);
+
+      expect(process.env["GIT_CONFIG_NOSYSTEM"]).toBe("1");
+
+      const gitConfigGlobal = process.env["GIT_CONFIG_GLOBAL"]!;
+      expect(existsSync(gitConfigGlobal)).toBe(true);
+      const gitConfigContent = readFileSync(gitConfigGlobal, "utf8");
+      expect(gitConfigContent).toContain("Rack Inventory Studio E2E");
+      expect(gitConfigContent).toContain("e2e@localhost.invalid");
+
+      expect(process.env["XDG_CONFIG_HOME"]).toBe(join(runRoot, "app-config"));
+      expect(existsSync(process.env["XDG_CONFIG_HOME"]!)).toBe(true);
+    } finally {
+      cleanup();
+    }
   });
 
   it("launcher: rejects pre-existing RIS_E2E_REPOSITORY_PARENT without internal marker", () => {
