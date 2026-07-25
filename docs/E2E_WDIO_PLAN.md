@@ -5,7 +5,7 @@
 | Item | Detail |
 |------|--------|
 | Integration branch | `roadmap/e2e-wdio` (long-lived) |
-| Current stage | Stage 2 COMPLETED — all stages merged into `roadmap/e2e-wdio` |
+| Current stage | Stage 3 COMPLETED (3A, 3B.1–3B.4, 3C) — embedded WDIO provider fully removed (PR #158); Stage 3D not yet started — all merged into `roadmap/e2e-wdio` |
 | Integration PR to development | None open |
 | Decision | Further stages continue on `roadmap/e2e-wdio`; integration into `development` only after whole-program review |
 
@@ -628,30 +628,39 @@ Existing selectors reused: `nav-csv_import`, `import-type-devices`, `csv-textare
 | Vitest | 844/844 passed | — | 0 |
 | GitHub checks | All green | — | — |
 
-### Remaining candidate areas (unordered)
+### Remaining candidate areas (unordered) — historical, superseded
 
-The following areas are candidates for stages beyond Stage 2B.  They are not
-committed tasks and are not listed in priority order:
+> This list was drafted before Stage 3 and predates the current coverage
+> gap analysis. Several items are now done; see `docs/E2E_WDIO_COVERAGE_GAPS.md`
+> and "Future stages" below for the current, evidence-based next-stage
+> proposal rather than this list.
 
-- **CI execution** — Add an optional (non-blocking) WDIO job to CI; evaluate Linux
-  runner feasibility with WebKitGTK driver.
-- **Windows validation** — Validate the suite on Windows with WebView2 driver.
-- **Linux runner reproducibility** — Identify whether webkit2gtk-driver is available
-  on ubuntu-24.04 GitHub-hosted runners.
-- **Runtime reduction** — Evaluate `tauri-plugin-wdio` to eliminate the 100 ms/cmd
-  hook overhead; consider helper refactoring to reduce test duration.
-- **Export workflows** — Rack SVG/PNG export where stable without native dialog
-  fragility.
-- **Extended inventory workflows** — Edit and delete entity operations, full CRUD.
-- **Git workflow** — init → validate → commit cycle in the real Tauri binary.
-- **Cross-platform path behavior** — Non-ASCII paths, symlinked temp directories,
-  UNC paths on Windows.
+The following areas were candidates for stages beyond Stage 2B, not
+committed tasks, not in priority order:
+
+- ~~**Runtime reduction** — Evaluate `tauri-plugin-wdio`...~~ — **done**,
+  Stage 3B.4.
+- ~~**Extended inventory workflows** — Edit and delete entity operations,
+  full CRUD.~~ — **done**, Stage 3B.1/3B.2/3C.
+- **CI execution** — still not done; full WDIO remains manual/optional (see
+  "Desktop E2E execution policy" above). Candidate for a future stage.
+- **Windows validation** — a one-off performance *experiment* ran (3B.3);
+  no CI or repeatable validation exists. Still open.
+- **Linux runner reproducibility** — still not confirmed for CI.
+- **Export workflows** — Rack SVG/PNG export; still MISSING, native-dialog
+  concern still applies (see coverage gap analysis).
+- **Git workflow** — still NEEDS SELECTOR; no `data-testid`s exist on
+  `RepositoryPanel`'s git actions.
+- **Cross-platform path behavior** — still open.
 
 ---
 
 ## Stage 3 — Placement and CRUD workflows
 
-**Overall status: IN PROGRESS**
+**Overall status: COMPLETED** (3A, 3B.1, 3B.2, 3B.3, 3B.4, 3C all merged;
+the two technical passes that followed — WDIO provider benchmark and
+embedded-provider removal — are documented further below and are not
+numbered Stage 3 sub-stages)
 
 Stage 3 is split into independently reviewable sub-stages.
 
@@ -732,7 +741,15 @@ Edit buttons use existing `aria-label="Edit <name>"` pattern; form field testids
 
 ### Stage 3B.2 — Delete flows and destructive-operation guards
 
-**Status: IN REVIEW** (PR #152 targeting `roadmap/e2e-wdio`)
+**Status: COMPLETED** (merged as PR #152, merge commit `95ea5fd`)
+
+> **Spec names below are historical.** The four specs delivered here
+> (`entity-deletes-inventory`, `entity-deletes-hierarchy`,
+> `destructive-guards-inventory`, `destructive-guards-hierarchy`) were
+> consolidated into two specs (`entity-deletes.e2e.ts`,
+> `destructive-guards.e2e.ts`) during Stage 3C's spec-consolidation audit —
+> see "E2E spec consolidation" below. The workflow coverage described here
+> is unchanged; only the file layout changed.
 
 Delivered through `feature/e2e-wdio-destructive-guards`.
 
@@ -861,6 +878,17 @@ Direct base: `roadmap/e2e-wdio`
 - Embedded is deferred to a separate future stage, contingent on an upstream fix or
   deliberate compatibility layer plus a full regression of all specs.
 
+> **What actually happened next (historical outcome, not part of this
+> stage):** the `mousedown` gap turned out to need no upstream fix — a
+> "correct existing API usage" test-side change (Actions-routed clicks)
+> resolved it, and embedded was restored to fully usable in a later
+> technical pass. It was then benchmarked head-to-head against external
+> (see "Technical pass — WDIO provider benchmark" below) and found ~12–28x
+> slower with no stability advantage, and was subsequently removed
+> entirely (see "Embedded WDIO provider removal" below). Kept here
+> unedited as the historical record of this stage's own decision and
+> reasoning at the time.
+
 **Next stage:** optimize long-action latency in the external-provider flow (separate
 branch from the updated `roadmap/e2e-wdio` base; Stage 3C and later stages
 remain as planned).  No optimizations were implemented in this stage.
@@ -869,7 +897,7 @@ remain as planned).  No optimizations were implemented in this stage.
 
 ### Stage 3B.4 — E2E WDIO latency optimization
 
-**Status: IN REVIEW**
+**Status: COMPLETED** (merged as PR #154, merge commit `a095043`)
 
 Branch: `feature/e2e-wdio-latency-optimization`
 Direct base: `roadmap/e2e-wdio`
@@ -978,7 +1006,7 @@ report each CI job separately with `CI overall: PARTIAL FAILURE`, and
 re-confirmed via a lockfile diff against the direct base that the failing
 advisories pre-date this PR and no new vulnerable dependency version was
 introduced. See `docs/E2E_WDIO_LATENCY_OPTIMIZATION.md` §14 for full
-detail. Stage 3B.4 remains **IN REVIEW**; PR #154 remains **not merged**.
+detail. PR #154 was subsequently merged (merge commit `a095043`).
 
 ---
 
@@ -1612,14 +1640,86 @@ coverage regression on anything that still exists.
 
 ## Future stages
 
-Placeholder areas for stages beyond Stage 3. Scope and order will be decided during
-program planning.
+Derived from `docs/E2E_WDIO_COVERAGE_GAPS.md`'s 2026-07-25 maintenance-pass
+recount (45/73 workflows COVERED, 62%), not carried forward from an older
+plan. Ordered by proposed sequence; only Stage 3D is scoped in detail —
+3E/3F are sketched to show the intended path but should each get their own
+NSP when picked up, per the normal E2E working model.
 
-- Desktop CI and platform validation
-- Import/export workflows
-- Git workflow coverage
-- Performance and reliability hardening
-- Windows and cross-platform validation
+### Stage 3D — Placement/export gaps (no new selectors)
+
+**Scope:** the 3 remaining MISSING workflows, all of which already have
+stable selectors and need only spec work:
+- Rack export — SVG (`export-svg-btn`)
+- Rack export — PNG (`export-png-btn`)
+- U-occupancy / collision validation — negative path (place a device where
+  one already occupies the target U range; assert the operation is
+  rejected and the existing placement is untouched)
+
+**Justification — highest value next:** this is the only remaining bucket
+that needs zero application-source changes at all — pure spec-only work
+against the existing binary, the same "Tier 1" pattern that made Stage 3A
+low-risk. It fully closes the MISSING category (3/3), leaving only
+NEEDS SELECTOR and genuinely-DEFERRED/NOT-JUSTIFIED items in the backlog.
+Export in particular has been an open gap since the original 2026-07-22 gap
+analysis with no selector blocker — there is no remaining reason to defer
+it further.
+
+**Explicitly NOT in scope:** any `data-testid` addition to application
+source; git workflow; global search; validation panel; CSV device-model
+preview; CI changes; embedded-provider work (removed, not returning); any
+further spec consolidation (Stage 3C's audit already covered the existing
+suite — this stage only adds new specs).
+
+**Open question for NSP:** rack export triggers a native Tauri save
+dialog — prior notes flagged this as a possible automation blocker. The
+NSP should first confirm whether the dialog can be avoided/bypassed in a
+test build (e.g. asserting on the generated SVG/PNG content before the
+save call, similar to how CSV import avoids native dialogs) before
+committing to full end-to-end coverage; if it cannot, this item should be
+downgraded to DEFERRED with that reason recorded, not silently dropped.
+
+### Stage 3E — Low-risk selector additions (sketch, not yet scoped)
+
+**Scope (indicative):** validation panel actions (run/filter/navigate/save
+— 4 selectors), global search (input + results — 1–2 selectors), recent
+repositories list, `UnsavedChangesDialog`'s discard button, Device Model
+CSV preview table. All are read-only-ish or simple-form UI elements with
+no destructive operations and no native dialogs.
+
+**Why this tier:** closes 11 of the 16 NEEDS SELECTOR workflows at low
+risk — none of these areas involve deletion, git state, or file-system
+side effects, so the selector additions themselves carry little
+regression risk to the application.
+
+**Explicitly NOT in scope:** git workflow (Stage 3F, below — different
+risk profile); anything network-dependent.
+
+### Stage 3F — Git workflow coverage (sketch, not yet scoped)
+
+**Scope (indicative):** selectors + specs for git init, validate, commit,
+add-remote — the 4 of 6 git NEEDS SELECTOR workflows that are local-only
+(no network). Push/pull remain DEFERRED (network-dependent, no local
+mock) even after this stage — selectors alone don't remove that
+constraint.
+
+**Why separate from 3E:** git operations mutate real repository state
+(commits, branches) and need more careful fixture isolation than pure
+CRUD/guard work already covered — warrants its own NSP and risk review
+rather than being folded into the lower-risk selector batch.
+
+**Explicitly NOT in scope:** push, pull, or any network-dependent
+sub-flow — these stay DEFERRED regardless of selector availability.
+
+### Not proposed as a numbered coverage stage
+
+- **CI execution / full WDIO in CI** — tracked separately in "Desktop E2E
+  execution policy" § Future WDIO CI design above; an infrastructure
+  initiative, not a workflow-coverage gap, and not derived from the gap
+  analysis.
+- **Windows validation** — a one-off performance experiment ran (3B.3);
+  no repeatable CI/validation infrastructure exists. Same category as CI
+  execution — infrastructure, not coverage.
 
 ---
 
@@ -1670,9 +1770,14 @@ For normal `feature/*` pull requests the required fast CI checks are:
 
 Full WDIO desktop E2E is **not required** on ordinary PRs. It is not run
 automatically on every push and must not become a required check for changes
-unrelated to E2E infrastructure. The full desktop suite currently takes
-approximately 51 minutes; executing it for every small PR would create excessive
-feedback time and CI cost.
+unrelated to E2E infrastructure. The ~51-minute full-suite figure quoted in
+earlier stages is stale: the Stage 3B.4 latency optimization and Stage 3C's
+spec consolidation have since dropped individual external-provider specs to
+roughly 5–35s each (see Stage 3C's per-spec timings above), but the full
+suite has not been timed end-to-end since those changes, so no current
+total figure is quoted here. Running the full suite for every small PR
+would still create unnecessary feedback time and CI cost regardless of the
+exact total.
 
 ### PRs targeting `roadmap/e2e-wdio`
 
@@ -1753,9 +1858,11 @@ No CI workflow file is added in this update.
 | Linux WebKitGTK driver | ubuntu-24.04 runner availability of `webkit2gtk-driver` not yet confirmed for CI |
 | Windows WebView2 driver | Version matching; `@wdio/tauri-service` may handle auto-download but CI cache strategy needed |
 | Native dialogs | OS save/open dialogs difficult to automate; may need app-level bypass in test builds |
-| Tauri plugin scope | Adding `tauri-plugin-wdio` touches `capabilities/default.json`; scope must remain narrow |
 | Binary build time | Tauri binary must be compiled before WDIO tests; adds significant CI time |
 | Non-ASCII paths | Temp directory paths with non-ASCII characters may break on some platforms |
-| `@wdio/native-utils` override | Workspace override to 2.5.0 works around a peer-dep mismatch; upstream fix not yet released |
+| `@wdio/native-utils` override | Workspace override to 2.5.0 works around a peer-dep mismatch; upstream fix not yet confirmed |
 | Test isolation | Each spec must start from a clean state; shared state between specs causes flakiness |
-| `tauri-plugin-wdio` hook overhead | ~100 ms per WebDriver command while plugin absent; acceptable for Stage 1, reassess for CI |
+
+**Resolved since originally logged:**
+- ~~Tauri plugin scope~~ — `tauri-plugin-wdio` (the `wdio-plugin` Cargo feature) was added in Stage 3B.4, test-only, narrowly scoped via a dedicated `capabilities/wdio-plugin-test.json` generated by `build.rs`, never shipped in production builds.
+- ~~`tauri-plugin-wdio` hook overhead~~ — installing the plugin (Stage 3B.4) eliminated the ~7–8s per-command plugin-availability retry loop it was meant to address; the canonical runner now always builds with it via `pnpm build:e2e:wdio-plugin`.

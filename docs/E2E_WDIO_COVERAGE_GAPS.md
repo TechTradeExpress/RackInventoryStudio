@@ -1,16 +1,62 @@
 # Desktop E2E Coverage Gap Analysis
 
-Generated: 2026-07-22 (updated for Stage 3B.2 repair pass, PR #152)
-Branch: `feature/e2e-wdio-destructive-guards`
-Base: `roadmap/e2e-wdio`
+Generated: 2026-07-22 (Stage 3B.2, PR #152); fully re-verified and rewritten
+2026-07-25 against actual HEAD (post Stage 3C / embedded-provider-removal,
+`roadmap/e2e-wdio` @ `db6752d`) — see "Maintenance pass (2026-07-25)" below
+for what changed and why.
+
+Branch: `roadmap/e2e-wdio`
 
 ## Purpose
 
 This document inventories the application's user-facing workflows against existing
-WDIO E2E specs to identify gaps that inform Stage 3 and later stage planning.
+WDIO E2E specs to identify gaps that inform Stage 3D and later stage planning.
 
 Coverage is assessed against the real compiled Tauri binary only.  Playwright
 browser-mode and Vitest/Rust unit tests are separate layers not considered here.
+
+---
+
+## Maintenance pass (2026-07-25)
+
+This pass re-verified every row against the current application source and
+spec files rather than trusting the prior version. Changes:
+
+- **4 workflows promoted MISSING → COVERED** (Stage 3C, `placement-inspector-workflows.e2e.ts`):
+  edit placement height U, remove placement via `EditPlacementModal`,
+  `PlacementInspectorPanel` navigate to device, navigate to model.
+- **3 workflows reclassified MISSING → NEEDS SELECTOR.** The 2026-07-22
+  version listed these as MISSING even though their own notes already said
+  the selector was absent — inconsistent with this document's own Coverage
+  key (MISSING requires a selector to already exist). Corrected against a
+  fresh read of the source:
+  - Close repository — unsaved → Discard (`UnsavedChangesDialog.tsx`'s
+    "Continue without saving" button has no `data-testid` — only `onSave`
+    does, as `unsaved-changes-save`).
+  - Device Model CSV — paste → preview → import (`DeviceModelPreviewTable`
+    in `CsvImportPanel.tsx` genuinely has no `data-testid`, unlike the
+    device preview table's `csv-device-preview-table`).
+  - Device Model CSV — negative validation (same table, same fix).
+- **Spec file names updated** for the Stage 3C consolidation: the four
+  Stage 3B.2 specs (`entity-deletes-inventory`/`-hierarchy`,
+  `destructive-guards-inventory`/`-hierarchy`) were merged into
+  `entity-deletes.e2e.ts` and `destructive-guards.e2e.ts` — coverage is
+  unchanged, only the file layout.
+- **Total/status counts fully recomputed by hand-counting every row** in
+  this document, rather than carried forward. The 2026-07-22 version's own
+  summary table (COVERED 38, MISSING 6, total 67) did not match the actual
+  row count in its own matrix (69 rows; 9 rows tagged MISSING, not 6) — a
+  pre-existing arithmetic error, now corrected. See "Summary counts" below.
+- Confirmed via `git diff 8f749f8..HEAD -- 'apps/desktop/src/**'` that no
+  application-source changes landed between the 2026-07-22 version and now
+  outside: `ConfirmDialog`/delete-error-banner/`rack-detail-back-btn`
+  selectors (Stage 3B.2, already reflected in the prior version) and the
+  `PlacementInspectorPanel` `target_kind` bug fix (Stage 3C — a bug fix,
+  not a new selector). Every other row's selector-presence claim was
+  spot-checked directly against current source in this pass
+  (`RackDetailPanel.tsx`'s `export-svg-btn`/`export-png-btn`,
+  `RepositoryPanel.tsx`'s git-action buttons, `GlobalSearch.tsx`) and found
+  unchanged from the 2026-07-22 version's claims.
 
 ---
 
@@ -27,7 +73,7 @@ browser-mode and Vitest/Rust unit tests are separate layers not considered here.
 
 ---
 
-## Existing specs (as of Stage 3B.2)
+## Existing specs (as of Stage 3C / embedded-provider removal)
 
 | Spec file | What it covers |
 |-----------|----------------|
@@ -38,10 +84,14 @@ browser-mode and Vitest/Rust unit tests are separate layers not considered here.
 | `csv-import.e2e.ts` | Device CSV preview + import + persist; negative: missing required column |
 | `placement-lifecycle.e2e.ts` | Place at U1; edit → move to U5; persist; remove via inspector; persist removal |
 | `entity-updates-work-mode.e2e.ts` | Work mode toggle; edit all four entity types; persist after close/reopen |
-| `entity-deletes-inventory.e2e.ts` | Delete device model (unreferenced) + device (unplaced); cancel assertion; persist |
-| `entity-deletes-hierarchy.e2e.ts` | Delete rack (no placements) + location (no racks); persist; relational count checks |
-| `destructive-guards-inventory.e2e.ts` | Guard: device model (device references it); guard: device (placed in rack); full 7-part graph assertions |
-| `destructive-guards-hierarchy.e2e.ts` | Guard: location (rack references it); guard: rack (placement references it); full 7-part graph assertions |
+| `entity-deletes.e2e.ts` | Delete device model (unreferenced) + device (unplaced) + rack (no placements) + location (no racks); cancel assertion; relational count checks; persist. Consolidated from Stage 3B.2's `entity-deletes-inventory`/`-hierarchy` in Stage 3C. |
+| `destructive-guards.e2e.ts` | Guard: location/rack/device-model/device against constrained deletes; full graph assertions. Consolidated from Stage 3B.2's `destructive-guards-inventory`/`-hierarchy` in Stage 3C. |
+| `placement-inspector-workflows.e2e.ts` | Edit placement height U; remove placement via `EditPlacementModal`; `PlacementInspectorPanel` navigate to device/model; rack-object placement (Stage 3C) |
+| `searchable-select-regression.e2e.ts` | `SearchableSelect` dropdown regression via device-model field (open, search, select, persist) |
+
+`apps/desktop/e2e-wdio/benchmarks/representative-latency.e2e.ts` is a
+benchmark-only harness (9 interaction-pattern cases), not part of the
+default spec suite and not counted as workflow coverage here.
 
 ---
 
@@ -56,7 +106,7 @@ browser-mode and Vitest/Rust unit tests are separate layers not considered here.
 | Open repository by path (happy path) | COVERED | `repository-lifecycle`, `core-inventory` |
 | Close repository — no unsaved changes | COVERED | `repository-lifecycle` |
 | Close repository — unsaved → Save and continue | COVERED | `core-inventory`, `csv-import` |
-| Close repository — unsaved → Discard | MISSING | `unsaved-changes-discard` selector absent |
+| Close repository — unsaved → Discard | NEEDS SELECTOR | `UnsavedChangesDialog`'s "Continue without saving" button has no `data-testid` |
 | Recent repositories — list and click | NEEDS SELECTOR | `RepositoryPanel` recent repos panel; no testids |
 | Clone repository — URL safety (unsafe patterns) | COVERED | `safety-recovery` |
 | Clone repository — URL safety (HTTPS control) | COVERED | `safety-recovery` |
@@ -68,7 +118,9 @@ browser-mode and Vitest/Rust unit tests are separate layers not considered here.
 **Git workflow (RepositoryPanel)**
 
 The RepositoryPanel git section has no `data-testid` attributes on its action
-buttons (Init, Validate, Commit, Add remote, Push, Pull).
+buttons (Init, Validate, Commit, Add remote, Push, Pull) — confirmed unchanged
+in this pass (`grep -c data-testid RepositoryPanel.tsx` → 4, none on the git
+action buttons themselves).
 
 | Workflow | Status | Notes |
 |----------|--------|-------|
@@ -86,9 +138,9 @@ buttons (Init, Validate, Commit, Add remote, Push, Pull).
 | Workflow | Status | Notes |
 |----------|--------|-------|
 | Create location | COVERED | `core-inventory` |
-| Edit location | COVERED | `entity-updates-work-mode` Stage 3B.1 |
-| Delete location — no racks (confirm dialog) | COVERED | `entity-deletes-hierarchy` Stage 3B.2 |
-| Delete location — racks exist (constraint error) | COVERED | `destructive-guards-hierarchy` Stage 3B.2 |
+| Edit location | COVERED | `entity-updates-work-mode` |
+| Delete location — no racks (confirm dialog) | COVERED | `entity-deletes` |
+| Delete location — racks exist (constraint error) | COVERED | `destructive-guards` |
 
 ---
 
@@ -98,9 +150,9 @@ buttons (Init, Validate, Commit, Add remote, Push, Pull).
 |----------|--------|-------|
 | Create rack | COVERED | `core-inventory` |
 | Navigate to rack via location row click | COVERED | `core-inventory` |
-| Edit rack | COVERED | `entity-updates-work-mode` Stage 3B.1 |
-| Delete rack — no placements (confirm dialog) | COVERED | `entity-deletes-hierarchy` Stage 3B.2 |
-| Delete rack — placements exist (constraint error) | COVERED | `destructive-guards-hierarchy` Stage 3B.2 |
+| Edit rack | COVERED | `entity-updates-work-mode` |
+| Delete rack — no placements (confirm dialog) | COVERED | `entity-deletes` |
+| Delete rack — placements exist (constraint error) | COVERED | `destructive-guards` |
 
 ---
 
@@ -109,9 +161,9 @@ buttons (Init, Validate, Commit, Add remote, Push, Pull).
 | Workflow | Status | Notes |
 |----------|--------|-------|
 | Create device model (server, 1U) | COVERED | `core-inventory` |
-| Edit device model | COVERED | `entity-updates-work-mode` Stage 3B.1 |
-| Delete device model — no devices (confirm dialog) | COVERED | `entity-deletes-inventory` Stage 3B.2 |
-| Delete device model — devices exist (constraint error) | COVERED | `destructive-guards-inventory` Stage 3B.2 |
+| Edit device model | COVERED | `entity-updates-work-mode` |
+| Delete device model — no devices (confirm dialog) | COVERED | `entity-deletes` |
+| Delete device model — devices exist (constraint error) | COVERED | `destructive-guards` |
 
 ---
 
@@ -121,9 +173,9 @@ buttons (Init, Validate, Commit, Add remote, Push, Pull).
 |----------|--------|-------|
 | Create device (with model, planned status) | COVERED | `core-inventory` |
 | Unplaced badge after creation | COVERED | `core-inventory` |
-| Edit device | COVERED | `entity-updates-work-mode` Stage 3B.1 |
-| Delete device — unplaced (confirm dialog) | COVERED | `entity-deletes-inventory` Stage 3B.2 |
-| Delete placed device — must unplace first | COVERED | `destructive-guards-inventory` Stage 3B.2 |
+| Edit device | COVERED | `entity-updates-work-mode` |
+| Delete device — unplaced (confirm dialog) | COVERED | `entity-deletes` |
+| Delete placed device — must unplace first | COVERED | `destructive-guards` |
 
 ---
 
@@ -135,15 +187,18 @@ buttons (Init, Validate, Commit, Add remote, Push, Pull).
 | Placed card visible in rack diagram | COVERED | `core-inventory` |
 | Placed card title contains model name | COVERED | `core-inventory` |
 | Placement persists after close + reopen | COVERED | `core-inventory` |
-| Edit placement — change start U | COVERED | `placement-lifecycle` Stage 3A |
-| Edit placement — change height U | MISSING | `height-u-input` present in `EditPlacementModal` |
-| Remove placement — via PlacementInspectorPanel | COVERED | `placement-lifecycle` Stage 3A |
-| Removed placement persists after close + reopen | COVERED | `placement-lifecycle` Stage 3A |
-| Remove placement — via EditPlacementModal remove | MISSING | `remove-btn` present; distinct confirm label "Remove placement" |
-| PlacementInspectorPanel: open edit modal | COVERED | `placement-lifecycle` Stage 3A |
-| PlacementInspectorPanel: navigate to device | MISSING | `edit-target-device-btn` present |
-| PlacementInspectorPanel: navigate to model | MISSING | `edit-target-model-btn` present |
-| Rack export — SVG | MISSING | `export-svg-btn` present; may require native file dialog on save |
+| Edit placement — change start U | COVERED | `placement-lifecycle` |
+| Edit placement — change height U | COVERED | `placement-inspector-workflows` (Stage 3C) |
+| Remove placement — via PlacementInspectorPanel | COVERED | `placement-lifecycle` |
+| Removed placement persists after close + reopen | COVERED | `placement-lifecycle` |
+| Remove placement — via EditPlacementModal remove | COVERED | `placement-inspector-workflows` (Stage 3C) |
+| PlacementInspectorPanel: open edit modal | COVERED | `placement-lifecycle` |
+| PlacementInspectorPanel: navigate to device | COVERED | `placement-inspector-workflows` (Stage 3C) |
+| PlacementInspectorPanel: navigate to model | COVERED | `placement-inspector-workflows` (Stage 3C) |
+| Place rack object (Device Model, no separate Device record) | COVERED | `placement-inspector-workflows` (Stage 3C) |
+| Move placement between racks | DEFERRED | Not supported by the application — `EditPlacementModal` and `RackDetailPanel.handleDiagramMovePlacement` both hardcode the current rack; no UI exposes a target-rack picker. Not a testing gap. |
+| U-occupancy / collision validation (negative path) | MISSING | Every placement in every spec succeeds at a deliberately non-overlapping U; no dedicated negative/collision spec exists. Selectors already present (same placement form). |
+| Rack export — SVG | MISSING | `export-svg-btn` present (confirmed in `RackDetailPanel.tsx`); may require native file dialog on save |
 | Rack export — PNG | MISSING | `export-png-btn` present; same native dialog concern |
 
 ---
@@ -154,8 +209,8 @@ buttons (Init, Validate, Commit, Add remote, Push, Pull).
 |----------|--------|-------|
 | Device CSV — paste → preview → import → persist | COVERED | `csv-import` |
 | Device CSV — negative: missing required column | COVERED | `csv-import` |
-| Device Model CSV — paste → preview → import | MISSING | `import-type-device-models` present; `DeviceModelPreviewTable` has no testid |
-| Device Model CSV — negative validation | MISSING | Same |
+| Device Model CSV — paste → preview → import | NEEDS SELECTOR | `import-type-device-models` present; `DeviceModelPreviewTable` has no testid (confirmed) |
+| Device Model CSV — negative validation | NEEDS SELECTOR | Same |
 | CSV sample download | NOT JUSTIFIED | `btn-download-sample` present; triggers Tauri native save dialog |
 
 ---
@@ -177,18 +232,16 @@ All validation panel action buttons lack `data-testid` attributes.
 
 | Workflow | Status | Notes |
 |----------|--------|-------|
-| Toggle to onsite mode | COVERED | `entity-updates-work-mode` Stage 3B.1 |
-| Toggle to planning mode | COVERED | `entity-updates-work-mode` Stage 3B.1 |
+| Toggle to onsite mode | COVERED | `entity-updates-work-mode` |
+| Toggle to planning mode | COVERED | `entity-updates-work-mode` |
 | Work mode affects device status defaults | NOT JUSTIFIED | Unit test coverage in `DevicesPanel.test.tsx` |
-
-Work mode toggle is wired but the `work-mode-planning` and `work-mode-onsite`
-testids are already in place — only the spec is missing.
 
 ---
 
 ### Global search
 
-`GlobalSearch` component has no `data-testid` attributes.
+`GlobalSearch` component has no `data-testid` attributes (confirmed
+unchanged: `grep -c data-testid GlobalSearch.tsx` → 0).
 
 | Workflow | Status | Notes |
 |----------|--------|-------|
@@ -208,6 +261,14 @@ testids are already in place — only the spec is missing.
 
 ---
 
+### SearchableSelect regression
+
+| Workflow | Status | Notes |
+|----------|--------|-------|
+| Dropdown open/search/select/persist via correct WebDriver event sequence | COVERED | `searchable-select-regression` |
+
+---
+
 ## Selector readiness summary
 
 Workflows by how much selector work is needed before a spec can be written:
@@ -219,33 +280,9 @@ written without touching application source.
 
 | Workflow | Key selectors |
 |----------|--------------|
-| Edit location | `location-form-submit`, `field-name` |
-| Edit rack | `rack-form-submit`, `field-name`, `field-height-u` |
-| Edit device model | `model-form-submit`, `field-name`, `field-height-u` |
-| Edit device | `device-form-submit`, `field-name`, `field-device-type` |
-| Edit placement (start U) | ~~covered by Stage 3A~~ |
-| Edit placement (height U) | `open-edit-modal-btn`, `height-u-input`, `save-btn` |
-| Remove placement (inspector) | ~~covered by Stage 3A~~ |
-| Remove placement (edit modal) | `open-edit-modal-btn`, `remove-btn` |
-| PlacementInspector → device | `edit-target-device-btn` |
-| PlacementInspector → model | `edit-target-model-btn` |
-| Work mode toggle | `work-mode-planning`, `work-mode-onsite` |
-
-### Selectors added in Stage 3B.2
-
-Delete flows and guards are now covered.  The selectors added to enable them:
-
-| Selector | Element | Location |
-|----------|---------|----------|
-| `confirm-dialog-confirm` | Confirm button in `ConfirmDialog` footer | `ConfirmDialog.tsx` |
-| `confirm-dialog-cancel` | Cancel button in `ConfirmDialog` footer | `ConfirmDialog.tsx` |
-| `location-delete-error` | Wrapper `<div>` around delete error `Banner` | `LocationsPanel` |
-| `rack-delete-error` | Wrapper `<div>` around delete error `Banner` | `RacksPanel` |
-| `device-model-delete-error` | Wrapper `<div>` around delete error `Banner` | `DeviceModelsPanel` |
-| `device-delete-error` | Wrapper `<div>` around delete error `Banner` | `DevicesPanel` |
-
-Delete trigger buttons use the existing `aria-label="Delete <entity name>"` pattern
-scoped to the exact entity row — no new testid needed for the trigger button itself.
+| U-occupancy / collision validation | Same placement-form selectors as every existing placement spec |
+| Rack export — SVG | `export-svg-btn` |
+| Rack export — PNG | `export-png-btn` |
 
 ### Needs one or more selectors
 
@@ -254,12 +291,12 @@ can use stable selectors.
 
 | Workflow | What needs a testid |
 |----------|---------------------|
+| Close repository — unsaved → Discard | `UnsavedChangesDialog`'s "Continue without saving" button |
 | Device Model CSV preview | `DeviceModelPreviewTable` needs a testid (like `csv-device-model-preview-table`) |
 | Global search | Search input, result items, or result container |
 | Validation panel actions | Validate button, save button, issue rows |
 | Git workflow actions | All RepositoryPanel git buttons |
 | Recent repositories | Repository list items and remove buttons |
-| Unsaved changes — discard | `unsaved-changes-discard` on the discard button |
 
 ### Deferred (out of scope for near-term stages)
 
@@ -268,97 +305,62 @@ can use stable selectors.
 | Clone via HTTPS / SSH | Network-dependent; no local mock |
 | SSH passphrase entry | SSH key + network required |
 | Push / pull | Network-dependent |
-| Rack export (SVG / PNG) | Tauri `dialog::save` prevents automation without test-mode bypass |
-| CSV sample download | Same native save dialog |
-| Log directory change | Native directory picker dialog |
+| Move placement between racks | Not supported by the application at all — nothing to test |
+| Choose custom log directory | Native directory picker dialog |
 
----
+### Not justified (near-term)
 
-## Recommended Stage 3 scope
-
-Based on selector readiness and testing value, the following scope has the best
-cost/value ratio for Stage 3.
-
-### Tier 1 — No new selectors required
-
-These can proceed immediately as spec-only work on the existing binary.
-
-1. **Edit placement** — `open-edit-modal-btn` → `EditPlacementModal` → change start U →
-   `save-btn` → verify moved card.  Tests a unique IPC path not covered by create.
-2. **Remove placement** — click placed card → `PlacementInspectorPanel` →
-   `remove-from-rack-btn` → verify card gone; unplaced badge back on device in list.
-3. **Edit device** — re-open device form, change name, verify update in list.
-4. **Edit device model** — change height_u, verify update in model list.
-5. **Edit location / rack** — name change, verify in list.  Low value individually
-   but confirms the update IPC path works.
-6. **Work mode toggle** — switch to `work-mode-onsite`, verify `work-mode-onsite`
-   aria-pressed, switch back.  Very small but MISSING with testids in place.
-
-### Tier 2 — One selector per entity type needed
-
-Delete workflows.  The `ConfirmDialog` confirm button needs a testid; each panel
-needs a delete trigger button testid.  This is one selector addition per entity type.
-
-Suggested selector additions:
-- `ConfirmDialog`: add `data-testid="confirm-dialog-confirm"` to the confirm button
-- Each panel delete trigger: `location-delete-btn-{code}` or a simpler pattern
-  (alternative: use `data-action="delete"` on the row action button)
-
-7. **Delete device (unplaced)** — highest value; common destructive operation.
-8. **Delete location** — tests relationship load: a location with racks should be
-   blocked or warn before deleting.
-
-### Tier 3 — Multiple new selectors needed
-
-9. **Device Model CSV import** — add `csv-device-model-preview-table` testid.
-   Completes the CSV import coverage to both entity types.
-10. **Validation panel** — add testids to validate/save buttons; cover run → issue
-    list → navigate to entity.
-
-### Recommended not-yet (Stage 4+)
-
-- Global search (no testids; scope uncertain for E2E vs unit)
-- Git workflow (no testids; network-dependent sub-flows)
-- Rack export (native dialog blocks automation)
-- Windows / CI validation (separate infrastructure stage)
+| Workflow | Reason |
+|----------|--------|
+| CSV sample download | Native save dialog; low E2E value |
+| Work mode affects device defaults | Already unit-tested |
+| View / open / reset log directory | Read-only display or OS-level side effect, not assertable in E2E |
 
 ---
 
 ## Summary counts
 
-Counts updated after Stage 3B.2 repair pass (PR #152) — 2026-07-22.
+Recomputed by hand-counting every row in this document against current HEAD
+(`roadmap/e2e-wdio` @ `db6752d`), 2026-07-25. The 2026-07-22 version's
+summary table did not match its own matrix row count — see "Maintenance
+pass" above.
 
-Stage 3A changed three existing MISSING workflows to COVERED:
-edit placement (start U), remove placement via inspector, open edit modal via inspector.
-One new workflow was added as COVERED: removed-placement persistence (previously implicit
-in the "remove" row but now tracked separately as a distinct persistence check).
-Net effect: COVERED +4 (three promoted from MISSING + one new row), MISSING −3, total +1.
-
-Stage 3B.1 changed six existing MISSING workflows to COVERED:
-edit location, edit rack, edit device model, edit device, toggle to on-site, toggle to planning.
-Net effect: COVERED +6, MISSING −6, total unchanged.
-
-Stage 3B.2 changed eight existing NEEDS SELECTOR workflows to COVERED:
-delete location (no racks), delete location (racks exist — guard), delete rack (no placements),
-delete rack (placements exist — guard), delete device model (no devices), delete device model
-(devices exist — guard), delete device (unplaced), delete placed device (guard).
-New selectors added: `confirm-dialog-confirm`, `confirm-dialog-cancel`, and four delete-error
-banner wrappers (`location-delete-error`, `rack-delete-error`, `device-model-delete-error`,
-`device-delete-error`).  Delete trigger buttons use existing `aria-label="Delete <name>"`.
-Specs delivered as four files: `entity-deletes-inventory`, `entity-deletes-hierarchy`,
-`destructive-guards-inventory`, `destructive-guards-hierarchy` (each under the 90-minute
-Mocha timeout).
-Net effect: COVERED +8, NEEDS SELECTOR −8, total unchanged.
+Counted programmatically from every workflow row in this document (one
+status tag per row, verified with a script rather than by hand a second
+time, to avoid repeating the 2026-07-22 version's arithmetic error):
 
 | Status | Count |
 |--------|-------|
-| COVERED | 38 |
+| COVERED | 45 |
 | PARTIAL | 0 |
-| MISSING | 6 |
-| NEEDS SELECTOR | 7 |
-| DEFERRED | 9 |
-| NOT JUSTIFIED | 7 |
-| **Total workflows inventoried** | **67** |
+| MISSING | 3 |
+| NEEDS SELECTOR | 16 |
+| DEFERRED | 4 |
+| NOT JUSTIFIED | 5 |
+| **Total workflows inventoried** | **73** |
 
-Current E2E coverage: **38 / 67 workflows** (57%).
-Stage 3C target (remaining placement MISSING workflows): estimated further reduction.
+Current E2E coverage: **45 / 73 workflows (62%)**.
+
+Since the 2026-07-22 snapshot (67 total, 38 COVERED, 6 MISSING claimed —
+both figures were internally inconsistent with that version's own matrix):
+COVERED +7 (4 Stage 3C promotions from MISSING + the new
+rack-object-placement workflow it required + the `searchable-select-regression`
+row, which existed as a spec before but was never counted as a matrix row,
++1 correction from the prior version's undercount); MISSING net −6 (4
+promoted to COVERED, 2 correctly reclassified to NEEDS SELECTOR, offset by
++1 newly tracked); NEEDS SELECTOR +3 net (3 reclassified in); 2 new rows
+added that were not previously tracked at all: U-occupancy/collision
+negative path (MISSING) and move-between-racks (DEFERRED — confirmed
+unsupported by the application).
+
+---
+
+## Recommended next scope
+
+See `docs/E2E_WDIO_PLAN.md` → "Future stages" for the concrete Stage 3D+
+proposal derived from this analysis. In short: the highest-value remaining
+work is Tier-1 selector additions (git workflow, global search, validation
+panel, recent repositories, unsaved-changes-discard) since each unlocks
+real workflow coverage for a small, well-scoped application change, followed
+by the two MISSING items that need zero new selectors (rack export SVG/PNG,
+U-occupancy negative path).
