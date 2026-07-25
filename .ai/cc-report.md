@@ -1,110 +1,145 @@
 ## Summary
 
-WDIO provider benchmark on `chore/e2e-provider-benchmark` → `roadmap/e2e-wdio`
-(start HEAD `b2b44551fa75398c5d20815ef9ae97ec33a7e67c`, PR #155 merged). Stage
-3C is out of scope, not started.
+Stage 3C — Remaining placement workflows — on
+`feature/e2e-stage-3c-placement-workflows` → `roadmap/e2e-wdio` (base
+`341a44a`, PR #156 merged). **Status: COMPLETE.**
 
-Benchmarked the external and embedded WDIO providers head-to-head on the
-same HEAD, same freshly-built binaries, alternating runs (1 warm-up + 5
-measured per provider, interleaved to control for system-load drift).
-`app-smoke` fully completed: embedded is 1123% slower (~12.2x) than
-external, both individually stable (CV <2%). Combined with prior validated
-`core-inventory` data from the same HEAD lineage (embedded ~28x slower),
-both specs with a direct comparison fail the >=10%-faster threshold by
-roughly three orders of magnitude in the wrong direction — decisive enough
-that the remaining two specs (`representative-latency`,
-`searchable-select-regression`) were not re-run in this pass.
+Audited the existing WDIO spec set for consolidation candidates before
+adding new coverage, per the task's explicit "review + merge only where it
+reduces costly app/session launches without hurting isolation or
+diagnosability" instruction. Two pairs were merged:
 
-**Decision: external remains the default provider.** No default-provider
-code changes made (per the task's own instruction not to change code
-artificially when the default doesn't change) — only the benchmark
-tooling, its report, and the decision itself.
+- `destructive-guards-hierarchy.e2e.ts` + `destructive-guards-inventory
+  .e2e.ts` → `destructive-guards.e2e.ts` (identical fixture, independent
+  read-only guard checks — no order dependency).
+- `entity-deletes-hierarchy.e2e.ts` + `entity-deletes-inventory.e2e.ts` →
+  `entity-deletes.e2e.ts` (disjoint fixtures that never interact).
 
-Along the way, two tooling bugs were found and fixed (both were
-prerequisites, not benchmark deliverables):
-1. A `spawnSync` ENOBUFS crash in the new benchmark script — WDIO's
-   verbose per-command logging exceeded the default in-memory pipe
-   buffer on longer specs. Fixed by redirecting to a log file.
-2. A `brace-expansion@5.0.8`/`minimatch` incompatibility left over from
-   PR #155's dependency-audit fix — neither WDIO provider could even
-   start. `brace-expansion` 3.0.0+ dropped its CJS-default export;
-   fixed by also overriding `minimatch` to `>=10.2.5` (whose own
-   `package.json` already requires a compatible `brace-expansion`).
+Two other named pairs were explicitly reviewed and left separate:
+`core-inventory.e2e.ts` (its `measureStep()` names are pinned by
+`REQUIRED_CORE_INVENTORY_STEPS` in the performance benchmark script — an
+out-of-scope cross-cutting dependency) + `placement-lifecycle.e2e.ts`
+(distinct behavior: happy-path create vs. move/remove semantics); and
+`entity-updates-work-mode.e2e.ts` (reviewed alone, no candidate found).
+Full reasoning, before/after timing, and setup eliminated are in
+`docs/E2E_WDIO_PLAN.md`'s new "E2E spec consolidation" section.
 
-Final HEAD: `71f856b4458ea25e8be5747ffb4dc771dd78ac3e`. PR #156 opened
-to `roadmap/e2e-wdio`, not merged.
+Implemented the four Stage 3C requirements (edit placement height U, remove
+placement via `EditPlacementModal`, `PlacementInspectorPanel` navigate to
+target device, navigate to target model) plus the previously-untested
+rack-object placement workflow they required, in one new spec:
+`placement-inspector-workflows.e2e.ts`.
+
+**Real production bug found and fixed** (separate commit from the test
+work, per instruction): `PlacementInspectorPanel.tsx` checked
+`placement.target_kind === "rack_object"` — a value that never occurs
+(`PlacementTargetKind` only has `Device`/`DeviceModel`; rack-object
+placements get `target_kind: DeviceModel`) — so
+`edit-target-model-btn` could never render for any real placement. Found
+because the new spec's positive-path assertion failed against the real
+app, not because of a test-only bug. Fixed the one condition, added a
+4-case regression suite to `PlacementInspectorPanel.test.tsx`.
+
+**Mid-task scope change:** after the static/unit suite and most E2E
+validation was already green, the user interrupted the in-progress
+embedded regression check for the new spec with an explicit decision to
+abandon the embedded WDIO provider entirely. I stopped the running embedded
+task immediately (clean teardown verified — no lingering processes, ports
+4444/4445 free) and asked a clarifying question on scope, since "abandon
+the provider" is a materially bigger and harder-to-reverse action than
+skipping one validation step. The user chose full removal, but as its own
+follow-up branch/PR — not folded into this one, per this repo's minimal-
+scope workflow rules. This PR therefore: (a) does **not** claim a
+pass/fail result for `placement-inspector-workflows` under embedded (the
+run was interrupted, not completed — see docs), (b) documents the removal
+decision and scopes it as a tracked follow-up, (c) makes no other embedded-
+related code changes. External remains the default and only actively
+validated provider.
+
+Final HEAD: see `git log -1`. PR to be opened against `roadmap/e2e-wdio`,
+not merged. Stage 3D not started.
 
 ## Files changed
 
 | File | Change |
 |------|--------|
-| `package.json` | `pnpm.overrides` gained `minimatch: ">=10.2.5"` (fixes the brace-expansion incompatibility) |
-| `pnpm-lock.yaml` | `minimatch`/`brace-expansion` re-resolved to a single compatible pair |
-| `scripts/run-provider-benchmark.mjs` (+ `.test.mjs`) | New: alternating external/embedded benchmark orchestrator |
-| `docs/E2E_WDIO_PROVIDER_BENCHMARK.md` | New: full benchmark methodology, results, decision, tooling bugs found |
-| `docs/E2E_WDIO_PLAN.md` | New "Technical pass — WDIO provider benchmark" cross-reference section |
+| `apps/desktop/e2e-wdio/specs/destructive-guards.e2e.ts` | New — merges `destructive-guards-hierarchy` + `destructive-guards-inventory` |
+| `apps/desktop/e2e-wdio/specs/entity-deletes.e2e.ts` | New — merges `entity-deletes-hierarchy` + `entity-deletes-inventory` |
+| `apps/desktop/e2e-wdio/specs/destructive-guards-hierarchy.e2e.ts` | Deleted (merged) |
+| `apps/desktop/e2e-wdio/specs/destructive-guards-inventory.e2e.ts` | Deleted (merged) |
+| `apps/desktop/e2e-wdio/specs/entity-deletes-hierarchy.e2e.ts` | Deleted (merged) |
+| `apps/desktop/e2e-wdio/specs/entity-deletes-inventory.e2e.ts` | Deleted (merged) |
+| `apps/desktop/e2e-wdio/specs/placement-inspector-workflows.e2e.ts` | New — Stage 3C: height-U edit, remove-via-modal, inspector navigate-to-device/model, rack-object placement |
+| `apps/desktop/e2e-wdio/specs/placement-lifecycle.e2e.ts` | Removed local duplicate `findRowByText`/`navigateToRackDetail`, now imports canonical versions from `destructive-ui.ts` |
+| `apps/desktop/e2e-wdio/support/destructive-ui.ts` | Added `clickLocationRowAndEnterRacks()` (state-based nav-racks wait — fixes a real race found during validation), canonical `navigateToRackDetail()`, `placeDeviceAtU()` |
+| `apps/desktop/e2e-wdio/support/destructive-ui.test.ts` | New — unit tests for `navigateToRackDetail` |
+| `apps/desktop/src/features/racks/PlacementInspectorPanel.tsx` | **Production bug fix**: `target_kind === "rack_object"` → `"device_model"` for `edit-target-model-btn` |
+| `apps/desktop/src/features/racks/PlacementInspectorPanel.test.tsx` | Added 4-case regression suite for edit-target button rendering |
+| `docs/E2E_WDIO_PLAN.md` | Stage 3C section: PLANNED → COMPLETE with full detail; new "E2E spec consolidation" section; embedded-removal decision documented; "Future stages" gained the removal follow-up |
 | `.ai/cc-report.md` | This report |
 
 ## Tests
 
 ```
 pnpm install --frozen-lockfile          PASS
-pnpm audit                               PASS, 0 vulnerabilities
+pnpm audit                               PASS
 pnpm -C apps/desktop typecheck           PASS
-pnpm -C apps/desktop test                917/917 PASS
+pnpm -C apps/desktop test                923/923 PASS
 node --test scripts/*.test.mjs           353/353 PASS
-node scripts/check-repo-hygiene.mjs      8/8 PASS
+node scripts/check-repo-hygiene.mjs      PASS
 node scripts/check-version-consistency.mjs   PASS
 cargo fmt --all --check                  PASS
 cargo check --workspace                  PASS
 cargo clippy --workspace -- -D warnings  PASS
+git diff --check                         PASS
 
-Provider benchmark (app-smoke, 5 measured runs each, alternating):
-  external  median=5318ms mean=5315ms min=5243ms max=5420ms cv=1.41%  5/5 CLEAN_PASS, ports free
-  embedded  median=65042ms mean=65036ms min=64995ms max=65055ms cv=0.04%  5/5 CLEAN_PASS, ports free
-  embedded vs external: -1123% (12.2x slower)
+External E2E (canonical runner, final HEAD):
+  destructive-guards.e2e.ts              CLEAN_PASS, 33-35s (x3 runs), ports free
+  entity-deletes.e2e.ts                  CLEAN_PASS, 28-29s, ports free
+  placement-inspector-workflows.e2e.ts   CLEAN_PASS, 25-26s (x3 runs), ports free
+  placement-lifecycle.e2e.ts             CLEAN_PASS, 21s (re-run after helper refactor), ports free
+  app-smoke.e2e.ts                       CLEAN_PASS
 
-Short E2E regression (final HEAD, canonical runners):
-  pnpm test:e2e:wdio -- --spec app-smoke --skip-build            CLEAN_PASS, 5s
-  pnpm test:e2e:wdio:embedded -- --spec app-smoke --skip-build   CLEAN_PASS, 65s
-
-CI (GitHub Actions, PR #156): 7/7 jobs PASS
-  Frontend checks, Frontend dependency audit, Rust dependency audit,
-  Rust workspace, Script and hygiene checks, Version consistency, Workflow lint
+Embedded:
+  app-smoke.e2e.ts                       CLEAN_PASS, 65s
+  placement-inspector-workflows.e2e.ts   INTERRUPTED (not a pass/fail result) —
+                                          stopped mid-run per explicit user decision
+                                          to abandon the embedded provider; clean
+                                          teardown verified (no lingering processes,
+                                          ports 4444/4445 free)
+  Static check: new spec's interactions use only already-established
+  provider-agnostic patterns (selectSearchableOption, browser.execute
+  synthetic click for backdrop-obscured ConfirmDialog buttons) — no new
+  provider-specific workaround introduced.
 ```
 
 ## Risks
 
-- The full 5-measured-run alternating protocol was only completed for
-  `app-smoke`; `core-inventory`, `representative-latency`, and
-  `searchable-select-regression` rely on prior validated data from one
-  commit earlier in the same HEAD lineage rather than a fresh run in this
-  exact pass. The margins involved (12-28x) are far outside the decision
-  threshold, so this is judged not to change the outcome, but it is not a
-  complete re-run of the full protocol.
-- One benchmark run was aborted mid-flight by the ENOBUFS bug and left a
-  stray `tauri-driver`/`WebKitWebDriver`/`Xvfb`/app-binary process group
-  and occupied ports 4444/4445; identified and terminated manually, and
-  port state was re-verified clean before continuing. No such abort
-  occurred after the fix.
-- The `minimatch` override is a fairly wide-reaching pin (all transitive
-  dev-tooling consumers now resolve to minimatch@10.2.5); verified via a
-  live WDIO run on both providers, plus the full static/unit test suite,
-  but this is a larger jump than a typical patch-level override.
+- `placement-inspector-workflows.e2e.ts` has no completed embedded run —
+  only external `CLEAN_PASS` x3 plus the static provider-agnostic-pattern
+  check. Acceptable because embedded is being fully removed as an
+  immediate follow-up, and external is the sole gating provider.
+- The consolidated specs' *external* timing is freshly measured this pass;
+  their embedded "before" timing is prior-session data (documented as such
+  in `docs/E2E_WDIO_PLAN.md`), not re-measured now — moot given the
+  embedded-removal decision.
+- `clickLocationRowAndEnterRacks()`'s state-based wait fixed one real race
+  (a `findRowByExactName` timeout) found during this pass's own validation;
+  fixed with an app-state condition (`nav-racks` visibility), not a timeout
+  increase — re-verified via 5 subsequent clean runs across the two specs
+  that use it.
 
 ## Not done
 
-- Full 5-measured-run benchmark for `core-inventory`,
-  `representative-latency`, `searchable-select-regression` in this exact
-  pass (relied on prior validated data instead — see Risks).
-- Stage 3C — explicitly out of scope, not started.
-- No default-provider code/runner/CLI changes — intentional, per the
-  decision and the task's own instruction against artificial changes.
+- Embedded provider removal itself — intentionally scoped to a separate
+  follow-up branch/PR (tracked as task #27), not this PR, per the user's
+  explicit choice and this repo's minimal-scope-per-PR workflow rule.
+- Dedicated U-occupancy/collision negative-path spec — not in the Stage 3C
+  MISSING list and not requested; noted as a gap, not silently dropped.
+- Stage 3D — not started, per explicit instruction.
 
 ## Suggested next step
 
-Human review of PR #156. If reviewers want the remaining three specs
-re-benchmarked with the fixed tooling despite the already-decisive
-margin, that can be a quick follow-up run using the now-working
-`scripts/run-provider-benchmark.mjs` directly. Otherwise, close out this
-PR as documentation-only and proceed to Stage 3C planning.
+Open the follow-up branch for full embedded-provider removal (task #27)
+once this PR is reviewed/merged to `roadmap/e2e-wdio`, so the codebase
+stops carrying an abandoned, unvalidated provider path.

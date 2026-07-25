@@ -1196,21 +1196,216 @@ audit fix), and the full results table: see
 
 ---
 
+### E2E spec consolidation
+
+**Status: COMPLETE** (part of the Stage 3C pass below).
+
+Audit of `apps/desktop/e2e-wdio/specs/*.e2e.ts`, `benchmarks/*.e2e.ts`, and
+`support/*` before adding Stage 3C coverage, per the goal of reducing costly
+app/session launches without merging specs that don't actually belong
+together. Every existing pair the audit was asked to check by name is
+addressed below — including the two pairs judged **not** to merge, with the
+reason.
+
+**Merged:**
+
+- **`destructive-guards-hierarchy.e2e.ts` + `destructive-guards-inventory
+  .e2e.ts` → `destructive-guards.e2e.ts`.** Both built the *exact same*
+  fixture (Location, Rack 14U, Device Model 1U server, Device with model
+  assigned, Placement at U1) independently before testing a different guard
+  pair against it (Location/Rack vs. Device Model/Device). Every guard check
+  in both original specs only *attempts* a blocked delete — none of them
+  ever mutates the graph — so running all four guard checks against one
+  shared fixture carries no order-dependency or isolation risk. Setup
+  (fixture creation, full-graph verification, aggregate check, dirty-state
+  check, reopen-verification) that was previously duplicated across two full
+  app launches now runs once. Before (embedded, prior validated data):
+  44:21 + 44:32 ≈ 89 min combined. After (external, this pass): 33–35s for
+  one combined run (3 runs, all `CLEAN_PASS`) — not re-measured under
+  embedded in this pass (external is the default/gating provider; the
+  embedded provider was decided during this pass to be removed entirely —
+  see "Embedded regression" below).
+- **`entity-deletes-hierarchy.e2e.ts` + `entity-deletes-inventory.e2e.ts` →
+  `entity-deletes.e2e.ts`.** Fixtures are disjoint — Location/Rack vs.
+  Device Model/Device, and the device stays unplaced — so the two deletion
+  sequences never interact: deleting the Rack/Location has no bearing on the
+  Device/Model's existence or vice versa. One shared repository/session
+  instead of two. Before (embedded, prior validated data): 19:22 + 23:29 ≈
+  43 min combined. After (external, this pass): 28–29s.
+
+**Helper refactor (both merges + Stage 3C):** `navigateToRackDetail`
+(previously duplicated locally, with diverging robustness, in
+`destructive-guards-inventory.e2e.ts` and `placement-lifecycle.e2e.ts`) is
+now the one canonical version in `destructive-ui.ts`. Extracted
+`clickLocationRowAndEnterRacks()`, which waits for the `nav-racks` tab to
+become visible before proceeding — a real application-state condition
+(matching the wait `core-inventory.e2e.ts` already used after its own
+location-row click) that closes a rare race between a location-row click
+and the following rack-list/detail state check; caught once during
+validation of the new `destructive-guards.e2e.ts` (a `findRowByExactName`
+timeout), not reproduced across five subsequent runs of the merged specs
+after the fix. Also extracted `placeDeviceAtU()` (palette Place →
+`PlacePlacementModal` → fill start U → submit), which
+`destructive-guards.e2e.ts` and the new `placement-inspector-workflows
+.e2e.ts` both needed verbatim.
+
+**Considered and explicitly left separate:**
+
+- **`core-inventory.e2e.ts` + `placement-lifecycle.e2e.ts`.** Both build a
+  similarly-shaped fixture and place a device, which looks like duplication
+  on the surface — but `core-inventory.e2e.ts`'s `measureStep()` call names
+  are validated *by name* in `scripts/run-wdio-performance-benchmark.mjs`'s
+  `REQUIRED_CORE_INVENTORY_STEPS`, and the spec is referenced throughout the
+  Stage 3B.4 latency-optimization docs and the `representative-latency`
+  benchmark as a stable baseline. Renaming or merging it would break that
+  cross-cutting, out-of-scope infrastructure for no real gain — the two
+  specs also test different behavior (core-inventory: full create-through-
+  persist happy path; placement-lifecycle: move + remove semantics
+  core-inventory never touches).
+- **`entity-updates-work-mode.e2e.ts`.** Reviewed on its own (not paired
+  with anything in the original list) — already comprehensive (four entity
+  edits + work-mode toggle in one fixture) and tests a distinct concern
+  (edits, not deletes/guards). No consolidation candidate identified.
+- **`searchable-select-regression.e2e.ts`.** Explicitly out of scope for
+  consolidation — a deliberately small, targeted regression, not a
+  candidate for folding into a larger workflow spec.
+- **`app-smoke.e2e.ts`, `repository-lifecycle.e2e.ts`,
+  `safety-recovery.e2e.ts`, `csv-import.e2e.ts`.** Each tests a genuinely
+  distinct concern (smoke, repository lifecycle, safety/validation logic,
+  CSV import) with its own fixture shape; no meaningful duplicate setup to
+  eliminate.
+
+**Specs before:** 12 (`app-smoke`, `core-inventory`, `csv-import`,
+`destructive-guards-hierarchy`, `destructive-guards-inventory`,
+`entity-deletes-hierarchy`, `entity-deletes-inventory`,
+`entity-updates-work-mode`, `placement-lifecycle`, `repository-lifecycle`,
+`safety-recovery`, `searchable-select-regression`).
+**Specs after:** 11 (the above minus the four hierarchy/inventory pairs,
+plus `destructive-guards`, `entity-deletes`) **+ 1 new**
+(`placement-inspector-workflows`, Stage 3C below) **= 12.**
+
+---
+
 ### Stage 3C — Remaining placement workflows
 
-**Status: PLANNED**
+**Status: COMPLETE**
 
-Not yet started.  Scope pending.
+Branch: `feature/e2e-stage-3c-placement-workflows`
+Direct base: `roadmap/e2e-wdio`
 
-Representative scope from the MISSING list in the gap analysis:
-- Edit placement height U (`height-u-input` in `EditPlacementModal`)
-- Remove placement via `EditPlacementModal` remove button (distinct confirm label "Remove placement")
-- `PlacementInspectorPanel` navigate to device (`edit-target-device-btn`)
-- `PlacementInspectorPanel` navigate to model (`edit-target-model-btn`)
+**Scope**, verified against `docs/E2E_WDIO_COVERAGE_GAPS.md`'s gap analysis
+and the current application source before implementing anything (all four
+items confirmed still MISSING and all required selectors confirmed already
+present — no new selectors added):
 
-All required selectors are already present in application source.
+| Requirement | Selectors | Spec | Result |
+|---|---|---|---|
+| Edit placement height U | `open-edit-modal-btn`, `height-u-input`, `save-btn` | `placement-inspector-workflows.e2e.ts` Part C | `CLEAN_PASS` |
+| Remove placement via `EditPlacementModal` | `remove-btn`, confirm label "Remove placement" | `placement-inspector-workflows.e2e.ts` Part D | `CLEAN_PASS` |
+| `PlacementInspectorPanel` → target device | `edit-target-device-btn` | `placement-inspector-workflows.e2e.ts` Part F | `CLEAN_PASS` |
+| `PlacementInspectorPanel` → target model | `edit-target-model-btn` | `placement-inspector-workflows.e2e.ts` Part H | `CLEAN_PASS` — see production bug below |
+
+**Broader workflow checklist** (derived from the current plan and code, not
+only the illustrative list in the stage brief):
+
+| Item | Status |
+|---|---|
+| Add device to rack | Already covered (`core-inventory`, `placement-lifecycle`, `destructive-guards`, `entity-deletes`, `placement-inspector-workflows`) |
+| Move within a rack (start U) | Already covered (`placement-lifecycle` Part 2) |
+| Move between racks | **Not applicable** — `EditPlacementModal` and `RackDetailPanel.handleDiagramMovePlacement` both hardcode the current rack; no UI exposes selecting a different target rack. Nothing to test. |
+| Remove placement | Already covered (`placement-lifecycle` via inspector) **+ new**: via `EditPlacementModal`'s own remove button |
+| U-occupancy / collision validation | Exercised implicitly (every placement in every spec succeeds at a deliberately non-overlapping U); no dedicated negative/collision spec existed before this pass and none was in the plan's MISSING list — treated as out of scope for this pass, not silently dropped |
+| Height override behavior | **New** — Part C |
+| Device-type change behavior | Not placement-specific (device type is set at creation); no placement workflow depends on it |
+| Navigate to target rack | Not applicable — see "move between racks" |
+| View/data consistency | Exercised throughout via aggregate + persistence checks in every spec touched this pass |
+| Unsaved-changes handling | Already covered (`destructive-guards`'s dirty-state check; `UnsavedChangesDialog` flows throughout) |
+| Behavior after reopen | Already covered everywhere via save/close/reopen persistence checks, including the new spec's Part I |
+
+**Existing coverage reused:** device placement (`placeDeviceAtU`, extracted
+from `destructive-guards.e2e.ts`'s and the new spec's identical inline
+sequences), repository create/save/close/reopen (`createRepositoryThroughUi`,
+`expectActiveRepositoryPath`), row lookup (`findRowByExactName`), rack
+navigation (`navigateToRackDetail`, `clickLocationRowAndEnterRacks`),
+`ConfirmDialog` interaction (`clickConfirmDialogAction`,
+`waitForConfirmDialogClosed`), `SearchableSelect` (`selectSearchableOption`).
+No duplicate scenarios were added.
+
+**New workflow: rack-object placements.** `edit-target-model-btn` only
+applies to `device_model`-kind placements — "rack objects" (a Device Model
+with `device_type: "rack_object"`, e.g. a PDU) placed directly from the
+palette with no separate Device record. Testing it required creating a
+rack-object model and placing it, which no existing spec did. The palette's
+place button is keyed by the model's internal id
+(`place-btn-model-<id>`), not its human-readable `data-model-code` — matched
+in the spec via the button's `aria-label` instead.
+
+**Production bug found and fixed** (`fix(placement)` commit, separate from
+the `test(e2e)` Stage 3C commit): `PlacementInspectorPanel.tsx` checked
+`placement.target_kind === "rack_object"` to decide whether to render
+`edit-target-model-btn`, but `PlacementDto.target_kind` only ever takes two
+values — `"device"` or `"device_model"`
+(`PlacementTargetKind` in `crates/ris-core/src/placement.rs` has no
+`RackObject` variant; rack-object placements get `target_kind:
+DeviceModel`). `EditPlacementModal.tsx` already checked the correct value
+for its own type label — only `PlacementInspectorPanel.tsx`'s condition was
+wrong, so the button could never render for any real placement. Found while
+writing this spec (the real app showed the inspector's "No placement
+selected" empty state instead of the button); fixed by matching
+`"device_model"`, with a four-case regression suite added to
+`PlacementInspectorPanel.test.tsx`.
+
+**Timing (external, final HEAD):** `placement-inspector-workflows.e2e.ts`
+— `CLEAN_PASS` × 3 runs (across iterations of this pass), 25–26s each, ports
+free before/after every run. Comfortably under the ~30-minute
+reconsider-the-split guideline.
+
+**Embedded regression — superseded by a provider decision made during this
+pass:** a representative embedded run of `placement-inspector-workflows`
+was started (per-command overhead made it long-running: still in Part A
+after 8 minutes) alongside the already-completed `app-smoke` check
+(`CLEAN_PASS`, 65s). Mid-run, the decision was made to fully remove the
+embedded provider from the codebase — given that, continuing to spend time
+validating it further had no value, so the run was interrupted
+(`SIGTERM`, verified clean: no lingering `tauri-driver`/`Xvfb`/binary
+processes, ports 4444/4445 free afterward) rather than left to finish. This
+is a deliberate scope decision, not a `CLEAN_PASS`/`FAIL` result for that
+run — no pass/fail claim is made about
+`placement-inspector-workflows.e2e.ts` under embedded. `app-smoke`'s
+completed `CLEAN_PASS` remains the last valid embedded data point on this
+HEAD. The static provider-agnostic-interaction check below was performed in
+its place.
+
+**Embedded provider — removal decided, not yet executed.** Full removal
+(build scripts, canonical runner, CI wiring if any, benchmark tooling,
+documentation) is intentionally **not** part of this PR — it is unrelated
+to Stage 3C's placement-workflow scope and, per this repo's workflow rules,
+belongs on its own branch/PR so it stays independently reviewable and
+revertable. It is tracked as the immediate next follow-up after this PR.
+Until that follow-up lands, external remains the only actively validated
+provider and embedded should be treated as deprecated, not merely optional.
+
+**Static check — no provider-specific workarounds:** the new spec's element
+interactions reuse only already-established, provider-agnostic patterns
+from this codebase — `selectSearchableOption()` for the model-search
+dropdown, `browser.execute(el => el.click(), el)` synthetic clicks for
+backdrop-obscured `ConfirmDialog` buttons (the same pattern
+`placement-lifecycle.e2e.ts` already uses for its "Remove from rack"
+confirmation, needed because a native click's `mousedown` can land on the
+dialog's own backdrop first). No `HTMLElement.click()` workaround was used
+as a substitute for a real WebDriver click anywhere.
 
 ## Future stages
+
+**Immediate next follow-up (not a numbered stage):** remove the embedded
+WDIO provider entirely — `scripts/run-wdio-e2e-embedded.mjs`,
+`scripts/build-wdio-embedded-binary.mjs`, the `tauri-plugin-wdio-webdriver`
+integration, `pnpm test:e2e:wdio:embedded`, and embedded-specific sections
+of this document and `docs/E2E_WDIO_PROVIDER_BENCHMARK.md`. Decided during
+the Stage 3C pass (see "Embedded regression — superseded by a provider
+decision" above) after the provider was already confirmed ~12x slower than
+external with no stability advantage. Deliberately scoped to its own
+branch/PR rather than folded into Stage 3C.
 
 Placeholder areas for stages beyond Stage 3. Scope and order will be decided during
 program planning.
