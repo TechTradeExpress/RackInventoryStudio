@@ -38,6 +38,7 @@ import {
   createRepositoryThroughUi,
 } from "../support/repository-ui";
 import { clickNav, waitForFormCloseOrError, selectSearchableOption } from "../support/spec-interactions";
+import { findRowByExactName, navigateToRackDetail } from "../support/destructive-ui";
 
 function log(msg: string) {
   const ts = new Date().toISOString().substring(11, 23);
@@ -45,65 +46,6 @@ function log(msg: string) {
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
-
-/**
- * Find the first row matching `text` among elements with the given CSS selector.
- * Returns the matched element.  Uses JS click workaround for <tr> elements.
- */
-async function findRowByText(
-  rowSelector: string,
-  text: string,
-  timeout = 15_000,
-): Promise<WebdriverIO.Element> {
-  let found: WebdriverIO.Element | null = null;
-  await browser.waitUntil(
-    async () => {
-      try {
-        const rows = await browser.$$(rowSelector);
-        for (const row of rows) {
-          const rowText = await row.getText();
-          if (rowText.includes(text)) {
-            found = row;
-            return true;
-          }
-        }
-        return false;
-      } catch {
-        return false;
-      }
-    },
-    { timeout, timeoutMsg: `Row matching "${text}" via "${rowSelector}" not found` },
-  );
-  return found!;
-}
-
-/**
- * Navigate to a rack detail panel: Locations tab → click location row →
- * wait for Racks tab → find and click rack row → wait for rack detail.
- *
- * Also verifies that the rack (and its parent location) is still accessible —
- * the waitForDisplayed on palette-drop-zone throws if the rack detail does not load.
- */
-async function navigateToRackDetail(
-  locationName: string,
-  rackName: string,
-): Promise<void> {
-  await clickNav("locations");
-  const locationRow = await findRowByText("[data-location-code]", locationName);
-  await browser.execute(
-    (el: HTMLElement) => el.click(),
-    locationRow as unknown as HTMLElement,
-  );
-  await browser.$('[data-testid="nav-racks"]').waitForDisplayed({ timeout: 10_000 });
-  await browser.$('[data-testid="rack-add-btn"]').waitForDisplayed({ timeout: 10_000 });
-
-  const rackRow = await findRowByText("[data-rack-code]", rackName);
-  await browser.execute(
-    (el: HTMLElement) => el.click(),
-    rackRow as unknown as HTMLElement,
-  );
-  await browser.$('[data-testid="palette-drop-zone"]').waitForDisplayed({ timeout: 15_000 });
-}
 
 /**
  * Return the expected U-range string for a device of `heightU` rows placed at `startU`.
@@ -173,12 +115,12 @@ describe("Rack Inventory Studio — placement lifecycle", () => {
       await browser.$('[data-testid="location-form-submit"]').waitForDisplayed({ timeout: 10_000 });
       await reactSetValue("field-name", locationName);
       await clickWhenEnabled("location-form-submit");
-      await findRowByText("[data-location-code]", locationName);
+      await findRowByExactName("[data-location-code]", locationName);
       log("part 1: location created");
 
       // Rack (click location row → Racks tab opens automatically)
       log("part 1: clicking location row to go to Racks");
-      const locRow = await findRowByText("[data-location-code]", locationName);
+      const locRow = await findRowByExactName("[data-location-code]", locationName);
       await browser.execute((el: HTMLElement) => el.click(), locRow as unknown as HTMLElement);
       await browser.$('[data-testid="nav-racks"]').waitForDisplayed({ timeout: 10_000 });
 
@@ -189,7 +131,7 @@ describe("Rack Inventory Studio — placement lifecycle", () => {
       await reactSetValue("field-name", rackName);
       await reactSetValue("field-height-u", String(RACK_HEIGHT));
       await clickWhenEnabled("rack-form-submit");
-      await findRowByText("[data-rack-code]", rackName);
+      await findRowByExactName("[data-rack-code]", rackName);
       log("part 1: rack created");
 
       // Device Model
@@ -202,7 +144,7 @@ describe("Rack Inventory Studio — placement lifecycle", () => {
       await reactSetValue("field-name", modelName);
       await reactSetValue("field-height-u", String(MODEL_HEIGHT));
       await clickWhenEnabled("model-form-submit");
-      await findRowByText("[data-model-code]", modelName);
+      await findRowByExactName("[data-model-code]", modelName);
       log("part 1: device model created (2U server)");
 
       // Device
@@ -246,7 +188,7 @@ describe("Rack Inventory Studio — placement lifecycle", () => {
 
       // Verify unplaced badge.
       {
-        const deviceRow = await findRowByText("[data-device-code]", deviceName);
+        const deviceRow = await findRowByExactName("[data-device-code]", deviceName);
         const rowText = await deviceRow.getText();
         if (!rowText.toLowerCase().includes("unplaced")) {
           throw new Error(
@@ -575,7 +517,7 @@ describe("Rack Inventory Studio — placement lifecycle", () => {
       await browser.$('[data-testid="device-add-btn"]').waitForDisplayed({ timeout: 10_000 });
 
       {
-        const deviceRowAfterRemoval = await findRowByText("[data-device-code]", deviceName);
+        const deviceRowAfterRemoval = await findRowByExactName("[data-device-code]", deviceName);
         const rowTextAfterRemoval = await deviceRowAfterRemoval.getText();
         if (!rowTextAfterRemoval.toLowerCase().includes("unplaced")) {
           throw new Error(
@@ -614,7 +556,7 @@ describe("Rack Inventory Studio — placement lifecycle", () => {
       await clickNav("devices");
       await browser.$('[data-testid="device-add-btn"]').waitForDisplayed({ timeout: 10_000 });
 
-      const deviceRowFinal = await findRowByText("[data-device-code]", deviceName, 15_000);
+      const deviceRowFinal = await findRowByExactName("[data-device-code]", deviceName, 15_000);
       const deviceRowFinalText = await deviceRowFinal.getText();
       if (!deviceRowFinalText.toLowerCase().includes("unplaced")) {
         throw new Error(
@@ -627,7 +569,7 @@ describe("Rack Inventory Studio — placement lifecycle", () => {
       log("part 5: verifying device model still exists");
       await clickNav("device_models");
       await browser.$('[data-testid="model-add-btn"]').waitForDisplayed({ timeout: 10_000 });
-      await findRowByText("[data-model-code]", modelName, 15_000);
+      await findRowByExactName("[data-model-code]", modelName, 15_000);
       log(`part 5: device model "${modelName}" still exists in Device Models list`);
 
       // Verify rack is still accessible and no placed card persists.

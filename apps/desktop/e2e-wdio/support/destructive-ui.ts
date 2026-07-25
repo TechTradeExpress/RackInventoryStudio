@@ -14,11 +14,15 @@
  *     can erroneously dismiss the dialog before the click reaches the button.
  *     browser.execute() bypasses the backdrop event entirely.
  *
- * Guard coverage for the four relationship guard workflows is split across:
- *   - destructive-guards-inventory.e2e.ts (Device model guard, Device guard)
- *   - destructive-guards-hierarchy.e2e.ts (Location guard, Rack guard)
+ * Guard and delete-flow coverage for hierarchy (Location, Rack) and inventory
+ * (Device Model, Device) entities is combined in destructive-guards.e2e.ts and
+ * entity-deletes.e2e.ts respectively — see those files' own doc comments for
+ * the full PART breakdown.
  */
 import { browser } from "@wdio/globals";
+import { clickNav, waitForFormCloseOrError } from "./spec-interactions";
+import { isSelectorVisible } from "./dom-helpers";
+import { clickWhenEnabled } from "./repository-ui";
 
 // ── Atomic DOM read ───────────────────────────────────────────────────────────
 
@@ -267,6 +271,58 @@ export async function expectNoDeleteError(testId: string): Promise<void> {
 // ── Rack navigation helpers ───────────────────────────────────────────────────
 
 /**
+ * Click a location row and wait for the nested Racks tab (nav-racks) to
+ * become visible before returning.
+ *
+ * The Racks tab only renders once a location is selected — clicking the row
+ * dispatches handleManageRacks, which sets the active location and switches
+ * tabs, but that is an async state update. Without waiting for nav-racks
+ * itself, a caller that immediately checks for the rack list/detail state
+ * (ensureRackListView) can race the tab switch: on a slow render, neither
+ * rack-add-btn nor palette-drop-zone exists yet, and — very rarely — a stale
+ * element reference to the *previous* render of a rack-list row can outlive
+ * the click, producing a "row not found" timeout instead of a real
+ * assertion failure. Waiting for nav-racks (the same signal
+ * core-inventory.e2e.ts uses after its own location-row click) closes that
+ * window with a real application-state condition, not a longer timeout.
+ */
+export async function clickLocationRowAndEnterRacks(locationName: string): Promise<void> {
+  const locationRow = await findRowByExactName("[data-location-code]", locationName);
+  await browser.execute((el: HTMLElement) => el.click(), locationRow as unknown as HTMLElement);
+  await browser.waitUntil(() => browser.execute(isSelectorVisible, '[data-testid="nav-racks"]'), {
+    timeout: 10_000,
+    interval: 100,
+    timeoutMsg: `nav-racks did not appear after clicking location row "${locationName}"`,
+  });
+}
+
+/**
+ * Navigate to a rack's detail panel: Locations tab → click the location row →
+ * rack list → click the rack row → rack detail (palette-drop-zone visible).
+ *
+ * Uses ensureRackListView() before searching for the rack row so a residual
+ * rack-detail view from a previous visit (App.tsx's selectedRack can still be
+ * set) does not hide rack-add-btn/the rack list — see ensureRackListView's
+ * own doc comment for why this matters.
+ *
+ * Throws (via findRowByExactName / waitForDisplayed) if the location or rack
+ * no longer exists — callers rely on this to assert the rack is still
+ * reachable after a mutation.
+ */
+export async function navigateToRackDetail(
+  locationName: string,
+  rackName: string,
+): Promise<void> {
+  await clickNav("locations");
+  await clickLocationRowAndEnterRacks(locationName);
+  await ensureRackListView();
+  // rack-add-btn can appear before listRacks() finishes — use 30 s to allow data to load
+  const rackRow = await findRowByExactName("[data-rack-code]", rackName, 30_000);
+  await browser.execute((el: HTMLElement) => el.click(), rackRow as unknown as HTMLElement);
+  await browser.$('[data-testid="palette-drop-zone"]').waitForDisplayed({ timeout: 15_000 });
+}
+
+/**
  * Atomically check whether the racks panel is showing the rack list or the rack
  * detail view.  Returns "list" when rack-add-btn is present, "detail" when BOTH
  * palette-drop-zone AND rack-detail-back-btn are present, or null when neither
@@ -468,4 +524,35 @@ export async function expectExactlyOnePlacement(
       `startU=${startU} exists but is not displayed`,
     );
   }
+}
+
+/**
+ * Place an already-created device at a given U position via the rack
+ * detail's palette Place button and PlacePlacementModal.
+ *
+ * Assumes the caller is already on a rack's detail view (e.g. via
+ * navigateToRackDetail) with the device's palette entry visible.
+ */
+export async function placeDeviceAtU(deviceCode: string, startU: number): Promise<void> {
+  const paletteBtnSel = `button[data-testid^="place-btn-device-"][data-device-code="${deviceCode}"]`;
+  await browser.waitUntil(() => browser.$(paletteBtnSel).isDisplayed(), {
+    timeout: 15_000,
+    timeoutMsg: `Palette Place button for device "${deviceCode}" not displayed`,
+  });
+  await browser.$(paletteBtnSel).click();
+
+  await browser.waitUntil(() => browser.$('[data-testid="place-btn"]').isEnabled(), {
+    timeout: 30_000,
+    timeoutMsg: "PlacePlacementModal place-btn never became enabled",
+  });
+
+  await browser.$('[data-testid="start-u-input"]').waitForDisplayed({ timeout: 10_000 });
+  await browser.$('[data-testid="start-u-input"]').addValue(String(startU));
+
+  await clickWhenEnabled("place-btn");
+  await waitForFormCloseOrError("place-btn", {
+    timeout: 60_000,
+    errorLabel: "Placement failed",
+    timeoutLabel: "Placement modal",
+  });
 }

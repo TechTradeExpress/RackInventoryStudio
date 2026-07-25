@@ -175,6 +175,95 @@ describe("PlacementInspectorPanel — Remove from rack", () => {
   });
 });
 
+// ── Edit-target navigation buttons ──────────────────────────────────────────────
+//
+// Regression for a target_kind mismatch: PlacementDto.target_kind is only ever
+// "device" or "device_model" (see PlacementTargetKind in crates/ris-core/src/
+// placement.rs — there is no "rack_object" variant). Rack-object placements
+// (placed straight from a Device Model with device_type "rack_object", with no
+// separate Device record) get target_kind "device_model", the same value
+// EditPlacementModal.tsx already checks for. edit-target-model-btn previously
+// checked for target_kind === "rack_object", which never matches any real
+// placement, so the button could never render.
+
+describe("PlacementInspectorPanel — edit-target navigation buttons", () => {
+  it("renders edit-target-device-btn for a device placement when onEditTargetDevice is provided", () => {
+    const p = makePlacement({ target_kind: "device" });
+    render(
+      <PlacementInspectorPanel
+        placement={p}
+        side="Front"
+        currentRack={FIXTURE_RACK}
+        onMoveSuccess={vi.fn()}
+        onRemoveSuccess={vi.fn()}
+        onOpenEditModal={vi.fn()}
+        onEditTargetDevice={vi.fn()}
+        onEditTargetModel={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("edit-target-device-btn")).toBeTruthy();
+    expect(screen.queryByTestId("edit-target-model-btn")).toBeNull();
+  });
+
+  it("renders edit-target-model-btn for a device_model (rack-object) placement when onEditTargetModel is provided", () => {
+    const p = makePlacement({
+      target_kind: "device_model",
+      target_id: "model-1",
+      target_code: "model-pdu-01",
+      target_name: "PDU 8-port",
+      device_type: null,
+    });
+    render(
+      <PlacementInspectorPanel
+        placement={p}
+        side="Front"
+        currentRack={FIXTURE_RACK}
+        onMoveSuccess={vi.fn()}
+        onRemoveSuccess={vi.fn()}
+        onOpenEditModal={vi.fn()}
+        onEditTargetDevice={vi.fn()}
+        onEditTargetModel={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("edit-target-model-btn")).toBeTruthy();
+    expect(screen.queryByTestId("edit-target-device-btn")).toBeNull();
+  });
+
+  it("invokes onEditTargetModel with the placement's target_id when edit-target-model-btn is clicked", () => {
+    const onEditTargetModel = vi.fn();
+    const p = makePlacement({ target_kind: "device_model", target_id: "model-42" });
+    render(
+      <PlacementInspectorPanel
+        placement={p}
+        side="Front"
+        currentRack={FIXTURE_RACK}
+        onMoveSuccess={vi.fn()}
+        onRemoveSuccess={vi.fn()}
+        onOpenEditModal={vi.fn()}
+        onEditTargetModel={onEditTargetModel}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("edit-target-model-btn"));
+    expect(onEditTargetModel).toHaveBeenCalledWith("model-42");
+  });
+
+  it("renders neither edit-target button when the corresponding callback prop is omitted", () => {
+    const p = makePlacement({ target_kind: "device_model", target_id: "model-1" });
+    render(
+      <PlacementInspectorPanel
+        placement={p}
+        side="Front"
+        currentRack={FIXTURE_RACK}
+        onMoveSuccess={vi.fn()}
+        onRemoveSuccess={vi.fn()}
+        onOpenEditModal={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId("edit-target-model-btn")).toBeNull();
+    expect(screen.queryByTestId("edit-target-device-btn")).toBeNull();
+  });
+});
+
 // ── Code-leakage regression ────────────────────────────────────────────────────
 
 describe("PlacementInspectorPanel — code leakage regression", () => {
