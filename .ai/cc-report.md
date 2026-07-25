@@ -1,168 +1,117 @@
 ## Summary
 
-Technical cleanup pass on `chore/e2e-remove-embedded-provider` →
-`roadmap/e2e-wdio` (base `7e8b53e`, PR #157 merged — Stage 3C). Not Stage
-3D, not started.
+Documentation-only maintenance/planning pass, committed directly to
+`roadmap/e2e-wdio` (no PR, no branch — per explicit instruction). Base:
+`db6752d` (PR #158 merged — embedded WDIO provider removal). Final:
+`7ec419b`.
 
-Full removal of the embedded WDIO driver provider, per an explicit user
-decision ("porzucamy ten provider") made mid-Stage-3C after the provider
-benchmark found it ~12x slower than external on `app-smoke` (~28x on
-`core-inventory`) with no stability advantage, and Stage 3C's own
-representative embedded regression check for `placement-inspector-workflows`
-was still in its first part after 8 minutes when interrupted.
+Reconciled `docs/E2E_WDIO_PLAN.md` and `docs/E2E_WDIO_COVERAGE_GAPS.md`
+with actual repo state, treating the repo (not the prior docs) as source
+of truth throughout.
 
-**Audit first, then removal.** Ran the full `git grep` sweep the task
-specified across `package.json`, `pnpm-lock.yaml`, `Cargo.toml`,
-`Cargo.lock`, `apps/desktop/`, `crates/`, `scripts/`, `docs/`, `.github/`,
-`.ai/`, `.gitignore` before touching anything, and classified every hit —
-active code, dev tooling, tests, operational docs, historical docs, AI
-reports, or an unrelated English usage of the word "embedded"
-(`apps/desktop/src-tauri/src/commands/repository.rs`,
-`apps/desktop/src-tauri/src/diagnostics.rs`, `crates/ris-git/src/lib.rs`,
-`docs/UX_AUDIT_PREP_EN.md`, `.ai/local-diagnostics-logging.md` — all
-untouched, none are false removals).
+**`E2E_WDIO_PLAN.md`:** the "Program status" table and every per-stage
+status line were stale — "Stage 2 COMPLETED" at the top while Stage 3
+(3A–3C) and two subsequent technical passes (provider benchmark, embedded
+removal) were already fully merged; Stage 3B.2 and 3B.4 still marked "IN
+REVIEW" despite their PRs (#152, #154) having merged long ago. All fixed,
+each with the actual merge commit cited. The pre-Stage-3 "Remaining
+candidate areas" planning list was marked historical/superseded (several
+items it listed as open were actually done). Stage 3B.3's forward-looking
+"embedded deferred to a future stage, contingent on an upstream fix"
+prediction — which did not hold (embedded was later restored via a
+test-side fix, benchmarked, then fully removed) — got an explicit
+"what actually happened next" annotation rather than being silently left
+to mislead a reader. Two now-resolved risk-table items (`tauri-plugin-wdio`
+scope/overhead) were moved to a "Resolved" note. A stale "~51 minute full
+suite" runtime claim was replaced with an honest statement of what is
+and isn't currently known (no fresh full-suite timing exists post
+Stage 3B.4/3C optimization — I did not run one, per the instruction not to
+run large validations in this pass). The generic "Future stages"
+placeholder was replaced with a concrete Stage 3D (scoped in detail:
+rack export SVG/PNG + U-occupancy negative-path spec, zero new selectors)
+plus sketched Stage 3E (low-risk selector additions) and 3F (git workflow,
+kept separate for its distinct risk profile), derived from the rewritten
+gap analysis rather than copied from the old placeholder list.
 
-**Two findings that shaped scope:**
-1. Port 4445 is **not** embedded-exclusive. `docs/E2E_WDIO_WINDOWS_PERFORMANCE.md`'s
-   own architecture diagram and raw per-run data show tauri-driver's own
-   `msedgedriver.exe` child legitimately lands on 4445 on Windows (WebKitWebDriver
-   plays the analogous role on Linux) — every external run in that historical
-   matrix shows `4444→tauri-driver.exe, 4445→msedgedriver.exe`. The 4444/4445
-   port-cleanup contract in `run-wdio-e2e.mjs` and
-   `run-wdio-performance-benchmark.mjs` was therefore **kept unchanged**
-   (only the internal constant naming was updated to stop calling it "the
-   embedded port"), per the task's own explicit warning not to assume every
-   port/dependency touching "wdio" is embedded-only.
-2. The `brace-expansion`/`minimatch` `pnpm.overrides` are **not**
-   embedded-related either — `pnpm why minimatch -r` traces them to
-   `@wdio/cli`'s own dev-tooling chain (`jake`/`ejs`/`create-wdio`, `glob`,
-   `mocha`) and to `@wdio/config`/`webdriver`/`webdriverio`/
-   `@wdio/tauri-service` themselves, all required by the **external**
-   provider. Both overrides were kept, unchanged.
+**`E2E_WDIO_COVERAGE_GAPS.md`:** fully re-verified against current source,
+not carried forward.
+- Existing-specs table updated for the Stage 3C consolidation
+  (`entity-deletes-inventory`/`-hierarchy` → `entity-deletes`;
+  `destructive-guards-inventory`/`-hierarchy` → `destructive-guards`) and
+  the two Stage 3C-era specs (`placement-inspector-workflows`,
+  `searchable-select-regression`, the latter existed before but was never
+  in this table).
+- 4 placement workflows promoted MISSING → COVERED (edit height U, remove
+  via `EditPlacementModal`, inspector navigate to device/model — all
+  covered by `placement-inspector-workflows.e2e.ts` in Stage 3C).
+- 3 workflows reclassified MISSING → NEEDS SELECTOR after checking the
+  actual component source: the prior version's own notes already said
+  "selector absent" for these rows, which contradicts this document's own
+  MISSING/NEEDS SELECTOR definitions (checked directly:
+  `UnsavedChangesDialog.tsx`'s discard button and
+  `CsvImportPanel.tsx`'s `DeviceModelPreviewTable` genuinely have no
+  `data-testid`).
+- 2 workflows added that weren't tracked before: U-occupancy/collision
+  negative-path testing (MISSING — no dedicated negative spec exists, but
+  selectors are the same as every existing placement spec) and
+  move-between-racks (DEFERRED — confirmed via `EditPlacementModal.tsx`
+  and `RackDetailPanel.tsx` that the application has no UI for it at all,
+  so it isn't a testing gap, just genuinely unsupported).
+- Confirmed `export-svg-btn`/`export-png-btn` still exist in
+  `RackDetailPanel.tsx` (spot-checked directly, since an earlier grep
+  attempt in this pass falsely returned no match).
+- Summary counts fully recomputed by hand-counting every row (then
+  cross-checked with a small counting script) rather than trusting the
+  prior table — the 2026-07-22 version's own summary (67 total, 6 MISSING)
+  did not match its own matrix (69 rows counted, 9 tagged MISSING).
+  Corrected total: **73 workflows, 45 COVERED (62%)**.
 
-**What was actually removed:** Cargo feature `wdio-embedded` and its
-`tauri-plugin-wdio-webdriver` dependency (Cargo.toml, Cargo.lock), the
-feature-gated plugin init in `lib.rs`, the embedded capability-file
-generation in `build.rs`, `scripts/run-wdio-e2e-embedded.mjs` +
-`scripts/build-wdio-embedded-binary.mjs` (+ tests),
-`build:e2e:wdio-embedded`/`test:e2e:wdio:embedded` npm scripts, the
-`RIS_WDIO_DRIVER_PROVIDER`/`RIS_WDIO_EMBEDDED_PORT` env-var plumbing and
-embedded branch in `wdio.conf.ts`, `scripts/run-provider-benchmark.mjs` (+
-test) and its `--provider`/`--compare` support in
-`run-wdio-performance-benchmark.mjs`, `docs/E2E_WDIO_PROVIDER_BENCHMARK.md`
-(folded into `docs/E2E_WDIO_PLAN.md`, then deleted), the `target-embedded/`
-`.gitignore` entry, and a stray 1.4 GB `target-embedded/` build-artifact
-directory found on disk (untracked, deleted).
-
-**What was deliberately kept**, with the reason documented in this pass:
-the `wdio-plugin` Cargo feature and `tauri-plugin-wdio` dependency (needed
-by the external canonical runner's own execute-API/window-focus-tracking),
-the 4444/4445 port contract, and the `brace-expansion`/`minimatch`
-overrides (see findings above).
-
-Final HEAD: see `git log -1`. PR to be opened against `roadmap/e2e-wdio`,
-not merged.
+No test, TypeScript, Rust, selector, helper, `package.json`, CI, or
+benchmark changes — this pass was documentation only, per explicit
+instruction.
 
 ## Files changed
 
 | File | Change |
 |------|--------|
-| `apps/desktop/src-tauri/Cargo.toml` | Removed `wdio-embedded` feature + `tauri-plugin-wdio-webdriver` optional dep |
-| `apps/desktop/src-tauri/build.rs` | Removed `capabilities/embedded-test.json` generation |
-| `apps/desktop/src-tauri/src/lib.rs` | Removed feature-gated `tauri_plugin_wdio_webdriver::init()` |
-| `Cargo.lock` | `tauri-plugin-wdio-webdriver` and its transitive deps dropped |
-| `scripts/run-wdio-e2e-embedded.mjs`, `.test.mjs` | Deleted |
-| `scripts/build-wdio-embedded-binary.mjs`, `.test.mjs` | Deleted |
-| `scripts/run-provider-benchmark.mjs`, `.test.mjs` | Deleted |
-| `scripts/run-wdio-performance-benchmark.mjs` | Simplified to external-only: removed `--provider`/`--compare`, compare-mode sequencing/report, and helpers used only by them |
-| `scripts/run-wdio-performance-benchmark.test.mjs` | Tests for removed functionality deleted; remaining tests updated for the new signatures |
-| `scripts/run-wdio-e2e.mjs` | No longer passes `--provider`/sets `RIS_WDIO_DRIVER_PROVIDER` to the child |
-| `scripts/run-wdio-e2e.test.mjs` | Tests for removed env-var/arg plumbing deleted |
-| `package.json` | Removed `build:e2e:wdio-embedded`/`test:e2e:wdio:embedded` scripts |
-| `apps/desktop/e2e-wdio/wdio.conf.ts` | Removed embedded provider resolution/config branch; `driverProvider` hardcoded `"external"`; header docs rewritten |
-| `apps/desktop/e2e-wdio/support/command-timing.ts` | `PROVIDER` hardcoded `"external"` instead of env-var-derived |
-| `apps/desktop/e2e-wdio/support/spec-interactions.ts` | Comment updated: embedded-driver quirk now described as historical context |
-| `apps/desktop/e2e-wdio/specs/searchable-select-regression.e2e.ts` | Comment updated similarly |
-| `.gitignore` | Removed `target-embedded/` and `capabilities/embedded-test.json` entries |
-| `docs/E2E_WDIO_PLAN.md` | New "Embedded WDIO provider removal" section; two prior technical-pass sections marked historical; stale "Future stages" follow-up bullet removed |
-| `docs/E2E_WDIO_PROVIDER_BENCHMARK.md` | Deleted (content folded into `E2E_WDIO_PLAN.md`) |
+| `docs/E2E_WDIO_PLAN.md` | Status reconciliation (Program status table, per-stage status lines, resolved-risks note, stale runtime claim, historical annotations); "Future stages" replaced with concrete Stage 3D scope + 3E/3F sketch |
+| `docs/E2E_WDIO_COVERAGE_GAPS.md` | Fully re-verified rewrite: spec list, 4 MISSING→COVERED promotions, 3 MISSING→NEEDS SELECTOR reclassifications, 2 newly-tracked workflows, recomputed summary counts |
 | `.ai/cc-report.md` | This report |
 
 ## Tests
 
-```
-pnpm install --frozen-lockfile          PASS
-pnpm audit                               PASS, 0 vulnerabilities
-pnpm -C apps/desktop typecheck           PASS
-pnpm -C apps/desktop test                923/923 PASS
-node --test scripts/*.test.mjs           223/223 PASS
-node scripts/check-repo-hygiene.mjs      PASS
-node scripts/check-version-consistency.mjs   PASS
-cargo fmt --all --check                  PASS
-cargo check --workspace                  PASS
-cargo clippy --workspace -- -D warnings  PASS
-cargo tree -i tauri-plugin-wdio-webdriver   no match (confirmed removed)
-git diff --check                         PASS
-
-pnpm build:e2e:wdio-plugin                                                PASS
-pnpm test:e2e:wdio -- --spec app-smoke --skip-build                       CLEAN_PASS, 5s
-pnpm test:e2e:wdio -- --spec placement-inspector-workflows --skip-build   CLEAN_PASS, 26s
-pnpm test:e2e:wdio -- --spec destructive-guards --skip-build              CLEAN_PASS, 34s
-```
-
-Every external run: ports 4444/4445 free before and after; no lingering
-`tauri-driver`/`WebKitWebDriver`/`Xvfb`/application-binary processes
-(verified via `ps aux` after each run). No embedded test was run — none
-exists to run.
-
-223 `node --test` cases is lower than the pre-removal count (353) purely
-because three whole test files were deleted along with the code they
-tested, and two others lost tests for now-removed functions — not a
-coverage regression on anything that still exists.
-
-Final verification greps (all per the task's explicit checklist):
-- Active embedded references: none (only intentional historical prose in
-  docs/comments naming what was removed and why, plus unrelated English
-  "embedded" usages left untouched).
-- `4445`: present only in the unchanged external-provider port contract
-  and historical docs/data tables.
-- `run-provider-benchmark`: none (file deleted).
-- `tauri-plugin-wdio-webdriver`: present only in historical/removal prose.
-- Old consolidated spec names (`destructive-guards-hierarchy`/`-inventory`,
-  `entity-deletes-hierarchy`/`-inventory`): present only in historical
-  provenance comments, no active reference.
+None run — this pass is documentation-only per explicit instruction ("Nie
+uruchamiać dużych walidacji"). All classification/status claims were
+verified by reading current source/spec files directly (`grep`/`Read`),
+not by executing tests or builds.
 
 ## Risks
 
-- The port-contract renaming (`EMBEDDED_PORT_DEFAULT` →
-  `EXTERNAL_NATIVE_DRIVER_PORT`) is an internal identifier change only —
-  the actual monitored ports (4444, 4445) and cleanup behavior are
-  unchanged, verified by the `destructive-guards`/`placement-inspector-workflows`/`app-smoke`
-  runs all reporting `ports_free=true`.
-- `scripts/run-wdio-performance-benchmark.mjs` lost its `--provider`/
-  `--compare` CLI surface entirely rather than being deprecated gradually —
-  acceptable since nothing else in the repo (scripts, CI, docs describing
-  *active* usage) called it with those flags after the embedded scripts
-  were removed in the same pass.
-- Two historical docs (`docs/E2E_WDIO_WINDOWS_PERFORMANCE.md`,
-  `docs/E2E_WDIO_LATENCY_OPTIMIZATION.md`) still describe embedded-provider
-  commands and results in detail, left untouched as genuinely historical,
-  dated experiment records — judged not misleading since they are clearly
-  framed as past experiments, not current instructions, and are
-  cross-referenced from `E2E_WDIO_PLAN.md`'s new removal section for
-  context.
+- The "~51 minute full suite" runtime figure was removed rather than
+  replaced with a fresh number, since producing one would require running
+  the full suite (out of scope for this pass). A future pass that does run
+  the full suite should record the actual current figure.
+- Stage 3D's rack-export scope flags an open question (native save-dialog
+  automation feasibility) for its own NSP rather than resolving it here —
+  intentional, since resolving it would require reading/testing
+  application behavior beyond a docs pass.
+- The corrected coverage-gap counts (73 total, 45 COVERED, 62%) supersede
+  the 2026-07-22 version's numbers; anything referencing the old "67
+  total / 57%" figures elsewhere (if any exist outside these two
+  documents) was not searched for in this pass, since the task scope was
+  limited to these two files.
 
 ## Not done
 
-- Stage 3D — not started.
-- No unrelated dependency upgrades — `brace-expansion`/`minimatch`
-  overrides kept as-is (confirmed still needed, not embedded-related);
-  nothing else touched.
-- No production application code changes — this pass is entirely test
-  infrastructure/tooling/docs.
+- No selector implementation, no new specs, no CI changes — explicitly out
+  of scope per the task brief.
+- Stage 3D/3E/3F are proposals only, not started.
+- Full-suite runtime re-measurement (see Risks).
 
 ## Suggested next step
 
-Human review of this PR. Once merged, `roadmap/e2e-wdio` carries no
-embedded-provider code, tooling, or active documentation — Stage 3D can
-begin whenever the team is ready, unrelated to this cleanup.
+Pick up Stage 3D (rack export SVG/PNG + U-occupancy negative-path spec) —
+it's the only fully-scoped, zero-new-selector item in the current gap
+analysis. Start with an NSP resolving the rack-export native-dialog
+question flagged in `docs/E2E_WDIO_PLAN.md`'s Stage 3D section before
+committing to full coverage there.
