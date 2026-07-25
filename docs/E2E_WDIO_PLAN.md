@@ -5,7 +5,7 @@
 | Item | Detail |
 |------|--------|
 | Integration branch | `roadmap/e2e-wdio` (long-lived) |
-| Current stage | Stage 3 COMPLETED (3A, 3B.1–3B.4, 3C) — embedded WDIO provider fully removed (PR #158); Stage 3D PARTIAL (merged as PR #159 — Placement Validation COMPLETE, Rack Export moved to NEEDS APPLICATION CHANGE); Stage 3E COMPLETE (merged as PR #160) — low-risk selector additions; Stage 3F.0 COMPLETE (audit + docs only, not yet merged); Stage 3F.1/3F.2 (git workflow implementation) not yet started |
+| Current stage | Stage 3 COMPLETED (3A, 3B.1–3B.4, 3C) — embedded WDIO provider fully removed (PR #158); Stage 3D PARTIAL (merged as PR #159 — Placement Validation COMPLETE, Rack Export moved to NEEDS APPLICATION CHANGE); Stage 3E COMPLETE (merged as PR #160) — low-risk selector additions; Stage 3F.0 COMPLETE (merged as PR #161) — git workflow foundation audit; Stage 3F.0.5 COMPLETE (audit + docs only, not yet merged) — local Git E2E test foundation, no workflow coverage added; Stage 3F.1/3F.1.5/3F.2 (git workflow implementation) not yet started |
 | Integration PR to development | None open |
 | Decision | Further stages continue on `roadmap/e2e-wdio`; integration into `development` only after whole-program review |
 
@@ -1918,6 +1918,139 @@ disposable external target — neither is free infrastructure, which is
 why this is scoped as its own stage (3F.2) rather than folded into local
 workflow coverage.
 
+### Stage 3F.0.5 — Local Git E2E Test Foundation
+
+**Status: COMPLETE.** Infrastructure-only, on
+`feature/e2e-stage-3f-local-git-foundation` → `roadmap/e2e-wdio`.
+
+**Purpose:** prepare the shared, safe, deterministic testing foundation
+Stage 3F.1's actual local Git workflow specs will build on. This stage adds
+**no Git workflow test** (no init/commit/validate/add-remote/push/pull spec)
+and **no new `data-testid`** — it only prepares helpers, verifies the
+existing isolation architecture actually reaches the processes that need
+it, and documents both.
+
+**Re-validated existing infrastructure (not re-built):** the isolated
+temp-environment mechanism in `support/test-environment.ts` — created by
+Stage 3B.x work — already satisfies this stage's isolation requirement in
+full:
+- `RIS_E2E_RUN_ROOT` / `RIS_E2E_REPOSITORY_PARENT` — the sentinel-validated,
+  `tmpdir()`-scoped owned run root and its `repositories/` subdirectory,
+  both already used by every existing spec that opens or creates a
+  repository through the app's UI (`createRepositoryThroughUi`).
+- `HOME` — set to `<runRoot>/home`, isolating anything that reads
+  `~/.config`, `~/.gitconfig`, etc.
+- `GIT_CONFIG_GLOBAL` — set to a file under `<runRoot>/git/config`
+  containing only a minimal isolated identity (`Rack Inventory Studio
+  E2E` / `e2e@localhost.invalid`); never the developer's real global
+  config.
+- `GIT_CONFIG_NOSYSTEM=1` — the system-wide `/etc/gitconfig` is never
+  consulted.
+- `XDG_CONFIG_HOME` (plus `XDG_DATA_HOME`/`XDG_CACHE_HOME`) — set to
+  `<runRoot>/app-config` etc., isolating WebKit/Tauri app data.
+
+These are set directly on `process.env` at WDIO launcher module-load time
+(`initTestEnvironment()`, called at the top of `wdio.conf.ts`), before WDIO
+spawns any worker or `@wdio/tauri-service` starts `tauri-driver`.
+
+**Env-inheritance chain verified, not assumed:** the NSP for this stage
+explicitly required proving the isolated environment reaches the Tauri
+app process, not just the Node test process. Traced through
+`@wdio/tauri-service`'s own dist bundle
+(`node_modules/@wdio/tauri-service`):
+`DriverPool.startTauriDriverForWorker` spawns `tauri-driver` with
+`env: env ?? { ...process.env, ... }` — i.e. it spreads the **calling**
+process's `process.env` (already isolated by `initTestEnvironment()`) into
+`tauri-driver`'s environment. `tauri-driver` (a plain Rust
+`std::process::Command` spawn, external crate — not this repo's code)
+inherits its own environment into the launched Tauri application process
+by default, with no evidence anywhere in the reachable code of an
+`env_clear()`/`env_remove()` call that would strip it. The chain is
+therefore: **WDIO worker process → tauri-driver → Tauri app**, fully
+inheriting `HOME`/`GIT_CONFIG_GLOBAL`/`GIT_CONFIG_NOSYSTEM`/
+`XDG_CONFIG_HOME` at every hop. A dedicated unit test
+(`test-environment.test.ts`, "sets Git/XDG/HOME isolation vars on
+process.env for downstream child-process inheritance") asserts exactly
+the values this spread operator captures — the minimal test consistent
+with the existing architecture per the NSP's own instruction (a full
+Tauri-process-env-reading integration test was explicitly out of scope,
+since it would require a production code change to expose process env
+back to the test).
+
+No new environment variables were added — the existing set already covers
+every isolation requirement this stage specified.
+
+**New: `support/local-git.ts`** — the actual new infrastructure this stage
+adds, all outside the app (no production code touched):
+- `runGit(cwd, args, options?)` — controlled `git` execution via
+  `child_process.execFile` (array args, never `shell: true`), inherits the
+  isolated `process.env`, redacts credential-shaped substrings from
+  `stderr`, has a 15s default timeout, and rejects with a `GitCommandError`
+  (carrying `args`/`cwd`/`exitCode`/`stdout`/`stderr`) on any non-zero
+  exit, spawn failure, or timeout.
+- `createLocalGitRepository(options?)` — builds a Git repository fixture
+  under `RIS_E2E_REPOSITORY_PARENT` (or an explicit `parent`): unique
+  directory, optional `git init` + **local-only** `user.name`/`user.email`
+  (never `--global`), a minimal loader-valid RackInventoryStudio fixture
+  (`inventory/repo.yaml` + `inventory/locations.yaml`, mirroring the schema
+  `crates/ris-application/src/create.rs`'s `create_repository` writes —
+  confirmed against `ris-repository`'s loader that only these two files are
+  required, `racks/`/`device-models/`/`devices/`/`placements/` are all
+  optional for a valid load), an optional initial commit, and an optional
+  uncommitted working-tree change. Returns `{ path, repoCode, initialized,
+  initialCommitSha, cleanup }`.
+- Inspection helpers, scoped to exactly what Stage 3F.1's planned specs
+  need and nothing beyond: `isGitRepository`, `getCurrentBranch`,
+  `getHeadCommit`, `getCommitCount`, `getWorkingTreeStatus`,
+  `getRemoteUrl`, `readGitConfig`. Deliberately not implemented: any
+  merge/rebase/stash/tag/fetch/SSH/credential inspection — none of these
+  are testable product surface yet (per the Stage 3F.0 audit) and adding
+  them now would be speculative.
+
+**Cleanup safety — reused, not duplicated:** `createLocalGitRepository`'s
+`cleanup()` calls `assertPathIsCleanupSafe`, which re-uses
+`test-environment.ts`'s own exported `isStrictChildPath` against
+`RIS_E2E_RUN_ROOT` — the same ownership boundary the rest of the suite's
+global `onComplete` cleanup already enforces — rather than introducing a
+second, parallel safety mechanism. `cleanup()` refuses (throws, does not
+delete) if `RIS_E2E_RUN_ROOT` is unset or the target path is not a strict
+descendant of it; it is idempotent (a second call after the directory is
+already gone is a no-op); per-fixture cleanup is available for specs that
+want to free disk mid-run, and the existing whole-run `onComplete` cleanup
+in `wdio.conf.ts` remains the backstop that guarantees no leftover
+directory survives a completed WDIO run even if a spec never calls
+`cleanup()` itself.
+
+**Infrastructure tests added (Node/Vitest, no WDIO session):**
+`support/local-git.test.ts` (14 tests) covers: repository creation with
+and without `git init`, an initial commit (`getCommitCount`/
+`getHeadCommit`/clean status), local `user.name`/`user.email` isolation
+proven against a *simulated real global identity* (a fake
+`GIT_CONFIG_GLOBAL` file is set mid-test and confirmed **not** to leak
+into the fixture's commit author), clean-vs-dirty working-tree status,
+adding and reading a remote URL with no network call, `runGit`'s literal
+(non-shell) argument passing (a commit message containing `; \`` and `$()`
+shell metacharacters round-trips verbatim with no side-effect files
+created), diagnostic-error reporting for an invalid git subcommand, and
+cleanup's refusal to delete a path outside the isolated run root.
+Combined with the new `test-environment.test.ts` case above: 15 new tests,
+0 new WDIO specs.
+
+**Explicitly not done, per the NSP's scope boundary:** no
+init/commit/validate/add-remote/push/pull WDIO spec; no remote-Git, SSH,
+container, or `ssh-agent` infrastructure (Stage 3F.1.5 / 3F.2); no new
+`data-testid`; no application code changed; the known SSH-clone-askpass
+gap identified in Stage 3F.0 was not touched.
+
+**Limitation acknowledged:** the env-inheritance verification stops at
+`process.env`-spreading evidence from `@wdio/tauri-service`'s own source
+plus a unit test on our own launcher code — it does not read environment
+variables back out of a *running* Tauri app process, since doing so would
+require a production code change (e.g. a debug-only command) explicitly
+ruled out by this stage's NSP. If a future stage needs stronger proof, the
+smallest addition would be a temporary, clearly-marked debug assertion
+removed before merge — not a permanent product surface.
+
 ### Stage 3F.1 — Local git workflows (sketch, not yet scoped)
 
 **Scope (indicative), refined by the Stage 3F.0 audit:** selectors +
@@ -1986,6 +2119,16 @@ cleanup is imperfect (unlike 3F.1's fully local operations).
 **Explicitly NOT in scope:** anything not already in the application
 (see the audit's "confirmed not implemented" list) — this stage tests
 push/pull/clone/SSH-passphrase against a real remote, nothing more.
+
+**Possible further split:** the remote fixture strategy above (SSH
+daemon/container setup, teardown, and safety guarantees) is substantial
+enough that it may deserve the same treatment 3F.0.5 gave local
+workflows — a dedicated "3F.1.5 — Remote Git E2E Test Foundation" stage
+building the isolated SSH fixture infrastructure first, with 3F.2 then
+consuming it for the actual push/pull/clone/passphrase specs, mirroring
+the 3F.0.5 → 3F.1 split. Not decided here — left for 3F.1.5/3F.2's own
+NSP to confirm once 3F.1 is complete and the fixture strategy prerequisite
+above is actually being resolved.
 
 ### Not proposed as a numbered coverage stage
 
