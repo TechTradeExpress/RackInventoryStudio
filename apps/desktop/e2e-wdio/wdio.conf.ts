@@ -24,6 +24,22 @@
  *   - a custom --binary always requires an explicit --expect-plugin
  *     present|absent; a custom binary's plugin status is never assumed
  *
+ * ── Embedded provider canonical wrapper ───────────────────────────────────────
+ *
+ * The embedded-provider counterpart of the wrapper above — builds the
+ * wdio-embedded binary into target-embedded/ (--features wdio-embedded,
+ * never target/release/ or target-wdio-plugin/), sets
+ * RIS_WDIO_DRIVER_PROVIDER=embedded and RIS_WDIO_EMBEDDED_PORT, and enforces
+ * the same port-free contract (4445 only — embedded never spawns
+ * tauri-driver on 4444):
+ *
+ *   pnpm test:e2e:wdio:embedded -- --spec core-inventory
+ *   pnpm test:e2e:wdio:embedded -- --spec app-smoke --repeat 2
+ *
+ * See scripts/run-wdio-e2e-embedded.mjs and docs/E2E_WDIO_PLAN.md's
+ * "Technical pass — Node 24, dependency audit, embedded driver restoration"
+ * section for the full embedded-driver validation history.
+ *
  * ── Prerequisites (one-time) ─────────────────────────────────────────────────
  *
  *   1. Install tauri-driver:
@@ -86,7 +102,11 @@
  * pass, `representative-latency ×2`, and `core-inventory ×2` have all been
  * validated directly on Linux/WebKitWebDriver — see
  * docs/E2E_WDIO_LATENCY_OPTIMIZATION.md §13 for full results. The full
- * 11-spec suite remains intentionally deferred, not a merge gate.
+ * 12-spec external suite remains intentionally deferred, not a merge gate
+ * for external-provider work. The full 12-spec suite HAS been validated
+ * under the embedded provider (`pnpm test:e2e:wdio:embedded`) — see
+ * docs/E2E_WDIO_PLAN.md's "Technical pass — Node 24, dependency audit,
+ * embedded driver restoration" section.
  */
 import type { Options } from "@wdio/types";
 import path from "path";

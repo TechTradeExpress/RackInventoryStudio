@@ -982,6 +982,198 @@ detail. Stage 3B.4 remains **IN REVIEW**; PR #154 remains **not merged**.
 
 ---
 
+### Technical pass — Node 24, dependency audit, embedded driver restoration
+
+**Status: COMPLETE** — not a program stage; Stage 3C has not started.
+
+Branch: `chore/e2e-dependency-audit-embedded-driver`
+Direct base: `roadmap/e2e-wdio`
+Checkpoint HEAD: `4db16bc1fb5fe1dd700b66cfab5e839f769cff85`
+Final HEAD: `73e224d02b1a14f18b3fcc84d3d3a314f3a8404a`
+Default provider: `external` (unchanged)
+
+**Goal:** resume a technical pass that was blocked before Stage 3C — unify the
+toolchain on Node.js 24 LTS, re-validate the dependency audit on that
+toolchain, and determine whether the embedded WDIO driver (deferred at the
+end of Stage 3B.3, §"Stage 3B.3 — Windows WDIO performance experiment") can
+be restored to a usable state. Stage 3C (remaining placement workflows) is
+explicitly out of scope for this pass.
+
+**1. Node.js 24 LTS.** Standardized on Node.js 24.18.0 LTS ("Krypton"), the
+newest published 24.x release at the time of this pass (per
+`https://nodejs.org/dist/index.json`), replacing the prior Node 22 pins.
+Updated `.nvmrc` (`24`), `package.json` (`engines.node: ">=24 <25"`,
+`packageManager` unchanged at `pnpm@10.33.4`), and all three GitHub Actions
+workflows (`ci.yml`, `dependency-audit.yml`, `windows-installer.yml`,
+`node-version: 22` → `24`). Extended `scripts/check-version-consistency.mjs`
+to also cross-check `.nvmrc` / `engines.node` / every workflow's
+`node-version` and fail on drift, with new fixture-based tests
+(`scripts/check-version-consistency.test.mjs`).
+
+**2. Dependency audit re-validation.** On Node 24.18.0 / pnpm 10.33.4
+(corepack-activated): `pnpm install --frozen-lockfile` — lockfile unchanged;
+`pnpm audit` — initially clean (0 vulnerabilities), matching the checkpoint's
+prior fix. A second audit run later in the same pass (after the embedded
+work) surfaced one **new** high-severity advisory that had not been present
+at the checkpoint: `brace-expansion` DoS via unbounded expansion length
+(GHSA-mh99-v99m-4gvg), affecting versions `<=5.0.7`, transitively pulled in
+at two different major versions (1.1.16 and 2.1.2) via `@wdio/cli`'s
+`minimatch`/`recursive-readdir`/`glob`/`jake`/`mocha`/`archiver` dev-tooling
+chain — no production dependency. Fixed in a dedicated commit via a
+`pnpm.overrides` pin to `brace-expansion: ">=5.0.8"`; `pnpm audit` is clean
+again (0 vulnerabilities) and both resolutions now converge on 5.0.8.
+`pnpm why` confirmed the dependency paths for `brace-expansion`,
+`fast-xml-parser`, `postcss`, and `@babel/core` — all resolve to a single
+version each (except brace-expansion before the fix) and all trace to
+`devDependencies` (WDIO tooling, Vite/Vitest, Babel via
+`@vitejs/plugin-react`), none to production runtime dependencies.
+
+**3. Embedded driver upstream investigation.** The known blocker from Stage
+3B.3 (`tauri-plugin-wdio-webdriver` 1.2.0 does not dispatch `mousedown`, so
+`SearchableSelect`'s `onMouseDown`-based option selection cannot be driven
+under the embedded provider) was investigated directly against the
+`webdriverio/desktop-mobile` upstream repository (issues, merged PRs,
+current `main` source, published crate/npm versions):
+
+- `tauri-plugin-wdio-webdriver` 1.2.0 (released 2026-06-25) remains the
+  newest published version on crates.io as of this pass; no newer release
+  exists.
+- Reading the current upstream `main` source
+  (`packages/tauri-plugin-webdriver/src/platform/executor.rs`) confirms the
+  root cause is still present: the plain WebDriver classic "Element Click"
+  handler (`click_element`, reached by a bare WDIO `.click()`) resolves to a
+  JS `el.click()` call, which synthesizes a `click` event but never a
+  `mousedown` — this has not changed since 1.2.0.
+- However, the same source shows the W3C **Actions** API endpoint
+  (`/session/{id}/actions`, `packages/tauri-plugin-webdriver/src/server/handlers/actions.rs`)
+  already dispatches real `mousedown`/`mouseup` DOM events via
+  `dispatch_pointer_event()` (`PointerEventType::Down` → `"mousedown"`,
+  `Up` → `"mouseup"`, plus a synthesized `"click"` on release) — and this
+  path was further hardened by upstream PR #433 ("resolve pointerMove origin
+  so `click(options)` hits the target", merged 2026-06-19), already included
+  in the currently-pinned 1.2.0 release.
+- `webdriverio`'s own client documents that `element.click(options)` — i.e.
+  passing a (possibly empty) options object instead of calling bare
+  `.click()` — routes the command through the Actions API instead of
+  WebDriver classic click. This is provider-agnostic: it works identically
+  on the external and embedded providers.
+- **Conclusion: remediation category 1 (correct existing API usage).** No
+  upstream patch, pinned unreleased commit, test-only adapter, local patch,
+  or fork was needed. `apps/desktop/src/components/ui/SearchableSelect.tsx`
+  was **not modified**.
+
+**4. Fix applied (test-side only).** Added `selectSearchableOption()` to
+`apps/desktop/e2e-wdio/support/spec-interactions.ts`, using
+`option.click({})` (Actions-routed) instead of a bare `.click()`, and
+replaced every SearchableSelect option-click site with it: `core-inventory`,
+`destructive-guards-hierarchy`, `destructive-guards-inventory`,
+`entity-updates-work-mode`, `placement-lifecycle` (specs), and
+`representative-latency` (benchmark) — consolidating five near-duplicated
+inline polling loops and one raw XPath click into one shared, provider-
+correct helper. No `HTMLElement.click()` workaround was introduced anywhere.
+
+**5. Canonical embedded runner.** Added `pnpm test:e2e:wdio:embedded`
+(`scripts/run-wdio-e2e-embedded.mjs`), the embedded counterpart to the
+existing external canonical runner (`pnpm test:e2e:wdio`):
+
+- Builds a dedicated `wdio-embedded` test binary
+  (`scripts/build-wdio-embedded-binary.mjs`, `--features wdio-embedded`)
+  into its own `CARGO_TARGET_DIR` (`target-embedded/`) — never
+  `target/release/` (production) or `target-wdio-plugin/` (external-provider
+  test binary).
+- Sets `RIS_WDIO_DRIVER_PROVIDER=embedded` and `RIS_WDIO_EMBEDDED_PORT`
+  (default 4445), discarding any inherited provider/port/binary env vars
+  first so the child environment is fully deterministic.
+- Reports provider and build variant up front
+  (`provider=embedded buildVariant=wdio-embedded binary=... port=...`).
+- Requires port 4445 (or `--port`) free before **and** after every run —
+  refusing to start, or to report success, otherwise — and never kills a
+  pre-existing process itself (diagnosed and aborted instead). Delegates
+  the actual spec execution and PID-safe cleanup to the existing
+  `run-wdio-performance-benchmark.mjs` (`--provider embedded`).
+- A spawn failure is re-thrown with the original error preserved as
+  `Error.cause`, printed in full by the top-level handler.
+- Both new scripts reuse the existing pure port-contract helpers
+  (`parseListeningPorts`/`inspectPortProbeResult`/`deriveFinalRunnerExitCode`)
+  and spec-name validation (`isKnownSpecName`) rather than re-implementing
+  them, with fixture-based unit tests
+  (`scripts/build-wdio-embedded-binary.test.mjs`,
+  `scripts/run-wdio-e2e-embedded.test.mjs`).
+
+**6. SearchableSelect regression spec.** Added
+`apps/desktop/e2e-wdio/specs/searchable-select-regression.e2e.ts`, a minimal
+real E2E spec dedicated to `SearchableSelect` via the device form's model
+field: opens the dropdown, searches (including a query that narrows the
+option list to empty, proving the filter is real), selects via
+`selectSearchableOption`'s Actions-routed click, confirms the trigger
+updates, saves the form, then reopens the device to confirm the value
+survived a real persistence round-trip (not just in-memory React state).
+
+**7. Embedded validation (Linux, `xvfb-run` + WebKitWebDriver, final HEAD
+`73e224d`).** Canonical embedded runner used throughout
+(`pnpm test:e2e:wdio:embedded`). All outcomes below are `CLEAN_PASS` (test
+passed, timing report valid, no forced cleanup needed, ports free before and
+after):
+
+| Spec | Run(s) | Duration |
+|------|--------|----------|
+| `app-smoke` | 1 | 66 s |
+| `searchable-select-regression` | 1 | 177 s |
+| `core-inventory` | ×2 | 280 s, 279 s (<1% variance) |
+| `representative-latency` | ×2 | 239 s, 239 s (0% variance) |
+| `csv-import` | 1 | 353 s |
+| `destructive-guards-hierarchy` | 1 | 2664 s (44:21) |
+| `destructive-guards-inventory` | 1 | 2675 s (44:32) |
+| `entity-deletes-hierarchy` | 1 | 1165 s (19:22) |
+| `entity-deletes-inventory` | 1 | 1412 s (23:29) |
+| `entity-updates-work-mode` | 1 | 1939 s (32:15) |
+| `placement-lifecycle` | 1 | 1211 s (20:08) |
+| `repository-lifecycle` | 1 | 162 s (2:38) |
+| `safety-recovery` | 1 | 358 s (5:55) |
+
+Every real spec under `apps/desktop/e2e-wdio/specs/*.e2e.ts` (12/12) plus the
+`representative-latency` benchmark ran via the canonical embedded runner on
+the final HEAD — not just `app-smoke`. `core-inventory` (previously
+`TEST_FAILED` under embedded at device-model selection, per Stage 3B.3) and
+every other spec touching `SearchableSelect` now completes end to end.
+
+**Embedded driver: USABLE.**
+
+**8. External regression (final HEAD, same environment).** External
+provider unchanged and still the default:
+
+- `app-smoke` (rebuilt `wdio-plugin` binary fresh): `CLEAN_PASS`, 5 s.
+- `core-inventory` (`--skip-build`): `CLEAN_PASS`, 10 s.
+- Production-shaped binary (`CARGO_TARGET_DIR=target-production-check`,
+  plain `tauri build --no-bundle`, no `wdio-*` feature) run via
+  `pnpm test:e2e:wdio -- --spec app-smoke --binary
+  "$PWD/target-production-check/release/rack-inventory-studio-desktop"
+  --expect-plugin absent`: `CLEAN_PASS`, 76 s — `window.wdioTauri` confirmed
+  `undefined`, i.e. the plugin is absent from the production-shaped binary.
+  Embedded (`target-embedded/`), external-test (`target-wdio-plugin/`),
+  production-check (`target-production-check/`), and production
+  (`target/release/`) binaries remain four distinct build outputs.
+
+**9. Static validation (Node 24.18.0 / pnpm 10.33.4).** `git diff --check`,
+`pnpm install --frozen-lockfile`, `pnpm audit` (0 vulnerabilities),
+`pnpm -C apps/desktop typecheck`, `pnpm -C apps/desktop test` (917/917),
+`node --test scripts/*.test.mjs` (328/328, including the new
+embedded-runner and version-consistency test files),
+`node scripts/check-repo-hygiene.mjs` (8/8), `node
+scripts/check-version-consistency.mjs` (app version + toolchain both
+consistent), `cargo fmt --all --check`, `cargo check --workspace`, `cargo
+clippy --workspace -- -D warnings`, and `cargo check`/`cargo clippy -p
+rack-inventory-studio-desktop` for both `--features wdio-embedded` and
+`--features wdio-plugin` — all clean.
+
+**Not done / deferred:** CI (GitHub Actions) results are per-job in the PR
+body once pushed — this pass validated everything the CI jobs check
+directly and locally, but the workflows themselves had not yet run against
+this branch at the time of writing. Stage 3C (remaining placement
+workflows) was **not started**.
+
+---
+
 ### Stage 3C — Remaining placement workflows
 
 **Status: PLANNED**

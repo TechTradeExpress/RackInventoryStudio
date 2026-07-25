@@ -1266,7 +1266,7 @@ After milestones 1–25, the backend is complete and the rack placement workflow
     add/move/remove placement via forms,
     cross-rack auto-navigation, unsaved changes banner
 - CI: GitHub Actions, Rust workspace tests, frontend checks
-- Toolchain: pnpm 10, Node 22 LTS
+- Toolchain: pnpm 10, Node 24 LTS
 ```
 
 ### Drag and drop decision
