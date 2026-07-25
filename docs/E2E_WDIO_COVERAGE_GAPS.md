@@ -3,14 +3,17 @@
 Generated: 2026-07-22 (Stage 3B.2, PR #152); fully re-verified and rewritten
 2026-07-25 against actual HEAD (post Stage 3C / embedded-provider-removal,
 `roadmap/e2e-wdio` @ `db6752d`) — see "Maintenance pass (2026-07-25)" below
-for what changed and why.
+for what changed and why. Updated again same-day after Stage 3D
+(`placement-validation.e2e.ts` delivered; rack export analyzed and
+reclassified to NEEDS APPLICATION CHANGE — see the Rack placement matrix
+and Summary counts below).
 
-Branch: `roadmap/e2e-wdio`
+Branch: `feature/e2e-stage-3d-placement-validation` (targeting `roadmap/e2e-wdio`)
 
 ## Purpose
 
 This document inventories the application's user-facing workflows against existing
-WDIO E2E specs to identify gaps that inform Stage 3D and later stage planning.
+WDIO E2E specs to identify gaps that inform Stage 3E and later stage planning.
 
 Coverage is assessed against the real compiled Tauri binary only.  Playwright
 browser-mode and Vitest/Rust unit tests are separate layers not considered here.
@@ -68,12 +71,13 @@ spec files rather than trusting the prior version. Changes:
 | PARTIAL | Some sub-flows covered; others not |
 | MISSING | No WDIO coverage; stable selectors already present |
 | NEEDS SELECTOR | No WDIO coverage; no stable `data-testid` yet |
+| NEEDS APPLICATION CHANGE | No WDIO coverage; blocked by more than a missing selector — the UI has no testable (non-native-dialog) path at all. Added in Stage 3D. |
 | DEFERRED | Intentionally out of scope (network, native dialogs, etc.) |
 | NOT JUSTIFIED | Low E2E value; already covered by unit tests or trivial UI |
 
 ---
 
-## Existing specs (as of Stage 3C / embedded-provider removal)
+## Existing specs (as of Stage 3D)
 
 | Spec file | What it covers |
 |-----------|----------------|
@@ -88,6 +92,7 @@ spec files rather than trusting the prior version. Changes:
 | `destructive-guards.e2e.ts` | Guard: location/rack/device-model/device against constrained deletes; full graph assertions. Consolidated from Stage 3B.2's `destructive-guards-inventory`/`-hierarchy` in Stage 3C. |
 | `placement-inspector-workflows.e2e.ts` | Edit placement height U; remove placement via `EditPlacementModal`; `PlacementInspectorPanel` navigate to device/model; rack-object placement (Stage 3C) |
 | `searchable-select-regression.e2e.ts` | `SearchableSelect` dropdown regression via device-model field (open, search, select, persist) |
+| `placement-validation.e2e.ts` | Negative-path placement coverage (Stage 3D): occupied U, partial overlap, full overlap/containment, exceeds rack height, invalid start U, invalid height override — every case verifies rejection, no state change, and persistence of that unchanged state after reopen |
 
 `apps/desktop/e2e-wdio/benchmarks/representative-latency.e2e.ts` is a
 benchmark-only harness (9 interaction-pattern cases), not part of the
@@ -197,9 +202,14 @@ action buttons themselves).
 | PlacementInspectorPanel: navigate to model | COVERED | `placement-inspector-workflows` (Stage 3C) |
 | Place rack object (Device Model, no separate Device record) | COVERED | `placement-inspector-workflows` (Stage 3C) |
 | Move placement between racks | DEFERRED | Not supported by the application — `EditPlacementModal` and `RackDetailPanel.handleDiagramMovePlacement` both hardcode the current rack; no UI exposes a target-rack picker. Not a testing gap. |
-| U-occupancy / collision validation (negative path) | MISSING | Every placement in every spec succeeds at a deliberately non-overlapping U; no dedicated negative/collision spec exists. Selectors already present (same placement form). |
-| Rack export — SVG | MISSING | `export-svg-btn` present (confirmed in `RackDetailPanel.tsx`); may require native file dialog on save |
-| Rack export — PNG | MISSING | `export-png-btn` present; same native dialog concern |
+| Placement rejected — occupied U (exact range match) | COVERED | `placement-validation` (Stage 3D) |
+| Placement rejected — partial overlap | COVERED | `placement-validation` (Stage 3D) |
+| Placement rejected — full overlap / containment | COVERED | `placement-validation` (Stage 3D) |
+| Placement rejected — exceeds rack height | COVERED | `placement-validation` (Stage 3D) |
+| Placement rejected — invalid start U (frontend validation) | COVERED | `placement-validation` (Stage 3D) |
+| Placement rejected — invalid height override (frontend validation) | COVERED | `placement-validation` (Stage 3D) |
+| Rack export — SVG | NEEDS APPLICATION CHANGE | `export-svg-btn` present, but `saveRackViewSvgViaDialog` unconditionally calls a native OS save dialog with no alternative UI path (unlike repository open/create, which has a genuine text-path fallback). Not automatable without either a test-only hook or a product change to add a non-dialog path — both out of scope for an E2E stage. See `docs/E2E_WDIO_PLAN.md`'s Stage 3D section for the full analysis. |
+| Rack export — PNG | NEEDS APPLICATION CHANGE | Same as SVG — `saveRackViewPngViaDialog`, same native-dialog blocker |
 
 ---
 
@@ -278,11 +288,15 @@ Workflows by how much selector work is needed before a spec can be written:
 These workflows have `data-testid` on all interactive elements.  A spec can be
 written without touching application source.
 
-| Workflow | Key selectors |
-|----------|--------------|
-| U-occupancy / collision validation | Same placement-form selectors as every existing placement spec |
-| Rack export — SVG | `export-svg-btn` |
-| Rack export — PNG | `export-png-btn` |
+None remaining — the last two "Ready" workflows (placement negative-path
+validation) were covered in Stage 3D.
+
+### Blocked by more than a selector (NEEDS APPLICATION CHANGE)
+
+| Workflow | Why a selector alone doesn't unblock it |
+|----------|------------------------------------------|
+| Rack export — SVG | `export-svg-btn` exists, but the save destination is only reachable through a native OS dialog with no in-app alternative path |
+| Rack export — PNG | Same |
 
 ### Needs one or more selectors
 
@@ -320,47 +334,49 @@ can use stable selectors.
 
 ## Summary counts
 
-Recomputed by hand-counting every row in this document against current HEAD
-(`roadmap/e2e-wdio` @ `db6752d`), 2026-07-25. The 2026-07-22 version's
-summary table did not match its own matrix row count — see "Maintenance
-pass" above.
-
-Counted programmatically from every workflow row in this document (one
-status tag per row, verified with a script rather than by hand a second
-time, to avoid repeating the 2026-07-22 version's arithmetic error):
+Updated after Stage 3D (2026-07-25). Counted programmatically from every
+workflow row in this document (one status tag per row).
 
 | Status | Count |
 |--------|-------|
-| COVERED | 45 |
+| COVERED | 51 |
 | PARTIAL | 0 |
-| MISSING | 3 |
+| MISSING | 0 |
 | NEEDS SELECTOR | 16 |
+| NEEDS APPLICATION CHANGE | 2 |
 | DEFERRED | 4 |
 | NOT JUSTIFIED | 5 |
-| **Total workflows inventoried** | **73** |
+| **Total workflows inventoried** | **78** |
 
-Current E2E coverage: **45 / 73 workflows (62%)**.
+Current E2E coverage: **51 / 78 workflows (65%)**.
 
-Since the 2026-07-22 snapshot (67 total, 38 COVERED, 6 MISSING claimed —
-both figures were internally inconsistent with that version's own matrix):
-COVERED +7 (4 Stage 3C promotions from MISSING + the new
-rack-object-placement workflow it required + the `searchable-select-regression`
-row, which existed as a spec before but was never counted as a matrix row,
-+1 correction from the prior version's undercount); MISSING net −6 (4
-promoted to COVERED, 2 correctly reclassified to NEEDS SELECTOR, offset by
-+1 newly tracked); NEEDS SELECTOR +3 net (3 reclassified in); 2 new rows
-added that were not previously tracked at all: U-occupancy/collision
-negative path (MISSING) and move-between-racks (DEFERRED — confirmed
-unsupported by the application).
+Since the 2026-07-25 maintenance-pass snapshot (73 total, 45 COVERED, 62%):
+COVERED +6 (6 new negative-path placement-validation workflows —
+`placement-validation.e2e.ts`); MISSING −3 → 0 (the U-occupancy/collision
+row was split into the 6 specific cases above, all COVERED; the 2 rack
+export rows were reclassified, not closed); a new status,
+**NEEDS APPLICATION CHANGE**, introduced for the 2 rack export rows —
+distinct from NEEDS SELECTOR because a `data-testid` addition alone
+wouldn't unblock them (see the Rack placement matrix and
+`docs/E2E_WDIO_PLAN.md`'s Stage 3D section for the full analysis). MISSING
+is now empty — every remaining gap is either NEEDS SELECTOR, NEEDS
+APPLICATION CHANGE, DEFERRED, or NOT JUSTIFIED, none of which are
+"ready to spec against the existing binary" the way MISSING items were.
 
 ---
 
 ## Recommended next scope
 
-See `docs/E2E_WDIO_PLAN.md` → "Future stages" for the concrete Stage 3D+
-proposal derived from this analysis. In short: the highest-value remaining
-work is Tier-1 selector additions (git workflow, global search, validation
-panel, recent repositories, unsaved-changes-discard) since each unlocks
-real workflow coverage for a small, well-scoped application change, followed
-by the two MISSING items that need zero new selectors (rack export SVG/PNG,
-U-occupancy negative path).
+See `docs/E2E_WDIO_PLAN.md` → "Future stages" (Stage 3E/3F) for the
+concrete next-stage proposal. With Stage 3D closing the last
+zero-selector-cost workflows, every remaining gap needs either a selector
+addition (NEEDS SELECTOR, 16 workflows — validation panel, global search,
+recent repositories, unsaved-changes-discard, CSV device-model preview, git
+workflow) or a product-level decision (NEEDS APPLICATION CHANGE, 2
+workflows — rack export). The highest-value next work is the low-risk
+selector batch (validation panel, global search, recent repositories,
+unsaved-changes-discard, CSV device-model preview — Stage 3E), followed by
+git workflow as its own stage (Stage 3F) given its distinct risk profile.
+Rack export (NEEDS APPLICATION CHANGE) is not a testing-stage candidate at
+all until a product decision is made about adding a non-dialog export
+path.

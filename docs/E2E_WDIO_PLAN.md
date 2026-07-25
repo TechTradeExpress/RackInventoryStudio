@@ -5,7 +5,7 @@
 | Item | Detail |
 |------|--------|
 | Integration branch | `roadmap/e2e-wdio` (long-lived) |
-| Current stage | Stage 3 COMPLETED (3A, 3B.1–3B.4, 3C) — embedded WDIO provider fully removed (PR #158); Stage 3D not yet started — all merged into `roadmap/e2e-wdio` |
+| Current stage | Stage 3 COMPLETED (3A, 3B.1–3B.4, 3C) — embedded WDIO provider fully removed (PR #158); Stage 3D PARTIAL (Placement Validation COMPLETE, Rack Export moved to NEEDS APPLICATION CHANGE, not merged yet) |
 | Integration PR to development | None open |
 | Decision | Further stages continue on `roadmap/e2e-wdio`; integration into `development` only after whole-program review |
 
@@ -1640,44 +1640,80 @@ coverage regression on anything that still exists.
 
 ## Future stages
 
-Derived from `docs/E2E_WDIO_COVERAGE_GAPS.md`'s 2026-07-25 maintenance-pass
-recount (45/73 workflows COVERED, 62%), not carried forward from an older
-plan. Ordered by proposed sequence; only Stage 3D is scoped in detail —
-3E/3F are sketched to show the intended path but should each get their own
-NSP when picked up, per the normal E2E working model.
+Derived from `docs/E2E_WDIO_COVERAGE_GAPS.md`'s analysis, not carried
+forward from an older plan — 51/78 workflows COVERED (65%) as of Stage 3D.
+Ordered by proposed sequence; 3E/3F are sketched to show the intended path
+but should each get their own NSP when picked up, per the normal E2E
+working model.
 
-### Stage 3D — Placement/export gaps (no new selectors)
+### Stage 3D — Placement validation & export workflows
 
-**Scope:** the 3 remaining MISSING workflows, all of which already have
-stable selectors and need only spec work:
-- Rack export — SVG (`export-svg-btn`)
-- Rack export — PNG (`export-png-btn`)
-- U-occupancy / collision validation — negative path (place a device where
-  one already occupies the target U range; assert the operation is
-  rejected and the existing placement is untouched)
+**Status: PARTIAL — Placement Validation COMPLETE; Rack Export NOT
+IMPLEMENTED (moved to NEEDS APPLICATION CHANGE)**
 
-**Justification — highest value next:** this is the only remaining bucket
-that needs zero application-source changes at all — pure spec-only work
-against the existing binary, the same "Tier 1" pattern that made Stage 3A
-low-risk. It fully closes the MISSING category (3/3), leaving only
-NEEDS SELECTOR and genuinely-DEFERRED/NOT-JUSTIFIED items in the backlog.
-Export in particular has been an open gap since the original 2026-07-22 gap
-analysis with no selector blocker — there is no remaining reason to defer
-it further.
+Branch: `feature/e2e-stage-3d-placement-validation`, direct base
+`roadmap/e2e-wdio`.
 
-**Explicitly NOT in scope:** any `data-testid` addition to application
-source; git workflow; global search; validation panel; CSV device-model
-preview; CI changes; embedded-provider work (removed, not returning); any
-further spec consolidation (Stage 3C's audit already covered the existing
-suite — this stage only adds new specs).
+**Delivered — Placement Validation (Task 1 of the NSP), fully COMPLETE:**
+new spec `placement-inspector-workflows.e2e.ts`'s sibling
+`placement-validation.e2e.ts`, exclusively negative-path placement
+coverage — the first spec in the whole suite to test placement
+*rejection* rather than only the accepted path. Covers, each verifying the
+correct error surfaces and that the repository ends in the identical state
+as before the attempt (no placement created, no diagram change, unchanged
+after a save/close/reopen round-trip):
+- Occupied U (exact range match) → `collision:` error
+- Partial overlap → `collision:` error
+- Full overlap / containment → `collision:` error
+- Exceeds rack height → `out of rack bounds:` error
+- Invalid start U (non-positive integer, e.g. "0") → frontend validation
+  error, never reaches the backend
+- Invalid height override (non-positive integer) → frontend validation
+  error, never reaches the backend
 
-**Open question for NSP:** rack export triggers a native Tauri save
-dialog — prior notes flagged this as a possible automation blocker. The
-NSP should first confirm whether the dialog can be avoided/bypassed in a
-test build (e.g. asserting on the generated SVG/PNG content before the
-save call, similar to how CSV import avoids native dialogs) before
-committing to full end-to-end coverage; if it cannot, this item should be
-downgraded to DEFERRED with that reason recorded, not silently dropped.
+All six cases reuse existing Stage 3C helpers unchanged
+(`navigateToRackDetail`, `placeDeviceAtU`, `findRowByExactName`,
+`expectDeviceRowState`, `expectExactlyOnePlacement`, `reactSetValue`,
+`clickWhenEnabled`, `waitForFormCloseOrError`, `createRepositoryThroughUi`,
+`expectActiveRepositoryPath`, `selectSearchableOption`) plus one small
+spec-local (not shared) helper for the open/fill/submit/expect-rejection
+sequence, since each case's exact field values differ and the pattern
+wasn't duplicated in shared code before. No new `data-testid` was added —
+the rejection surfaces identically to every existing spec's success path,
+via the same `.ft-msg.err` element `waitForFormCloseOrError` already
+watches.
+
+External validation: `CLEAN_PASS` × 2 (116s, 117s), ports free before/after
+both runs, no lingering `tauri-driver`/`WebKitWebDriver`/`Xvfb`/binary
+processes.
+
+**Not implemented — Rack Export SVG/PNG, moved to NEEDS APPLICATION
+CHANGE:** analysis (not implementation) confirmed both
+`saveRackViewSvgViaDialog`/`saveRackViewPngViaDialog`
+(`apps/desktop/src/api/tauriClient.ts`) call `@tauri-apps/plugin-dialog`'s
+`save()` unconditionally — a real native OS save dialog, outside the
+WebView, which WebDriver cannot interact with at all. Unlike repository
+creation/opening (which already has a genuine product feature — a plain
+text path input — alongside its native directory-picker button, and which
+E2E specs use to bypass the picker entirely) or CSV import (no dialog
+involved at all), **export has no non-dialog path in the UI today**. The
+only ways to make it testable would be a test-only bypass/hook for the
+save destination or restructuring the save flow to support a non-dialog
+path — both explicitly forbidden by this stage's NSP ("nie dodawać nowych
+hooków tylko dla testów"; "nie implementować obejść"). Per the NSP's own
+explicit fallback, no workaround was implemented; this workflow is
+reclassified from MISSING to a new **NEEDS APPLICATION CHANGE** status
+(added to the Coverage key — see `docs/E2E_WDIO_COVERAGE_GAPS.md`),
+distinct from NEEDS SELECTOR since the blocker isn't a missing selector,
+it's a missing testable code path. Picking this up would require a
+product decision (is a non-dialog export path worth adding for its own
+sake, not just for testing?), which is out of scope for an E2E stage.
+
+**Explicitly NOT in scope (respected):** no `data-testid` additions, no
+new shared helpers beyond the one spec-local function described above, no
+new frameworks/libraries/providers/benchmarks/runners, no workaround for
+the export dialog, no further spec consolidation, no CI changes,
+embedded-provider work (removed, not returning).
 
 ### Stage 3E — Low-risk selector additions (sketch, not yet scoped)
 
