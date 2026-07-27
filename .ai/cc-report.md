@@ -50,6 +50,44 @@ SSH, Docker, remote repositories — none touched.
 
 No other application code, and no Rust code, was changed.
 
+## Repair pass (review findings on PR #163)
+
+Two blocking findings from review were addressed on this same branch/PR,
+repair-only — no new workflow coverage, no Stage 3F.1B work:
+
+1. **Teardown robustness.** Both `it()`s previously called
+   `closeRepository()` only on the success path; a `finally` with only
+   `repo.cleanup()` could delete the fixture directory while the app
+   still had it open. Fixed: both tests now track an `opened` boolean,
+   updated at each point the repository is actually opened/closed, and
+   `finally` calls a new `closeRepositorySafely()` (catches and logs
+   internally, never throws — so it cannot mask the original assertion
+   failure) only `if (opened)`, before `repo.cleanup()`. `cleanup()`
+   itself is unwrapped, matching Stage 3F.0.5's own design (idempotent,
+   safe) and the reviewer's own example.
+2. **Real branch verification.** The PR's original description claimed
+   the UI-displayed branch was cross-checked against `getCurrentBranch()`
+   — the code did not actually do this; it only asserted
+   `branchAfterInit.length > 0`. Fixed: a new `getDisplayedBranch()`
+   helper reads `git-branch-value`'s actual text via `.getText()`, and a
+   `normalizeBranchText()` helper collapses whitespace before comparing
+   (the element also renders an `IcGitBranch` SVG icon with no text
+   content ahead of the branch name, so no prefix-stripping was needed —
+   whitespace-collapsing was the only normalization actually required).
+   Both PART B (immediately after init) and PART C (after reopen) now
+   assert `displayedBranch === normalizeBranchText(getCurrentBranch())`
+   exactly, not merely that the element exists.
+
+**Non-blocking cleanup also applied:** removed the redundant
+`existsSync(join(repo.path, ".git"))` check in PART B — `isGitRepository()`
+already covers the same fact via the stronger, helper-based check, so the
+raw filesystem check added no value. This let the `node:fs`/`node:path`
+imports be dropped from the spec file entirely.
+
+The "Tests" and "Risks" sections below have been corrected to describe
+what the tests actually assert, superseding the pre-repair descriptions
+that shipped in the initial PR.
+
 **Helper fix (Stage 3F.0.5's own code, not application code) — the one
 modification to an existing helper, made because it was necessary:**
 `getCurrentBranch()` used `git rev-parse --abbrev-ref HEAD`, which fails
@@ -70,20 +108,28 @@ after the first commit. A regression test
    flow, matching the NSP's scenarios 1–3): open a fixture with no `.git`
    → `git-not-initialized` shown, `git-branch-value` absent; click
    `git-init-btn` → `.git` now exists on disk (verified via
-   `isGitRepository`, not a raw fs check) and `git-branch-value` appears
-   with a real branch name (cross-checked against `getCurrentBranch`);
+   `isGitRepository`) and the branch text actually displayed by
+   `git-branch-value` equals `getCurrentBranch()`'s return value
+   (normalized, exact string equality — not just "an element exists");
    close and reopen the same repository by path → detection still holds
-   (`git-branch-value` reappears, `git-not-initialized` does not).
+   and the same exact-equality branch check is repeated post-reopen
+   (`git-not-initialized` remains absent).
 2. **Idempotency** (NSP scenario 4): open a fixture that already has Git
    → `git-branch-value` appears directly; `git-not-initialized` and
    `git-init-btn` are never shown. Describes the application's actual
    current behavior (the init affordance only renders while
-   `is_repository` is false) — no product behavior was changed.
+   `is_repository` is false) — no product behavior was changed. (This
+   test does not re-verify the exact branch text — the review's real-
+   branch-verification finding scoped that to "after initialization" and
+   "after reopening", neither of which this test performs.)
 
 Both fixtures were built exclusively via `createLocalGitRepository`
 (Stage 3F.0.5's helper); no new repository-creation helper was added, and
 no raw git command was run directly in the spec where a 3F.0.5 helper
-already covered the need.
+already covered the need. Teardown in both tests is now robust to a
+mid-test assertion failure: an `opened` flag gates a best-effort
+`closeRepositorySafely()` call in `finally`, ahead of `repo.cleanup()`
+(see "Repair pass" above).
 
 ```
 git diff --check                              PASS
@@ -129,10 +175,12 @@ statuses were not touched, per the NSP's own scope boundary.
   handles the unborn-HEAD case `rev-parse --abbrev-ref` cannot — a strict
   improvement, but worth flagging as a helper-behavior change.
 - `git-branch-value`'s "status refreshed" signal is inferred from its
-  mere presence (only rendered once `is_repository` is true) plus a
-  cross-check against `getCurrentBranch()`'s return value, rather than
-  from observing a literal before/after DOM transition — sufficient for
-  this stage's scope.
+  mere presence (only rendered once `is_repository` is true) combined
+  with an exact-equality comparison against `getCurrentBranch()`'s return
+  value, rather than from observing a literal before/after DOM
+  transition — sufficient for this stage's scope, and now a genuine
+  content check rather than a presence-only check (fixed in the repair
+  pass above).
 - The idempotency test validates UI-level behavior (the init affordance
   never renders once Git is detected) rather than exercising the backend
   `init_git_repository` command directly against an already-git
