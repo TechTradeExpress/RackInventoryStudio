@@ -124,12 +124,13 @@ export interface CreateLocalGitRepositoryOptions {
   /** Run `git init` and set local user.name/user.email. Default true.
    * Forced true when initialCommit is true. */
   initialized?: boolean;
-  /** Write the minimal repo.yaml + locations.yaml RackInventoryStudio
-   * scaffold — mirrors the schema written by
-   * crates/ris-application/src/create.rs's create_repository (repo.yaml's
-   * format/version/repository.{id,code,name}, plus an empty
-   * locations.yaml; racks/device-models/devices/placements are optional
-   * for a loader-valid repository and are not created here). Default true. */
+  /** Write the minimal RackInventoryStudio scaffold — repo.yaml,
+   * locations.yaml, and empty racks/device-models/devices/placements
+   * directories — mirroring what crates/ris-application/src/create.rs's
+   * create_repository writes. The four directories are required to exist
+   * for VAL-REPO-004 (crates/ris-validation/src/validators/repository.rs)
+   * to pass, even though the *loader* (ris-repository) tolerates their
+   * absence — see writeMinimalRisFixture's own comment. Default true. */
   fixture?: boolean;
   /** Stage and commit the fixture (or a placeholder file if fixture is
    * false) as an initial commit. Implies initialized. Default false. */
@@ -177,6 +178,17 @@ function writeMinimalRisFixture(repoPath: string, repoCode: string, repoName: st
     `  name: ${repoName}\n`;
   writeFileSync(join(inventoryDir, "repo.yaml"), repoYaml);
   writeFileSync(join(inventoryDir, "locations.yaml"), "locations: []\n");
+  // The loader (ris-repository) tolerates these being absent entirely — an
+  // empty glob read. The *validator* does not: VAL-REPO-004
+  // (crates/ris-validation/src/validators/repository.rs) is an ERROR-level
+  // check that each of these paths exists, found while implementing Stage
+  // 3F.1B's own Validate workflow spec (a fixture missing all four failed
+  // validation with 4 errors, blocking the "Validate" step from ever
+  // succeeding). Creating them empty here matches what the app's own
+  // "Create repository" wizard does (crates/ris-application/src/create.rs).
+  for (const dir of ["racks", "device-models", "devices", "placements"]) {
+    mkdirSync(join(inventoryDir, dir), { recursive: true });
+  }
 }
 
 /**

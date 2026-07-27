@@ -5,7 +5,7 @@
 | Item | Detail |
 |------|--------|
 | Integration branch | `roadmap/e2e-wdio` (long-lived) |
-| Current stage | Stage 3 COMPLETED (3A, 3B.1–3B.4, 3C) — embedded WDIO provider fully removed (PR #158); Stage 3D PARTIAL (merged as PR #159 — Placement Validation COMPLETE, Rack Export moved to NEEDS APPLICATION CHANGE); Stage 3E COMPLETE (merged as PR #160) — low-risk selector additions; Stage 3F.0 COMPLETE (merged as PR #161) — git workflow foundation audit; Stage 3F.0.5 COMPLETE (merged as PR #162) — local Git E2E test foundation, no workflow coverage added; Stage 3F.1A COMPLETE (not yet merged) — Git detection/init workflow coverage (1 workflow moved NEEDS SELECTOR → COVERED); Stage 3F.1B/3F.1.5/3F.2 (remaining git workflow implementation) not yet started |
+| Current stage | Stage 3 COMPLETED (3A, 3B.1–3B.4, 3C) — embedded WDIO provider fully removed (PR #158); Stage 3D PARTIAL (merged as PR #159 — Placement Validation COMPLETE, Rack Export moved to NEEDS APPLICATION CHANGE); Stage 3E COMPLETE (merged as PR #160) — low-risk selector additions; Stage 3F.0 COMPLETE (merged as PR #161) — git workflow foundation audit; Stage 3F.0.5 COMPLETE (merged as PR #162) — local Git E2E test foundation, no workflow coverage added; Stage 3F.1A COMPLETE (merged as PR #163) — Git detection/init workflow coverage; Stage 3F.1B COMPLETE (not yet merged) — validate/commit/add-remote COVERED, push/pull local error paths PARTIAL; Stage 3F.1.5/3F.2 (remote git over SSH) not yet started |
 | Integration PR to development | None open |
 | Decision | Further stages continue on `roadmap/e2e-wdio`; integration into `development` only after whole-program review |
 
@@ -1641,8 +1641,8 @@ coverage regression on anything that still exists.
 ## Future stages
 
 Derived from `docs/E2E_WDIO_COVERAGE_GAPS.md`'s analysis, not carried
-forward from an older plan — 62/79 workflows COVERED (78%) as of Stage
-3F.1A (Git init moved NEEDS SELECTOR → COVERED; see
+forward from an older plan — 65/79 workflows COVERED (82%), plus 2
+PARTIAL (Push/Pull local error paths only), as of Stage 3F.1B (see
 `docs/E2E_WDIO_COVERAGE_GAPS.md`'s Summary counts).
 Ordered by proposed sequence; 3E/3F are sketched to show the intended path
 but should each get their own NSP when picked up, per the normal E2E
@@ -2117,41 +2117,86 @@ shows zero commits touching `apps/desktop/src/features/repository/`,
 `crates/ris-git/` between the Stage 3F.0 audit commit and this stage's
 branch point — the UI and backend are exactly as the audit described.
 
-### Stage 3F.1B — Local git workflows: validate, commit, add-remote, push/pull error paths (sketch, not yet scoped)
+### Stage 3F.1B — Local git workflows: validate, commit, add-remote, push/pull error paths
 
-**Scope (indicative), refined by the Stage 3F.0 audit and narrowed by
-3F.1A's completion:** selectors + specs for the remaining git operations
-that need no reachable remote at all:
-- Validate (git-adjacent trigger — same backend call as the
-  already-covered `ValidationPanel`; low incremental value, include only
-  if a dedicated smoke check of this UI location is judged worthwhile)
-- Commit with message (always whole-tree; no staged-files assertions
-  possible since there is no such UI)
-- Add remote — `add_remote` only validates the URL and writes it to
-  `.git/config`; the remote never has to be reachable, so this is
-  genuinely local-only despite superficially looking "remote-related"
-- Push/Pull **disabled-state and error-path behavior only** (no upstream
-  configured; attempting an operation against an unreachable-but-
-  URL-valid remote and asserting the surfaced error) — not a successful
-  round-trip, which needs 3F.2
+**Status: COMPLETE.** On `feature/e2e-stage-3f1b-local-git-workflows` →
+`roadmap/e2e-wdio`.
 
-**Selector-design prerequisite, from the audit:** decide how to
-disambiguate the two simultaneous Push/Pull button pairs (stepper vs.
-Remote panel) before adding any push/pull testid — an unscoped
-`data-testid` would be ambiguous. Likely resolution: scope via each
-button's containing `Panel` (e.g. `git-stepper-push-btn` /
-`git-remote-push-btn`), decided during this stage's own NSP.
+**Pre-implementation audit, per this stage's own NSP:** confirmed HEAD was
+exactly the merged Stage 3F.1A commit (no drift — `git log` showed zero
+commits between them), confirmed no git-related `data-testid` had been
+added since Stage 3F.1A (still exactly the 3 from that stage), and
+confirmed `RepositoryPanel.tsx`/the Git backend were unchanged from the
+Stage 3F.0 audit's description.
 
-**Why this tier first:** the lowest-risk git subset — no network
-dependency, no SSH infrastructure, and (except push/pull's own local
-error paths) no risk of leaving a test run in a half-synced state.
+**Scope delivered:** one new spec, `git-local-workflows.e2e.ts`, 3
+`it()`s:
+- **Validate + Commit** (one flow): runs Validate from the "Safe publish"
+  stepper — a distinct UI path from `ValidationPanel`'s own
+  already-covered Validate button, same backend call
+  (`validateCurrentRepository`) — confirms it unblocks Commit, enters a
+  message, commits, and cross-checks the result via `local-git.ts`
+  helpers: working tree becomes clean, HEAD changes, commit count
+  increments.
+- **Add remote**: adds a fake HTTPS URL
+  (`https://example.invalid/repository.git`, RFC 2606 reserved, never
+  resolves) through the UI, confirms the success banner, cross-checks
+  `.git/config` via `getRemoteUrl()`. The remote is never contacted.
+- **Push/Pull local error paths**: adds the same fake remote, triggers
+  Push then Pull from the "Safe publish" stepper's buttons, confirms both
+  surface an error, and confirms via helpers that repository state
+  (HEAD, commit count, branch) is unchanged and the app remains
+  responsive (the ordinary close flow still works afterward).
 
-**Explicitly NOT in scope:** any successful push, pull, or clone
-round-trip; the SSH passphrase modal (needs a real SSH operation to
-trigger — 3F.2); branch/merge/rebase/stash/tags/fetch/staged-files/
-user-identity/HTTPS-credentials — none of these exist in the application
-(see the audit above) and are not test candidates at all, now or later,
-unless the application gains the feature first.
+**Selector-design decision, resolving the prerequisite flagged since
+Stage 3F.0's audit:** the two simultaneous Push/Pull button pairs
+(stepper vs. Remote panel, both calling the exact same
+`handlePush`/`handlePull`) are disambiguated by selectorizing **only the
+stepper's pair** — `git-stepper-push-btn` / `git-stepper-pull-btn`. The
+Remote panel's identical pair is deliberately left unselectorized, so no
+selector in the codebase matches more than one element. Push/Pull error
+text (`git-push-error` / `git-pull-error`) is only ever rendered in the
+stepper, so this also keeps the error-observation point co-located with
+the button that was clicked.
+
+**11 new `data-testid`s total:** `git-validate-btn`,
+`git-commit-message-input`, `git-commit-btn`, `git-remote-name-input`,
+`git-remote-url-input`, `git-remote-add-btn`, `git-remote-add-success`,
+`git-stepper-push-btn`, `git-stepper-pull-btn`, `git-push-error`,
+`git-pull-error`. No selector added for the Remote panel's Push/Pull
+pair, and none for anything out of this stage's scope (clone, SSH,
+branch/merge/rebase/stash/tags — none of which exist in the product, per
+the Stage 3F.0 audit).
+
+**Bug found and fixed in Stage 3F.0.5's own fixture-builder helper (not
+application code):** `createLocalGitRepository`'s `writeMinimalRisFixture`
+wrote only `repo.yaml` + `locations.yaml`, reasoning (correctly, at the
+time) that the *loader* (`ris-repository`) tolerates missing
+`racks/`/`device-models/`/`devices/`/`placements/` directories entirely.
+This stage's own Validate spec was the first to actually click Validate
+against such a fixture — and found `VAL-REPO-004`
+(`crates/ris-validation/src/validators/repository.rs`) is a separate,
+ERROR-level *validator* check requiring each of those four paths to
+exist, independent of what the loader needs. A fixture missing all four
+failed validation with 4 errors, permanently blocking the Commit step
+(this is a real product behavior, correctly enforced — not a bug in the
+application). Fixed `writeMinimalRisFixture` to also create the four
+directories empty, matching what the app's own "Create repository"
+wizard produces. A regression test was added to `local-git.test.ts`.
+Stage 3F.1A's own spec was unaffected (it never triggers Validate).
+
+**Why Push/Pull are PARTIAL, not COVERED:** per this stage's explicit
+scope boundary, only the *local error path* was implemented — a
+successful push/pull round-trip against a real reachable remote needs
+network/SSH infrastructure that is Stage 3F.2's concern. The Coverage
+Gaps doc reflects this precisely (`PARTIAL`, not `COVERED`) rather than
+overclaiming.
+
+**Explicitly NOT in scope, respected:** any successful push, pull, or
+clone round-trip; the SSH passphrase modal; branch/merge/rebase/stash/
+tags/fetch/staged-files/user-identity/HTTPS-credentials — none of these
+exist in the application; no application/backend change beyond the
+Stage 3F.0.5 test-helper fix described above.
 
 ### Stage 3F.2 — Remote git over SSH (sketch, not yet scoped)
 
