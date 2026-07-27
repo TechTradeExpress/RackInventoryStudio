@@ -58,6 +58,16 @@ import {
   getWorkingTreeStatus,
 } from "../support/local-git";
 
+// RFC 2606 reserves the .invalid TLD specifically so it can never
+// represent a real Internet host — no add_remote/push/pull-side local
+// rejection path exists for this (validate_remote_url in
+// crates/ris-git/src/lib.rs accepts any syntactically valid https://
+// URL without a reachability check, and push/pull always shell out to
+// the real `git push`/`git pull` with no dry-run mode — confirmed by
+// reading both). Push/Pull below therefore do perform a real (fast,
+// deterministic) DNS resolution attempt against this guaranteed-invalid
+// host; the tests only assert that an error is surfaced, never any
+// specific transport error text.
 const FAKE_REMOTE_URL = "https://example.invalid/repository.git";
 
 function log(msg: string) {
