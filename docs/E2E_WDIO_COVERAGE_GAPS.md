@@ -132,8 +132,11 @@ default spec suite and not counted as workflow coverage here.
 
 Re-audited against current HEAD 2026-07-25 (Stage 3F.0) — see
 `docs/E2E_WDIO_PLAN.md`'s "Git Workflow — foundation audit" section for the
-full backend/UI/test inventory this table summarizes. The RepositoryPanel
-git section still has no `data-testid` attributes on its action buttons.
+full backend/UI/test inventory this table summarizes. As of Stage 3F.1A
+(2026-07-27), three `data-testid`s exist for detection/init only:
+`git-not-initialized`, `git-init-btn`, `git-branch-value`. No testid was
+added for validate/commit/add-remote/push/pull — those buttons remain
+unselectorized.
 One nuance found this pass: **Push and Pull each render as two separate,
 functionally-identical button pairs simultaneously** once a remote is
 configured — one inline in the "Safe publish" stepper (Steps 4/5, always
@@ -145,7 +148,7 @@ a single unscoped `git-push-btn` would match two elements.
 
 | Workflow | Status | Notes |
 |----------|--------|-------|
-| Git init (convert non-git directory) | NEEDS SELECTOR | No testid; requires repo with no `.git` |
+| Git init (convert non-git directory) | COVERED | `git-detection-init` — covers detection of a repository with no `.git`, the init action, status refresh, detection persisting across close/reopen, and idempotent detection for a repository that already has Git (Stage 3F.1A, 2026-07-27) |
 | Validate for publish | NEEDS SELECTOR | No testid; same backend call (`validateCurrentRepository`) as `ValidationPanel`'s already-covered Validate button, triggered from a different UI location |
 | Commit with message | NEEDS SELECTOR | No testid on commit input or commit button. Always full-tree (`git add -A` then commit) — there is no selective-staging/staged-files-list UI to test |
 | Add remote | NEEDS SELECTOR | No testid on remote URL input or add-remote button |
@@ -387,26 +390,22 @@ in this document (one status tag per row).
 
 | Status | Count |
 |--------|-------|
-| COVERED | 61 |
+| COVERED | 62 |
 | PARTIAL | 0 |
 | MISSING | 0 |
-| NEEDS SELECTOR | 7 |
+| NEEDS SELECTOR | 6 |
 | NEEDS APPLICATION CHANGE | 2 |
 | DEFERRED | 4 |
 | NOT JUSTIFIED | 5 |
 | **Total workflows inventoried** | **79** |
 
-Current E2E coverage: **61 / 79 workflows (77%)**.
+Current E2E coverage: **62 / 79 workflows (78%)**.
 
-Since the Stage 3E snapshot (78 total, 61 COVERED, 78%): +1 newly-tracked
-workflow (SSH passphrase prompt, NEEDS SELECTOR — found during the Stage
-3F.0 audit, not previously listed anywhere in this document) and 2
-DEFERRED rows' reasons refined (Clone HTTPS: selectors confirmed already
-present, network is the only blocker; Clone SSH: confirmed to be a real
-product gap — no askpass wiring for clone — not just a network/testing
-blocker) — see the Repository management and Git workflow sections above.
-No COVERED/MISSING/NEEDS APPLICATION CHANGE/NOT JUSTIFIED counts changed;
-Stage 3F.0 added no tests and no selectors, per its own scope.
+Since the Stage 3F.0 snapshot (79 total, 61 COVERED, 77%): 1 workflow
+moved NEEDS SELECTOR → COVERED — **Git init (convert non-git directory)**,
+covered by `git-detection-init.e2e.ts` (Stage 3F.1A, 2026-07-27). No other
+row changed status; commit/add-remote/push/pull/SSH-passphrase-prompt
+remain NEEDS SELECTOR, per Stage 3F.1A's own scope boundary.
 
 ---
 
@@ -414,22 +413,22 @@ Stage 3F.0 added no tests and no selectors, per its own scope.
 
 See `docs/E2E_WDIO_PLAN.md` → "Git Workflow — foundation audit" and
 "Future stages" for the full Stage 3F breakdown. Two gap categories remain:
-- **NEEDS SELECTOR (7)** — all git workflow actions: init, validate,
-  commit, add-remote, push, pull, and SSH passphrase prompt (the last
-  found during the Stage 3F.0 audit). Of these, init/validate/commit/
-  add-remote are fully local — `add_remote` only writes a URL into
-  `.git/config`, the remote never needs to actually be reachable — and are
-  proposed for Stage 3F.1. Push/pull's *disabled-state and error-path*
-  behavior (no upstream, unreachable remote) is also local-testable in
-  3F.1; a genuine successful push/pull/clone round-trip needs a real
-  reachable remote, which `validate_remote_url` restricts to HTTPS or SSH
-  only (local filesystem paths are deliberately rejected — see the Git
-  Workflow audit) — that round-trip, plus the SSH passphrase prompt it can
-  trigger, is Stage 3F.2's scope.
+- **NEEDS SELECTOR (6)** — the remaining git workflow actions: validate,
+  commit, add-remote, push, pull, and SSH passphrase prompt. Git init
+  (detection + init + status refresh) moved to COVERED in Stage 3F.1A. Of
+  the rest, validate/commit/add-remote are fully local — `add_remote` only
+  writes a URL into `.git/config`, the remote never needs to actually be
+  reachable — and are proposed for Stage 3F.1B. Push/pull's *disabled-state
+  and error-path* behavior (no upstream, unreachable remote) is also
+  local-testable in 3F.1B; a genuine successful push/pull/clone round-trip
+  needs a real reachable remote, which `validate_remote_url` restricts to
+  HTTPS or SSH only (local filesystem paths are deliberately rejected — see
+  the Git Workflow audit) — that round-trip, plus the SSH passphrase prompt
+  it can trigger, is Stage 3F.2's scope.
 - **NEEDS APPLICATION CHANGE (2)** — rack export SVG/PNG. Not a
   testing-stage candidate until a product decision is made about adding a
   non-dialog export path.
 
-Stage 3F.1/3F.2 should each get their own NSP before implementation, per
+Stage 3F.1B/3F.2 should each get their own NSP before implementation, per
 the program's working model, given git operations mutate real repository
 state (commits, branches) and warrant a dedicated risk review.

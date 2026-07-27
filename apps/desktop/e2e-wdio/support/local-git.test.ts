@@ -233,6 +233,20 @@ describe.sequential("local-git", () => {
       }
     });
 
+    it("getCurrentBranch resolves on an unborn HEAD (git init with no commit yet)", async () => {
+      // Regression: rev-parse --abbrev-ref HEAD fails on an unborn HEAD
+      // (exit 128, "ambiguous argument 'HEAD'") — found while implementing
+      // Stage 3F.1A's own init-detection spec, which reads the branch name
+      // immediately after `git init`, before any commit exists.
+      const repo = await createLocalGitRepository({ initialized: true, initialCommit: false });
+      try {
+        const branch = await getCurrentBranch(repo.path);
+        expect(branch).toBeTruthy();
+      } finally {
+        await repo.cleanup();
+      }
+    });
+
     it("isGitRepository returns false for a non-existent path", async () => {
       expect(await isGitRepository(join(runRoot, "does-not-exist"))).toBe(false);
     });
