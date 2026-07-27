@@ -24,12 +24,13 @@
  *   PART B — Init: click `git-init-btn`; `.git` must exist on disk
  *             (verified via `isGitRepository`, not a raw fs check, per
  *             this stage's helper-reuse instruction); the app must switch
- *             to the Git-detected sidebar with a real branch name
- *             (`git-branch-value`) — i.e. status was refreshed after init.
+ *             to the Git-detected sidebar, and the branch name it actually
+ *             displays (`git-branch-value`) must equal `getCurrentBranch`'s
+ *             return value — not merely "some branch element exists".
  *   PART C — Reopen: close the repository and reopen it by the same path;
- *             Git detection (`git-branch-value`, matching
- *             `getCurrentBranch`) must still hold — detection isn't a
- *             one-time artifact of the init click.
+ *             the displayed branch must again equal `getCurrentBranch`'s
+ *             value — detection isn't a one-time artifact of the init
+ *             click.
  *
  * A second `it()` covers the idempotency case required by the stage: a
  * repository that already has Git before it is ever opened must show the
@@ -45,8 +46,6 @@
  * `repository-open-path-submit`, `repository-active-root`,
  * `repository-close-action`, `repository-active-path`.
  */
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { browser, expect } from "@wdio/globals";
 import { reactSetValue, clickWhenEnabled, expectActiveRepositoryPath } from "../support/repository-ui";
 import { createLocalGitRepository, isGitRepository, getCurrentBranch } from "../support/local-git";
@@ -75,6 +74,32 @@ async function closeRepository(): Promise<void> {
     .waitForDisplayed({ timeout: 5_000, reverse: true });
 }
 
+/** Best-effort close for use in `finally`: never throws, so it cannot mask
+ * an assertion failure from the try block, and cleanup() below still runs
+ * even if this fails. Used from both `it()`s below — a real second use,
+ * not a speculative shared helper. */
+async function closeRepositorySafely(): Promise<void> {
+  try {
+    await closeRepository();
+  } catch (e) {
+    log(`WARNING: best-effort close in finally failed (continuing to cleanup): ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+/** Reads the branch name actually displayed in the Git sidebar's
+ * `git-branch-value` cell. The element also renders an `IcGitBranch` SVG
+ * icon (no text content) ahead of the branch name — collapsing whitespace
+ * covers any incidental spacing from that layout without assuming a
+ * specific prefix/format. */
+async function getDisplayedBranch(): Promise<string> {
+  const text = await browser.$('[data-testid="git-branch-value"]').getText();
+  return normalizeBranchText(text);
+}
+
+function normalizeBranchText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
 describe("Rack Inventory Studio — local Git detection and init", () => {
   before(() => {
     if (!process.env["RIS_E2E_REPOSITORY_PARENT"]) {
@@ -92,10 +117,12 @@ describe("Rack Inventory Studio — local Git detection and init", () => {
     expect(repo.initialized).toBe(false);
     expect(await isGitRepository(repo.path)).toBe(false);
 
+    let opened = false;
     try {
       // ── PART A: open a non-Git RackInventoryStudio directory ──────────────
       log("part A: opening the fixture by path");
       await openRepositoryByPath(repo.path);
+      opened = true;
       log("part A: opened — waiting for the not-tracked-by-Git state");
       await browser.$('[data-testid="git-not-initialized"]').waitForDisplayed({
         timeout: 15_000,
@@ -120,16 +147,18 @@ describe("Rack Inventory Studio — local Git detection and init", () => {
       log("part B: app now shows the Git-detected sidebar");
 
       expect(await isGitRepository(repo.path)).toBe(true);
-      expect(existsSync(join(repo.path, ".git"))).toBe(true);
-      const branchAfterInit = await getCurrentBranch(repo.path);
-      expect(branchAfterInit.length).toBeGreaterThan(0);
-      log(`part B: confirmed — .git exists on disk, current branch is "${branchAfterInit}"`);
+      const branchAfterInit = normalizeBranchText(await getCurrentBranch(repo.path));
+      const displayedBranchAfterInit = await getDisplayedBranch();
+      expect(displayedBranchAfterInit).toBe(branchAfterInit);
+      log(`part B: confirmed — .git exists on disk, UI displays the actual current branch "${branchAfterInit}"`);
 
       // ── PART C: close and reopen — detection must persist ─────────────────
       log("part C: closing the repository");
       await closeRepository();
+      opened = false;
       log("part C: reopening the same repository by path");
       await openRepositoryByPath(repo.path);
+      opened = true;
       log("part C: waiting for git-branch-value again after reopen");
       await browser.$('[data-testid="git-branch-value"]').waitForDisplayed({
         timeout: 15_000,
@@ -137,10 +166,17 @@ describe("Rack Inventory Studio — local Git detection and init", () => {
       });
       const notInitializedStillGone = await browser.$('[data-testid="git-not-initialized"]').isExisting();
       expect(notInitializedStillGone).toBe(false);
-      log("part C: confirmed — Git detection persists across close/reopen");
+      const branchAfterReopen = normalizeBranchText(await getCurrentBranch(repo.path));
+      const displayedBranchAfterReopen = await getDisplayedBranch();
+      expect(displayedBranchAfterReopen).toBe(branchAfterReopen);
+      log(`part C: confirmed — Git detection persists across close/reopen, UI still displays "${branchAfterReopen}"`);
 
       await closeRepository();
+      opened = false;
     } finally {
+      if (opened) {
+        await closeRepositorySafely();
+      }
       await repo.cleanup();
     }
   });
@@ -150,9 +186,11 @@ describe("Rack Inventory Studio — local Git detection and init", () => {
     const repo = await createLocalGitRepository({ initialized: true, label: "already-git" });
     expect(await isGitRepository(repo.path)).toBe(true);
 
+    let opened = false;
     try {
       log("opening the already-initialized fixture by path");
       await openRepositoryByPath(repo.path);
+      opened = true;
 
       log("waiting for git-branch-value to appear directly, with no not-initialized state ever shown");
       await browser.$('[data-testid="git-branch-value"]').waitForDisplayed({
@@ -166,7 +204,11 @@ describe("Rack Inventory Studio — local Git detection and init", () => {
       log("confirmed — the app never offers re-init for a repository that already has Git");
 
       await closeRepository();
+      opened = false;
     } finally {
+      if (opened) {
+        await closeRepositorySafely();
+      }
       await repo.cleanup();
     }
   });
