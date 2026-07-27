@@ -5,7 +5,7 @@
 | Item | Detail |
 |------|--------|
 | Integration branch | `roadmap/e2e-wdio` (long-lived) |
-| Current stage | Stage 3 COMPLETED (3A, 3B.1–3B.4, 3C) — embedded WDIO provider fully removed (PR #158); Stage 3D PARTIAL (merged as PR #159 — Placement Validation COMPLETE, Rack Export moved to NEEDS APPLICATION CHANGE); Stage 3E COMPLETE (merged as PR #160) — low-risk selector additions; Stage 3F.0 COMPLETE (merged as PR #161) — git workflow foundation audit; Stage 3F.0.5 COMPLETE (audit + docs only, not yet merged) — local Git E2E test foundation, no workflow coverage added; Stage 3F.1/3F.1.5/3F.2 (git workflow implementation) not yet started |
+| Current stage | Stage 3 COMPLETED (3A, 3B.1–3B.4, 3C) — embedded WDIO provider fully removed (PR #158); Stage 3D PARTIAL (merged as PR #159 — Placement Validation COMPLETE, Rack Export moved to NEEDS APPLICATION CHANGE); Stage 3E COMPLETE (merged as PR #160) — low-risk selector additions; Stage 3F.0 COMPLETE (merged as PR #161) — git workflow foundation audit; Stage 3F.0.5 COMPLETE (merged as PR #162) — local Git E2E test foundation, no workflow coverage added; Stage 3F.1A COMPLETE (not yet merged) — Git detection/init workflow coverage (1 workflow moved NEEDS SELECTOR → COVERED); Stage 3F.1B/3F.1.5/3F.2 (remaining git workflow implementation) not yet started |
 | Integration PR to development | None open |
 | Decision | Further stages continue on `roadmap/e2e-wdio`; integration into `development` only after whole-program review |
 
@@ -1641,9 +1641,9 @@ coverage regression on anything that still exists.
 ## Future stages
 
 Derived from `docs/E2E_WDIO_COVERAGE_GAPS.md`'s analysis, not carried
-forward from an older plan — 61/79 workflows COVERED (77%) as of the Stage
-3F.0 audit (one previously-untracked workflow, SSH passphrase prompt, was
-found and added — see `docs/E2E_WDIO_COVERAGE_GAPS.md`'s Summary counts).
+forward from an older plan — 62/79 workflows COVERED (78%) as of Stage
+3F.1A (Git init moved NEEDS SELECTOR → COVERED; see
+`docs/E2E_WDIO_COVERAGE_GAPS.md`'s Summary counts).
 Ordered by proposed sequence; 3E/3F are sketched to show the intended path
 but should each get their own NSP when picked up, per the normal E2E
 working model.
@@ -2051,11 +2051,77 @@ ruled out by this stage's NSP. If a future stage needs stronger proof, the
 smallest addition would be a temporary, clearly-marked debug assertion
 removed before merge — not a permanent product surface.
 
-### Stage 3F.1 — Local git workflows (sketch, not yet scoped)
+### Stage 3F.1A — Local Git detection & init
 
-**Scope (indicative), refined by the Stage 3F.0 audit:** selectors +
-specs for the git operations that need no reachable remote at all:
-- Git init (convert a non-git repository directory)
+**Status: COMPLETE.** On `feature/e2e-stage-3f1a-local-git` →
+`roadmap/e2e-wdio`.
+
+**Scope delivered:** the first real Git *workflow* E2E coverage in the
+program (3F.0/3F.0.5 were audit and infrastructure only) — Git detection
+of a non-tracked directory, the "Initialize Git repository" action,
+status refresh after init, detection persisting across a close/reopen
+cycle, and idempotent detection for a repository that already has Git
+(no re-init affordance is ever shown). One new spec:
+`git-detection-init.e2e.ts`, two `it()`s.
+
+**Pre-audit finding, before implementation:** `create_repository_cmd`
+(the UI "Create repository" wizard's backend) always runs
+`ris_git::init_repository` itself — confirmed by reading
+`apps/desktop/src-tauri/src/commands/repository.rs` and by
+`repository-lifecycle.e2e.ts`'s own post-create `.git` assertion. So a
+repository with genuinely no `.git` can only be presented to the app via
+"Open by path" against a fixture built outside the wizard — exactly what
+`createLocalGitRepository({ initialized: false })` (Stage 3F.0.5) is for.
+`open_repository_cmd` (same file) was confirmed to never run git init as
+a side effect.
+
+**New selectors (3, detection/init only):** `git-not-initialized` (wraps
+the "not tracked by Git" state's content), `git-init-btn` (the
+"Initialize Git repository" button), `git-branch-value` (the branch `<dd>`
+in the Git sidebar — present only once `gitStatus.is_repository` is true,
+so its appearance is itself the "status refreshed" signal). The existing
+`aria-label="Refresh Git status"` button was left as-is and not used —
+the app's own automatic refresh after init/reopen made an explicit manual
+refresh unnecessary for this stage's assertions. No selector was added for
+validate/commit/add-remote/push/pull, per this stage's explicit scope
+boundary — see the "Confirmed not implemented" list below for what
+Stage 3F.1B still needs.
+
+**Helper bug found and fixed (Stage 3F.0.5's own code, not application
+code):** `getCurrentBranch()` used `git rev-parse --abbrev-ref HEAD`,
+which fails (exit 128, "ambiguous argument 'HEAD'") on an **unborn HEAD**
+— a freshly `git init`'d repository with no commit yet. This is exactly
+the state Stage 3F.1A's own init spec needs to inspect (the app itself
+shows a real branch name immediately after init, before any commit,
+because it reads `git status --porcelain=v1 --branch`'s "No commits yet
+on `<branch>`" line — see `parse_branch_line` in `crates/ris-git/src/
+lib.rs`). Fixed to use `git symbolic-ref --short HEAD`, which resolves
+correctly both before and after the first commit. A regression test
+(`getCurrentBranch resolves on an unborn HEAD`) was added to
+`local-git.test.ts`. This is the one necessary modification to an
+existing Stage 3F.0.5 helper — every other helper was used as-is.
+
+**Fixtures used exclusively via the Stage 3F.0.5 helper**, per this
+stage's own instruction: both `it()`s call `createLocalGitRepository()`
+directly (`initialized: false` for the detection/init case, `initialized:
+true` for the idempotency case) — no new repository-creation helper was
+added, and no raw git command was run directly in the spec where a
+3F.0.5 helper already covered the need (`isGitRepository`,
+`getCurrentBranch` are used to cross-check the UI against the actual
+on-disk state).
+
+**Confirmed unchanged since the Stage 3F.0 audit** (re-verified before
+implementing, per this stage's own audit-first instruction): `git log`
+shows zero commits touching `apps/desktop/src/features/repository/`,
+`apps/desktop/src-tauri/src/commands/{git,repository}.rs`, or
+`crates/ris-git/` between the Stage 3F.0 audit commit and this stage's
+branch point — the UI and backend are exactly as the audit described.
+
+### Stage 3F.1B — Local git workflows: validate, commit, add-remote, push/pull error paths (sketch, not yet scoped)
+
+**Scope (indicative), refined by the Stage 3F.0 audit and narrowed by
+3F.1A's completion:** selectors + specs for the remaining git operations
+that need no reachable remote at all:
 - Validate (git-adjacent trigger — same backend call as the
   already-covered `ValidationPanel`; low incremental value, include only
   if a dedicated smoke check of this UI location is judged worthwhile)
