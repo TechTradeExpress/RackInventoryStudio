@@ -448,13 +448,13 @@ function GitSection({
   if (!gitStatus.is_repository) {
     return (
       <Panel title="Git" desc="No Git repository detected.">
-        <div className="stack">
+        <div className="stack" data-testid="git-not-initialized">
           <p style={{ margin: 0, fontSize: 12, color: "var(--tx-3)" }}>
             This directory is not tracked by Git.
           </p>
           {initError && <Banner tone="err">{initError}</Banner>}
           <div>
-            <button className="btn" onClick={handleInit} disabled={isBusy}>
+            <button className="btn" onClick={handleInit} disabled={isBusy} data-testid="git-init-btn">
               Initialize Git repository
             </button>
           </div>
@@ -738,7 +738,7 @@ function GitSection({
         <div className="stack-3">
           <dl className="kv">
             <dt>Branch</dt>
-            <dd className="mono" style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <dd className="mono" style={{ display: "flex", alignItems: "center", gap: 4 }} data-testid="git-branch-value">
               <IcGitBranch size={12} /> {gitStatus.branch ?? "—"}
             </dd>
             <dt>Status</dt>

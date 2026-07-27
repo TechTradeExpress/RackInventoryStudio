@@ -280,8 +280,13 @@ export async function isGitRepository(path: string): Promise<boolean> {
   }
 }
 
+/** Uses `symbolic-ref` rather than `rev-parse --abbrev-ref HEAD` because the
+ * latter fails on an unborn HEAD (`git init` with no commit yet, exit 128 —
+ * "ambiguous argument 'HEAD'"), a real state Stage 3F.1A's own detection/init
+ * specs exercise. `symbolic-ref --short HEAD` resolves correctly both before
+ * and after the first commit. */
 export async function getCurrentBranch(path: string): Promise<string> {
-  const result = await runGit(path, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  const result = await runGit(path, ["symbolic-ref", "--short", "HEAD"]);
   return result.stdout.trim();
 }
 
