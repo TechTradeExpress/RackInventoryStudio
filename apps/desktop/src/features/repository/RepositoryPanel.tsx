@@ -564,6 +564,7 @@ function GitSection({
                     className="btn btn-sm"
                     onClick={handleValidateForPublish}
                     disabled={isBusy || hasUnsavedChanges}
+                    data-testid="git-validate-btn"
                   >
                     <IcRefresh size={11} /> Run
                   </button>
@@ -593,6 +594,7 @@ function GitSection({
                         onChange={(e) => setCommitMessage(e.target.value)}
                         placeholder="Commit message…"
                         disabled={isBusy || committing || hasUnsavedChanges || !validationPassed}
+                        data-testid="git-commit-message-input"
                       />
                       <button
                         type="submit"
@@ -604,6 +606,7 @@ function GitSection({
                             : !commitMessage.trim() ? "Enter a commit message"
                             : undefined
                         }
+                        data-testid="git-commit-btn"
                       >
                         {committing ? "Committing…" : "Commit"}
                       </button>
@@ -636,7 +639,7 @@ function GitSection({
                         : gitStatus.upstream
                           ? "Up to date with remote."
                           : "No upstream configured yet."}
-                    {pullError && <span style={{ color: "var(--st-err-tx)", display: "block", marginTop: 2 }}>{pullError}</span>}
+                    {pullError && <span style={{ color: "var(--st-err-tx)", display: "block", marginTop: 2 }} data-testid="git-pull-error">{pullError}</span>}
                     {pullSuccess && <span style={{ color: "var(--st-ok-tx)", display: "block", marginTop: 2 }}>{pullSuccess}</span>}
                   </div>
                 </div>
@@ -646,6 +649,7 @@ function GitSection({
                     onClick={handlePull}
                     disabled={pullDisabled}
                     title={pullBlockedReason !== null ? pullBlockedReason : undefined}
+                    data-testid="git-stepper-pull-btn"
                   >
                     <IcDownload size={11} /> Pull
                   </button>
@@ -670,7 +674,7 @@ function GitSection({
                       : gitStatus.upstream
                         ? "Remote is up to date."
                         : "No upstream branch — push will configure tracking."}
-                    {pushError && <span style={{ color: "var(--st-err-tx)", display: "block", marginTop: 2 }}>{pushError}</span>}
+                    {pushError && <span style={{ color: "var(--st-err-tx)", display: "block", marginTop: 2 }} data-testid="git-push-error">{pushError}</span>}
                     {pushSuccess && <span style={{ color: "var(--st-ok-tx)", display: "block", marginTop: 2 }}>{pushSuccess}</span>}
                   </div>
                 </div>
@@ -680,6 +684,7 @@ function GitSection({
                     onClick={handlePush}
                     disabled={pushDisabled}
                     title={pushBlockedReason !== null ? pushBlockedReason : undefined}
+                    data-testid="git-stepper-push-btn"
                   >
                     <IcPush size={11} /> Push
                   </button>
@@ -797,6 +802,7 @@ function GitSection({
                 onChange={(e) => setNewRemoteName(e.target.value)}
                 placeholder="Name"
                 disabled={isBusy}
+                data-testid="git-remote-name-input"
               />
               <input
                 className="ri-input ri-mono"
@@ -805,13 +811,14 @@ function GitSection({
                 onChange={(e) => setNewRemoteUrl(e.target.value)}
                 placeholder="URL (e.g. git@github.com:org/repo.git)"
                 disabled={isBusy}
+                data-testid="git-remote-url-input"
               />
-              <button type="submit" className="btn btn-sm" disabled={isBusy}>
+              <button type="submit" className="btn btn-sm" disabled={isBusy} data-testid="git-remote-add-btn">
                 Add
               </button>
             </form>
             {addRemoteError && <div style={{ marginTop: 6, fontSize: 12, color: "var(--st-err-tx)" }}>{addRemoteError}</div>}
-            {addRemoteSuccess && <div style={{ marginTop: 6, fontSize: 12, color: "var(--st-ok-tx)" }}>{addRemoteSuccess}</div>}
+            {addRemoteSuccess && <div style={{ marginTop: 6, fontSize: 12, color: "var(--st-ok-tx)" }} data-testid="git-remote-add-success">{addRemoteSuccess}</div>}
           </div>
 
           {remotes.length > 0 && (

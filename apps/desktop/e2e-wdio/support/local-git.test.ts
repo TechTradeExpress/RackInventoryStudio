@@ -124,6 +124,22 @@ describe.sequential("local-git", () => {
       }
     });
 
+    it("writes the racks/device-models/devices/placements directories the validator requires (VAL-REPO-004)", async () => {
+      // Regression: the loader tolerates these being absent (an empty glob
+      // read), but crates/ris-validation's VAL-REPO-004 is an ERROR-level
+      // check that each of these paths exists — found while implementing
+      // Stage 3F.1B's own Validate workflow spec, where a fixture missing
+      // all four failed validation with 4 errors.
+      const repo = await createLocalGitRepository({ label: "validator-dirs" });
+      try {
+        for (const dir of ["racks", "device-models", "devices", "placements"]) {
+          expect(existsSync(join(repo.path, "inventory", dir))).toBe(true);
+        }
+      } finally {
+        await repo.cleanup();
+      }
+    });
+
     it("creates a repository with an initial commit", async () => {
       const repo = await createLocalGitRepository({ initialCommit: true });
       try {
