@@ -132,28 +132,34 @@ default spec suite and not counted as workflow coverage here.
 
 Re-audited against current HEAD 2026-07-25 (Stage 3F.0) — see
 `docs/E2E_WDIO_PLAN.md`'s "Git Workflow — foundation audit" section for the
-full backend/UI/test inventory this table summarizes. As of Stage 3F.1A
-(2026-07-27), three `data-testid`s exist for detection/init only:
-`git-not-initialized`, `git-init-btn`, `git-branch-value`. No testid was
-added for validate/commit/add-remote/push/pull — those buttons remain
-unselectorized.
-One nuance found this pass: **Push and Pull each render as two separate,
-functionally-identical button pairs simultaneously** once a remote is
-configured — one inline in the "Safe publish" stepper (Steps 4/5, always
-acts on the branch's tracked remote), one in the "Remote" panel next to a
-remote-selector dropdown (`selectedRemote`). Both call the exact same
-`handlePush`/`handlePull`. A future selector-addition pass must scope
-`data-testid`s to their containing `Panel` (or otherwise disambiguate) —
-a single unscoped `git-push-btn` would match two elements.
+full backend/UI/test inventory this table summarizes. As of Stage 3F.1B
+(2026-07-27), 11 `data-testid`s exist covering detection/init (Stage
+3F.1A: `git-not-initialized`, `git-init-btn`, `git-branch-value`) and
+validate/commit/add-remote/push-pull-error-paths (Stage 3F.1B:
+`git-validate-btn`, `git-commit-message-input`, `git-commit-btn`,
+`git-remote-name-input`, `git-remote-url-input`, `git-remote-add-btn`,
+`git-remote-add-success`, `git-stepper-push-btn`, `git-stepper-pull-btn`,
+`git-push-error`, `git-pull-error`).
+One nuance found in Stage 3F.0's audit and resolved in Stage 3F.1B:
+**Push and Pull each render as two separate, functionally-identical
+button pairs simultaneously** once a remote is configured — one inline in
+the "Safe publish" stepper (Steps 4/5, always acts on the branch's
+tracked remote), one in the "Remote" panel next to a remote-selector
+dropdown (`selectedRemote`). Both call the exact same
+`handlePush`/`handlePull`. Stage 3F.1B selectorized only the stepper's
+pair (`git-stepper-push-btn` / `git-stepper-pull-btn`, disambiguated by
+name) — the Remote panel's identical pair remains deliberately
+unselectorized, so no selector in this codebase matches more than one
+element.
 
 | Workflow | Status | Notes |
 |----------|--------|-------|
 | Git init (convert non-git directory) | COVERED | `git-detection-init` — covers detection of a repository with no `.git`, the init action, status refresh, detection persisting across close/reopen, and idempotent detection for a repository that already has Git (Stage 3F.1A, 2026-07-27) |
-| Validate for publish | NEEDS SELECTOR | No testid; same backend call (`validateCurrentRepository`) as `ValidationPanel`'s already-covered Validate button, triggered from a different UI location |
-| Commit with message | NEEDS SELECTOR | No testid on commit input or commit button. Always full-tree (`git add -A` then commit) — there is no selective-staging/staged-files-list UI to test |
-| Add remote | NEEDS SELECTOR | No testid on remote URL input or add-remote button |
-| Push to remote | NEEDS SELECTOR | No testid on either button pair (see duplication note above); network-dependent |
-| Pull from remote | NEEDS SELECTOR | No testid on either button pair; network-dependent + `--ff-only` (a diverged branch is surfaced as "resolve manually" — no in-app merge/rebase UI exists) |
+| Validate for publish | COVERED | `git-local-workflows` — triggering Validate from the "Safe publish" stepper (distinct UI path from `ValidationPanel`'s own already-covered Validate button, same backend call) and confirming it unblocks Commit (Stage 3F.1B, 2026-07-27) |
+| Commit with message | COVERED | `git-local-workflows` — commit message entry, commit action, working tree becomes clean, HEAD changes, commit count increments (all cross-checked via `local-git.ts` helpers). Always full-tree (`git add -A` then commit) — there is no selective-staging/staged-files-list UI to test (Stage 3F.1B, 2026-07-27) |
+| Add remote | COVERED | `git-local-workflows` — adds a fake HTTPS URL through the UI, confirms the success banner, cross-checks `.git/config` via `getRemoteUrl()`; the remote is never contacted (Stage 3F.1B, 2026-07-27) |
+| Push to remote | PARTIAL | Local error-path COVERED by `git-local-workflows` (unreachable remote → `git-push-error` surfaced, repository state and UI unchanged, verified via helpers) — selectorized on the "Safe publish" stepper's button only (`git-stepper-push-btn`; see duplication note above), the Remote panel's identical button is deliberately not selectorized. A **successful** push round-trip against a real reachable remote remains uncovered — Stage 3F.2 |
+| Pull from remote | PARTIAL | Local error-path COVERED by `git-local-workflows` (unreachable remote → `git-pull-error` surfaced, repository state and UI unchanged, verified via helpers) — selectorized on the stepper only (`git-stepper-pull-btn`), same duplication rationale as Push. A **successful** pull round-trip, and the `--ff-only`-diverged "resolve manually" case, remain uncovered — Stage 3F.2 |
 | SSH passphrase prompt | NEEDS SELECTOR | Partially selectorized: `SshPassphraseModal.tsx` already has `ssh-passphrase-input` on the text field; Submit and Cancel buttons have no testid |
 
 **Confirmed not implemented anywhere in the application** (Stage 3F.0
@@ -390,22 +396,25 @@ in this document (one status tag per row).
 
 | Status | Count |
 |--------|-------|
-| COVERED | 62 |
-| PARTIAL | 0 |
+| COVERED | 65 |
+| PARTIAL | 2 |
 | MISSING | 0 |
-| NEEDS SELECTOR | 6 |
+| NEEDS SELECTOR | 1 |
 | NEEDS APPLICATION CHANGE | 2 |
 | DEFERRED | 4 |
 | NOT JUSTIFIED | 5 |
 | **Total workflows inventoried** | **79** |
 
-Current E2E coverage: **62 / 79 workflows (78%)**.
+Current E2E coverage: **65 / 79 workflows (82%)** (COVERED only; the 2
+PARTIAL rows are not counted toward this figure).
 
-Since the Stage 3F.0 snapshot (79 total, 61 COVERED, 77%): 1 workflow
-moved NEEDS SELECTOR → COVERED — **Git init (convert non-git directory)**,
-covered by `git-detection-init.e2e.ts` (Stage 3F.1A, 2026-07-27). No other
-row changed status; commit/add-remote/push/pull/SSH-passphrase-prompt
-remain NEEDS SELECTOR, per Stage 3F.1A's own scope boundary.
+Since the Stage 3F.1A snapshot (79 total, 62 COVERED, 78%): 3 workflows
+moved NEEDS SELECTOR → COVERED — **Validate for publish**, **Commit with
+message**, **Add remote** — and 2 moved NEEDS SELECTOR → PARTIAL —
+**Push to remote**, **Pull from remote** (local error-path only; a
+successful round-trip remains uncovered, deferred to Stage 3F.2), all
+covered by `git-local-workflows.e2e.ts` (Stage 3F.1B, 2026-07-27). Only
+**SSH passphrase prompt** remains NEEDS SELECTOR.
 
 ---
 
