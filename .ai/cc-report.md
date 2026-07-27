@@ -1,199 +1,162 @@
 ## Summary
 
-Stage 3F.0.5 per NSP, on `feature/e2e-stage-3f-local-git-foundation` →
+Stage 3F.1A per NSP, on `feature/e2e-stage-3f1a-local-git` →
 `roadmap/e2e-wdio` (base = `roadmap/e2e-wdio` HEAD after PR #161/Stage 3F.0
-merged — confirmed merged before branching). **Status: COMPLETE.**
+and PR #162/Stage 3F.0.5 both merged — confirmed merged before branching).
+**Status: COMPLETE.**
 
-Infrastructure-only stage per its own explicit scope: prepares the shared,
-safe, deterministic test foundation Stage 3F.1's actual local Git workflow
-specs will build on. No Git workflow test, no `data-testid`, no
-application code — as required.
+The first real Git *workflow* E2E coverage in the program (Stage 3F.0 was
+audit-only, Stage 3F.0.5 was test-infrastructure-only). Scope: detection
+of a repository with no `.git`, the "Initialize Git repository" action,
+status refresh after init, detection persisting across a close/reopen
+cycle, and idempotent detection for a repository that already has Git.
+Explicitly excluded per the NSP: commit, add remote, push, pull, clone,
+SSH, Docker, remote repositories — none touched.
 
-**1. Status of the stage:** COMPLETE. All 12 acceptance criteria in the
-NSP are met (see section-by-section detail below); nothing is PARTIAL.
-
-**2. Helpers created:**
-- `apps/desktop/e2e-wdio/support/local-git.ts` (new) — `runGit()` (a
-  controlled `git` execution helper), `createLocalGitRepository()` (the
-  repository-fixture builder), and 7 inspection helpers
-  (`isGitRepository`, `getCurrentBranch`, `getHeadCommit`,
-  `getCommitCount`, `getWorkingTreeStatus`, `getRemoteUrl`,
-  `readGitConfig`) — scoped to exactly what Stage 3F.1's planned specs
-  need, nothing beyond.
-- `apps/desktop/e2e-wdio/support/test-environment.test.ts` (modified) —
-  one new test strengthening existing coverage: asserts the isolation
-  vars actually land on `process.env` after `initTestEnvironment()`.
-
-**3. Environment isolation — exact mechanism:** re-validated (not
-re-built) the existing infrastructure in `support/test-environment.ts`
-(from prior Stage 3B.x work), which already sets, directly on
-`process.env` at WDIO launcher module-load time:
-- `HOME=<runRoot>/home`
-- `GIT_CONFIG_GLOBAL=<runRoot>/git/config` (containing only a minimal
-  isolated identity, `Rack Inventory Studio E2E` /
-  `e2e@localhost.invalid` — never the real developer's config)
-- `GIT_CONFIG_NOSYSTEM=1`
-- `XDG_CONFIG_HOME=<runRoot>/app-config` (plus `XDG_DATA_HOME`/
-  `XDG_CACHE_HOME`)
-
-No new environment variables were needed — this set already fully covers
-the NSP's isolation requirement (point 2). `local-git.ts`'s
-`createLocalGitRepository` additionally sets `user.name`/`user.email`
-**locally** (`git config` without `--global`) on every fixture repo it
-creates, layering an explicit per-repo identity on top of the
-test-environment's own isolated global default.
-
-**4. Env passed to the Tauri app — verified, not assumed:** traced through
-`@wdio/tauri-service`'s own dist bundle
-(`node_modules/@wdio/tauri-service`): `DriverPool.startTauriDriverForWorker`
-spawns `tauri-driver` with `env: env ?? { ...process.env, ... }` — i.e. it
-spreads the calling (already-isolated) process's `process.env` into
-`tauri-driver`'s environment. `tauri-driver` is a plain
-`std::process::Command` spawn (external Rust crate, not this repo) and
-inherits its own environment into the launched Tauri app by default —
-there is no `env_clear()`/`env_remove()` call anywhere in the reachable
-code that would strip it. Chain: **WDIO worker process → tauri-driver →
-Tauri app**, fully inheriting the isolation vars at every hop. This
-finding, plus its inherent limitation (it stops at reading
-`@wdio/tauri-service`'s source + a unit test on our own launcher code — it
-does not read env vars back out of a *running* app process, since that
-would require a production code change explicitly out of scope for this
-stage) is documented in full in `docs/E2E_WDIO_PLAN.md`'s new Stage 3F.0.5
-section.
-
-**5. Cleanup safety guarantees:** `createLocalGitRepository`'s `cleanup()`
-calls `assertPathIsCleanupSafe`, which re-uses `test-environment.ts`'s own
-exported `isStrictChildPath` against `RIS_E2E_RUN_ROOT` — the same
-ownership boundary the suite's global `onComplete` cleanup already
-enforces — rather than a second, parallel mechanism. It refuses (throws,
-does not delete) when `RIS_E2E_RUN_ROOT` is unset or the target path is
-not a strict descendant of it, and is idempotent (a second call after the
-directory is already gone is a no-op). The existing whole-run
-`onComplete` cleanup in `wdio.conf.ts` remains the backstop guaranteeing
-no leftover directory survives a completed WDIO run even if a spec never
-calls `cleanup()` itself.
-
-**6. Infrastructure tests added:** `apps/desktop/e2e-wdio/support/
-local-git.test.ts` (14 tests, Node/Vitest, no WDIO session, no network)
-plus 1 new test in `test-environment.test.ts` — 15 new tests total, 0 new
-WDIO specs. Coverage: repo creation with/without `git init`; an initial
-commit (`getCommitCount`/`getHeadCommit`/clean status); local
-`user.name`/`user.email` isolation proven against a *simulated real
-global identity* (a fake `GIT_CONFIG_GLOBAL` file set mid-test, confirmed
-**not** to leak into the fixture's commit author — directly proving
-"brak odczytu globalnej konfiguracji użytkownika"); clean-vs-dirty
-working-tree status; adding and reading a remote URL with no network
-call; `runGit`'s literal (non-shell) argument passing (a commit message
-containing `;`, `` ` ``, and `$()` shell metacharacters round-trips
-verbatim with no side-effect files created); diagnostic-error reporting
-for an invalid git subcommand (`GitCommandError` with
-args/cwd/exitCode/stdout/stderr); and cleanup's refusal to delete a path
-outside the isolated run root.
+**Pre-implementation audit (NSP §1), findings:**
+- Stage 3F.0.5's helpers (`local-git.ts`) are present with all expected
+  exports (`runGit`, `createLocalGitRepository`, `isGitRepository`,
+  `getCurrentBranch`, `getWorkingTreeStatus`, etc.).
+- `git log` shows zero commits touching
+  `apps/desktop/src/features/repository/`,
+  `apps/desktop/src-tauri/src/commands/{git,repository}.rs`, or
+  `crates/ris-git/` between the Stage 3F.0 audit commit and this branch's
+  point — the Git UI and backend are exactly as the Stage 3F.0 audit
+  described. No documentation drift found.
+- No `data-testid` existed anywhere in the git-related UI beyond the
+  pre-existing `ssh-passphrase-input`.
+- **New finding, made before writing the spec:** `create_repository_cmd`
+  (`apps/desktop/src-tauri/src/commands/repository.rs`) always calls
+  `ris_git::init_repository` itself right after scaffolding — confirmed
+  by reading the command and by `repository-lifecycle.e2e.ts`'s own
+  post-create `.git` assertion. This means a repository with genuinely no
+  `.git` can only reach the app via "Open by path" against a fixture
+  built outside the create wizard; `open_repository_cmd` (same file) was
+  confirmed to never run git init as a side effect. This is why both new
+  test cases build their fixture via `createLocalGitRepository` and open
+  it by path, never via `createRepositoryThroughUi`.
 
 ## Files changed
 
 | File | Change |
 |------|--------|
-| `apps/desktop/e2e-wdio/support/local-git.ts` | New — runGit, createLocalGitRepository, 7 inspection helpers |
-| `apps/desktop/e2e-wdio/support/local-git.test.ts` | New — 14 unit tests |
-| `apps/desktop/e2e-wdio/support/test-environment.test.ts` | +1 test verifying isolation vars land on process.env |
-| `docs/E2E_WDIO_PLAN.md` | New "Stage 3F.0.5 — Local Git E2E Test Foundation" section; Program status table updated; "possible further split" note added under Stage 3F.2 |
+| `apps/desktop/src/features/repository/RepositoryPanel.tsx` | +3 `data-testid`, detection/init scope only: `git-not-initialized` (wraps the "not tracked by Git" state's content), `git-init-btn` (the Initialize button), `git-branch-value` (the branch `<dd>` in the Git sidebar — rendered only once `gitStatus.is_repository` is true, so its appearance is itself the "status refreshed" signal). No selector added for validate/commit/add-remote/push/pull. The existing `aria-label="Refresh Git status"` was left as-is and not used — the app's automatic refresh after init/reopen made an explicit manual refresh unnecessary for this stage's assertions. |
+| `apps/desktop/e2e-wdio/specs/git-detection-init.e2e.ts` | New — 2 `it()`s (see "Tests" below) |
+| `apps/desktop/e2e-wdio/support/local-git.ts` | `getCurrentBranch` fixed: `git rev-parse --abbrev-ref HEAD` → `git symbolic-ref --short HEAD` (see "Helper fix" below) |
+| `apps/desktop/e2e-wdio/support/local-git.test.ts` | +1 regression test for the fix above |
+| `docs/E2E_WDIO_PLAN.md` | New "Stage 3F.1A" section (COMPLETE); old "Stage 3F.1" sketch renamed "Stage 3F.1B" with Git init removed from its bullet list; Program status table and Future-stages coverage figure updated |
+| `docs/E2E_WDIO_COVERAGE_GAPS.md` | "Git init (convert non-git directory)" row moved NEEDS SELECTOR → COVERED; selector-coverage note updated; Summary counts recomputed |
 | `.ai/cc-report.md` | This report |
 
-`docs/E2E_WDIO_COVERAGE_GAPS.md` intentionally **not** touched — no
-selector or classification change occurred, per the NSP's own instruction
-not to increase the coverage count for infrastructure work.
+No other application code, and no Rust code, was changed.
 
-No application code (Rust or frontend `src/`) was changed. No new
-`data-testid`.
+**Helper fix (Stage 3F.0.5's own code, not application code) — the one
+modification to an existing helper, made because it was necessary:**
+`getCurrentBranch()` used `git rev-parse --abbrev-ref HEAD`, which fails
+(exit 128, "ambiguous argument 'HEAD'") on an **unborn HEAD** — a freshly
+`git init`'d repository with no commit yet. This is exactly the state
+this stage's own init spec needs to inspect, since the app itself shows a
+real branch name immediately after init (before any commit), by reading
+`git status --porcelain=v1 --branch`'s "No commits yet on `<branch>`"
+line (`parse_branch_line` in `crates/ris-git/src/lib.rs`). Fixed to use
+`git symbolic-ref --short HEAD`, which resolves correctly both before and
+after the first commit. A regression test
+(`getCurrentBranch resolves on an unborn HEAD`) was added.
 
 ## Tests
 
-**7. Validation commands run:**
+**Scenarios delivered** (`git-detection-init.e2e.ts`, 2 `it()`s):
+1. **Detection → Init → Status refresh → Persistence across reopen** (one
+   flow, matching the NSP's scenarios 1–3): open a fixture with no `.git`
+   → `git-not-initialized` shown, `git-branch-value` absent; click
+   `git-init-btn` → `.git` now exists on disk (verified via
+   `isGitRepository`, not a raw fs check) and `git-branch-value` appears
+   with a real branch name (cross-checked against `getCurrentBranch`);
+   close and reopen the same repository by path → detection still holds
+   (`git-branch-value` reappears, `git-not-initialized` does not).
+2. **Idempotency** (NSP scenario 4): open a fixture that already has Git
+   → `git-branch-value` appears directly; `git-not-initialized` and
+   `git-init-btn` are never shown. Describes the application's actual
+   current behavior (the init affordance only renders while
+   `is_repository` is false) — no product behavior was changed.
+
+Both fixtures were built exclusively via `createLocalGitRepository`
+(Stage 3F.0.5's helper); no new repository-creation helper was added, and
+no raw git command was run directly in the spec where a 3F.0.5 helper
+already covered the need.
 
 ```
 git diff --check                              PASS
 node scripts/check-repo-hygiene.mjs           PASS (8/8)
 node scripts/check-version-consistency.mjs    PASS
 pnpm -C apps/desktop typecheck (tsc --noEmit)  PASS
-  (note: this tsconfig's include is ["src"] only — it does not cover
-  apps/desktop/e2e-wdio/. No dedicated tsconfig exists for e2e-wdio in
-  this repo; its only static-check surface is Vitest, run below, plus
-  WDIO's own tsx-based transpilation at spec runtime. This predates this
-  stage and is unrelated to it.)
-pnpm -C apps/desktop test (vitest run)         PASS — 938/938, 57/57 files
-  includes local-git.test.ts (14/14) and the strengthened
-  test-environment.test.ts (23/23)
+pnpm -C apps/desktop test (vitest run)         PASS — 939/939, 57/57 files
+  (938 → 939: +1 regression test for the getCurrentBranch fix)
+node scripts/run-wdio-e2e.mjs --spec git-detection-init   CLEAN_PASS ×2
+node scripts/run-wdio-e2e.mjs --spec repository-lifecycle CLEAN_PASS ×1
+  (regression check — closest existing spec touching the same
+  RepositoryPanel.tsx open/close/reopen UI area; confirmed unaffected by
+  the new data-testid attributes)
 cargo fmt/check/clippy                         not run — no Rust files changed
 ```
 
-## Manual verification (per NSP §"Walidacja")
+Ports 4444/4445 confirmed free before and after every WDIO run; no
+leftover fixture directories or git/app/driver processes.
 
-- Global `git config --global --list` captured before and after the full
-  test run: `user.email=su-17@wp.pl`, `user.name=Jakub Plucinski` —
-  **unchanged**.
-- No leftover `local-git-test-*` / `outside-run-root-*` temp directories
-  after the suite completed.
-- No leftover git processes.
-- Project repository's own `.git/config` (checked via
-  `git config --local --list`) and commit history untouched by any test
-  — the two commits on this branch are the only changes, both authored
-  directly by this session, not by any test run.
+## Coverage
 
-## Confirmations (per NSP §"Raport końcowy")
+| Status | Before (3F.0.5) | After (3F.1A) |
+|--------|------|------|
+| COVERED | 61 | 62 |
+| NEEDS SELECTOR | 7 | 6 |
+| NEEDS APPLICATION CHANGE | 2 | 2 |
+| DEFERRED | 4 | 4 |
+| NOT JUSTIFIED | 5 | 5 |
+| **Total** | **79** | **79** |
 
-- **8. No network, SSH, or Docker used anywhere in this stage** —
-  confirmed: `runGit`'s only remote-adjacent test is `git remote add` +
-  `git remote get-url`, neither of which contacts a network; no SSH
-  key, agent, or `known_hosts` handling exists in `local-git.ts`; no
-  container/Docker infrastructure was added.
-- **9. No production/application code changed** — confirmed via
-  `git diff --stat` across both commits: only `apps/desktop/e2e-wdio/
-  support/*` and `docs/E2E_WDIO_PLAN.md` changed.
-- **10. No Git workflow WDIO spec added** — confirmed: zero new files
-  under `apps/desktop/e2e-wdio/specs/`; `local-git.test.ts` is a
-  Vitest/Node unit-test file for the helper module, not a WDIO spec.
+Coverage: 61/79 (77%) → **62/79 (78%)**. Verified programmatically by
+counting every status tag inside `docs/E2E_WDIO_COVERAGE_GAPS.md`'s
+"## Coverage matrix" section only (excluding the legend and the Summary
+counts table itself) — confirmed 79 rows both before and after. Exactly
+one row changed status ("Git init"); commit/add-remote/push/pull/SSH
+statuses were not touched, per the NSP's own scope boundary.
 
 ## Risks
 
-- The env-inheritance verification (point 4 above) is evidence-based
-  (reading `@wdio/tauri-service`'s dist bundle plus a unit test on our own
-  code) rather than a live-process readback — a genuine limitation
-  acknowledged explicitly in both this report and the docs. If
-  `@wdio/tauri-service` changes its env-spreading behavior in a future
-  version bump, this evidence would need re-verification; nothing in this
-  stage guards against that silently.
-- `createLocalGitRepository`'s minimal RIS fixture (`repo.yaml` +
-  `locations.yaml` only) is confirmed loader-valid by reading
-  `ris-repository`'s loader directly, but has not been round-tripped
-  through the actual app's "open repository" flow in this stage (no WDIO
-  spec exists yet to do so) — Stage 3F.1 will be the first place this
-  fixture shape is exercised end-to-end through the UI, if that turns out
-  to be needed.
-- The "possible further split" (3F.1.5/3F.2) noted in the docs is a
-  suggestion, not a decision — Stage 3F.1's own NSP does not need to
-  adopt it, and Stage 3F.2's NSP is where it would actually be confirmed
-  or rejected.
+- The `getCurrentBranch` fix changes the underlying git invocation for
+  any future stage relying on that helper; both forms resolve to the
+  same branch name in every case tested, and `symbolic-ref` additionally
+  handles the unborn-HEAD case `rev-parse --abbrev-ref` cannot — a strict
+  improvement, but worth flagging as a helper-behavior change.
+- `git-branch-value`'s "status refreshed" signal is inferred from its
+  mere presence (only rendered once `is_repository` is true) plus a
+  cross-check against `getCurrentBranch()`'s return value, rather than
+  from observing a literal before/after DOM transition — sufficient for
+  this stage's scope.
+- The idempotency test validates UI-level behavior (the init affordance
+  never renders once Git is detected) rather than exercising the backend
+  `init_git_repository` command directly against an already-git
+  repository — matches the NSP's "poprawna obsługa przez UI, zgodnie z
+  aktualnym zachowaniem" framing; the backend command's own behavior in
+  that case remains unasserted by E2E, since the UI makes it unreachable
+  without bypassing the UI (out of scope).
 
 ## Not done
 
-- No Git workflow specs (init/commit/validate/add-remote/push/pull) — out
-  of scope for this stage per its own NSP; that is Stage 3F.1.
-- No remote-Git/SSH/container infrastructure — out of scope; that is
-  Stage 3F.1.5/3F.2 (proposed split, not yet decided).
-- No new `data-testid` or UI change — out of scope per the NSP's explicit
-  prohibition.
-- The known SSH-clone-askpass product gap (identified in Stage 3F.0) was
-  not touched — correctly out of scope; flagged again here per the NSP's
-  own "found a production bug — describe it, don't fix it" instruction,
-  though this stage found no *new* production bug of its own.
+- No commit, add-remote, push, pull, clone, SSH, or Docker coverage — out
+  of scope per this stage's own NSP.
+- No new shared helper — both `it()`s use `createLocalGitRepository`
+  directly; a small spec-local `openRepositoryByPath`/`closeRepository`
+  pair lives inside the spec file itself (not promoted to `support/`),
+  per the "don't add helpers ahead of need" instruction.
+- The duplicate Push/Pull button disambiguation decision (flagged since
+  Stage 3F.0's audit) — correctly deferred to Stage 3F.1B's own NSP.
 
 ## Suggested next step
 
 Human review of this PR. Once accepted, open a dedicated NSP for Stage
-3F.1 (Local git workflows: init, validate/status, commit, add-remote,
-push/pull disabled-state and error-path coverage) using the
-`local-git.ts` helpers prepared here — including resolving the
-selector-design prerequisite already flagged in Stage 3F.0's audit (the
-duplicate Push/Pull button pairs need a disambiguated `data-testid` scheme
-before any git workflow spec can reliably target them).
+3F.1B covering validate/commit/add-remote/push-pull-error-paths, starting
+with the Push/Pull selector-disambiguation decision the Stage 3F.0 audit
+already flagged (the two simultaneous button pairs — stepper vs. Remote
+panel — need a scoped `data-testid` scheme before either can be
+selectorized unambiguously).
