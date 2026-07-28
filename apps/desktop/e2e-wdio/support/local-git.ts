@@ -341,3 +341,30 @@ export async function readGitConfig(path: string, key: string): Promise<string |
     return null;
   }
 }
+
+/**
+ * Returns true if `ancestorSha` is an ancestor of (or equal to)
+ * `descendantSha`, via `git merge-base --is-ancestor` (exit 0 = ancestor,
+ * exit 1 = not an ancestor — a normal, expected outcome, not a failure;
+ * any other exit propagates as a GitCommandError). Both commits must
+ * already exist as objects in `path`'s object database — a bare fetch
+ * with no destination refspec is enough to bring in a commit that is not
+ * yet reachable from any local ref.
+ *
+ * Added for Stage 3F.4 (git-diverged-pull.e2e.ts) to verify a genuinely
+ * diverged history — neither commit is an ancestor of the other — rather
+ * than inferring divergence solely from the app's pull-error text.
+ */
+export async function isAncestor(
+  path: string,
+  ancestorSha: string,
+  descendantSha: string,
+): Promise<boolean> {
+  try {
+    await runGit(path, ["merge-base", "--is-ancestor", ancestorSha, descendantSha]);
+    return true;
+  } catch (e) {
+    if (e instanceof GitCommandError && e.exitCode === 1) return false;
+    throw e;
+  }
+}

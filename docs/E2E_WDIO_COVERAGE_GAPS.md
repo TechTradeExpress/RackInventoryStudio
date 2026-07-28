@@ -6,12 +6,29 @@ Generated: 2026-07-22 (Stage 3B.2, PR #152); fully re-verified and rewritten
 for what changed and why. Updated again same-day after Stage 3D
 (`placement-validation.e2e.ts` delivered; rack export analyzed and
 reclassified to NEEDS APPLICATION CHANGE), after Stage 3E (5 new specs
-closing every low-risk NEEDS SELECTOR workflow), and after the Stage 3F.0
+closing every low-risk NEEDS SELECTOR workflow), after the Stage 3F.0
 audit (git workflow section re-verified against current backend/UI/test
 source; one previously-untracked workflow found — SSH passphrase prompt;
-two Clone rows' reasons refined; no tests or selectors added — audit only).
+two Clone rows' reasons refined; no tests or selectors added — audit only),
+after Stage 3F.1A/3F.1B (git detection/init, validate/commit/add-remote,
+and local push/pull error paths delivered), after Stage 3F.2 (2026-07-27
+— successful push/pull round-trips over a real local-sshd-served SSH
+remote, upstream tracking, and SSH key-based authentication all COVERED by
+`git-remote-workflows.e2e.ts`; one new testid, `git-upstream-value`), and
+after Stage 3F.3 (2026-07-28 — successful clone over the same SSH remote
+COVERED by `git-clone-workflows.e2e.ts`, reusing Stage 3F.2's fixture
+infrastructure unmodified; zero new selectors — `CloneRepositoryForm.tsx`
+already had full coverage), and after Stage 3F.4 (2026-07-28 — `--ff-only`
+diverged-pull failure and safe recovery COVERED by
+`git-diverged-pull.e2e.ts`, reusing Stage 3F.2's fixture infrastructure
+unmodified; one new helper, `isAncestor()` in `support/local-git.ts`;
+zero new selectors).
 
-Branch: `feature/git-workflow-audit` (targeting `roadmap/e2e-wdio`)
+Branch: `feature/e2e-stage-3f2-remote-ssh` (targeting `roadmap/e2e-wdio`) —
+Stages 3F.3 and 3F.4 both continue on the same branch, uncommitted as of
+this writing; Stage 3F.2 was approved but not yet merged, so later stages
+build directly on its working-tree state rather than a separate branch
+off an unmerged commit.
 
 ## Purpose
 
@@ -123,8 +140,10 @@ default spec suite and not counted as workflow coverage here.
 | Recent repositories — list and click | COVERED | `recent-repositories-workflow` (Stage 3E) |
 | Clone repository — URL safety (unsafe patterns) | COVERED | `safety-recovery` |
 | Clone repository — URL safety (HTTPS control) | COVERED | `safety-recovery` |
-| Clone repository — network: HTTPS happy path | DEFERRED | Requires network; no local mock. **Selectors already fully present** (`CloneRepositoryForm.tsx` has 11 testids — `clone-form`, `clone-url`, `clone-parent`, `clone-browse`, `clone-dirname`, `clone-submit`, `clone-preview`, plus 4 error-message testids); the only blocker is the network dependency itself (Stage 3F.0 audit, 2026-07-25). |
-| Clone repository — network: SSH + passphrase | DEFERRED | Network-dependent, **and a genuine product gap, not just a testing gap**: `clone_repository_cmd` calls the plain `ris_git::clone()`, not the askpass-hardened path push/pull use — SSH clone of a passphrase-protected key has no in-app passphrase prompt at all (Stage 3F.0 audit, 2026-07-25; see the Git Workflow section in `docs/E2E_WDIO_PLAN.md`). Not fixed here — audit-only stage. |
+| Clone repository — network: HTTPS happy path | DEFERRED | Requires network; no local mock. **Selectors already fully present** (`CloneRepositoryForm.tsx` has 11 testids — `clone-form`, `clone-url`, `clone-parent`, `clone-browse`, `clone-dirname`, `clone-submit`, `clone-preview`, plus 4 error-message testids); the only blocker is the network dependency itself (Stage 3F.0 audit, 2026-07-25). Unchanged by Stage 3F.3, which only covers SSH. |
+| Clone repository — SSH, passphrase-less key (successful) | COVERED | `git-clone-workflows` (Stage 3F.3, 2026-07-28) — scaffold-only clone and multi-commit clone over a real local-sshd-served SSH remote (reusing Stage 3F.2's fixture, `support/git-remote.ts`), verified via helpers (HEAD, commit count, clean working tree, upstream tracking, remote URL) and via the UI (`git-branch-value`, `git-upstream-value`). No new selectors were needed — `CloneRepositoryForm.tsx` already had full coverage. |
+| Clone repository — network: SSH + passphrase | DEFERRED | **A genuine product gap, not just a testing gap**: `clone_repository_cmd` calls the plain `ris_git::clone()`, not the askpass-hardened path push/pull use — SSH clone of a passphrase-protected key has no in-app passphrase prompt at all (Stage 3F.0 audit, 2026-07-25; see the Git Workflow section in `docs/E2E_WDIO_PLAN.md`). Still not fixed — Stage 3F.2 and Stage 3F.3 (2026-07-28) both explicitly excluded the passphrase workflow from their own scope; 3F.3 covered only the passphrase-less-key variant of SSH clone (row above). |
+| Clone repository — close/reopen persistence | COVERED | `git-clone-workflows` (Stage 3F.3, 2026-07-28) — clones a repository, closes it, reopens it by path; verifies detection, branch, upstream, and remote configuration all survive via the UI and via helpers (`.git/config`, `git remote -v`) |
 | Open recovery — path does not exist | COVERED | `safety-recovery` |
 | Open recovery — non-RIS directory | COVERED | `safety-recovery` |
 
@@ -132,14 +151,17 @@ default spec suite and not counted as workflow coverage here.
 
 Re-audited against current HEAD 2026-07-25 (Stage 3F.0) — see
 `docs/E2E_WDIO_PLAN.md`'s "Git Workflow — foundation audit" section for the
-full backend/UI/test inventory this table summarizes. As of Stage 3F.1B
-(2026-07-27), 11 `data-testid`s exist covering detection/init (Stage
-3F.1A: `git-not-initialized`, `git-init-btn`, `git-branch-value`) and
+full backend/UI/test inventory this table summarizes. As of Stage 3F.2
+(2026-07-27), 12 `data-testid`s exist covering detection/init (Stage
+3F.1A: `git-not-initialized`, `git-init-btn`, `git-branch-value`),
 validate/commit/add-remote/push-pull-error-paths (Stage 3F.1B:
 `git-validate-btn`, `git-commit-message-input`, `git-commit-btn`,
 `git-remote-name-input`, `git-remote-url-input`, `git-remote-add-btn`,
 `git-remote-add-success`, `git-stepper-push-btn`, `git-stepper-pull-btn`,
-`git-push-error`, `git-pull-error`).
+`git-push-error`, `git-pull-error`), and upstream display (Stage 3F.2:
+`git-upstream-value` — the "Upstream" `<dd>` had no testid before this
+stage; added to prove Scenario 3's redetection-after-reopen at the UI
+level, not just via `.git/config`).
 One nuance found in Stage 3F.0's audit and resolved in Stage 3F.1B:
 **Push and Pull each render as two separate, functionally-identical
 button pairs simultaneously** once a remote is configured — one inline in
@@ -158,9 +180,12 @@ element.
 | Validate for publish | COVERED | `git-local-workflows` — triggering Validate from the "Safe publish" stepper (distinct UI path from `ValidationPanel`'s own already-covered Validate button, same backend call) and confirming it unblocks Commit (Stage 3F.1B, 2026-07-27) |
 | Commit with message | COVERED | `git-local-workflows` — commit message entry, commit action, working tree becomes clean, HEAD changes, commit count increments (all cross-checked via `local-git.ts` helpers). Always full-tree (`git add -A` then commit) — there is no selective-staging/staged-files-list UI to test (Stage 3F.1B, 2026-07-27) |
 | Add remote | COVERED | `git-local-workflows` — adds a fake HTTPS URL through the UI, confirms the success banner, cross-checks `.git/config` via `getRemoteUrl()`; the remote is never contacted (Stage 3F.1B, 2026-07-27) |
-| Push to remote | PARTIAL | Local error-path COVERED by `git-local-workflows` (unreachable remote → `git-push-error` surfaced, repository state and UI unchanged, verified via helpers) — selectorized on the "Safe publish" stepper's button only (`git-stepper-push-btn`; see duplication note above), the Remote panel's identical button is deliberately not selectorized. A **successful** push round-trip against a real reachable remote remains uncovered — Stage 3F.2 |
-| Pull from remote | PARTIAL | Local error-path COVERED by `git-local-workflows` (unreachable remote → `git-pull-error` surfaced, repository state and UI unchanged, verified via helpers) — selectorized on the stepper only (`git-stepper-pull-btn`), same duplication rationale as Push. A **successful** pull round-trip, and the `--ff-only`-diverged "resolve manually" case, remain uncovered — Stage 3F.2 |
-| SSH passphrase prompt | NEEDS SELECTOR | Partially selectorized: `SshPassphraseModal.tsx` already has `ssh-passphrase-input` on the text field; Submit and Cancel buttons have no testid |
+| Push to remote | COVERED | Local error-path COVERED by `git-local-workflows` (Stage 3F.1B). **Successful round-trip over a real SSH remote** COVERED by `git-remote-workflows` (Stage 3F.2, 2026-07-27) — pushes a commit to a local-sshd-served bare repo, verifies via helpers (remote HEAD, remote commit count) and via the UI (`git-branch-value`, new `git-upstream-value`) that upstream tracking is configured. Still selectorized on the stepper's button only (`git-stepper-push-btn`); the Remote panel's identical button remains deliberately unselectorized (see duplication note above). |
+| Pull from remote | COVERED | Local error-path COVERED by `git-local-workflows` (Stage 3F.1B). **Successful fast-forward round-trip** COVERED by `git-remote-workflows` (Stage 3F.2, 2026-07-27) — simulates a teammate's commit landing on the remote, pulls it, verifies HEAD/commit-count/clean-working-tree via helpers. |
+| Pull — diverged history (`--ff-only` failure and recovery) | COVERED | `git-diverged-pull` (Stage 3F.4, 2026-07-28) — constructs a genuine diverged history (local-only commit B, remote-only commit C, both children of a common pushed commit A; divergence confirmed via `git merge-base --is-ancestor` in both directions, not inferred from error text), clicks Pull, verifies `git-pull-error` renders and that both HEADs, commit counts, working tree, branch, upstream, and remote URL all survive — including after closing and reopening the repository. The application does not implement merge/rebase; this only proves the existing `--ff-only` rejection is safe. |
+| Upstream tracking persistence (close/reopen) | COVERED | `git-remote-workflows` — pushes to establish upstream, closes the repository, reopens it, confirms the UI redisplays branch + upstream and `.git/config`/`git remote -v` still report tracking correctly (Stage 3F.2, 2026-07-27) |
+| SSH authentication (key-based, no passphrase) | COVERED | `git-remote-workflows` — every push/pull in this spec authenticates over a real SSH connection (local sshd, ephemeral ed25519 key, no passphrase) via the app's own askpass-hardened `GitSecurityMode::Askpass` path, exercised end to end (Stage 3F.2, 2026-07-27) |
+| SSH passphrase prompt | NEEDS SELECTOR | Partially selectorized: `SshPassphraseModal.tsx` already has `ssh-passphrase-input` on the text field; Submit and Cancel buttons have no testid. **Explicitly out of scope for Stage 3F.2** (its own NSP excludes the passphrase workflow) — the fixture's key intentionally has no passphrase |
 
 **Confirmed not implemented anywhere in the application** (Stage 3F.0
 audit — not a testing gap, nothing to select or test): branch
@@ -390,54 +415,70 @@ can use stable selectors.
 
 ## Summary counts
 
-Updated after the Stage 3F.0 audit (2026-07-25, no implementation — audit
-and documentation only). Counted programmatically from every workflow row
-in this document (one status tag per row).
+Updated after Stage 3F.4 (2026-07-28). Counted programmatically —
+`grep -cE '^\| .+ \| STATUS \|' docs/E2E_WDIO_COVERAGE_GAPS.md` per status
+tag, one status tag per workflow row — not estimated.
 
 | Status | Count |
 |--------|-------|
-| COVERED | 65 |
-| PARTIAL | 2 |
+| COVERED | 72 |
+| PARTIAL | 0 |
 | MISSING | 0 |
 | NEEDS SELECTOR | 1 |
 | NEEDS APPLICATION CHANGE | 2 |
 | DEFERRED | 4 |
 | NOT JUSTIFIED | 5 |
-| **Total workflows inventoried** | **79** |
+| **Total workflows inventoried** | **84** |
 
-Current E2E coverage: **65 / 79 workflows (82%)** (COVERED only; the 2
-PARTIAL rows are not counted toward this figure).
+Current E2E coverage: **72 / 84 workflows (86%)** (COVERED only).
 
-Since the Stage 3F.1A snapshot (79 total, 62 COVERED, 78%): 3 workflows
-moved NEEDS SELECTOR → COVERED — **Validate for publish**, **Commit with
-message**, **Add remote** — and 2 moved NEEDS SELECTOR → PARTIAL —
-**Push to remote**, **Pull from remote** (local error-path only; a
-successful round-trip remains uncovered, deferred to Stage 3F.2), all
-covered by `git-local-workflows.e2e.ts` (Stage 3F.1B, 2026-07-27). Only
-**SSH passphrase prompt** remains NEEDS SELECTOR.
+Since the Stage 3F.1B snapshot (79 total, 65 COVERED, 82%): **Push to
+remote** and **Pull from remote** moved PARTIAL → COVERED (a successful
+round-trip over a real local-sshd-served SSH remote is now exercised by
+`git-remote-workflows.e2e.ts`, alongside their pre-existing local
+error-path coverage from `git-local-workflows.e2e.ts`), and 2 new rows
+were added and immediately COVERED — **Upstream tracking persistence
+(close/reopen)** and **SSH authentication (key-based, no passphrase)** —
+all Stage 3F.2, 2026-07-27. Since Stage 3F.2: 2 new rows added and
+COVERED — **Clone repository — SSH, passphrase-less key (successful)**
+and **Clone repository — close/reopen persistence**, both Stage 3F.3,
+2026-07-28, reusing Stage 3F.2's fixture infrastructure unmodified. Since
+Stage 3F.3: 1 new row added and COVERED — **Pull — diverged history
+(`--ff-only` failure and recovery)**, Stage 3F.4, 2026-07-28, also reusing
+Stage 3F.2's fixture infrastructure unmodified. Only **SSH passphrase
+prompt** remains NEEDS SELECTOR — 3F.2, 3F.3, and 3F.4 all explicitly
+excluded it (the fixture's key has no passphrase by design).
 
 ---
 
 ## Recommended next scope
 
-See `docs/E2E_WDIO_PLAN.md` → "Git Workflow — foundation audit" and
-"Future stages" for the full Stage 3F breakdown. Two gap categories remain:
-- **NEEDS SELECTOR (6)** — the remaining git workflow actions: validate,
-  commit, add-remote, push, pull, and SSH passphrase prompt. Git init
-  (detection + init + status refresh) moved to COVERED in Stage 3F.1A. Of
-  the rest, validate/commit/add-remote are fully local — `add_remote` only
-  writes a URL into `.git/config`, the remote never needs to actually be
-  reachable — and are proposed for Stage 3F.1B. Push/pull's *disabled-state
-  and error-path* behavior (no upstream, unreachable remote) is also
-  local-testable in 3F.1B; a genuine successful push/pull/clone round-trip
-  needs a real reachable remote, which `validate_remote_url` restricts to
-  HTTPS or SSH only (local filesystem paths are deliberately rejected — see
-  the Git Workflow audit) — that round-trip, plus the SSH passphrase prompt
-  it can trigger, is Stage 3F.2's scope.
+See `docs/E2E_WDIO_PLAN.md` → "Git Workflow — foundation audit" and Stage
+3F's own sections for the full breakdown. Remaining gaps:
+- **NEEDS SELECTOR (1)** — SSH passphrase prompt (`SshPassphraseModal.tsx`'s
+  Submit/Cancel buttons have no testid). Deliberately left for a future
+  stage: Stages 3F.2, 3F.3, and 3F.4's NSPs all excluded the passphrase
+  workflow by design (the fixture's SSH key has none), and the
+  pre-existing product gap in `clone_repository_cmd` (no askpass wiring at
+  all — see the Clone rows above) would need fixing first if a future
+  stage wants to exercise this against a passphrase-protected key.
+- **DEFERRED — HTTPS clone** — network-dependent, no local mock; unrelated
+  to the SSH fixture, unaffected by Stages 3F.2/3F.3/3F.4.
+- **DEFERRED — Passphrase-protected SSH clone** — blocked on the
+  `clone_repository_cmd` askpass gap (a product fix, not a testing gap).
+  Successful clone with a passphrase-less key is now COVERED (Stage 3F.3).
 - **NEEDS APPLICATION CHANGE (2)** — rack export SVG/PNG. Not a
   testing-stage candidate until a product decision is made about adding a
   non-dialog export path.
 
-Stage 3F.1B/3F.2 should each get their own NSP before implementation, per
-the program's working model, given git operations mutate real repository
+No further directly-testable gap remains in the push/pull/clone/diverge
+surface as scoped by the Stage 3F.0 audit (`--ff-only` diverged pull is
+now COVERED — Stage 3F.4). Any future Git-workflow stage would need its
+own NSP to scope genuinely new ground: the SSH passphrase prompt, or a
+workflow not yet present in the application at all (merge, rebase, stash,
+tags — none of which this program has ever proposed adding, since none
+exist in the product).
+
+Each Git workflow stage gets its own NSP before implementation, per the
+program's working model, given git operations mutate real repository
 state (commits, branches) and warrant a dedicated risk review.
