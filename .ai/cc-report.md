@@ -1,195 +1,132 @@
-## 1. Summary
+## Summary
 
-Stage 3F.1B per NSP, on `feature/e2e-stage-3f1b-local-git-workflows` →
-`roadmap/e2e-wdio` (base = `roadmap/e2e-wdio` HEAD after PR #163/Stage
-3F.1A merged, including its RP repair — confirmed merged before
-branching). **Status: COMPLETE.**
+Stage 3F (Git workflow E2E coverage) is functionally complete. This
+branch, `feature/e2e-stage-3f2-remote-ssh` → `roadmap/e2e-wdio` (base =
+`roadmap/e2e-wdio` HEAD, same commit as Stage 3F.1B's merge, PR #164),
+bundles three approved/completed sub-stages plus a final PR-readiness
+pass:
 
-Real local Git workflow coverage — Validate, Commit, Add remote, and
-Push/Pull local error paths — building on Stage 3F.1A's detection/init
-coverage and Stage 3F.0.5's fixture/helper infrastructure. Scope strictly
-local, per the NSP: no successful push/pull, no clone, no SSH, no Docker,
-no remote Git servers.
+- **Stage 3F.2** — remote Git over SSH: push, fast-forward pull, upstream
+  tracking, close/reopen persistence, SSH key-based authentication.
+  Reviewed and approved; one RP applied (missing-`sshd` policy changed
+  from silent skip to a hard `before()` failure, so a run cannot report
+  green while exercising zero SSH scenarios).
+- **Stage 3F.3** — Git clone over SSH: scaffold-only clone, multi-commit
+  clone, clone-state persistence. Reviewed and approved; one RP applied
+  (the seeding helper now sets the bare remote's symbolic HEAD explicitly
+  instead of relying on the host's `init.defaultBranch` to happen to
+  match).
+- **Stage 3F.4** — diverged pull over SSH: `git pull --ff-only` safely
+  rejects a genuinely diverged history (local commit B / remote commit C,
+  both children of a common pushed commit A, divergence proven via `git
+  merge-base --is-ancestor`), with every piece of repository state
+  surviving the failure and a close/reopen cycle.
+- **PR-readiness pass** (this pass) — full diff review, documentation
+  consistency check, and a critical self-review; found and fixed three
+  real issues (two stale doc comments describing behaviour that no longer
+  exists, one genuinely unused helper function). See "PR-prep findings"
+  below.
 
-## 2. Audit findings (pre-implementation, per NSP §"Required pre-implementation audit")
+## PR-prep findings (this pass)
 
-- **HEAD matches Stage 3F.1A assumptions exactly**: `git log` from the
-  Stage 3F.1A merge commit to this branch's point showed zero commits —
-  no drift at all.
-- **No new git-related selectors since Stage 3F.1A**: grepped
-  `RepositoryPanel.tsx` for `data-testid`; exactly the 3 from Stage 3F.1A
-  (`git-not-initialized`, `git-init-btn`, `git-branch-value`) were
-  present, nothing else.
-- **`RepositoryPanel.tsx`/Git backend unchanged**: re-read the full
-  "Safe publish" stepper, "Remote" panel, and gating helpers
-  (`gitStatusHelpers.ts`) directly against current HEAD before writing
-  any selector or spec — matched the Stage 3F.0 audit's description in
-  every respect (Push/Pull's duplicate button pairs, Validate/Commit
-  gating logic, Add-remote form).
-- No assumptions had changed materially — implementation proceeded as
-  planned.
+1. `wdio.conf.ts`'s "Prerequisites" doc comment still said `sshd` was
+   "required only for the git-remote-workflows spec (Stage 3F.2)" — stale
+   since Stage 3F.3 was added; missed updating it further when Stage 3F.4
+   was added too. Fixed to name all three SSH specs.
+2. `support/git-remote.ts`'s `startRemote()` doc comment still described
+   the pre-RP "callers should skip the suite" policy — stale since Stage
+   3F.2's RP changed this to a hard failure. Fixed to describe the actual
+   current policy and point at the three specs that implement it; also
+   generalized its own thrown error message, which named only
+   `git-remote-workflows`.
+3. `remoteBranchExists()` (`support/git-remote.ts`) was dead code — built
+   as general-purpose "remote refs" inspection infrastructure per Stage
+   3F.2's original NSP, but never actually called by any of the three
+   specs that shipped (they all ended up using `getRemoteHeadCommit`/
+   `getRemoteCommitCount` instead, which implicitly prove ref existence
+   via `rev-parse` failing on a missing ref). Confirmed via usage-count
+   audit — every *other* exported helper in both `support/git-remote.ts`
+   and `support/local-git.ts` is used by at least one real spec;
+   `remoteBranchExists` was the sole exception, only exercised by its own
+   unit test. Since Stage 3F is now closed (no further sub-stage will
+   arrive to consume it), removed the function, its two assertions in
+   `git-remote.test.ts`, its import, and a stale doc mention in
+   `docs/E2E_WDIO_PLAN.md`.
+4. One unused type import (`SshRemoteServer` in `git-remote.test.ts`,
+   never referenced) — removed. Found via a `tsc --noUnusedLocals
+   --noUnusedParameters` pass against every new/changed TS file (this
+   command isn't part of the project's own `typecheck` script, which
+   scopes to `apps/desktop/src` and doesn't cover `e2e-wdio/` — run
+   manually for this cleanup pass).
 
-## 3. Files changed
+No functional, race-condition, or architectural issues were found in the
+self-review (fixture lifecycle, port allocation, sshd cleanup ordering,
+Mocha `before`/`after` failure semantics, cross-spec process isolation,
+and every commit-count/HEAD/ancestry assertion in the diverged-pull
+scenario were each traced through by hand). Full detail of what was
+checked is in the chat response, not duplicated here.
 
-| File | Change |
-|------|--------|
-| `apps/desktop/src/features/repository/RepositoryPanel.tsx` | +11 `data-testid`, scoped strictly to this stage's 5 workflows: `git-validate-btn`, `git-commit-message-input`, `git-commit-btn`, `git-remote-name-input`, `git-remote-url-input`, `git-remote-add-btn`, `git-remote-add-success`, `git-stepper-push-btn`, `git-stepper-pull-btn`, `git-push-error`, `git-pull-error`. The Remote panel's identical Push/Pull button pair was deliberately left unselectorized. |
-| `apps/desktop/e2e-wdio/specs/git-local-workflows.e2e.ts` | New — 3 `it()`s (see "Tests" below) |
-| `apps/desktop/e2e-wdio/support/local-git.ts` | `writeMinimalRisFixture` fixed to also create empty `racks/`/`device-models/`/`devices/`/`placements/` directories (see "Bug found" below) |
-| `apps/desktop/e2e-wdio/support/local-git.test.ts` | +1 regression test for the fix above |
-| `docs/E2E_WDIO_PLAN.md` | Stage 3F.1B section rewritten COMPLETE; Program status table and Future-stages coverage figure updated |
-| `docs/E2E_WDIO_COVERAGE_GAPS.md` | 3 rows moved to COVERED, 2 to PARTIAL; Summary counts recomputed |
-| `.ai/cc-report.md` | This report |
+## Files changed in this pass
 
-No application code outside `RepositoryPanel.tsx`, and no Rust code, was
-changed. Stage 3F.1A's own files were not touched.
+- `apps/desktop/e2e-wdio/wdio.conf.ts` — prerequisites doc comment fix (2).
+- `apps/desktop/e2e-wdio/support/git-remote.ts` — doc comment fix (2),
+  dead code removal (3).
+- `apps/desktop/e2e-wdio/support/git-remote.test.ts` — unused import
+  removal (4), dead-code-following test cleanup (3).
+- `docs/E2E_WDIO_PLAN.md` — stale helper mention fix (3); added a "Stage
+  3F — functionally complete" row to the Program status table.
 
-**Bug found and fixed (Stage 3F.0.5's own test-helper code, not
-application code):** `createLocalGitRepository`'s `writeMinimalRisFixture`
-wrote only `repo.yaml` + `locations.yaml`, on the correct-at-the-time
-reasoning that the *loader* (`ris-repository`) tolerates missing
-`racks/`/`device-models/`/`devices/`/`placements/` directories entirely
-(confirmed in Stage 3F.0.5's own audit). This stage's Validate spec was
-the first to actually click Validate against such a fixture, and found
-`VAL-REPO-004` (`crates/ris-validation/src/validators/repository.rs`) is
-a separate, ERROR-level *validator* check requiring each of those four
-paths to exist — independent of what the loader needs. A fixture missing
-all four failed validation with 4 errors, permanently blocking Commit.
-This is correct, intentional application behavior (the validator is
-working as designed) — not a product bug, and not fixed at the
-application level. Fixed the test helper to create the four directories
-empty, matching what the app's own "Create repository" wizard produces.
-Stage 3F.1A's own spec is unaffected — it never triggers Validate.
+## Tests
 
-## 4. Tests implemented
+Re-run in full after every cleanup edit:
 
-`git-local-workflows.e2e.ts`, 3 `it()`s:
-1. **Validate + Commit**: runs Validate from the "Safe publish" stepper
-   (a distinct UI path from `ValidationPanel`'s own already-covered
-   Validate button, same backend call `validateCurrentRepository`),
-   confirms it unblocks Commit (the commit message input becomes
-   enabled), enters a message, commits, and cross-checks via
-   `local-git.ts` helpers: `getWorkingTreeStatus` becomes `"clean"`,
-   `getHeadCommit` changes, `getCommitCount` increments by 1. The UI's
-   own success signal (the commit form disappearing once
-   `nothingToCommit` is true) is also observed.
-2. **Add remote**: adds `origin` → `https://example.invalid/repository.git`
-   (RFC 2606 reserved, guaranteed never to resolve) through the UI,
-   waits for the `git-remote-add-success` banner, cross-checks
-   `.git/config` via `getRemoteUrl()`. No network call is made anywhere
-   in this flow.
-3. **Push/Pull local error paths** (one flow): adds the same fake
-   remote, clicks `git-stepper-push-btn`, waits for `git-push-error`;
-   then clicks `git-stepper-pull-btn`, waits for `git-pull-error`. After
-   each failure, cross-checks via helpers that `getHeadCommit`,
-   `getCommitCount`, and the UI-displayed branch (via `getCurrentBranch`)
-   are all unchanged from before the attempt. Finishes with an ordinary
-   `closeRepository()` call to confirm the app is still fully usable
-   after both failures.
+- `git diff --check` — clean.
+- `node scripts/check-repo-hygiene.mjs` — 8/8 passed.
+- `node scripts/check-version-consistency.mjs` — versions/toolchain
+  consistent.
+- `pnpm -C apps/desktop typecheck` — clean.
+- `pnpm -C apps/desktop test` — 58 files / 947 tests passed.
+- `node scripts/run-wdio-e2e.mjs --spec git-remote-workflows` — CLEAN PASS.
+- `node scripts/run-wdio-e2e.mjs --spec git-clone-workflows` — CLEAN PASS.
+- `node scripts/run-wdio-e2e.mjs --spec git-diverged-pull` — CLEAN PASS.
+- `node scripts/run-wdio-e2e.mjs --spec git-local-workflows` — CLEAN PASS
+  (regression).
+- `node scripts/run-wdio-e2e.mjs --spec git-detection-init` — CLEAN PASS
+  (regression).
+- `cargo test --workspace` — all passed, 0 failures (no Rust files
+  changed across all of Stage 3F.2–3F.4 or this pass).
+- `cargo fmt --all -- --check` — clean.
+- `cargo clippy --workspace --all-targets` — only pre-existing warnings in
+  files this branch never touches (`crates/ris-application/tests/
+  application_tests.rs`, `app_config.rs`, `commands/repository.rs`,
+  `diagnostics.rs`); confirmed via `git status` that none of Stage 3F's
+  work touches any of them.
 
-All three tests build their fixtures exclusively via
-`createLocalGitRepository` (no new repository-creation helper), use
-`local-git.ts`'s inspection helpers for ground-truth verification rather
-than raw filesystem inspection, and follow the teardown-robustness
-pattern established in Stage 3F.1A's repair (an `opened` flag gating a
-best-effort `closeRepositorySafely()` in `finally`, ahead of
-`repo.cleanup()`). Per this stage's own instruction not to modify Stage
-3F.1A, the small helper functions (`openRepositoryByPath`,
-`closeRepository`, `closeRepositorySafely`, `getDisplayedBranch`,
-`normalizeBranchText`) are duplicated spec-locally rather than promoted
-to a shared module or backported into `git-detection-init.e2e.ts`.
+## Risks
 
-## 5. Validation results
+- `sshd`/`ssh-keygen`/`ssh` are required prerequisites for 3 of the 5
+  Git-workflow specs — documented, and their `before()` hooks fail loudly
+  (not silently) if missing, so this cannot produce a false-green result.
+- The bare-remote seeding helper's probe fetch and the SSH port-allocation
+  TOCTOU window are both narrow, previously-documented, low-probability
+  risks (see each stage's own report for detail) — not reintroduced or
+  changed by this pass.
+- No CHANGELOG.md entry was added for the one application-code change
+  (`git-upstream-value` testid) — checked against project precedent
+  (`git log`/`grep` over `CHANGELOG.md`): standalone testid additions with
+  no behavioural change are not changelogged in this project, and no
+  prior Stage 3F sub-stage's testid additions were either.
 
-```
-git diff --check                              PASS
-node scripts/check-repo-hygiene.mjs           PASS (8/8)
-node scripts/check-version-consistency.mjs    PASS
-pnpm -C apps/desktop typecheck (tsc --noEmit)  PASS
-pnpm -C apps/desktop test (vitest run)         PASS — 940/940, 57/57 files
-  (939 → 940: +1 regression test for the writeMinimalRisFixture fix)
-node scripts/run-wdio-e2e.mjs --spec git-local-workflows   CLEAN_PASS ×2
-node scripts/run-wdio-e2e.mjs --spec git-detection-init    CLEAN_PASS ×1
-  (Stage 3F.1A regression check — confirmed unaffected by the
-  writeMinimalRisFixture fix, since it never triggers Validate)
-node scripts/run-wdio-e2e.mjs --spec repository-lifecycle  CLEAN_PASS ×1
-  (regression check — same RepositoryPanel.tsx open/close/reopen area)
-cargo fmt/check/clippy                         not run — no Rust files changed
-```
+## Not done / out of scope
 
-Ports 4444/4445 confirmed free before and after every WDIO run; no
-leftover fixture directories or git/app/driver processes.
+No new functionality was implemented in this pass, per its own
+instruction. Commit history was not rewritten or squashed — a proposal is
+presented in the chat response for the user to approve; no `git commit`
+or `git push` was run.
 
-One diagnostic run was needed during development: the first
-`git-local-workflows` attempt failed with "git-commit-message-input never
-became enabled after Validate" — a temporary `browser.execute()` dump of
-the stepper's step-meta text revealed "4 error(s) block the commit,"
-which led directly to the `VAL-REPO-004` root cause above. The diagnostic
-was removed before the final passing runs; it is not part of the
-committed spec.
+## Suggested next step
 
-## 6. Coverage changes
-
-| Status | Before (3F.1A) | After (3F.1B) |
-|--------|------|------|
-| COVERED | 62 | 65 |
-| PARTIAL | 0 | 2 |
-| NEEDS SELECTOR | 6 | 1 |
-| NEEDS APPLICATION CHANGE | 2 | 2 |
-| DEFERRED | 4 | 4 |
-| NOT JUSTIFIED | 5 | 5 |
-| **Total** | **79** | **79** |
-
-- **Validate for publish, Commit with message, Add remote**: NEEDS
-  SELECTOR → **COVERED**.
-- **Push to remote, Pull from remote**: NEEDS SELECTOR → **PARTIAL** —
-  local error-path only; a successful round-trip against a real
-  reachable remote remains uncovered (Stage 3F.2). Marked `PARTIAL`
-  rather than `COVERED` specifically to avoid claiming coverage that
-  isn't actually implemented.
-- Only **SSH passphrase prompt** remains NEEDS SELECTOR.
-
-Coverage: 62/79 (78%) → **65/79 (82%)** (COVERED only; the 2 PARTIAL rows
-are not counted toward this figure). Verified programmatically by
-counting every status tag inside `docs/E2E_WDIO_COVERAGE_GAPS.md`'s
-"## Coverage matrix" section only (excluding the legend and the Summary
-counts table itself) — confirmed 79 rows both before and after this
-stage's edits.
-
-## 7. Risks
-
-- The `writeMinimalRisFixture` fix changes the on-disk shape of every
-  fixture `createLocalGitRepository` builds (four new empty directories)
-  for any future stage relying on it — a strict correction (matches what
-  the app itself produces), but worth flagging as a helper-behavior
-  change, same category as Stage 3F.1A's `getCurrentBranch` fix.
-- The Push/Pull error-path tests assert on a DNS-resolution-style failure
-  against `example.invalid` (RFC 2606, guaranteed never to resolve).
-  This is fast and deterministic in this environment; a sandboxed CI
-  network configuration that resolves all hostnames (a "captive portal"
-  DNS) could in principle turn this into a different kind of failure
-  (e.g., a TLS/connection error rather than a resolution error) — the
-  test only asserts that *an* error banner appears, not its exact text,
-  so it should remain robust to this, but it is a latent environmental
-  assumption worth noting.
-- The Push/Pull selector-disambiguation decision (stepper-only) is now
-  load-bearing for any future stage that wants to selectorize the Remote
-  panel's identical pair — that stage will need its own scoped names
-  (e.g. `git-remote-push-btn`), not `git-push-btn`, to avoid retroactively
-  making this stage's `git-stepper-push-btn` ambiguous-by-association.
-
-## 8. Remaining work for Stage 3F.2
-
-Per `docs/E2E_WDIO_PLAN.md`'s Stage 3F.2 sketch: a genuine push/pull
-round-trip against a real SSH-reachable remote, plus the SSH passphrase
-prompt flow end to end. Two prerequisites already flagged by the Stage
-3F.0 audit remain open: (1) a remote-fixture strategy decision (local SSH
-daemon vs. disposable external target) — `validate_remote_url` rejects
-local filesystem paths by design, so no fully local fixture is possible;
-(2) `clone_repository_cmd`'s SSH-clone-askpass gap (no in-app prompt for
-a passphrase-protected key on clone) is a genuine product gap, not a test
-gap, and may need its own product decision before SSH clone coverage is
-attempted. The "possible further split" noted in Stage 3F.0.5's docs
-(a dedicated 3F.1.5 remote-fixture-infrastructure stage before 3F.2's
-actual workflow specs, mirroring the 3F.0.5 → 3F.1 pattern) remains an
-open suggestion for that stage's own NSP to confirm or reject.
+Review the proposed commit structure and PR description in the chat
+response; once approved, either commit as one squashed commit or ask for
+the finer-grained per-stage split to be executed, then open the PR to
+`roadmap/e2e-wdio`.

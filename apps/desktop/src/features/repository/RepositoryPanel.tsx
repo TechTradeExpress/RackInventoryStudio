@@ -751,7 +751,7 @@ function GitSection({
             {gitStatus.upstream && (
               <>
                 <dt>Upstream</dt>
-                <dd className="mono">{gitStatus.upstream}</dd>
+                <dd className="mono" data-testid="git-upstream-value">{gitStatus.upstream}</dd>
               </>
             )}
             {!gitStatus.is_clean && (

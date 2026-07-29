@@ -22,6 +22,7 @@ import {
   getHeadCommit,
   getRemoteUrl,
   getWorkingTreeStatus,
+  isAncestor,
   isGitRepository,
   readGitConfig,
   runGit,
@@ -265,6 +266,42 @@ describe.sequential("local-git", () => {
 
     it("isGitRepository returns false for a non-existent path", async () => {
       expect(await isGitRepository(join(runRoot, "does-not-exist"))).toBe(false);
+    });
+  });
+
+  // ── isAncestor ────────────────────────────────────────────────────────────
+
+  describe("isAncestor", () => {
+    it("returns true for a linear history and false for a genuinely diverged one", async () => {
+      const repo = await createLocalGitRepository({ initialCommit: true });
+      try {
+        const aSha = await getHeadCommit(repo.path);
+
+        writeFileSync(join(repo.path, "b.txt"), "b");
+        await runGit(repo.path, ["add", "-A"]);
+        await runGit(repo.path, ["commit", "-q", "-m", "B"]);
+        const bSha = await getHeadCommit(repo.path);
+
+        // A is an ancestor of B (linear history) — and of itself.
+        expect(await isAncestor(repo.path, aSha, bSha)).toBe(true);
+        expect(await isAncestor(repo.path, aSha, aSha)).toBe(true);
+        // B is not an ancestor of A (wrong direction).
+        expect(await isAncestor(repo.path, bSha, aSha)).toBe(false);
+
+        // Fork back to A and create a genuinely diverged commit C.
+        await runGit(repo.path, ["reset", "-q", "--hard", aSha]);
+        writeFileSync(join(repo.path, "c.txt"), "c");
+        await runGit(repo.path, ["add", "-A"]);
+        await runGit(repo.path, ["commit", "-q", "-m", "C"]);
+        const cSha = await getHeadCommit(repo.path);
+
+        expect(await isAncestor(repo.path, aSha, cSha)).toBe(true);
+        // Neither diverged commit is an ancestor of the other.
+        expect(await isAncestor(repo.path, bSha, cSha)).toBe(false);
+        expect(await isAncestor(repo.path, cSha, bSha)).toBe(false);
+      } finally {
+        await repo.cleanup();
+      }
     });
   });
 });

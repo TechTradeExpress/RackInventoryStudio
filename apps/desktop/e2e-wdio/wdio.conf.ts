@@ -43,6 +43,16 @@
  *
  *   3. Windows only — Edge WebDriver is auto-downloaded by @wdio/tauri-service.
  *
+ *   4. Required only for the SSH workflow specs — git-remote-workflows
+ *      (Stage 3F.2), git-clone-workflows (Stage 3F.3), and
+ *      git-diverged-pull (Stage 3F.4), all built on the same local-sshd
+ *      remote-Git fixture (support/git-remote.ts, which needs
+ *      `sshd`/`ssh-keygen`/`ssh`) — install OpenSSH server:
+ *        sudo apt-get install -y openssh-server
+ *      Unlike the other specs, these three treat a missing `sshd` as a
+ *      hard failure in their own before() hook rather than skipping —
+ *      see any of the three specs' module doc comments for why.
+ *
  * ── Binary variants ───────────────────────────────────────────────────────────
  *
  *   wdio-plugin (E2E runs):
@@ -99,6 +109,16 @@ import { assertPluginPresenceContract } from "./support/plugin-presence";
 // Initialize isolated temp environment before any WDIO process starts.
 // Returns cleanup function registered in onComplete below.
 const cleanupTestEnvironment = initTestEnvironment();
+
+// Register the Stage 3F.2 SSH wrapper unconditionally, before the Tauri app
+// process spawns — GIT_SSH_COMMAND must be a static value at that point (the
+// app inherits process.env once, at spawn time), so any per-run connection
+// detail (port, identity file) has to be resolved later, inside the wrapper
+// itself, from a config file support/git-remote.ts writes at fixture-start
+// time. See support/ssh-wrapper.sh's own doc comment for the full chain.
+// A no-op for every other spec: ssh is only invoked when git talks to an SSH
+// remote, which none of them do.
+process.env["GIT_SSH_COMMAND"] = `bash "${path.resolve(process.cwd(), "e2e-wdio", "support", "ssh-wrapper.sh")}"`;
 
 // ── Binary path ───────────────────────────────────────────────────────────────
 

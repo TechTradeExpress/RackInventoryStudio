@@ -5,9 +5,10 @@
 | Item | Detail |
 |------|--------|
 | Integration branch | `roadmap/e2e-wdio` (long-lived) |
-| Current stage | Stage 3 COMPLETED (3A, 3B.1–3B.4, 3C) — embedded WDIO provider fully removed (PR #158); Stage 3D PARTIAL (merged as PR #159 — Placement Validation COMPLETE, Rack Export moved to NEEDS APPLICATION CHANGE); Stage 3E COMPLETE (merged as PR #160) — low-risk selector additions; Stage 3F.0 COMPLETE (merged as PR #161) — git workflow foundation audit; Stage 3F.0.5 COMPLETE (merged as PR #162) — local Git E2E test foundation, no workflow coverage added; Stage 3F.1A COMPLETE (merged as PR #163) — Git detection/init workflow coverage; Stage 3F.1B COMPLETE (not yet merged) — validate/commit/add-remote COVERED, push/pull local error paths PARTIAL; Stage 3F.1.5/3F.2 (remote git over SSH) not yet started |
+| Current stage | Stage 3 COMPLETED (3A, 3B.1–3B.4, 3C) — embedded WDIO provider fully removed (PR #158); Stage 3D PARTIAL (merged as PR #159 — Placement Validation COMPLETE, Rack Export moved to NEEDS APPLICATION CHANGE); Stage 3E COMPLETE (merged as PR #160) — low-risk selector additions; Stage 3F.0 COMPLETE (merged as PR #161) — git workflow foundation audit; Stage 3F.0.5 COMPLETE (merged as PR #162) — local Git E2E test foundation, no workflow coverage added; Stage 3F.1A COMPLETE (merged as PR #163) — Git detection/init workflow coverage; Stage 3F.1B COMPLETE (merged as PR #164) — validate/commit/add-remote COVERED, push/pull local error paths PARTIAL; Stage 3F.2 COMPLETE (approved, RP applied) — remote Git over SSH: local-sshd fixture infrastructure, successful push/pull round-trips, upstream tracking, and SSH key-based authentication all COVERED; Stage 3F.3 COMPLETE (not yet merged) — Git clone over SSH: scaffold-only clone, multi-commit clone, and clone-state persistence across close/reopen all COVERED, reusing Stage 3F.2's fixture infrastructure unmodified; Stage 3F.4 COMPLETE (not yet merged) — diverged pull over SSH: `--ff-only` failure on a genuinely diverged history COVERED, proving both commits, working tree, branch, upstream, and remote configuration all survive the failure and a close/reopen cycle, reusing Stage 3F.2's fixture infrastructure unmodified |
+| Stage 3F | **Functionally complete** (2026-07-28) — the Git workflow surface scoped by the Stage 3F.0 audit (detection/init, validate/commit/add-remote, local and remote push/pull, clone, diverged-pull recovery) is fully covered. No further Stage 3F.x sub-stage is planned; a new NSP would be required to reopen this area (e.g. the SSH passphrase prompt, still NEEDS SELECTOR — see `docs/E2E_WDIO_COVERAGE_GAPS.md`). |
 | Integration PR to development | None open |
-| Decision | Further stages continue on `roadmap/e2e-wdio`; integration into `development` only after whole-program review |
+| Decision | Further program stages (outside Stage 3F) continue on `roadmap/e2e-wdio`; integration into `development` only after whole-program review |
 
 `roadmap/e2e-wdio` is a long-lived integration branch.  It is not expected to be
 merged into `development` after every stage.  Ordinary completed stages do not
@@ -2198,48 +2199,560 @@ tags/fetch/staged-files/user-identity/HTTPS-credentials — none of these
 exist in the application; no application/backend change beyond the
 Stage 3F.0.5 test-helper fix described above.
 
-### Stage 3F.2 — Remote git over SSH (sketch, not yet scoped)
+### Stage 3F.2 — Remote git over SSH (COMPLETE, 2026-07-27)
 
-**Scope (indicative):** a genuine push/pull round-trip against a real
-SSH-reachable remote, and the SSH passphrase prompt flow
-(`SshPassphraseModal`) end to end.
+**Scope delivered:** a genuine push round-trip, a genuine fast-forward pull
+round-trip, upstream-tracking configuration, and the SSH key-based
+authentication flow — all against a real SSH-reachable remote, run
+deterministically in CI/dev environments with no network dependency. Clone
+and the SSH-passphrase modal were explicitly excluded per this stage's own
+NSP (see "Explicitly out of scope" below).
 
-**Open prerequisite for this stage's own NSP, found by the audit:** no
-"free" way to fabricate a reachable remote exists — `validate_remote_url`
-rejects local filesystem paths by design. This stage's NSP must first
-decide the remote fixture strategy (e.g. a local SSH daemon in the test
-environment serving a bare repo over `ssh://127.0.0.1`, vs. a disposable
-real external target) before any spec work starts, since a large part of
-this stage's actual work is in test-environment/fixture design, not spec
-code itself.
+#### Architecture investigation
 
-**Open prerequisite, product-level:** clone via SSH currently has no
-askpass wiring at all (found by this audit — see "Clone" above). If the
-fixture strategy for this stage relies on a passphrase-protected key, SSH
-clone coverage cannot be added until that gap is fixed in application
-code first (a `fix(git):` change, separate from and prior to this stage's
-own test work, per this program's own "don't mix a production fix with
-test work in one commit" convention) — or the fixture must use a
-passphrase-less key, deferring the clone-askpass gap to a follow-up.
+Read before any code was written, confirming the Stage 3F.0 audit's
+findings still held (no drift since):
 
-**Why separate from 3F.1:** genuinely different risk and infrastructure
-profile — real network/SSH operations, a remote fixture to stand up and
-tear down safely, and the possibility of leaving remote state behind if
-cleanup is imperfect (unlike 3F.1's fully local operations).
+- **`push_current_branch_with_env` / `pull_ff_only_with_env`**
+  (`crates/ris-git/src/lib.rs`) — both take `extra_env: &[(&str, &str)]`
+  and a `GitSecurityMode`. `GitSecurityMode::Askpass` applies fail-closed
+  hardening (a fresh `core.hooksPath` temp dir, and `core.sshCommand`
+  override *only* when the repo has a repo-local value) but explicitly
+  **never** strips `GIT_SSH`/`GIT_SSH_COMMAND` — both are user-controlled
+  and preserved (see `ASKPASS_ENV_REMOVALS`'s doc comment). This is the
+  load-bearing fact the chosen fixture strategy depends on: a
+  `GIT_SSH_COMMAND` set before the app launches survives untouched through
+  the askpass path.
+- **`clone_repository_cmd`** (`apps/desktop/src-tauri/src/commands/repository.rs`)
+  calls the plain `ris_git::clone()`, not the askpass-hardened path —
+  confirmed still true, still a genuine product gap for a
+  passphrase-protected key, still not fixed here (out of scope — see
+  below).
+- **`validate_remote_url`** (`crates/ris-git/src/lib.rs`) still rejects
+  local filesystem paths and `file://` by design (transport-helper-injection
+  hardening), and still accepts SCP-like SSH syntax
+  (`user@host:path`, no port field) — confirmed by
+  `add_remote_accepts_scp_like_ssh` in `crates/ris-git/tests/git_remote_tests.rs`,
+  which is exactly the URL shape this stage's fixture uses.
 
-**Explicitly NOT in scope:** anything not already in the application
-(see the audit's "confirmed not implemented" list) — this stage tests
-push/pull/clone/SSH-passphrase against a real remote, nothing more.
+**Remote strategy comparison:**
 
-**Possible further split:** the remote fixture strategy above (SSH
-daemon/container setup, teardown, and safety guarantees) is substantial
-enough that it may deserve the same treatment 3F.0.5 gave local
-workflows — a dedicated "3F.1.5 — Remote Git E2E Test Foundation" stage
-building the isolated SSH fixture infrastructure first, with 3F.2 then
-consuming it for the actual push/pull/clone/passphrase specs, mirroring
-the 3F.0.5 → 3F.1 split. Not decided here — left for 3F.1.5/3F.2's own
-NSP to confirm once 3F.1 is complete and the fixture strategy prerequisite
-above is actually being resolved.
+| Option | Determinism | CI compatibility | Startup complexity | Maintenance | Runtime | Security |
+|--------|-------------|-------------------|---------------------|-------------|---------|----------|
+| **A. Local bare repo + local `sshd`** (chosen) | High — same machine, no network, no external service dependency | High — `sshd`/`ssh-keygen`/`ssh` are already-present OpenSSH client/server tooling on the Linux dev/CI image (`webkit2gtk-driver`/`xvfb` are already prerequisites here); no new package needed | Low — one `spawn()`, one ephemeral keypair, a ~15-line `sshd_config`; prototyped and confirmed working standalone before any TS was written | Low — self-contained in `support/git-remote.ts`, no external service version to track | Fast — sub-second `sshd` startup, push/pull round-trips complete in well under a second locally | Good — 127.0.0.1-only, ephemeral per-run keys, `PasswordAuthentication no`, no privilege drop needed (same-user login), everything torn down per suite |
+| B. Temporary containerized git server (e.g. a `gitea`/`sshd` Docker image) | High once running | Lower — requires a container runtime available in every environment that runs this suite (not guaranteed on a developer's machine, adds a Docker dependency this program has not needed anywhere else) | Higher — image pull/build, container lifecycle, port mapping | Higher — an image to keep updated, a second moving part alongside the Tauri app + WebKitWebDriver + tauri-driver stack | Slower — container start/stop overhead per suite run | Comparable, but a larger attack surface (a full container) for no additional test value over option A |
+| C. Another already-available deterministic mechanism in the project | N/A | N/A | N/A | N/A | N/A | N/A — **none found**. The project has no existing git-server fixture, mock SSH server, or CI service container anywhere in the repo; `crates/ris-git/tests/git_remote_tests.rs` uses local bare repos over `file://`, which `validate_remote_url` deliberately rejects for the real app path (that test suite bypasses validation via a `add_remote_for_test` helper specifically for this reason) — it cannot stand in for a real SSH transport test. |
+
+**Chosen: Option A**, justified by the comparison above — it needed no new
+runtime dependency (OpenSSH client + server tooling was already present),
+matched this program's existing "no Docker anywhere else" posture, and was
+prototyped end-to-end (see below) before any production TypeScript was
+written, derisking the approach early.
+
+**Prototype validation (performed before writing `support/git-remote.ts`):**
+a throwaway shell script generated an ephemeral ed25519 keypair (no
+passphrase) and host key, started `sshd -f <config> -D -e` unprivileged on
+a fixed port with `AuthorizedKeysFile`/`PubkeyAuthentication yes`/
+`PasswordAuthentication no`/`UsePAM no`/`StrictModes no`, and confirmed
+both a bare `ssh` connection and a full `git push` over that connection
+succeeded — before committing to the design.
+
+**Dynamic-connection-info problem and its solution:** `GIT_SSH_COMMAND`
+must be a static value at Tauri app *launch* time (the app inherits
+`process.env` once, at spawn — see `wdio.conf.ts`'s module-load-time
+`initTestEnvironment()` call), but the `sshd` fixture's port and identity
+file are only known once `startRemote()` runs inside a spec's `before()`
+hook, which is necessarily *after* the app is already running (WDIO specs
+cannot hook earlier). Resolved by pointing the static `GIT_SSH_COMMAND` at
+a static wrapper script (`support/ssh-wrapper.sh`) that re-reads the actual
+port/identity from a small env file
+(`$RIS_E2E_RUN_ROOT/git/ssh-remote-command.env`) at every *invocation*
+time instead of at app-launch time — `configureSsh()` writes that file.
+This registration is unconditional in `wdio.conf.ts` and a complete no-op
+for every other spec (`ssh` is only ever invoked by git talking to an SSH
+remote, which no other spec does).
+
+#### Files changed
+
+- `apps/desktop/e2e-wdio/support/ssh-wrapper.sh` (new) — the static
+  `GIT_SSH_COMMAND` target described above.
+- `apps/desktop/e2e-wdio/support/git-remote.ts` (new) — fixture
+  infrastructure: `findSshd()`, `startRemote()` (generates ephemeral
+  host/client ed25519 keys, starts unprivileged `sshd` on a random
+  127.0.0.1 port, waits for readiness), `configureSsh()` (writes the
+  wrapper's config file), `createBareRemote()`, `buildSshRemoteUrl()`,
+  remote-inspection helpers (`getRemoteHeadCommit`, `getRemoteCommitCount`),
+  `pushSimulatedRemoteCommit()` (simulates a
+  teammate's commit landing on the remote via a local-filesystem clone —
+  test-side only, never through the app), and `cleanup()`.
+- `apps/desktop/e2e-wdio/support/git-remote.test.ts` (new) — Vitest unit
+  tests exercising the fixture standalone with plain `git` (no WDIO
+  session), including a full push/pull round trip through the actual
+  `ssh-wrapper.sh` script. Skips (not fails) when `sshd` is unavailable,
+  mirroring `crates/ris-git/tests`' `if !git_available() { return; }`
+  pattern.
+- `apps/desktop/e2e-wdio/wdio.conf.ts` — registers the static
+  `GIT_SSH_COMMAND` pointing at `ssh-wrapper.sh`, immediately after
+  `initTestEnvironment()`.
+- `apps/desktop/e2e-wdio/specs/git-remote-workflows.e2e.ts` (new) — the
+  three scenarios below.
+- `apps/desktop/src/features/repository/RepositoryPanel.tsx` — one new
+  testid, `git-upstream-value`, on the pre-existing "Upstream" `<dd>`
+  (previously unselectorized) — needed to prove Scenario 3's
+  redetection-after-reopen at the UI level, not just via `.git/config`.
+- `docs/E2E_WDIO_PLAN.md`, `docs/E2E_WDIO_COVERAGE_GAPS.md` — this section
+  and the coverage-gap table updates.
+
+#### Test scenarios implemented (`git-remote-workflows.e2e.ts`)
+
+1. **Push** — create a fixture repo with an initial commit, add the
+   local-sshd remote through the UI, click the stepper's Push button.
+   Verified via helpers (not the UI success message, which has no
+   `data-testid`): remote HEAD matches local HEAD, remote commit count is
+   1, `branch.<name>.remote`/`.merge` are configured in `.git/config`; also
+   cross-checked at the UI level (`git-branch-value`, new
+   `git-upstream-value` shows `origin/<branch>`).
+2. **Pull (fast-forward)** — after an initial push to establish tracking,
+   `pushSimulatedRemoteCommit()` simulates a teammate's commit landing on
+   the remote (a local-filesystem clone/commit/push, never through the
+   app or SSH — legitimate since the fixture and test runner share a
+   machine, whereas the *app under test* always goes through the real SSH
+   transport). Clicks the stepper's Pull button; verified via helpers that
+   local HEAD fast-forwards to the simulated commit, the working tree is
+   clean, and the commit count increments.
+3. **Close/reopen persistence** — push to establish upstream, close the
+   repository, reopen it by path, and verify both at the UI level
+   (`git-branch-value`, `git-upstream-value`) and via helpers
+   (`.git/config`, `git remote -v`) that upstream tracking and the remote
+   are still correctly detected.
+
+All three authenticate over the fixture's real SSH transport (the app's
+own `GitSecurityMode::Askpass` path — `is_ssh_url` classifies the SCP-like
+remote URL as SSH, so the askpass session starts; it is inert here since
+the fixture's key has no passphrase), which is this stage's "SSH
+authentication flow" objective.
+
+#### Validation results (2026-07-27)
+
+- `git diff --check` — clean.
+- `node scripts/check-repo-hygiene.mjs` — 8/8 passed.
+- `node scripts/check-version-consistency.mjs` — versions and toolchain
+  consistent.
+- `pnpm -C apps/desktop typecheck` — clean (this command's `tsconfig.json`
+  scopes to `src` only — it does not cover `e2e-wdio/`, consistent with
+  every prior 3F stage; `support/git-remote.ts` and the new spec were
+  additionally sanity-checked with a standalone `tsc --noEmit` pass using
+  the project's actual compiler options, with zero errors).
+- `pnpm -C apps/desktop test` — 58 files / 945 tests passed, including the
+  5 new `git-remote.test.ts` tests.
+- `cargo test --workspace` — all passed, 0 failures (no Rust source
+  changed this stage).
+- `node scripts/run-wdio-e2e.mjs --spec git-remote-workflows` — CLEAN PASS,
+  all 3 scenarios passed; repeated with `--repeat 2` for the isolated ×2
+  run this program's `feature/e2e-*` policy requires — both runs CLEAN
+  PASS.
+- Regression: `node scripts/run-wdio-e2e.mjs --spec git-detection-init` and
+  `--spec git-local-workflows` — both still CLEAN PASS (no regression from
+  the `wdio.conf.ts` or `RepositoryPanel.tsx` changes).
+
+#### Coverage changes
+
+See `docs/E2E_WDIO_COVERAGE_GAPS.md`'s Git workflow table and Summary
+counts — **Push to remote** and **Pull from remote** moved PARTIAL →
+COVERED; two new rows (**Upstream tracking persistence**, **SSH
+authentication**) added and COVERED. 69/81 workflows COVERED (85%), up
+from 65/79 (82%) at the Stage 3F.1B snapshot.
+
+#### Explicitly out of scope (per this stage's own NSP, respected)
+
+Clone, merge conflicts, rebase, stash, tags, multiple remotes, HTTPS
+credentials, branch creation/switching, detached HEAD, force push, and the
+SSH passphrase-prompt workflow (the fixture's key intentionally has no
+passphrase). See `docs/E2E_WDIO_COVERAGE_GAPS.md` for exactly which of
+these remain open gaps versus confirmed non-features of the application.
+
+#### Remaining Git workflow gaps
+
+- **SSH passphrase prompt** — still NEEDS SELECTOR (`SshPassphraseModal.tsx`
+  Submit/Cancel have no testid). Blocked on a product decision for how a
+  future stage wants to exercise it, and on the pre-existing
+  `clone_repository_cmd` askpass gap if that future stage chooses a
+  passphrase-protected key.
+- **Clone over a real remote** — successful clone COVERED by Stage 3F.3
+  (below), using this stage's fixture with a passphrase-less key. A
+  passphrase-protected clone still needs the product-side askpass fix
+  noted above.
+- **`--ff-only` diverged pull ("resolve manually")** — not yet scoped by
+  any stage.
+
+### Stage 3F.3 — Git clone over SSH (COMPLETE, 2026-07-28)
+
+**Scope delivered:** successful clone only, over the same real SSH
+transport as Stage 3F.2 — a repository containing only the RIS scaffold
+(no inventory data), a repository with multiple commits, and clone state
+(detection, branch, upstream, remote configuration) surviving close and
+reopen. Built directly on Stage 3F.2's infrastructure with no redesign,
+per this stage's own NSP.
+
+#### Audit findings (pre-implementation)
+
+Read before any code was written:
+
+- **`clone_repository_cmd`** (`apps/desktop/src-tauri/src/commands/repository.rs`)
+  — unchanged since the Stage 3F.0/3F.2 audits. A plain, synchronous
+  command: validates `destination` is empty/absent, calls the plain
+  `ris_git::clone()` (no askpass wiring — the same pre-existing gap noted
+  in Stage 3F.2, still irrelevant here since this stage's key has no
+  passphrase), opens the cloned directory via the same `open_repository`
+  path `open_repository_cmd`/`create_repository_cmd` use, and returns the
+  same `OpenRepositoryResultDto` create/open both return.
+- **`ris_git::clone()`** (`crates/ris-git/src/lib.rs`) — unchanged.
+  Validates the URL via `validate_remote_url` (the same SCP-like
+  acceptance already proven for push/pull), then runs `git clone` via
+  `run_git_global`, a plain `Command::new("git")` with no explicit env
+  manipulation — it inherits the app process's ambient environment,
+  including the `GIT_SSH_COMMAND` `wdio.conf.ts` registers. No fixture
+  change was needed to reach clone.
+- **`CloneRepositoryForm.tsx`** already exposes every selector this stage
+  needed — `clone-form`, `clone-url`, `clone-parent`, `clone-browse`,
+  `clone-dirname`, `clone-preview`, `clone-submit`, plus `clone-url-error`/
+  `clone-parent-error`/`clone-dirname-error`/`clone-error`. Confirmed by
+  reading the component; **zero new selectors added this stage.** The form
+  renders directly on the landing screen (no separate navigation step).
+- **Clone success** (`App.tsx`'s `handleCloneSuccess`) transitions the app
+  exactly like open/create success, confirmed by reading it alongside
+  `handleOpenSuccess`/`handleCreateSuccess` — `repository-active-root`/
+  `repository-active-path` appear the same way the existing
+  `openRepositoryByPath` helper already relies on.
+- **`git clone` itself already configures `origin` + upstream tracking**
+  for the checked-out branch as a side effect — confirmed with a
+  standalone `git clone` against a local bare repo before writing the
+  spec. Unlike Stage 3F.2's push/pull scenarios (which started from an
+  empty remote and had to push once to establish tracking), no extra step
+  is needed here.
+- **`support/git-remote.ts` and `support/ssh-wrapper.sh`** — confirmed via
+  `git status`/`git log` unchanged since their Stage 3F.2 commit; reused
+  without modification.
+
+No assumptions from Stage 3F.2 had changed; nothing needed correcting
+before implementation.
+
+#### Infrastructure reuse
+
+Reused unmodified from Stage 3F.2: `findSshd`, `startRemote`,
+`configureSsh`, `createBareRemote`, `buildSshRemoteUrl`,
+`getRemoteHeadCommit`, `getRemoteCommitCount`, `pushSimulatedRemoteCommit`,
+`cleanup` (`support/git-remote.ts`), `createLocalGitRepository`,
+`getCurrentBranch`, `getHeadCommit`, `getCommitCount`,
+`getWorkingTreeStatus`, `getRemoteUrl`, `readGitConfig`
+(`support/local-git.ts`), `reactSetValue`, `clickWhenEnabled`,
+`expectActiveRepositoryPath` (`support/repository-ui.ts`), and the
+`GIT_SSH_COMMAND` → `ssh-wrapper.sh` registration in `wdio.conf.ts`.
+
+One addition, to the existing `git-remote.ts` module rather than a new
+parallel one: `seedBareRemoteFromLocalRepo()` — pushes a local fixture
+repo's branch directly into an otherwise-empty bare remote by filesystem
+path (test-side, no SSH, same rationale as `pushSimulatedRemoteCommit`).
+Needed because this stage's remotes must already contain content *before*
+the app clones them — Stage 3F.2's scenarios always started from an empty
+remote and populated it *through* the app instead, so no existing helper
+covered this. Prototyped standalone (a raw `git push <bare-path>
+branch:branch`) before adding it to the module.
+
+`sshd` is a required prerequisite for this spec too, for the same reason
+as Stage 3F.2's RP: `before()` throws rather than skips when it cannot be
+found — this spec's entire purpose is SSH clone coverage, so a quiet skip
+would let a run report green while cloning nothing.
+
+#### Files changed
+
+- `apps/desktop/e2e-wdio/support/git-remote.ts` — one addition,
+  `seedBareRemoteFromLocalRepo()` (see above). Everything else unchanged.
+- `apps/desktop/e2e-wdio/support/git-remote.test.ts` — one new unit test
+  for `seedBareRemoteFromLocalRepo()`.
+- `apps/desktop/e2e-wdio/specs/git-clone-workflows.e2e.ts` (new) — the
+  three NSP scenarios.
+- `docs/E2E_WDIO_PLAN.md`, `docs/E2E_WDIO_COVERAGE_GAPS.md` — this section
+  and the coverage-gap table updates.
+
+No application code changed this stage — `CloneRepositoryForm.tsx`
+already had every selector needed.
+
+#### "Empty repository" — this stage's interpretation of the NSP wording
+
+The NSP asked for "clone an empty repository". Interpreted as *no
+inventory data* — the minimal valid RIS scaffold (repo.yaml,
+locations.yaml with `locations: []`, four empty
+racks/device-models/devices/placements directories) committed once, not a
+Git repository with zero commits. A genuinely empty bare repo (no refs at
+all) cannot satisfy the NSP's own Scenario 1 requirement that "the
+repository opens correctly": `open_repository` requires
+`inventory/repo.yaml` to exist and fails hard without it (confirmed by
+reading `crates/ris-repository/src/loader.rs` before implementation), so
+a zero-commit clone would always end in an "invalid RIS repository" error,
+never a successful open. Documented explicitly so Scenario 1's coverage is
+not overstated as "clones a zero-commit repository", which it does not.
+
+#### Test scenarios implemented (`git-clone-workflows.e2e.ts`)
+
+1. **Scaffold-only clone** — seed a bare remote (via
+   `seedBareRemoteFromLocalRepo`) with a single commit containing only the
+   RIS scaffold (no locations/racks/devices), clone it through the UI.
+   Verified: no `clone-error`, branch and upstream displayed correctly
+   (`git-branch-value`/`git-upstream-value`), and via helpers — commit
+   count 1, clean working tree, local HEAD matches remote HEAD, upstream
+   tracking (`branch.<name>.remote`/`.merge`) and `origin`'s URL correct.
+2. **Multi-commit clone** — seed the same way, then add a second commit
+   with `pushSimulatedRemoteCommit` (remote commit count 2). Clone through
+   the UI; verified HEAD matches the second commit, commit count 2, clean
+   working tree, the second commit's file present, and repository
+   metadata/remote configuration correct.
+3. **Close/reopen persistence** — clone a scaffold-only repository, close
+   it, reopen it by path. Verified both at the UI level
+   (`git-branch-value`, `git-upstream-value`) and via helpers
+   (`.git/config`, `git remote -v`) that detection, branch, upstream, and
+   remote configuration all survive the round trip.
+
+All three authenticate over the fixture's real SSH transport, same as
+Stage 3F.2.
+
+#### Validation results (2026-07-28)
+
+- `git diff --check` — clean.
+- `node scripts/check-repo-hygiene.mjs` — 8/8 passed.
+- `node scripts/check-version-consistency.mjs` — versions and toolchain
+  consistent.
+- `pnpm -C apps/desktop typecheck` — clean.
+- `pnpm -C apps/desktop test` — 58 files / 946 tests passed (includes the
+  1 new `seedBareRemoteFromLocalRepo` unit test).
+- `node scripts/run-wdio-e2e.mjs --spec git-clone-workflows` — CLEAN PASS,
+  all 3 scenarios; repeated with `--repeat 2` — both runs CLEAN PASS.
+- `node scripts/run-wdio-e2e.mjs --spec git-remote-workflows` — still
+  CLEAN PASS (Stage 3F.2 regression check).
+- Regression: `git-local-workflows` and `git-detection-init` — both still
+  CLEAN PASS.
+
+#### Coverage changes
+
+See `docs/E2E_WDIO_COVERAGE_GAPS.md` — clone (SSH, successful) moves from
+DEFERRED to COVERED; two new COVERED rows added (multi-commit clone,
+clone-state persistence). HTTPS clone and passphrase-protected SSH clone
+remain DEFERRED (network-dependent / product askpass gap respectively —
+unchanged from Stage 3F.2).
+
+#### Explicitly out of scope (per this stage's own NSP, respected)
+
+SSH passphrase workflow, HTTPS clone, authentication failures, merge
+conflicts, branch switching, fetch, pull, push, tags, submodules, multiple
+remotes, shallow clone, detached HEAD, clone cancellation, clone progress,
+clone retries.
+
+#### Remaining Git workflow gaps
+
+- **SSH passphrase prompt** — still NEEDS SELECTOR, unchanged from Stage
+  3F.2.
+- **Passphrase-protected SSH clone** — still blocked on the
+  `clone_repository_cmd` askpass gap (a product fix, not a testing gap).
+- **HTTPS clone** — still DEFERRED, network-dependent, no local mock.
+- **`--ff-only` diverged pull** — COVERED by Stage 3F.4 (below).
+
+### Stage 3F.4 — Diverged pull over SSH ("--ff-only" failure and recovery) (COMPLETE, 2026-07-28)
+
+**Scope delivered:** one focused scenario proving `git pull --ff-only` —
+the only pull mode the application ever runs — safely rejects a
+genuinely diverged history, with every piece of repository state (both
+commits, working tree, branch, upstream, remote URL) surviving the
+failure and a subsequent close/reopen cycle. The application does not
+implement merge, rebase, or conflict resolution, and this stage does not
+add any — it proves the existing rejection behaviour is safe.
+
+#### Audit findings (pre-implementation)
+
+- **File location.** Considered extending `git-remote-workflows.e2e.ts`
+  instead of a new file. Rejected: every prior Stage 3F sub-stage —
+  3F.1A, 3F.1B, 3F.2, 3F.3 — got its own dedicated spec file, including
+  Stage 3F.3 (clone), which is thematically at least as close to 3F.2's
+  push/pull as this stage's diverged-pull scenario is, and still got its
+  own file. One-file-per-stage is this program's established convention;
+  a new file (`git-diverged-pull.e2e.ts`, the NSP's own suggested name)
+  follows it.
+- **Pull path re-read in full**, confirmed unchanged since the Stage
+  3F.2 audit: `handlePull` (`RepositoryPanel.tsx`) clears
+  push/pull status, calls `pullGitFfOnly`, and on failure sets
+  `pullError` **without** bumping `refreshKey` — a failed pull does not
+  trigger a fresh Git-status fetch, so `git-branch-value`/
+  `git-upstream-value` display whatever was last fetched *before* the
+  attempt (safe to assert here anyway, since neither branch nor upstream
+  ever actually changes in this scenario). `pull_git_ff_only`
+  (`commands/git.rs`) only special-cases SSH *authentication* failures
+  (`classify_git_ssh_error`) — a non-fast-forward failure isn't one, so
+  the raw git stderr (redacted) is what reaches `git-pull-error`; no
+  product-level "diverged" wording exists anywhere in this path. Hence
+  this stage asserts on the stable `git-pull-error` *selector*, never on
+  git's own message text. `pull_ff_only_with_env`
+  (`crates/ris-git/src/lib.rs`) runs exactly
+  `git pull --ff-only <remote> <branch>`, confirmed unchanged.
+- **Pull button stays clickable after failure** — because
+  `getPullDisabledReason` only blocks on the *cached*, pre-attempt
+  `ahead`/`behind`, which (per the point above) never updates within this
+  scenario to reflect the divergence. Not asserted directly as a
+  deliberate behaviour — the NSP's checklist doesn't require it, and this
+  stage does not want to overstate incidental cache-staleness as an
+  intentional "retry" design.
+- **Close/reopen works with no restart**, confirmed by reading
+  `handleCloneSuccess`/the close handler — reopening remounts with a
+  fresh `repoPath`, which *does* trigger a new `get_git_status` fetch.
+  This is where a genuinely fresh, non-stale ahead/behind read happens.
+
+#### Prototype validation (before writing the spec)
+
+Reproduced the full scenario standalone with plain `git` first: local
+commit B (child of A) never pushed; a scratch clone/commit/push against
+the bare remote produces commit C (also a child of A, independent of B);
+a bare `git fetch <bare-path> <branch>` with **no destination refspec**
+brings C's object into the local repo's object database without
+touching `refs/remotes/origin/<branch>` (confirmed unchanged
+before/after); `git merge-base --is-ancestor` both directions exits 1;
+`git pull --ff-only` then exits 128 with "fatal: Not possible to
+fast-forward, aborting.", HEAD stays at B, and (per `git status
+--branch`) the *real* fetch inside `pull` does update
+`refs/remotes/origin/<branch>` to C as a side effect — `[ahead 1, behind
+1]`.
+
+#### Exact commit graph constructed
+
+```
+      A
+     / \
+    B   C
+```
+
+- `A` — initial commit, created by `createLocalGitRepository`, pushed to
+  the remote through the application to establish upstream tracking.
+- `B` — local-only commit, child of `A`, created test-side (see
+  "Helpers reused" below), never pushed. Local HEAD.
+- `C` — remote-only commit, child of `A`, created via
+  `pushSimulatedRemoteCommit` against the bare remote (a clone/commit/
+  push that starts from the remote's own state, which is `A` at that
+  point — independent of `B` by construction, since `B` is never pushed
+  anywhere). Remote HEAD.
+
+Divergence confirmed via `isAncestor(B, C)` and `isAncestor(C, B)` both
+`false`, verified through Git itself (`git merge-base --is-ancestor`),
+not inferred from the pull's error text.
+
+#### Helpers reused (no new fixture/remote infrastructure)
+
+`findSshd`, `startRemote`, `configureSsh`, `createBareRemote`,
+`buildSshRemoteUrl`, `pushSimulatedRemoteCommit`, `getRemoteHeadCommit`,
+`getRemoteCommitCount`, `cleanup` (`support/git-remote.ts`, Stage 3F.2,
+unmodified); `createLocalGitRepository`, `getCurrentBranch`,
+`getHeadCommit`, `getCommitCount`, `getWorkingTreeStatus`,
+`getRemoteUrl`, `readGitConfig`, `runGit` (`support/local-git.ts`);
+`reactSetValue`, `clickWhenEnabled`, `expectActiveRepositoryPath`
+(`support/repository-ui.ts`).
+
+#### Helper added
+
+One addition, to the existing `support/local-git.ts` module (audited
+first — no ancestry/merge-base helper existed anywhere before this
+stage): `isAncestor(path, ancestorSha, descendantSha)`, a thin wrapper
+around `git merge-base --is-ancestor` (exit 0 → true, exit 1 → false,
+anything else propagates). Justified directly by the NSP's own
+instruction to verify divergence through Git helpers rather than error
+text. Covered by a new unit test in `local-git.test.ts` (linear-history
+true case; forked/diverged-history false case, both directions).
+
+Local commit "B" is created test-side — a plain `runGit` add+commit on
+the already-open fixture's directory, writing a file outside
+`inventory/` so the RIS loader ignores it, the same pattern
+`pushSimulatedRemoteCommit` already uses for "C" — rather than through
+the application's Validate+Commit UI flow. Justification, per the NSP's
+own requirement to document this choice: Stage 3F.1B already covers
+Validate+Commit through the UI in full; repeating it here would be
+duplicative for no new Git-workflow value, and would additionally
+require manufacturing a *new* in-app data change first (this fixture is
+clean after its initial push, unlike 3F.1B's pre-dirtied fixture) —
+touching an unrelated entity-creation UI just to produce a commit, which
+broadens this spec's dependencies and fragility for a scenario whose
+actual subject is the pull failure, not commit creation.
+
+#### Selectors added
+
+None. Reused: `git-stepper-pull-btn`, `git-pull-error`,
+`git-branch-value`, `git-upstream-value`, `git-stepper-push-btn`,
+`git-remote-name-input`, `git-remote-url-input`, `git-remote-add-btn`,
+`git-remote-add-success`, `repository-close-action`,
+`repository-open-path-input`, `repository-open-path-submit`,
+`repository-active-root`, `repository-active-path`,
+`repository-landing-title`.
+
+#### Test scenario and assertions (`git-diverged-pull.e2e.ts`)
+
+One test: create fixture with commit A, open it, add the SSH remote, push
+through the app (establishes upstream), create local commit B and remote
+commit C as above, confirm genuine divergence via `isAncestor` in both
+directions, click Pull, and verify:
+
+- `git-pull-error` renders (30s timeout);
+- local HEAD is still B, remote HEAD is still C (helpers);
+- local commit count is still 2 (A, B), remote commit count is still 2
+  (A, C) — proves no merge commit was created;
+- working tree is clean, and `.git/MERGE_HEAD` does not exist — proves no
+  merge was even attempted;
+- branch is unchanged, `branch.<name>.remote`/`.merge` still configured,
+  `origin`'s URL unchanged (helpers);
+- `git-branch-value`/`git-upstream-value` still display correctly (UI).
+
+Then closes the repository, reopens it by path, and re-verifies local
+HEAD, displayed branch/upstream, upstream config, and remote URL — proving
+the application remains usable after the failure with no restart needed.
+
+#### Validation results (2026-07-28)
+
+- `git diff --check` — clean.
+- `node scripts/check-repo-hygiene.mjs` — 8/8 passed.
+- `node scripts/check-version-consistency.mjs` — versions and toolchain
+  consistent.
+- `pnpm -C apps/desktop typecheck` — clean.
+- `pnpm -C apps/desktop test` — 58 files / 947 tests passed (includes the
+  1 new `isAncestor` unit test).
+- `node scripts/run-wdio-e2e.mjs --spec git-diverged-pull` — CLEAN PASS;
+  repeated with `--repeat 2` — both runs CLEAN PASS.
+- `node scripts/run-wdio-e2e.mjs --spec git-remote-workflows` — still
+  CLEAN PASS (Stage 3F.2 regression).
+- `node scripts/run-wdio-e2e.mjs --spec git-clone-workflows` — still
+  CLEAN PASS (Stage 3F.3 regression).
+- `node scripts/run-wdio-e2e.mjs --spec git-local-workflows` and
+  `--spec git-detection-init` — both still CLEAN PASS.
+- No Rust files changed this stage — `cargo test` not re-run, per the
+  NSP's own instruction to run Rust checks only if Rust files changed.
+
+#### Coverage changes
+
+See `docs/E2E_WDIO_COVERAGE_GAPS.md` — the `--ff-only` diverged-pull gap
+moves DEFERRED → COVERED. Coverage counts recalculated programmatically
+from the document's own status tags (not estimated).
+
+#### Explicitly out of scope (per this stage's own NSP, respected)
+
+Automatic merge, merge conflict resolution, rebase, reset, force pull,
+discard-local-changes actions, branch switching/creation, stash,
+fetch-only workflow, multiple remotes, HTTPS, SSH passphrase prompt,
+clone, tags, submodules, detached HEAD, force push, and any change to the
+application's Git strategy — `--ff-only` behaves exactly as it did
+before this stage.
+
+#### Remaining Git workflow gaps
+
+- **SSH passphrase prompt** — still NEEDS SELECTOR, unchanged.
+- **Passphrase-protected SSH clone** — still blocked on the
+  `clone_repository_cmd` askpass gap (a product fix, not a testing gap).
+- **HTTPS clone** — still DEFERRED, network-dependent, no local mock.
+- No further directly-testable gap remains in the push/pull/clone/diverge
+  surface as scoped by the Stage 3F.0 audit; any future Git-workflow stage
+  would need its own NSP to scope new ground (e.g. the SSH passphrase
+  prompt itself, or a workflow not yet in the application at all).
 
 ### Not proposed as a numbered coverage stage
 
