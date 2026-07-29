@@ -9,5 +9,5 @@ ris-core = { path = "../ris-core" }
 ris-repository = { path = "../ris-repository" }
 uuid = { version = "1", features = ["v4"] }
 regex = "1"
-thiserror = "1"
+thiserror = "2"
 
