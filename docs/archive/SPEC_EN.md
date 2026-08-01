@@ -1,5 +1,13 @@
 # Rack Inventory Studio — Project and Data Format Specification v0.1
 
+> **Historical document.** Written for the pre-hardening MVP UI. In particular,
+> placement is described here as form-based with drag-and-drop as a "post-MVP"
+> target — drag-and-drop placement has since shipped (Beta QA Milestone D) and
+> is now the primary placement workflow. The data-format sections may still be
+> broadly accurate; UI/workflow descriptions are not. See
+> `docs/ARCHITECTURE_EN.md` and `docs/VALIDATION_AND_CSV_SPEC_EN.md` for
+> current technical reference. Preserved for historical context.
+
 ## 1. Project character
 
 **Rack Inventory Studio** is an offline-first desktop application for documenting physical device placement in rack cabinets.

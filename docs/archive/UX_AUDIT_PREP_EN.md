@@ -3,8 +3,8 @@
 > **Historical document.** This was the pre-audit brief written before the Claude Design / UX audit and
 > Beta QA hardening milestones. It describes the pre-hardening state and references components
 > (`AddPlacementPanel`, placement table) that have since been redesigned or removed.
-> Current UX is documented in [`docs/BETA_WINDOWS_11_QA_EN.md`](BETA_WINDOWS_11_QA_EN.md)
-> and [`docs/BETA_RELEASE_PROCESS_EN.md`](BETA_RELEASE_PROCESS_EN.md).
+> Current UX is documented in [`docs/BETA_WINDOWS_11_QA_EN.md`](../BETA_WINDOWS_11_QA_EN.md)
+> and [`docs/BETA_RELEASE_PROCESS_EN.md`](../BETA_RELEASE_PROCESS_EN.md).
 
 **Date:** 2026-05-20
 **Status:** Pre-audit brief — describes current state, not target design.

@@ -1,8 +1,8 @@
 # Rack Inventory Studio — Beta Hardening Plan
 
 > **Historical planning document.** Beta hardening milestones 1–5 (and follow-up milestones A–F) are all complete.
-> The authoritative current release process is in [`docs/BETA_RELEASE_PROCESS_EN.md`](BETA_RELEASE_PROCESS_EN.md).
-> The current Windows 11 QA runbook is in [`docs/BETA_WINDOWS_11_QA_EN.md`](BETA_WINDOWS_11_QA_EN.md).
+> The authoritative current release process is in [`docs/BETA_RELEASE_PROCESS_EN.md`](../BETA_RELEASE_PROCESS_EN.md).
+> The current Windows 11 QA runbook is in [`docs/BETA_WINDOWS_11_QA_EN.md`](../BETA_WINDOWS_11_QA_EN.md).
 > This document is preserved for historical context.
 
 ---

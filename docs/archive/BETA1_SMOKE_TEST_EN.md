@@ -1,5 +1,10 @@
 # Beta 1 Smoke Gate -- TEST-01
 
+> **Historical document.** Written specifically for the v0.1.0-beta.1 release
+> cut. Superseded by the automated `pnpm smoke:beta` gate
+> (`scripts/smoke-beta-gate.mjs`) and the current per-release QA runbook
+> (e.g. `docs/BETA3_QA_RUNBOOK.md`). Preserved for historical context.
+
 Run this gate immediately before the beta release checklist, after all
 hardening PRs are merged and CI is green on `master`.
 

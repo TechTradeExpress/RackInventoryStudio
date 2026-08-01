@@ -1,5 +1,8 @@
 # Beta QA Findings — Action Plan
 
+> **Historical document.** All six milestones (A–F) tracked here are marked
+> Addressed. Preserved for historical context; not an active plan.
+
 ## 1. Purpose
 
 This document captures beta QA findings discovered during manual inspection
@@ -234,5 +237,5 @@ before beta distribution, regardless of which milestones have been completed.
 ## 7. Related documents
 
 - [`docs/BETA_HARDENING_PLAN_EN.md`](BETA_HARDENING_PLAN_EN.md) — overall beta hardening milestone list
-- [`docs/BETA_RELEASE_PROCESS_EN.md`](BETA_RELEASE_PROCESS_EN.md) — release checklist, version bump procedure
-- [`docs/BETA_WINDOWS_11_QA_EN.md`](BETA_WINDOWS_11_QA_EN.md) — Windows 11 manual QA runbook
+- [`docs/BETA_RELEASE_PROCESS_EN.md`](../BETA_RELEASE_PROCESS_EN.md) — release checklist, version bump procedure
+- [`docs/BETA_WINDOWS_11_QA_EN.md`](../BETA_WINDOWS_11_QA_EN.md) — Windows 11 manual QA runbook
