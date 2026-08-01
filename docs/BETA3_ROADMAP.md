@@ -186,5 +186,6 @@ Do not tag or publish beta.3 before manual QA is complete.
 
 ## Post-beta.3: E2E testing roadmap
 
-Desktop E2E work (WebdriverIO + `@wdio/tauri-service`) is tracked separately on branch
-`roadmap/e2e-wdio`. See `docs/E2E_WDIO_PLAN.md` for the staged implementation plan.
+Desktop E2E work (WebdriverIO + `@wdio/tauri-service`) was tracked separately on
+`roadmap/e2e-wdio` and has since been merged into `development` (BRSP Stage B3).
+See `docs/E2E_WDIO_PLAN.md` for the full stage history and current program status.

@@ -4,18 +4,22 @@
 
 | Item | Detail |
 |------|--------|
-| Integration branch | `roadmap/e2e-wdio` (long-lived) |
-| Current stage | Stage 3 COMPLETED (3A, 3B.1–3B.4, 3C) — embedded WDIO provider fully removed (PR #158); Stage 3D PARTIAL (merged as PR #159 — Placement Validation COMPLETE, Rack Export moved to NEEDS APPLICATION CHANGE); Stage 3E COMPLETE (merged as PR #160) — low-risk selector additions; Stage 3F.0 COMPLETE (merged as PR #161) — git workflow foundation audit; Stage 3F.0.5 COMPLETE (merged as PR #162) — local Git E2E test foundation, no workflow coverage added; Stage 3F.1A COMPLETE (merged as PR #163) — Git detection/init workflow coverage; Stage 3F.1B COMPLETE (merged as PR #164) — validate/commit/add-remote COVERED, push/pull local error paths PARTIAL; Stage 3F.2 COMPLETE (approved, RP applied) — remote Git over SSH: local-sshd fixture infrastructure, successful push/pull round-trips, upstream tracking, and SSH key-based authentication all COVERED; Stage 3F.3 COMPLETE (not yet merged) — Git clone over SSH: scaffold-only clone, multi-commit clone, and clone-state persistence across close/reopen all COVERED, reusing Stage 3F.2's fixture infrastructure unmodified; Stage 3F.4 COMPLETE (not yet merged) — diverged pull over SSH: `--ff-only` failure on a genuinely diverged history COVERED, proving both commits, working tree, branch, upstream, and remote configuration all survive the failure and a close/reopen cycle, reusing Stage 3F.2's fixture infrastructure unmodified |
+| Integration branch | `roadmap/e2e-wdio` (long-lived; merged into `development`, see below — not deleted, per this doc's own branch policy) |
+| Current stage | Stage 3 COMPLETED (3A, 3B.1–3B.4, 3C) — embedded WDIO provider fully removed (PR #158); Stage 3D PARTIAL (merged as PR #159 — Placement Validation COMPLETE, Rack Export moved to NEEDS APPLICATION CHANGE); Stage 3E COMPLETE (merged as PR #160) — low-risk selector additions; Stage 3F.0 COMPLETE (merged as PR #161) — git workflow foundation audit; Stage 3F.0.5 COMPLETE (merged as PR #162) — local Git E2E test foundation, no workflow coverage added; Stage 3F.1A COMPLETE (merged as PR #163) — Git detection/init workflow coverage; Stage 3F.1B COMPLETE (merged as PR #164) — validate/commit/add-remote COVERED, push/pull local error paths PARTIAL; Stage 3F.2 COMPLETE (approved, RP applied) — remote Git over SSH: local-sshd fixture infrastructure, successful push/pull round-trips, upstream tracking, and SSH key-based authentication all COVERED; Stage 3F.3 COMPLETE — Git clone over SSH: scaffold-only clone, multi-commit clone, and clone-state persistence across close/reopen all COVERED, reusing Stage 3F.2's fixture infrastructure unmodified; Stage 3F.4 COMPLETE — diverged pull over SSH: `--ff-only` failure on a genuinely diverged history COVERED, proving both commits, working tree, branch, upstream, and remote configuration all survive the failure and a close/reopen cycle, reusing Stage 3F.2's fixture infrastructure unmodified |
 | Stage 3F | **Functionally complete** (2026-07-28) — the Git workflow surface scoped by the Stage 3F.0 audit (detection/init, validate/commit/add-remote, local and remote push/pull, clone, diverged-pull recovery) is fully covered. No further Stage 3F.x sub-stage is planned; a new NSP would be required to reopen this area (e.g. the SSH passphrase prompt, still NEEDS SELECTOR — see `docs/E2E_WDIO_COVERAGE_GAPS.md`). |
-| Integration PR to development | None open |
-| Decision | Further program stages (outside Stage 3F) continue on `roadmap/e2e-wdio`; integration into `development` only after whole-program review |
+| BRSP Stages B1/B2/B2.5 | **Complete** — repo cleanup, CI architecture redesign (composite actions, Rust caching fix, concurrency/timeouts), `wdio-e2e.yml` (manual, non-blocking WDIO CI), and real-GitHub-Actions validation of `ci.yml`/`dependency-audit.yml`. See `.ai/BRSP_B1_PROJECT_CLEANUP_REPORT.md`, `.ai/BRSP_B2_CI_ARCHITECTURE_REPORT.md`, `.ai/BRSP_B2_5_CI_VALIDATION_REPORT.md`. |
+| Integration PR to development | **Merged** — PR #167, merge commit `70d9c8b` (BRSP Stage B3, whole-program integration) |
+| Decision | Whole-program review completed as BRSP Stage B3; `roadmap/e2e-wdio` is merged into `development`. Any further E2E program work now branches from `development` directly (`feature/e2e-*` → `development`), not from `roadmap/e2e-wdio`. |
 
-`roadmap/e2e-wdio` is a long-lived integration branch.  It is not expected to be
-merged into `development` after every stage.  Ordinary completed stages do not
-automatically trigger an integration PR.  A new integration PR to `development` will
-be created only after the program reaches an agreed completion point and receives
-explicit whole-program review approval.  No current integration PR to `development`
-exists.
+`roadmap/e2e-wdio` was a long-lived integration branch, not merged into
+`development` after every stage — only after the program reached an agreed
+completion point and received explicit whole-program review approval
+(BRSP Stage B3). That integration is now complete: `development` contains
+the full Stage 3F Git-workflow coverage plus the CI infrastructure prepared
+during BRSP. The branch itself is left in place per this doc's own rule
+that a `roadmap/*` branch must not be deleted merely because its stage(s)
+are complete; deleting it, if ever warranted, is a separate decision this
+merge does not make.
 
 ---
 
@@ -24,6 +28,14 @@ exists.
 > General project branching, NSP/RP workflow, review-context rules and branch
 > responsibilities are defined in `CLAUDE.md`. This document covers Desktop E2E
 > Program-specific policy only.
+
+> **Status: this program's `roadmap/e2e-wdio` cycle is closed** — merged into
+> `development` as BRSP Stage B3 (see "Program status" above). The flow below
+> describes how this program operated while `roadmap/e2e-wdio` was open, and
+> remains the template if a future E2E initiative reopens a `roadmap/e2e-*`
+> branch. Until then, further Desktop E2E work is ordinary `feature/e2e-*`
+> work targeting `development` directly, per `CLAUDE.md`'s "Small changes"
+> workflow — not this section's `roadmap/e2e-wdio` flow.
 
 ### E2E branch flow
 
