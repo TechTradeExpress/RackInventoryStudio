@@ -23,3 +23,4 @@ equivalent. If you're looking for current documentation, start at the
 | `SPEC_EN.md` | UI/workflow sections describe the pre-hardening (form-based, no drag-and-drop) placement flow |
 | `IMPLEMENTATION_PLAN_EN.md` | Roadmap ends before beta.1 and has no concept of the beta.1–3 tag sequence or the E2E testing program |
 | `RELEASE_PROCESS_EN.md` | Near-duplicate of `docs/BETA_RELEASE_PROCESS_EN.md`; the latter is the one actually followed and linked from everywhere else |
+| `release.md` | Beta.1-hardcoded quick-reference, never generalized for beta.2/beta.3, orphaned (linked from nowhere); consolidated into `docs/BETA_RELEASE_PROCESS_EN.md` (BRSP Stage B5A) |

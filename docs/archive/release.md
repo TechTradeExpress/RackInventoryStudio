@@ -1,8 +1,17 @@
 # Release process — Rack Inventory Studio
 
-This document is the canonical quick-reference for releasing Rack Inventory Studio.
+> **Historical document.** Written for the v0.1.0-beta.1 release specifically
+> (tag names, artifact filenames, and release-notes links below are hardcoded
+> to beta.1) and never generalized for beta.2 or beta.3. Superseded by
+> [`docs/BETA_RELEASE_PROCESS_EN.md`](../BETA_RELEASE_PROCESS_EN.md), now the
+> single source of truth for the release process (BRSP Stage B5A) — this
+> document's genuinely reusable content (platform scope, installer artifact
+> naming, version/tag table, "what's intentionally not included") was ported
+> there. Preserved for historical context only.
+
+This document was the quick-reference for releasing Rack Inventory Studio.
 For the full policy (SemVer conventions, branch naming, QA runbook references) see
-[`docs/BETA_RELEASE_PROCESS_EN.md`](BETA_RELEASE_PROCESS_EN.md).
+[`docs/BETA_RELEASE_PROCESS_EN.md`](../BETA_RELEASE_PROCESS_EN.md).
 
 ---
 
@@ -59,7 +68,7 @@ master
    git push origin v0.1.0-beta.1
    ```
 4. **Build the installer** (see below).
-5. **Run Windows QA** (see [`docs/BETA_WINDOWS_11_QA_EN.md`](BETA_WINDOWS_11_QA_EN.md)).
+5. **Run Windows QA** (see [`docs/BETA_WINDOWS_11_QA_EN.md`](../BETA_WINDOWS_11_QA_EN.md)).
 6. **Create a GitHub prerelease** (see below).
 
 ---
@@ -109,7 +118,7 @@ When upgrading Tauri, check if the upstream template changed and merge as needed
    download `rack-inventory-studio-v0.1.0-beta.1-windows-installer.zip`.
 6. Extract and confirm `Rack Inventory Studio_0.1.0-beta.1_x64-setup.exe` is present.
 
-The workflow file is at [`.github/workflows/windows-installer.yml`](../.github/workflows/windows-installer.yml).
+The workflow file is at [`.github/workflows/windows-installer.yml`](../../.github/workflows/windows-installer.yml).
 
 ### Locally (optional, Windows machine only)
 
@@ -144,7 +153,7 @@ After the installer is built and Windows QA passes:
 1. Go to **GitHub → Releases → Draft a new release**.
 2. Choose the existing tag `v0.1.0-beta.1`.
 3. Title: `Rack Inventory Studio v0.1.0-beta.1`.
-4. Body: copy from [`docs/releases/v0.1.0-beta.1.md`](releases/v0.1.0-beta.1.md).
+4. Body: copy from [`docs/releases/v0.1.0-beta.1.md`](../releases/v0.1.0-beta.1.md).
 5. Attach: `rack-inventory-studio-v0.1.0-beta.1-windows-installer.zip`
    (downloaded from the GitHub Actions run artifacts).
 6. Check **Set as a pre-release**.
@@ -154,7 +163,7 @@ After the installer is built and Windows QA passes:
 
 ## Windows smoke tests (minimum before publishing)
 
-See the full checklist in [`docs/BETA_WINDOWS_11_QA_EN.md`](BETA_WINDOWS_11_QA_EN.md).
+See the full checklist in [`docs/BETA_WINDOWS_11_QA_EN.md`](../BETA_WINDOWS_11_QA_EN.md).
 Minimum before publishing a prerelease:
 
 - [ ] Installer runs on a clean Windows 11 machine; accept SmartScreen warning.

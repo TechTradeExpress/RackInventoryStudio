@@ -164,13 +164,49 @@ Filenames include rack name and side. XML/filename sanitization applied.
 
 ---
 
+### PR 15 — Device Model CSV import ✅
+
+Added a full Device Model CSV import workflow (preview → validate → apply),
+parallel to the existing Device CSV import. New `VAL-DM-001`–`VAL-DM-009`
+validation codes; CSV import panel gained a Devices / Device Models type
+selector. (Not present when this roadmap's PR sequence was first written up
+through PR 14; added here as a correction found during BRSP Stage B4's audit.)
+
+---
+
+### PR 16 — Harden repository clone transport safety ✅
+
+Routes clone through `ris-git`'s `validate_remote_url`, rejecting unsafe
+transports (`ext::`, `fd::`, `file://`, unsupported schemes) before any
+process is spawned. Frontend adds matching defense-in-depth validation.
+
+---
+
+### PR 17 — Restrict rack export writes to SVG/PNG ✅
+
+The export backend now rejects any target path whose extension is not
+`.svg`/`.png` (case-insensitive), for both the SVG and PNG export commands.
+
+---
+
 ## Remaining before beta.3 release
 
-1. **Run full manual QA** using `docs/BETA3_QA_RUNBOOK.md`.
+1. **Run full manual QA** using `docs/BETA3_QA_RUNBOOK.md`. *(Status as of
+   BRSP Stage B5A: not confirmed complete — no record of an executed QA pass
+   exists in this repository. Must be run and confirmed before tagging.)*
 2. **Fix any blockers** found during manual QA.
-3. **Prepare release PR**: version bump, CHANGELOG entry, release notes.
+3. **Run the WDIO release gate** — `app-smoke`, representative specs, then
+   the full matrix — against the exact release commit. See
+   `docs/BETA_RELEASE_PROCESS_EN.md`'s "WDIO release gate" section. Not yet
+   possible as of BRSP Stage B5A (`wdio-e2e.yml` cannot be dispatched until
+   it exists on `master`).
+4. **Prepare release PR**: version bump (not yet done — see
+   `docs/BETA_RELEASE_PROCESS_EN.md`), finalize the already-prepared
+   CHANGELOG `v0.1.0-beta.3` section's date, and the already-drafted
+   `docs/releases/v0.1.0-beta.3.md` release notes.
 
-Do not tag or publish beta.3 before manual QA is complete.
+Do not tag or publish beta.3 before manual QA and the WDIO release gate are
+both complete.
 
 ---
 

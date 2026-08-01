@@ -237,7 +237,7 @@ pnpm test:e2e:wdio -- --spec <spec-name>
 Four GitHub Actions workflows: `CI` (required on every PR — Rust, frontend,
 version consistency, hygiene, workflow lint), `Dependency Audit` (scheduled
 + PR-triggered on dependency changes), `Windows Installer` (manual), and
-`Desktop E2E (WDIO)` (manual — runs one or all 21 WDIO specs against a real
+`Desktop E2E (WDIO)` (manual — runs one or all 22 WDIO specs against a real
 compiled Tauri binary). Architecture, shared composite actions, and how to
 debug a failed run are documented in [`docs/CI.md`](docs/CI.md).
 

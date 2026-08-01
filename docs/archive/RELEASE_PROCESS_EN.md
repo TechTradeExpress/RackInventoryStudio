@@ -13,7 +13,7 @@
 This is the canonical release process reference for Rack Inventory Studio.
 It supersedes earlier drafts and is the authoritative guide for all releases from v0.1.0-beta.1 onwards.
 
-For a concise cheat-sheet see [`docs/release.md`](../release.md).
+For a concise cheat-sheet see [`docs/release.md`](release.md).
 For the beta-specific QA runbook see [`docs/BETA_WINDOWS_11_QA_EN.md`](../BETA_WINDOWS_11_QA_EN.md).
 
 ---
@@ -242,7 +242,7 @@ If a released build has a critical regression:
 
 | Document | Purpose |
 |---|---|
-| [`docs/release.md`](../release.md) | Quick-reference cheat-sheet |
+| [`docs/release.md`](release.md) | Quick-reference cheat-sheet |
 | [`docs/BETA_RELEASE_PROCESS_EN.md`](../BETA_RELEASE_PROCESS_EN.md) | Actual canonical release process (see banner above) |
 | [`docs/BETA_WINDOWS_11_QA_EN.md`](../BETA_WINDOWS_11_QA_EN.md) | Windows 11 manual QA runbook |
 | [`docs/BETA1_FOLLOWUP_PLAN_EN.md`](BETA1_FOLLOWUP_PLAN_EN.md) | Beta 1 milestone follow-up PRs (also archived) |

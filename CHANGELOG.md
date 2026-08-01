@@ -2,10 +2,87 @@
 
 ## Unreleased
 
-_Note: this section has never been split at the `v0.1.0-beta.2` release boundary — it
-contains both already-released beta.2 content and beta.3-era work not yet tagged. See
-`docs/BETA3_ROADMAP.md` for what's specifically in scope for the next release. Splitting
-this section by release boundary is release-preparation work, not done here._
+Nothing yet — this section accumulates changes made after `v0.1.0-beta.3` is
+tagged. See "CHANGELOG workflow" in `docs/BETA_RELEASE_PROCESS_EN.md` for how
+this section is meant to be used and split going forward.
+
+---
+
+## v0.1.0-beta.3 — Unreleased
+
+_Prepared during BRSP Stage B5A (Release Preparation), not yet tagged. Scope
+reconstructed from the `roadmap/beta3` PR sequence (`v0.1.0-beta.2..roadmap/beta3`,
+18 commits, PRs #119–#135) — see `docs/BETA3_ROADMAP.md` for the full PR-by-PR
+history and rationale._
+
+### Added
+
+- **Search, sort, and filter for Devices and Device Models panels**: Client-side
+  search, column sorting, and filter-aware row counters. Shared `listHelpers.ts`
+  (`matchesSearch`, `cmpStr`, `cmpNum`) used by both panels.
+- **Searchable select (combobox) component**: Replaces plain `<select>` elements
+  with a searchable dropdown — portal-rendered, keyword search, scrollable
+  results, Escape/click-outside close, full keyboard navigation
+  (ArrowDown/Up/Home/End/Enter, no wrap at boundaries), and ARIA roles
+  (`combobox`/`listbox`/`option`, `aria-activedescendant`). Applied to the
+  Device Model picker in the Add/Edit Device form, and to the device and
+  rack-object pickers in the placement flow.
+- **Contextual Rack Object form**: Selecting "Rack object" while adding a
+  placement and choosing "Create new" now opens a form with Device Type
+  locked to `rack_object`; the new object is preselected in the placement
+  modal after save.
+- **Planning / On-site work mode**: A mode toggle in the app titlebar. New
+  devices inherit a default status from the active mode — "planned" in
+  Planning mode, "installed" in On-site mode. Edit flows are unaffected; mode
+  is local UI state persisted in `localStorage`, no backend or DTO changes.
+- **"Create similar" action for Devices and Device Models**: Opens the
+  standard Add form pre-filled from an existing record. Unique identifiers
+  (serial number, asset tag, external reference, id, code) are never copied.
+  For devices, the source status is copied as the prefill, taking priority
+  over the work-mode default.
+- **Auto-fill Device Type from the selected Device Model**: In the Add/Edit
+  Device form, Device Type populates automatically from the chosen model
+  unless the user has already set it manually; the model picker stays
+  unfiltered until the user explicitly chooses a type themselves.
+- **Clone repository flow**: Clone an existing RIS repository from a Git URL
+  — directory name auto-derived from the URL (editable), parent folder via
+  picker, and the result opened exactly like Create/Open. Reuses existing SSH
+  passphrase-prompt infrastructure. Clear errors for invalid URL, auth
+  failure, non-empty target, and non-RIS-repository targets.
+- **Rack view export — SVG and PNG**: Export buttons in the rack detail
+  header. Export is driven by real rack/placement data (`buildRackViewSvg()`,
+  a pure, unit-tested, XML-escaped helper) — not a DOM screenshot. PNG is
+  rasterized via canvas at 2× scale. Front and rear sides export separately.
+- **Device Model CSV import**: A full preview → validate → apply workflow for
+  Device Models, parallel to the existing Device CSV import, with dedicated
+  `VAL-DM-001`–`VAL-DM-009` validation codes. The CSV import panel gained a
+  Devices / Device Models type selector.
+- **Complete desktop E2E (WDIO) program**: Real-compiled-binary end-to-end
+  coverage across repository lifecycle, inventory CRUD, placement, CSV
+  import, destructive-operation guards, and local/remote (SSH) Git workflows
+  — 22 specs, 72/84 (86%) of the identified workflow surface COVERED. See
+  `docs/E2E_WDIO_PLAN.md` and `docs/E2E_WDIO_COVERAGE_GAPS.md`.
+- **Redesigned CI architecture**: composite actions, Rust build caching,
+  concurrency/timeouts across all workflows, and a manual WDIO CI workflow
+  (`wdio-e2e.yml`). See `docs/CI.md`.
+
+### Fixed
+
+- **List scrolling and pagination foundation repaired**: Scroll containers
+  restored around the Devices, Device Models, Locations, and Racks panel
+  tables so rows beyond the viewport are reachable and sticky headers work
+  correctly.
+- **Daily log rotation and 30-day retention**: Log files now use a
+  date-stamped filename (`ris-YYYY-MM-DD`), producing a separate file per
+  calendar day; files older than 30 days are deleted on startup (non-RIS
+  files in the log directory are never touched). Settings panel now shows
+  log directory health, the current log filename, and the retention window.
+- **Rack-object placement inspector edit button now renders**: The inspector's
+  "Edit target model" button never appeared for rack-object placements because
+  `PlacementInspectorPanel.tsx` checked for a `target_kind` value
+  (`"rack_object"`) that never actually occurs — `PlacementDto.target_kind` is
+  only ever `"device"` or `"device_model"`. Corrected to match
+  `EditPlacementModal.tsx`'s already-correct check.
 
 ### Security
 
@@ -13,13 +90,32 @@ this section by release boundary is release-preparation work, not done here._
   transport safety checks, rejecting unsafe Git transports (`ext::`, `fd::`,
   `file://`, and any unsupported `://` scheme) before any process is spawned.
   Frontend validation provides defense-in-depth; backend validation in `ris-git`
-  is authoritative.
+  is authoritative. The clone command also uses `git clone -- <url>` to prevent
+  option injection from URLs beginning with `-`, and redacts embedded
+  credentials from git's own stderr output (not just from the URL itself)
+  before any error reaches logs or the UI.
 - **Restricted rack export write commands to `.svg` and `.png` targets only**:
   The export backend now rejects any target path with an unsupported or missing
   file extension, preventing unsupported file types from being written through
   the export commands.
-- SSH private-key passphrases are never stored: not in settings, localStorage,
-  config files, environment variables, logs, or command-line arguments.
+
+### Known issues / beta scope limitations
+
+- Manual QA against `docs/BETA3_QA_RUNBOOK.md` had not been confirmed complete
+  as of this section being prepared (BRSP Stage B5A) — required before
+  tagging, see `docs/BETA3_ROADMAP.md`'s "Remaining before beta.3 release".
+- The WDIO E2E suite has not yet run on real CI infrastructure (see
+  `docs/BETA_RELEASE_PROCESS_EN.md`'s "WDIO release gate" section) —
+  required before tagging.
+- SSH passphrase prompt Submit/Cancel buttons still lack a stable E2E
+  selector (`docs/E2E_WDIO_COVERAGE_GAPS.md`); the prompt itself works, only
+  its E2E coverage is incomplete.
+- Rack export (SVG/PNG) is not yet E2E-tested — blocked on a native-save-dialog
+  testing approach, not a product gap.
+
+---
+
+## v0.1.0-beta.2 — 2026-06-12
 
 ### Added
 
@@ -97,6 +193,11 @@ this section by release boundary is release-preparation work, not done here._
   uses `git push -u origin <branch>` to set tracking; subsequent pushes omit `-u`.
   If the named remote does not exist RIS now returns a clear error instead of a
   confusing Git failure.
+
+### Security
+
+- SSH private-key passphrases are never stored: not in settings, localStorage,
+  config files, environment variables, logs, or command-line arguments.
 
 ---
 
