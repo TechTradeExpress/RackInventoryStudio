@@ -196,8 +196,60 @@ Enable branch protection on `master` in **Settings → Branches**:
 
 ---
 
+## Code signing — current status
+
+**The installer is currently unsigned.** This is intentional for the beta phase.
+
+When users run the installer, Windows SmartScreen shows:
+> "Windows protected your PC — Microsoft Defender SmartScreen prevented an unrecognized app from starting."
+
+Users must click **More info → Run anyway**. Inform all beta testers of this in advance.
+
+### Manual EV signing flow (for stable release)
+
+When an EV Authenticode certificate is obtained, the signing flow is:
+
+1. **Build the unsigned installer** using the GitHub Actions workflow (as above).
+2. **Download** the `*-setup.exe` from the artifact ZIP.
+3. **Sign** on a Windows machine with the EV token:
+   ```
+   signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a "Rack Inventory Studio_X.Y.Z_x64-setup.exe"
+   ```
+4. **Verify** the signature:
+   ```
+   signtool verify /pa /v "Rack Inventory Studio_X.Y.Z_x64-setup.exe"
+   ```
+5. **Upload** the signed `.exe` (not the original unsigned one) to the GitHub Release.
+
+**Security rules (do not violate):**
+- Do not commit certificates, private keys, PFX files, passwords, or token configs.
+- Do not add signing secrets to the repository or CI environment unless CI signing is explicitly set up with proper secret management.
+- If CI signing placeholders are added in the future, make them opt-in and skipped unless the required secrets are present.
+
+### CI signing (future)
+
+CI-based signing is not configured. If it is added, use GitHub Actions secrets for
+the certificate password and/or HSM token PIN. The signing step must be a separate,
+explicitly triggered job — not automatic on every push or PR.
+
+---
+
+## Hotfix / rollback
+
+If a released build has a critical regression:
+
+1. **Hotfix**: cut `hotfix/vX.Y.Z+1` from the affected tag, apply the minimal fix,
+   bump the patch version, run all checks, build a new installer, repeat the QA and
+   release steps above.
+2. **Rollback**: unpublish the broken GitHub Release (set to draft or delete) and
+   re-publish the last known-good release. Notify testers.
+3. **Never force-push a tag** — create a new version tag instead.
+
+---
+
 ## Related documents
 
-- [`BETA_HARDENING_PLAN_EN.md`](BETA_HARDENING_PLAN_EN.md) — overall beta milestone plan
+- [`CI.md`](CI.md) — CI workflow architecture, composite actions, and how to debug a failed run
+- [`BETA_HARDENING_PLAN_EN.md`](archive/BETA_HARDENING_PLAN_EN.md) — overall beta milestone plan (historical/archived)
 - [`BETA_WINDOWS_11_QA_EN.md`](BETA_WINDOWS_11_QA_EN.md) — Windows 11 manual QA runbook (required before distributing)
-- [`BETA_QA_FINDINGS_ACTION_PLAN_EN.md`](BETA_QA_FINDINGS_ACTION_PLAN_EN.md) — post-QA findings and follow-up milestones
+- [`BETA_QA_FINDINGS_ACTION_PLAN_EN.md`](archive/BETA_QA_FINDINGS_ACTION_PLAN_EN.md) — post-QA findings and follow-up milestones (historical/archived)

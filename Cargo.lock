@@ -2845,8 +2845,6 @@ dependencies = [
  "regex",
  "ris-core",
  "ris-repository",
- "thiserror 1.0.69",
- "uuid",
 ]
 
 [[package]]

@@ -1,5 +1,13 @@
 # Rack Inventory Studio — Implementation Plan v0.1
 
+> **Historical document.** This plan's status line ("all feature milestones
+> done", 2026-05-20) predates beta.1, beta.2, and beta.3 entirely, and its
+> roadmap ends at "Stage 4 — v1.0.0 Release" with no concept of the beta.1–3
+> tag sequence or the separate `roadmap/e2e-wdio` E2E testing program. For
+> current release status see `CHANGELOG.md` and `docs/BETA3_ROADMAP.md`; for
+> the E2E program see `docs/E2E_WDIO_PLAN.md`. Preserved for historical
+> context.
+
 ## 1. Purpose
 
 This document describes the MVP implementation plan for **Rack Inventory Studio**.

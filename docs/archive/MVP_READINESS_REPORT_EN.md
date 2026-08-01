@@ -1,5 +1,10 @@
 # MVP Readiness Report
 
+> **Historical document.** A point-in-time snapshot from 2026-05-19, before
+> beta.1/beta.2/beta.3. Its "Recommended next step" has long since happened
+> and been superseded by the beta.1–beta.3 work. Preserved for historical
+> context.
+
 **Date:** 2026-05-19 (updated Git remote sync: 2026-05-19; roadmap updated to MVP+ / v1.0.0: 2026-05-19)
 **Scope:** MVP Core complete — full inventory workflow including Git remote sync. Project is now in MVP+ / Beta phase targeting v1.0.0.
 

@@ -1,10 +1,20 @@
 # Release Process — Rack Inventory Studio
 
+> **Historical document — do not follow.** This document declared itself
+> canonical, but in practice `docs/BETA_RELEASE_PROCESS_EN.md` is the
+> document actually linked from `README.md`, `docs/release.md`, and every
+> other doc, and the one followed for the beta.1 and beta.2 releases.
+> The two documents had drifted into near-duplicates with a few
+> independently-unique sections each; this document's unique "Code signing"
+> and "Hotfix / rollback" sections have been merged into
+> `docs/BETA_RELEASE_PROCESS_EN.md`, which is now the single source of
+> truth for the release process. Preserved here for historical context only.
+
 This is the canonical release process reference for Rack Inventory Studio.
 It supersedes earlier drafts and is the authoritative guide for all releases from v0.1.0-beta.1 onwards.
 
-For a concise cheat-sheet see [`docs/release.md`](release.md).
-For the beta-specific QA runbook see [`docs/BETA_WINDOWS_11_QA_EN.md`](BETA_WINDOWS_11_QA_EN.md).
+For a concise cheat-sheet see [`docs/release.md`](../release.md).
+For the beta-specific QA runbook see [`docs/BETA_WINDOWS_11_QA_EN.md`](../BETA_WINDOWS_11_QA_EN.md).
 
 ---
 
@@ -136,7 +146,7 @@ Install the unsigned NSIS installer on a clean Windows 11 machine:
 
 - Accept the SmartScreen warning: "More info → Run anyway" — **expected for unsigned builds**.
 - Verify the app installs to `C:\Program Files\TechTradeExpress\RackInventoryStudio\`.
-- Run the full checklist in [`docs/BETA_WINDOWS_11_QA_EN.md`](BETA_WINDOWS_11_QA_EN.md).
+- Run the full checklist in [`docs/BETA_WINDOWS_11_QA_EN.md`](../BETA_WINDOWS_11_QA_EN.md).
 
 Minimum smoke tests before publishing:
 
@@ -232,7 +242,7 @@ If a released build has a critical regression:
 
 | Document | Purpose |
 |---|---|
-| [`docs/release.md`](release.md) | Quick-reference cheat-sheet |
-| [`docs/BETA_RELEASE_PROCESS_EN.md`](BETA_RELEASE_PROCESS_EN.md) | Earlier beta release process (superseded by this document) |
-| [`docs/BETA_WINDOWS_11_QA_EN.md`](BETA_WINDOWS_11_QA_EN.md) | Windows 11 manual QA runbook |
-| [`docs/BETA1_FOLLOWUP_PLAN_EN.md`](BETA1_FOLLOWUP_PLAN_EN.md) | Beta 1 milestone follow-up PRs |
+| [`docs/release.md`](../release.md) | Quick-reference cheat-sheet |
+| [`docs/BETA_RELEASE_PROCESS_EN.md`](../BETA_RELEASE_PROCESS_EN.md) | Actual canonical release process (see banner above) |
+| [`docs/BETA_WINDOWS_11_QA_EN.md`](../BETA_WINDOWS_11_QA_EN.md) | Windows 11 manual QA runbook |
+| [`docs/BETA1_FOLLOWUP_PLAN_EN.md`](BETA1_FOLLOWUP_PLAN_EN.md) | Beta 1 milestone follow-up PRs (also archived) |

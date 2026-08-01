@@ -1,5 +1,8 @@
 # Post-Beta 1 Follow-Up Plan
 
+> **Historical document.** All items below were resolved as part of the beta.1
+> follow-up and beta.2 hardening work. Preserved for historical context.
+
 Issues identified after the v0.1.0-beta.1 Windows release. Each item is tracked
 as a separate PR unless noted.
 

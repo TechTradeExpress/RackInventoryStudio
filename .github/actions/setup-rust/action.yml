@@ -1,0 +1,28 @@
+name: Setup Rust toolchain
+description: >
+  Installs the stable Rust toolchain and restores/saves the Cargo
+  registry + target-dir cache via Swatinem/rust-cache. Used by every job
+  that builds or tests the Rust workspace (Rust checks, dependency audit,
+  Windows installer build, WDIO plugin binary build).
+
+inputs:
+  cache-key-suffix:
+    description: >
+      Extra string folded into the cache key, so build outputs that use a
+      different CARGO_TARGET_DIR (e.g. the wdio-plugin test binary, built
+      into target-wdio-plugin/ instead of target/) get their own cache
+      instead of colliding with the regular workspace build on the same
+      runner OS.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Install Rust stable
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache Rust build artifacts
+      uses: Swatinem/rust-cache@v2
+      with:
+        key: ${{ inputs.cache-key-suffix }}

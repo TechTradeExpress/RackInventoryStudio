@@ -2870,27 +2870,41 @@ For `release/*` → `master`:
   release candidate
 - Reuse the release-candidate result only when the commit SHA is unchanged
 
-### Future WDIO CI design
+### WDIO CI design (implemented — BRSP Stage B2)
 
-Initial WDIO CI should:
+**Status: Promotion step 1 COMPLETE.** `.github/workflows/wdio-e2e.yml`
+(added in BRSP Stage B2, CI Architecture & WDIO Integration) implements the
+design below. Full detail — architecture, composite actions, debugging a
+failed run, local usage — lives in [`docs/CI.md`](CI.md); this section
+keeps only the promotion path and status.
 
-- Start as `workflow_dispatch` or explicitly invoked integration validation
-- Run on Linux first
-- Remain non-blocking while runner reproducibility is evaluated
-- Retain Tauri logs, WDIO logs and failure diagnostics
-- Verify guarded cleanup
-- Measure total runtime
-- Use the exact built Tauri binary from the tested commit
+Initial WDIO CI:
+
+- ✅ Starts as `workflow_dispatch` (manual)
+- ✅ Runs on Linux
+- ✅ Non-blocking — not a required check on any branch
+- ✅ Retains Tauri logs, WDIO logs, and failure diagnostics (log + preserved
+  temp dir per spec, uploaded as job artifacts — see `docs/CI.md`)
+- ✅ Reuses the project's own port-contract / PID-safe-cleanup guarded
+  runner (`scripts/run-wdio-e2e.mjs`) unmodified — CI runs the same code
+  path as local development
+- ✅ Uses the exact built Tauri binary from the tested commit (built fresh
+  by the workflow's own `build-binary` job, not a cached/older artifact)
+- ⬜ Total full-suite runtime not yet measured end-to-end in CI (each spec's
+  local timing is documented per-stage above; no aggregate CI figure exists
+  yet — first real `workflow_dispatch` run with `spec: all` will establish
+  one)
 
 Promotion path:
 
-1. Manual `workflow_dispatch`
-2. Automatic non-blocking run for roadmap integration candidates
-3. Required blocking check for `roadmap/e2e-wdio` → `development`
-4. Release candidate validation
-5. Windows matrix after the Linux path is stable
-
-No CI workflow file is added in this update.
+1. ✅ Manual `workflow_dispatch` — **implemented**
+2. ⬜ Automatic non-blocking run for roadmap integration candidates (e.g. on
+   PRs targeting `roadmap/e2e-wdio`) — not enabled; deliberately deferred,
+   see `docs/CI.md`'s workflow header comment
+3. ⬜ Required blocking check for `roadmap/e2e-wdio` → `development` —
+   reserved for Stage B3
+4. ⬜ Release candidate validation — reserved for Stage B5/B6
+5. ⬜ Windows matrix after the Linux path is stable — not started
 
 ---
 
