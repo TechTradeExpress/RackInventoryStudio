@@ -1,0 +1,28 @@
+name: Setup Node + pnpm
+description: >
+  Installs pnpm, sets up Node.js with pnpm-store caching, and installs
+  workspace dependencies with a frozen lockfile. Used by every job that
+  needs the frontend/tooling toolchain (frontend checks, dependency audit,
+  Windows installer build, WDIO E2E).
+
+inputs:
+  node-version:
+    description: Node.js major version to install
+    required: false
+    default: "24"
+
+runs:
+  using: composite
+  steps:
+    - name: Install pnpm
+      uses: pnpm/action-setup@v6
+
+    - name: Setup Node
+      uses: actions/setup-node@v6
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: pnpm
+
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile

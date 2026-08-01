@@ -226,10 +226,20 @@ pnpm --filter @rack-inventory-studio/desktop build
 # Playwright browser-mode smoke tests (fast, Tauri APIs mocked)
 pnpm --filter @rack-inventory-studio/desktop test:e2e
 
-# Full WDIO E2E suite against the real compiled Tauri app (slow; local-only,
-# not part of per-commit CI — see docs/E2E_WDIO_PLAN.md)
+# Full WDIO E2E suite against the real compiled Tauri app (slow; not a
+# per-commit or required check — runnable locally or via the manual
+# "Desktop E2E (WDIO)" GitHub Actions workflow, see docs/CI.md)
 pnpm test:e2e:wdio -- --spec <spec-name>
 ```
+
+## Continuous Integration
+
+Four GitHub Actions workflows: `CI` (required on every PR — Rust, frontend,
+version consistency, hygiene, workflow lint), `Dependency Audit` (scheduled
++ PR-triggered on dependency changes), `Windows Installer` (manual), and
+`Desktop E2E (WDIO)` (manual — runs one or all 21 WDIO specs against a real
+compiled Tauri binary). Architecture, shared composite actions, and how to
+debug a failed run are documented in [`docs/CI.md`](docs/CI.md).
 
 ## Repository hygiene and beta smoke gate
 
