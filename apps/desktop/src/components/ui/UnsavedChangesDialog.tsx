@@ -33,10 +33,10 @@ export function UnsavedChangesDialog({
           <button className="btn" onClick={onCancel} disabled={saving}>
             Cancel
           </button>
-          <button className="btn" onClick={onDiscard} disabled={saving}>
+          <button className="btn" onClick={onDiscard} disabled={saving} data-testid="unsaved-changes-discard">
             Continue without saving
           </button>
-          <button className="btn btn-primary" onClick={onSave} disabled={saving}>
+          <button className="btn btn-primary" onClick={onSave} disabled={saving} data-testid="unsaved-changes-save">
             {saving ? "Saving…" : "Save and continue"}
           </button>
         </>

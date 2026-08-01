@@ -58,6 +58,7 @@ export function CreateRepositoryWizard({ onSuccess }: Props) {
             onChange={(e) => setParentPath(e.target.value)}
             placeholder="Path to parent directory…"
             disabled={isBusy}
+            data-testid="repository-create-parent-input"
           />
           <button
             type="button"
@@ -81,6 +82,7 @@ export function CreateRepositoryWizard({ onSuccess }: Props) {
           onChange={(e) => setCode(e.target.value)}
           placeholder="e.g. my-datacenter"
           disabled={isBusy}
+          data-testid="repository-create-code-input"
         />
         <div style={styles.fieldHint}>
           Lowercase letters, digits, hyphens, dots, underscores. No spaces.
@@ -104,6 +106,7 @@ export function CreateRepositoryWizard({ onSuccess }: Props) {
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g. My Datacenter"
           disabled={isBusy}
+          data-testid="repository-create-name-input"
         />
         {validationErrors.name && (
           <div style={styles.fieldError}>{validationErrors.name}</div>
@@ -121,6 +124,7 @@ export function CreateRepositoryWizard({ onSuccess }: Props) {
         type="submit"
         style={common.btn}
         disabled={isBusy || formHasErrors}
+        data-testid="repository-create-submit"
       >
         Create repository
       </button>

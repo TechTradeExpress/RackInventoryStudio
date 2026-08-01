@@ -400,6 +400,7 @@ export function App() {
     return (
       <div
         key={tab}
+        data-testid={`nav-${tab}`}
         className={`nav-item${active ? " active" : ""}${disabled ? " nav-disabled" : ""}`}
         onClick={() => { if (!disabled) setActiveTab(tab); }}
         role="button"
@@ -564,7 +565,7 @@ export function App() {
 
           {/* Global error */}
           {error && (
-            <div style={{ margin: "12px 16px", padding: "8px 12px", background: "var(--st-err-bg)", border: "1px solid var(--st-err-bd)", color: "var(--st-err-tx)", borderRadius: 4, fontSize: 12 }}>
+            <div data-testid="global-error" style={{ margin: "12px 16px", padding: "8px 12px", background: "var(--st-err-bg)", border: "1px solid var(--st-err-bd)", color: "var(--st-err-tx)", borderRadius: 4, fontSize: 12 }}>
               <strong>Error:</strong> {error}
             </div>
           )}

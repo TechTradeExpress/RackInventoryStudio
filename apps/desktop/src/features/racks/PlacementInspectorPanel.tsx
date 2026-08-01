@@ -137,7 +137,7 @@ export function PlacementInspectorPanel({
                     Edit device…
                   </button>
                 )}
-                {placement.target_kind === "rack_object" && onEditTargetModel && placement.target_id && (
+                {placement.target_kind === "device_model" && onEditTargetModel && placement.target_id && (
                   <button
                     type="button"
                     className="btn btn-sm"

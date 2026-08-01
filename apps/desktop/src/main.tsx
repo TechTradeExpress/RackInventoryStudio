@@ -18,13 +18,25 @@ window.addEventListener("unhandledrejection", (e: PromiseRejectionEvent) => {
 
 logInfo("Rack Inventory Studio frontend initializing");
 
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <WorkModeProvider>
-      <AppBusyProvider>
-        <BusyOverlay />
-        <App />
-      </AppBusyProvider>
-    </WorkModeProvider>
-  </React.StrictMode>
-);
+async function bootstrap() {
+  // Test-only: registers window.wdioTauri for @wdio/tauri-service's
+  // execute API and beforeCommand window-focus check. Only requested when
+  // the binary is built with VITE_WDIO_PLUGIN=true (paired with the Rust
+  // wdio-plugin Cargo feature) — never in a normal dev or release build.
+  if (import.meta.env["VITE_WDIO_PLUGIN"] === "true") {
+    await import("@wdio/tauri-plugin");
+  }
+
+  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+    <React.StrictMode>
+      <WorkModeProvider>
+        <AppBusyProvider>
+          <BusyOverlay />
+          <App />
+        </AppBusyProvider>
+      </WorkModeProvider>
+    </React.StrictMode>
+  );
+}
+
+void bootstrap();

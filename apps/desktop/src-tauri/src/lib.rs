@@ -59,16 +59,30 @@ pub fn run() {
         filename: log_filename,
     };
 
-    tauri::Builder::default()
-        .plugin(
-            tauri_plugin_log::Builder::new()
-                .targets([
-                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
-                    log_file_target,
-                ])
-                .level(log::LevelFilter::Info)
-                .build(),
-        )
+    let builder = tauri::Builder::default();
+
+    let builder = builder.plugin(
+        tauri_plugin_log::Builder::new()
+            .targets([
+                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                log_file_target,
+            ])
+            .level(log::LevelFilter::Info)
+            .build(),
+    );
+
+    // WDIO execute API / window-focus tracking / log forwarding — compiled
+    // in only when the wdio-plugin Cargo feature is active.  Zero impact on
+    // the production binary. Registered *after* tauri_plugin_log: both
+    // plugins attempt to claim the global `log` crate logger on setup, and
+    // tauri_plugin_log panics if that slot is already taken, whereas
+    // tauri-plugin-wdio's own setup already tolerates losing that race (it
+    // only warns) — so tauri_plugin_log must register first. We don't use
+    // wdio's log-forwarding feature, only its execute API.
+    #[cfg(feature = "wdio-plugin")]
+    let builder = builder.plugin(tauri_plugin_wdio::init());
+
+    builder
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             session: Mutex::new(None),

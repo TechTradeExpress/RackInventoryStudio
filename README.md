@@ -46,7 +46,9 @@ tests/                  Shared test fixtures
 | Placement use cases — place, move, remove device and rack objects | Done |
 | Tauri commands — open, save, validate, close, list entities, move placement, remove placement | Done |
 
-374 Rust workspace tests pass. 388 frontend (Vitest) tests pass. 16 Playwright smoke tests pass.
+661 Rust workspace tests pass. 947 frontend (Vitest) tests pass. 21 Playwright smoke tests pass.
+A separate WDIO E2E suite (22 specs) exercises the full compiled Tauri app end to end —
+see [`docs/E2E_WDIO_PLAN.md`](docs/E2E_WDIO_PLAN.md) for scope and current status.
 
 ## Current desktop UI capabilities
 
@@ -67,18 +69,28 @@ tests/                  Shared test fixtures
 - Remove an existing placement from the selected rack via a confirmation dialog in the Placement Inspector
 - Settings — Diagnostics and logs: view active log directory, open logs folder, configure custom log path
 - CSV device import via native OS file picker — preview with row-level validation, confirm/write
-- Git integration — semantic status labels (clean / uncommitted / ahead / behind / diverged), contextual action hints, safe publish checklist (Save → Validate → Commit → Pull → Push), commit with message, push/pull with per-state gating
-- Playwright smoke tests (16 tests) covering the golden path, search, CSV import, rack detail, diagram interactions, DnD, create-device-from-placement, and Git UX
+- Git integration — semantic status labels (clean / uncommitted / ahead / behind / diverged), contextual action hints, safe publish checklist (Save → Validate → Commit → Pull → Push), commit with message, push/pull with per-state gating, clone repository (URL + parent directory, safe-transport validation), SSH passphrase prompt when a key needs one
+- Rack view export — SVG and PNG, per side
+- Playwright smoke tests (21 tests) covering the golden path, search, CSV import, rack detail, diagram interactions, DnD, create-device-from-placement, and Git UX
 
 ## Project status
 
-**MVP Core is functionally complete.** The core backend, inventory workflow, and Git integration are done. The app is usable end-to-end: open a repository, manage catalog entities, import devices via CSV, place them in racks, validate, save, and publish changes via Git.
+**MVP Core is functionally complete**, and the app has shipped two public beta releases:
+`v0.1.0-beta.1` and `v0.1.0-beta.2` (Windows x64, unsigned installer — see
+[GitHub Releases](https://github.com/TechTradeExpress/RackInventoryStudio/releases)).
 
-### Current release direction — Beta hardening
+A third feature set — list views/search/filter, searchable selects, work mode, "create
+similar", clone repository, rack view export (SVG/PNG), daily log rotation — is merged to
+`development` but not yet released as `v0.1.0-beta.3`; see `CHANGELOG.md` and
+[`docs/BETA3_ROADMAP.md`](docs/BETA3_ROADMAP.md) for what's included and what remains
+before that tag is cut. A separate, now-complete WDIO E2E testing program (Git workflows,
+CSV import, placements, and more — see [`docs/E2E_WDIO_PLAN.md`](docs/E2E_WDIO_PLAN.md))
+is being integrated alongside it.
 
-**Beta hardening milestones A–F are complete.** The app has received a full UX hardening pass: global busy overlay, Windows Git console-window fix, Settings logs actions, rack diagram as primary placement surface, full drag-and-drop workflow, inline device creation from the placement flow, and a finalized release/versioning process. V1 is next once Windows 11 manual QA is completed and the first beta tag is created.
-
-See [`docs/BETA_RELEASE_PROCESS_EN.md`](docs/BETA_RELEASE_PROCESS_EN.md) for the release checklist, version bump helper, and step-by-step release workflow. See [`docs/BETA_WINDOWS_11_QA_EN.md`](docs/BETA_WINDOWS_11_QA_EN.md) for the Windows 11 manual QA runbook (required before beta distribution). See [`docs/BETA_QA_FINDINGS_ACTION_PLAN_EN.md`](docs/BETA_QA_FINDINGS_ACTION_PLAN_EN.md) for the post-QA findings and completed milestones record.
+For the release process itself see [`docs/BETA_RELEASE_PROCESS_EN.md`](docs/BETA_RELEASE_PROCESS_EN.md)
+(release checklist, version bump helper, step-by-step workflow) and
+[`docs/BETA_WINDOWS_11_QA_EN.md`](docs/BETA_WINDOWS_11_QA_EN.md) (Windows 11 manual QA
+runbook, required before any beta distribution).
 
 ### What is implemented (MVP Core)
 
@@ -96,45 +108,28 @@ See [`docs/BETA_RELEASE_PROCESS_EN.md`](docs/BETA_RELEASE_PROCESS_EN.md) for the
 
 ### Roadmap to v1.0.0
 
-v1.0.0 is the first user-facing release. It is not just a technical MVP — it must be an application that a new user can pick up and use without requiring developer guidance.
-
-| Area | Status |
-|---|---|
-| Safe publish workflow / better Git UX | Done (PR #39) |
-| Create new repository wizard | Done (PR #33) |
-| Native CSV file picker | Done (PR #33) |
-| Minimal global search | Done (PR #35) |
-| Playwright smoke tests | Done (PR #36, #39) |
-| Drag-and-drop placement | Done (PR #37) |
-| Repository flow polish (landing / open / close / recent repos) | Done (PR #38) |
-| Claude Design / UX audit and design direction | Done (branch `design/claude-ui-polish`) |
-| UI polish based on design direction | Done (branch `design/claude-ui-polish`) |
-| Windows installer CI (manual, unsigned) | Done (branch `design/claude-ui-polish`) |
-| Beta QA Milestone A — immediate UX blockers | Done (PR #71) |
-| Beta QA Milestone B — Settings logs actions | Done (PR #72) |
-| Beta QA Milestone C — Rack diagram as primary placement surface | Done (PR #73) |
-| Beta QA Milestone D — Complete drag-and-drop workflow | Done (PR #74) |
-| Beta QA Milestone E — Create device from Place equipment | Done (PR #75) |
-| Beta QA Milestone F — Release/versioning/installer process | Done (PR #76) |
-| Manual Windows 11 QA + first beta tag | Required before v1.0.0 |
-| V1 release | Pending Windows QA + beta tag |
+v1.0.0 is the first stable, user-facing release — not just a technical MVP. It must be an
+application a new user can pick up and use without developer guidance. The detailed,
+PR-by-PR history of everything built to get here lives in `CHANGELOG.md`; the current beta
+plan is [`docs/BETA3_ROADMAP.md`](docs/BETA3_ROADMAP.md).
 
 Items planned after v1.0.0: plugin system, CMDB / NetBox / Nautobot / Zabbix integrations, advanced Git conflict resolution UI, advanced reports / PDF export, advanced import/export formats, application-level permissions, large enterprise workflows.
 
-### v1.0.0 release gate
+### Release gate (per beta / release candidate)
 
-Before tagging v1.0.0, all of the following must pass:
+Before tagging any release, all of the following must pass:
 
-- `cargo test --workspace` — all Rust tests (374)
-- `pnpm typecheck` + `pnpm test` + `pnpm build` — frontend checks (388 Vitest tests)
-- `pnpm --filter @rack-inventory-studio/desktop test:e2e` — Playwright smoke tests (16/16)
+- `cargo test --workspace` — all Rust tests (661)
+- `pnpm typecheck` + `pnpm test` + `pnpm build` — frontend checks (947 Vitest tests)
+- `pnpm --filter @rack-inventory-studio/desktop test:e2e` — Playwright smoke tests (21/21)
 - Manual Windows 11 QA checklist (`docs/BETA_WINDOWS_11_QA_EN.md`)
 - Windows Installer workflow run manually; artifact downloaded and installed on clean Windows 11
-- Beta tag created and GitHub Release published per `docs/BETA_RELEASE_PROCESS_EN.md`
+- Tag created and GitHub Release published per [`docs/BETA_RELEASE_PROCESS_EN.md`](docs/BETA_RELEASE_PROCESS_EN.md)
 
-### Claude Design / UX Direction
+### Claude Design / UX Direction (completed)
 
-The Claude Design phase is a planned UX audit before v1.0.0. It is not a chaotic redesign. The approach:
+The Claude Design phase was a UX audit completed pre-beta (see `design/claude-ui-polish`
+and the Beta QA Milestones in `CHANGELOG.md`). It was not a chaotic redesign. The approach:
 
 1. Audit the current UI against the documented user workflows.
 2. Collect screenshots and identify friction points.
@@ -225,6 +220,37 @@ pnpm --filter @rack-inventory-studio/desktop test
 pnpm --filter @rack-inventory-studio/desktop build
 ```
 
+## Running E2E tests
+
+```bash
+# Playwright browser-mode smoke tests (fast, Tauri APIs mocked)
+pnpm --filter @rack-inventory-studio/desktop test:e2e
+
+# Full WDIO E2E suite against the real compiled Tauri app (slow; not a
+# per-commit or required check — runnable locally or via the manual
+# "Desktop E2E (WDIO)" GitHub Actions workflow, see docs/CI.md)
+pnpm test:e2e:wdio -- --spec <spec-name>
+```
+
+## Continuous Integration
+
+Four GitHub Actions workflows: `CI` (required on every PR — Rust, frontend,
+version consistency, hygiene, workflow lint), `Dependency Audit` (scheduled
++ PR-triggered on dependency changes), `Windows Installer` (manual), and
+`Desktop E2E (WDIO)` (manual — runs one or all 21 WDIO specs against a real
+compiled Tauri binary). Architecture, shared composite actions, and how to
+debug a failed run are documented in [`docs/CI.md`](docs/CI.md).
+
+## Repository hygiene and beta smoke gate
+
+```bash
+# Repo hygiene checks (no stray lockfiles, no committed secrets, etc.)
+node scripts/check-repo-hygiene.mjs
+
+# Automated pre-flight checks before a manual beta smoke walk (TEST-01)
+pnpm smoke:beta
+```
+
 ## Windows installer (manual CI)
 
 A single GitHub Actions workflow builds an unsigned Windows NSIS installer:
@@ -247,7 +273,7 @@ The full release process (version bump, release branch, build, QA, tagging, GitH
 
 ## Current limitations
 
-- **No in-app Git auth** — push and pull are implemented but SSH keys and HTTPS credentials must be configured in the OS or git-credential-helper outside the app. Auth errors surface as clear error messages.
+- **Partial in-app Git auth** — the app prompts in-app for an SSH key passphrase when one is needed (never stored). Initial SSH key setup and HTTPS credentials still rely on the OS or git-credential-helper outside the app. Auth errors surface as clear error messages.
 - **No full dirty diff tracking** — the app uses a global unsaved-changes flag. It warns that in-memory state may differ from disk, but it does not track exactly which rack or placement changed.
 - **No Git conflict resolution UI** — on diverged branches, the app shows a clear error and the user must resolve manually with Git outside the app.
 - **Local desktop, single-user** — no server, no sync, no multi-user conflict resolution.

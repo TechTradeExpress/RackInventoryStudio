@@ -477,3 +477,58 @@ describe("RackDetailPanel — front/rear side toggle", () => {
     expect(screen.queryByTestId(`placed-front-${PLACEMENT_ID}`)).toBeNull();
   });
 });
+
+// ── Back button (rack-detail-back-btn) ───────────────────────────────────────
+
+describe("RackDetailPanel — back button", () => {
+  beforeEach(() => {
+    mockGetRackDetail.mockResolvedValue(DETAIL_EMPTY);
+    mockListDevices.mockResolvedValue([]);
+    mockListDeviceModels.mockResolvedValue([]);
+    mockRemovePlacement.mockResolvedValue(undefined);
+    mockMovePlacement.mockResolvedValue(undefined);
+  });
+
+  it("renders rack-detail-back-btn when onBack is provided", () => {
+    render(
+      <RackDetailPanel
+        rack={RACK}
+        mutationToken={0}
+        onRepositoryMutated={vi.fn()}
+        onNavigateToRackPlacement={() => false}
+        initialNavigation={null}
+        onBack={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("rack-detail-back-btn")).toBeTruthy();
+  });
+
+  it("does not render rack-detail-back-btn when onBack is not provided", () => {
+    render(
+      <RackDetailPanel
+        rack={RACK}
+        mutationToken={0}
+        onRepositoryMutated={vi.fn()}
+        onNavigateToRackPlacement={() => false}
+        initialNavigation={null}
+      />,
+    );
+    expect(screen.queryByTestId("rack-detail-back-btn")).toBeNull();
+  });
+
+  it("clicking rack-detail-back-btn invokes onBack", () => {
+    const onBack = vi.fn();
+    render(
+      <RackDetailPanel
+        rack={RACK}
+        mutationToken={0}
+        onRepositoryMutated={vi.fn()}
+        onNavigateToRackPlacement={() => false}
+        initialNavigation={null}
+        onBack={onBack}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("rack-detail-back-btn"));
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+});

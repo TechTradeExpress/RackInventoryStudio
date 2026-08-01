@@ -68,7 +68,7 @@ function SummaryRow({ tone, label, value, desc }: { tone: "ok" | "warn" | "err";
 
 function DevicePreviewTable({ preview }: { preview: CsvImportPreviewDto }) {
   return (
-    <table className="tbl">
+    <table className="tbl" data-testid="csv-device-preview-table">
       <thead>
         <tr>
           <th style={{ width: 36 }}>#</th>
@@ -101,7 +101,7 @@ function DevicePreviewTable({ preview }: { preview: CsvImportPreviewDto }) {
 
 function DeviceModelPreviewTable({ preview }: { preview: CsvDeviceModelImportPreviewDto }) {
   return (
-    <table className="tbl">
+    <table className="tbl" data-testid="csv-device-model-preview-table">
       <thead>
         <tr>
           <th style={{ width: 36 }}>#</th>
@@ -377,6 +377,7 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
                     type="submit"
                     className="btn"
                     disabled={!csvContent.trim() || isBusy}
+                    data-testid="csv-preview-btn"
                   >
                     <IcRefresh size={12} /> Preview
                   </button>
@@ -385,6 +386,7 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
                     className="btn btn-primary"
                     onClick={handleImport}
                     disabled={!preview || blocked || isBusy}
+                    data-testid="csv-import-btn"
                   >
                     <IcDownload size={12} /> {`Import ${importableRows} row${importableRows !== 1 ? "s" : ""}`}
                   </button>
@@ -392,7 +394,7 @@ export function CsvImportPanel({ onRepositoryMutated }: Props) {
 
                 {blocked && <Banner tone="err">Import is blocked — fix all errors before importing.</Banner>}
                 {importError && <Banner tone="err">{importError}</Banner>}
-                {importSuccess && <Banner tone="ok">{importSuccess}</Banner>}
+                {importSuccess && <div data-testid="csv-import-success"><Banner tone="ok">{importSuccess}</Banner></div>}
               </form>
             </Panel>
 
