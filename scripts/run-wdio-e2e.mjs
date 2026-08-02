@@ -162,7 +162,7 @@ export function validateArgs(opts, specsDir) {
  * Never touches process.env or the filesystem.
  */
 export function resolvePluginBinaryPath(repoRoot, platform = process.platform) {
-  const targetDir = resolveTargetDir(repoRoot);
+  const targetDir = resolveTargetDir(repoRoot, platform);
   return resolveBinaryPath(targetDir, platform);
 }
 

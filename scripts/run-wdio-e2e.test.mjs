@@ -9,7 +9,7 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
-import { join, sep } from "node:path";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import {
@@ -178,29 +178,68 @@ describe("validateArgs — spec name validation", () => {
 // ── resolvePluginBinaryPath ───────────────────────────────────────────────────
 
 describe("resolvePluginBinaryPath", () => {
-  it("returns the correct Linux binary path (no .exe)", () => {
+  // These assertions are exact (not lenient/either-separator) and hold
+  // regardless of the host OS running the test — resolvePluginBinaryPath
+  // threads its `platform` argument through both resolveTargetDir and
+  // resolveBinaryPath, so it must produce that platform's separator style
+  // even when it differs from process.platform. See
+  // build-wdio-plugin-binary.mjs's resolveTargetDir/resolveBinaryPath for
+  // the underlying fix this guards against regressing.
+
+  it("returns the correct Linux binary path (no .exe, forward slashes only)", () => {
     const path = resolvePluginBinaryPath("/repo/root", "linux");
-    assert.ok(
-      path.endsWith("/target-wdio-plugin/release/rack-inventory-studio-desktop"),
-      `Expected linux path, got: ${path}`,
-    );
+    assert.equal(path, "/repo/root/target-wdio-plugin/release/rack-inventory-studio-desktop");
+    assert.ok(!path.includes("\\"), `Linux path must contain no backslashes, got: ${path}`);
     assert.ok(!path.endsWith(".exe"), "Linux path must not end with .exe");
   });
 
-  it("returns the correct Windows binary path (.exe suffix)", () => {
-    const path = resolvePluginBinaryPath("/repo/root", "win32");
-    assert.ok(
-      path.endsWith(`${sep}rack-inventory-studio-desktop.exe`) ||
-        path.endsWith("/rack-inventory-studio-desktop.exe"),
-      `Expected windows path with .exe, got: ${path}`,
+  it("returns the correct Windows binary path (.exe suffix, backslashes only)", () => {
+    const path = resolvePluginBinaryPath("C:\\repo\\root", "win32");
+    assert.equal(path, "C:\\repo\\root\\target-wdio-plugin\\release\\rack-inventory-studio-desktop.exe");
+    assert.ok(!path.includes("/"), `Windows path must contain no forward slashes, got: ${path}`);
+  });
+
+  it("returns the correct darwin binary path (no .exe, forward slashes only)", () => {
+    const path = resolvePluginBinaryPath("/repo/root", "darwin");
+    assert.equal(path, "/repo/root/target-wdio-plugin/release/rack-inventory-studio-desktop");
+    assert.ok(!path.endsWith(".exe"), "darwin path must not end with .exe");
+  });
+
+  it("requested platform wins even when it differs from process.platform", () => {
+    // The regression this guards against: platform used to only control the
+    // .exe suffix, while path separators silently followed the host running
+    // the code instead of the requested platform.
+    const linuxPathFromWinRoot = resolvePluginBinaryPath("/repo/root", "linux");
+    assert.ok(!linuxPathFromWinRoot.includes("\\"), "requesting linux must never yield backslashes");
+
+    const winPathFromPosixRoot = resolvePluginBinaryPath("C:\\repo\\root", "win32");
+    assert.ok(!winPathFromPosixRoot.includes("/"), "requesting win32 must never yield forward slashes");
+  });
+
+  it("preserves spaces in the repo root for both platforms", () => {
+    const linuxPath = resolvePluginBinaryPath("/home/dev user/Rack Inventory Studio", "linux");
+    assert.equal(
+      linuxPath,
+      "/home/dev user/Rack Inventory Studio/target-wdio-plugin/release/rack-inventory-studio-desktop",
     );
-    assert.ok(path.includes("target-wdio-plugin"), "Windows path must use target-wdio-plugin");
+
+    const winPath = resolvePluginBinaryPath("C:\\Users\\dev user\\Rack Inventory Studio", "win32");
+    assert.equal(
+      winPath,
+      "C:\\Users\\dev user\\Rack Inventory Studio\\target-wdio-plugin\\release\\rack-inventory-studio-desktop.exe",
+    );
   });
 
   it("includes target-wdio-plugin in the path, never target/release", () => {
     const path = resolvePluginBinaryPath("/repo/root", "linux");
     assert.ok(path.includes("target-wdio-plugin"), `Expected target-wdio-plugin in path, got: ${path}`);
     assert.ok(!path.includes("target/release"), "Path must not contain target/release");
+  });
+
+  it("defaults to process.platform when no platform argument is given", () => {
+    const path = resolvePluginBinaryPath("/repo/root");
+    const expectSep = process.platform === "win32" ? "\\" : "/";
+    assert.ok(path.includes(`${expectSep}target-wdio-plugin${expectSep}release${expectSep}`));
   });
 });
 
