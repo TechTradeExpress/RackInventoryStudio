@@ -51,7 +51,7 @@ import {
 import { rm } from "node:fs/promises";
 import { createConnection, createServer } from "node:net";
 import { userInfo } from "node:os";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import { randomBytes } from "node:crypto";
 import { runGit } from "./local-git";
 import { isStrictChildPath } from "./test-environment";
@@ -142,7 +142,11 @@ export function buildWindowsSshdCandidates(
 ): string[] {
   const candidates: string[] = [];
   if (systemRoot) {
-    candidates.push(join(systemRoot, "System32", "OpenSSH", "sshd.exe"));
+    // Always path.win32.join, never the bare (host-bound) `join` — this
+    // builds a *Windows* path regardless of which host runs this function
+    // (it must also produce correct output under unit tests running on
+    // Linux CI, not just when actually running on Windows).
+    candidates.push(win32.join(systemRoot, "System32", "OpenSSH", "sshd.exe"));
   }
   candidates.push(...parseCandidateLines(whereOutput));
   candidates.push(...parseCandidateLines(whichOutput).map((line) => convertMsysPathToNative(line) ?? line));
