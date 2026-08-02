@@ -75,12 +75,108 @@ function execFileP(cmd: string, args: string[]): Promise<{ stdout: string; stder
 }
 
 /**
- * Locates the `sshd` binary. Checked lazily (not at module load) so that
- * importing this module never fails on a machine without sshd — only
- * `startRemote()` (and thus any spec that actually needs SSH) does.
- * Returns null when sshd cannot be found anywhere.
+ * Splits raw discovery-command stdout (from `which`/`where.exe`, possibly
+ * multiple newline-separated matches) into trimmed, non-blank candidate
+ * paths, in the order the command reported them. Pure — no filesystem or
+ * platform access — so it's unit-testable without a real sshd installation.
  */
-export async function findSshd(): Promise<string | null> {
+export function parseCandidateLines(output: string): string[] {
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+/**
+ * Converts an MSYS/Git-Bash-style absolute path (`/c/Windows/...`, as
+ * reported by Git for Windows' `which`) to the native Windows form
+ * (`C:\Windows\...`) that Node's `spawn()` can execute directly on Windows.
+ * Only the drive letter is case-normalized (uppercased); the rest of the
+ * path's casing is preserved verbatim.
+ *
+ * Returns null for anything that isn't a single-drive-letter MSYS path —
+ * in particular, ordinary POSIX paths like `/usr/sbin/sshd` never match
+ * (their first segment is more than one character), so this never
+ * misinterprets a real POSIX path as a Windows drive path.
+ */
+export function convertMsysPathToNative(candidatePath: string): string | null {
+  const match = /^\/([A-Za-z])\/(.*)$/.exec(candidatePath);
+  if (!match) return null;
+  const [, drive, rest] = match;
+  return `${drive.toUpperCase()}:\\${rest.replace(/\//g, "\\")}`;
+}
+
+/**
+ * Returns the first candidate for which `exists` reports true, or null if
+ * none do. `exists` is dependency-injected (defaults to the real
+ * `existsSync`) so candidate prioritization stays unit-testable without
+ * touching the real filesystem.
+ */
+export function selectFirstUsableCandidate(
+  candidates: string[],
+  exists: (candidatePath: string) => boolean = existsSync,
+): string | null {
+  for (const candidate of candidates) {
+    if (exists(candidate)) return candidate;
+  }
+  return null;
+}
+
+/**
+ * Builds the ordered list of Windows sshd candidates to check for existence,
+ * in priority order, from already-fetched raw inputs. Pure — no filesystem
+ * or process access — so the full prioritization logic (not just individual
+ * parsing steps) is unit-testable in isolation:
+ *   1. The well-known native OpenSSH Server location under %WINDIR%/%SystemRoot%
+ *      (never a hardcoded "C:") — installed there by the Windows "OpenSSH Server"
+ *      optional feature.
+ *   2. Native PATH lookup results from `where.exe`, which (unlike Git Bash's
+ *      `which`) always reports native Windows paths — spawnable as-is.
+ *   3. Git Bash's `which` output, last resort, with its MSYS-style lines
+ *      (`/c/Windows/...`) normalized to native paths before use.
+ */
+export function buildWindowsSshdCandidates(
+  systemRoot: string | null,
+  whereOutput: string,
+  whichOutput: string,
+): string[] {
+  const candidates: string[] = [];
+  if (systemRoot) {
+    candidates.push(join(systemRoot, "System32", "OpenSSH", "sshd.exe"));
+  }
+  candidates.push(...parseCandidateLines(whereOutput));
+  candidates.push(...parseCandidateLines(whichOutput).map((line) => convertMsysPathToNative(line) ?? line));
+  return candidates;
+}
+
+/**
+ * Windows sshd discovery: fetches the raw inputs (env var, `where.exe`,
+ * Git Bash's `which` — each tolerant of failing/being unavailable) and
+ * delegates prioritization to `buildWindowsSshdCandidates`, then returns the
+ * first candidate that actually exists on disk.
+ */
+async function findSshdWindows(): Promise<string | null> {
+  const systemRoot = process.env["WINDIR"] ?? process.env["SystemRoot"] ?? null;
+
+  let whereOutput = "";
+  try {
+    whereOutput = (await execFileP("where.exe", ["sshd"])).stdout;
+  } catch {
+    // where.exe found nothing (or isn't available) — fall through
+  }
+
+  let whichOutput = "";
+  try {
+    whichOutput = (await execFileP("which", ["sshd"])).stdout;
+  } catch {
+    // Git Bash's `which` found nothing (or isn't available) — fall through
+  }
+
+  return selectFirstUsableCandidate(buildWindowsSshdCandidates(systemRoot, whereOutput, whichOutput));
+}
+
+/** POSIX (Linux/macOS) sshd discovery — unchanged from the original, host-native behavior. */
+async function findSshdPosix(): Promise<string | null> {
   try {
     const { stdout } = await execFileP("which", ["sshd"]);
     const path = stdout.trim();
@@ -92,6 +188,18 @@ export async function findSshd(): Promise<string | null> {
     if (existsSync(candidate)) return candidate;
   }
   return null;
+}
+
+/**
+ * Locates the `sshd` binary, returning a path directly usable by Node's
+ * `spawn()` on the current platform. Checked lazily (not at module load) so
+ * that importing this module never fails on a machine without sshd — only
+ * `startRemote()` (and thus any spec that actually needs SSH) does. Returns
+ * null when sshd cannot be found anywhere — callers must treat that as a
+ * hard failure, not a skip (see startRemote()'s doc comment).
+ */
+export async function findSshd(): Promise<string | null> {
+  return process.platform === "win32" ? findSshdWindows() : findSshdPosix();
 }
 
 // ── Port + readiness ──────────────────────────────────────────────────────────
@@ -139,6 +247,30 @@ function waitForPortOpen(port: number, timeoutMs: number): Promise<void> {
   });
 }
 
+/**
+ * Races a readiness promise (normally `waitForPortOpen`) against the child
+ * process's own `error` event, so a spawn failure — e.g. a discovered path
+ * that stopped existing or isn't executable between discovery and spawn —
+ * surfaces immediately with its original error preserved as `cause`, instead
+ * of silently waiting out the full readiness timeout and reporting a generic
+ * "never became reachable" message that would mask the real cause. Exported
+ * so this behavior is unit-testable with a deliberately-unspawnable path,
+ * without depending on a real sshd installation or waiting out a real
+ * timeout.
+ */
+export function raceSpawnAgainstReadiness(
+  child: ChildProcess,
+  spawnedPath: string,
+  readinessPromise: Promise<void>,
+): Promise<void> {
+  const spawnErrorPromise = new Promise<never>((_resolve, reject) => {
+    child.once("error", (error) => {
+      reject(new Error(`[git-remote] failed to spawn sshd at "${spawnedPath}": ${error.message}`, { cause: error }));
+    });
+  });
+  return Promise.race([readinessPromise, spawnErrorPromise]);
+}
+
 // ── SSH remote server ─────────────────────────────────────────────────────────
 
 export interface SshRemoteServer {
@@ -184,9 +316,12 @@ function resolveRunRoot(): string {
 export async function startRemote(): Promise<SshRemoteServer> {
   const sshdPath = await findSshd();
   if (!sshdPath) {
+    const checked =
+      process.platform === "win32"
+        ? "checked %WINDIR%\\System32\\OpenSSH\\sshd.exe, `where.exe sshd`, and `which sshd`"
+        : "checked PATH and /usr/sbin, /sbin, /usr/local/sbin";
     throw new Error(
-      "[git-remote] sshd was not found (checked PATH and /usr/sbin, /sbin, /usr/local/sbin). " +
-        "Install OpenSSH server to run the SSH-remote WDIO specs.",
+      `[git-remote] sshd was not found (${checked}). ` + "Install OpenSSH server to run the SSH-remote WDIO specs.",
     );
   }
 
@@ -255,7 +390,7 @@ export async function startRemote(): Promise<SshRemoteServer> {
     log(`sshd exited (code=${code}, signal=${signal})`);
   });
 
-  await waitForPortOpen(port, 10_000);
+  await raceSpawnAgainstReadiness(child, sshdPath, waitForPortOpen(port, 10_000));
   log(`sshd ready on 127.0.0.1:${port}`);
 
   return {

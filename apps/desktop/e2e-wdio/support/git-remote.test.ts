@@ -10,25 +10,179 @@
  * crates/ris-git/tests' `if !git_available() { return; }` pattern for an
  * optional local dependency.
  */
+import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   buildSshRemoteUrl,
+  buildWindowsSshdCandidates,
   cleanup,
   configureSsh,
+  convertMsysPathToNative,
   createBareRemote,
   findSshd,
   getRemoteCommitCount,
   getRemoteHeadCommit,
+  parseCandidateLines,
   pushSimulatedRemoteCommit,
+  raceSpawnAgainstReadiness,
   seedBareRemoteFromLocalRepo,
+  selectFirstUsableCandidate,
   startRemote,
 } from "./git-remote";
 import { runGit } from "./local-git";
 
 const ENV_KEYS = ["RIS_E2E_RUN_ROOT"];
+
+// ── sshd discovery: pure helpers ─────────────────────────────────────────────
+//
+// These never touch the real filesystem/PATH and never depend on sshd being
+// installed on the machine running the suite — they exercise the discovery
+// and path-normalization logic entirely through injected inputs, so they run
+// unconditionally (no sshdAvailable guard) on every platform/CI runner.
+
+describe("parseCandidateLines", () => {
+  it("splits on both LF and CRLF", () => {
+    expect(parseCandidateLines("a\nb\r\nc")).toEqual(["a", "b", "c"]);
+  });
+
+  it("trims surrounding whitespace on each line", () => {
+    expect(parseCandidateLines("  a  \n\tb\t\n")).toEqual(["a", "b"]);
+  });
+
+  it("ignores blank lines", () => {
+    expect(parseCandidateLines("a\n\n\nb\n\n")).toEqual(["a", "b"]);
+  });
+
+  it("returns an empty array for empty output", () => {
+    expect(parseCandidateLines("")).toEqual([]);
+  });
+
+  it("returns an empty array for output that is only whitespace/newlines", () => {
+    expect(parseCandidateLines("\n\n  \n")).toEqual([]);
+  });
+});
+
+describe("convertMsysPathToNative", () => {
+  it("converts a lowercase-drive MSYS path to a native path with an uppercase drive", () => {
+    expect(convertMsysPathToNative("/c/WINDOWS/System32/OpenSSH/sshd")).toBe(
+      "C:\\WINDOWS\\System32\\OpenSSH\\sshd",
+    );
+  });
+
+  it("preserves an already-uppercase drive letter and the rest of the path's casing", () => {
+    expect(convertMsysPathToNative("/C/Windows/System32/OpenSSH/sshd.exe")).toBe(
+      "C:\\Windows\\System32\\OpenSSH\\sshd.exe",
+    );
+  });
+
+  it("handles a non-C system drive", () => {
+    expect(convertMsysPathToNative("/d/tools/openssh/sshd")).toBe("D:\\tools\\openssh\\sshd");
+  });
+
+  it("preserves spaces in path segments", () => {
+    expect(convertMsysPathToNative("/c/Program Files/OpenSSH/sshd.exe")).toBe(
+      "C:\\Program Files\\OpenSSH\\sshd.exe",
+    );
+  });
+
+  it("returns null for an ordinary POSIX path, never misreading it as a drive path", () => {
+    expect(convertMsysPathToNative("/usr/sbin/sshd")).toBeNull();
+  });
+
+  it("returns null for a relative or otherwise non-MSYS path", () => {
+    expect(convertMsysPathToNative("sshd")).toBeNull();
+    expect(convertMsysPathToNative("")).toBeNull();
+  });
+});
+
+describe("selectFirstUsableCandidate", () => {
+  it("returns the first candidate the injected exists() reports true for", () => {
+    const exists = (p: string) => p === "B";
+    expect(selectFirstUsableCandidate(["A", "B", "C"], exists)).toBe("B");
+  });
+
+  it("ignores earlier candidates that do not exist", () => {
+    const exists = (p: string) => p === "C";
+    expect(selectFirstUsableCandidate(["A", "B", "C"], exists)).toBe("C");
+  });
+
+  it("returns null when no candidate exists", () => {
+    expect(selectFirstUsableCandidate(["A", "B"], () => false)).toBeNull();
+  });
+
+  it("returns null for an empty candidate list", () => {
+    expect(selectFirstUsableCandidate([], () => true)).toBeNull();
+  });
+});
+
+describe("buildWindowsSshdCandidates", () => {
+  it("puts the known %WINDIR%/System32/OpenSSH/sshd.exe location first when systemRoot is given", () => {
+    const candidates = buildWindowsSshdCandidates("C:\\WINDOWS", "", "");
+    expect(candidates[0]).toBe("C:\\WINDOWS\\System32\\OpenSSH\\sshd.exe");
+  });
+
+  it("omits the known location when systemRoot is null", () => {
+    const candidates = buildWindowsSshdCandidates(null, "", "");
+    expect(candidates).toEqual([]);
+  });
+
+  it("includes native where.exe output candidates as-is, in reported order", () => {
+    const whereOutput = "C:\\Windows\\System32\\OpenSSH\\sshd.exe\r\nC:\\ProgramData\\chocolatey\\bin\\sshd.exe\r\n";
+    const candidates = buildWindowsSshdCandidates(null, whereOutput, "");
+    expect(candidates).toEqual([
+      "C:\\Windows\\System32\\OpenSSH\\sshd.exe",
+      "C:\\ProgramData\\chocolatey\\bin\\sshd.exe",
+    ]);
+  });
+
+  it("normalizes MSYS-style which output to native paths", () => {
+    const candidates = buildWindowsSshdCandidates(null, "", "/c/WINDOWS/System32/OpenSSH/sshd\n");
+    expect(candidates).toEqual(["C:\\WINDOWS\\System32\\OpenSSH\\sshd"]);
+  });
+
+  it("orders candidates: known location, then where.exe, then normalized which, and ignores blank lines", () => {
+    const candidates = buildWindowsSshdCandidates(
+      "C:\\WINDOWS",
+      "\nC:\\Tools\\sshd.exe\n\n",
+      "/d/tools/openssh/sshd\n",
+    );
+    expect(candidates).toEqual([
+      "C:\\WINDOWS\\System32\\OpenSSH\\sshd.exe",
+      "C:\\Tools\\sshd.exe",
+      "D:\\tools\\openssh\\sshd",
+    ]);
+  });
+
+  it("passes through a which line that isn't MSYS-style unchanged (e.g. already-native)", () => {
+    const candidates = buildWindowsSshdCandidates(null, "", "C:\\already\\native\\sshd.exe\n");
+    expect(candidates).toEqual(["C:\\already\\native\\sshd.exe"]);
+  });
+});
+
+describe("raceSpawnAgainstReadiness", () => {
+  it("rejects immediately with the original spawn error preserved as `cause`, not a generic timeout", async () => {
+    const bogusPath = join(tmpdir(), "definitely-does-not-exist-sshd-binary-xyz");
+    const child = spawn(bogusPath, []);
+    // Deliberately never resolves — if raceSpawnAgainstReadiness didn't
+    // actually race the spawn-error event, this test would hang until the
+    // suite's own test timeout instead of failing fast and clearly.
+    const neverResolves = new Promise<void>(() => {});
+
+    await expect(raceSpawnAgainstReadiness(child, bogusPath, neverResolves)).rejects.toMatchObject({
+      message: expect.stringContaining(`failed to spawn sshd at "${bogusPath}"`),
+      cause: expect.objectContaining({ code: "ENOENT" }),
+    });
+  });
+
+  it("resolves normally when the readiness promise wins and the child never errors", async () => {
+    // A real, always-spawnable command so no 'error' event ever fires.
+    const child = spawn(process.execPath, ["--version"]);
+    await expect(raceSpawnAgainstReadiness(child, process.execPath, Promise.resolve())).resolves.toBeUndefined();
+  });
+});
 
 // Top-level await: resolved once, before any test/skipIf is registered —
 // skipIf only accepts a boolean (a function is truthy and would always
