@@ -39,7 +39,7 @@
  * still starts — inert here since the key has no passphrase, matching this
  * stage's explicit exclusion of the SSH-passphrase workflow.
  */
-import { spawn, execFile, type ChildProcess } from "node:child_process";
+import { spawn, execFile, execFileSync, type ChildProcess } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -206,6 +206,104 @@ export async function findSshd(): Promise<string | null> {
   return process.platform === "win32" ? findSshdWindows() : findSshdPosix();
 }
 
+// ── Private key permissions ───────────────────────────────────────────────────
+
+/**
+ * Pure: builds the `icacls` argument list that strips inherited ACEs from
+ * `keyPath` and grants Full Control to exactly (and only) `username`. No
+ * Administrator privilege is required — a user can always re-ACL a file
+ * they own.
+ */
+export function buildWindowsAclArgs(keyPath: string, username: string): string[] {
+  return [keyPath, "/inheritance:r", "/grant:r", `${username}:F`];
+}
+
+/**
+ * Restricts a private key file (host key or client identity) to the current
+ * user only, so OpenSSH will load it instead of rejecting it as too
+ * permissive.
+ *
+ * `chmodSync`'s POSIX permission bits don't map onto NTFS ACLs — a freshly
+ * created file under a temp directory can inherit broader ACEs from its
+ * parent (observed in practice as an unresolvable `UNKNOWN\UNKNOWN` SID),
+ * and Win32 OpenSSH's own strict permission check rejects that outright
+ * ("Bad permissions" / "This private key will be ignored" / ultimately
+ * "no hostkeys available -- exiting" for the host key). `icacls` operates on
+ * the real ACL and is what actually satisfies that check; `chmod 600`
+ * remains exactly what POSIX sshd/ssh expect, unchanged from before.
+ *
+ * `platform`/`username`/`runIcacls`/`chmod` are all injectable so the
+ * platform branch and the exact command constructed are unit-testable
+ * without touching a real filesystem or requiring sshd/icacls to actually
+ * be present.
+ */
+export function securePrivateKeyFile(
+  keyPath: string,
+  options: {
+    platform?: NodeJS.Platform;
+    username?: string;
+    runIcacls?: (args: string[]) => void;
+    chmod?: (path: string, mode: number) => void;
+  } = {},
+): void {
+  const platform = options.platform ?? process.platform;
+  if (platform === "win32") {
+    const runIcacls =
+      options.runIcacls ??
+      ((args: string[]) => {
+        execFileSync("icacls", args, { stdio: "ignore" });
+      });
+    runIcacls(buildWindowsAclArgs(keyPath, options.username ?? userInfo().username));
+  } else {
+    (options.chmod ?? chmodSync)(keyPath, 0o600);
+  }
+}
+
+// ── sshd_config generation ───────────────────────────────────────────────────
+
+export interface SshdConfigOptions {
+  port: number;
+  hostKeyPath: string;
+  authorizedKeysPath: string;
+  pidFilePath: string;
+  platform?: NodeJS.Platform;
+}
+
+/**
+ * Builds the fixture's `sshd_config` contents. Pure — takes already-resolved
+ * paths/port, no filesystem or process access — so the platform-conditional
+ * directive logic is fully unit-testable.
+ *
+ * `UsePAM no` is POSIX/PAM-only: Win32 OpenSSH doesn't recognize the `UsePAM`
+ * directive at all and logs "Unsupported option UsePAM" if it's present, so
+ * it's omitted entirely on Windows rather than merely set to a no-op value.
+ * Every other directive is identical on both platforms.
+ */
+export function buildSshdConfig(options: SshdConfigOptions): string {
+  const platform = options.platform ?? process.platform;
+  const lines = [
+    `Port ${options.port}`,
+    "ListenAddress 127.0.0.1",
+    `HostKey ${options.hostKeyPath}`,
+    `AuthorizedKeysFile ${options.authorizedKeysPath}`,
+    "PubkeyAuthentication yes",
+    "PasswordAuthentication no",
+    "KbdInteractiveAuthentication no",
+  ];
+  if (platform !== "win32") {
+    lines.push("UsePAM no");
+  }
+  lines.push(
+    "StrictModes no",
+    `PidFile ${options.pidFilePath}`,
+    "AllowTcpForwarding no",
+    "X11Forwarding no",
+    "LogLevel ERROR",
+    "",
+  );
+  return lines.join("\n");
+}
+
 // ── Port + readiness ──────────────────────────────────────────────────────────
 
 function findFreePort(): Promise<number> {
@@ -344,42 +442,26 @@ export async function startRemote(): Promise<SshRemoteServer> {
   const authorizedKeysPath = join(workDir, "authorized_keys");
   const sshdConfigPath = join(workDir, "sshd_config");
   const pidFilePath = join(workDir, "sshd.pid");
+  const username = userInfo().username;
 
   log("generating ephemeral host + client ed25519 keypairs (no passphrase)");
   await execFileP("ssh-keygen", ["-t", "ed25519", "-f", hostKeyPath, "-N", "", "-q"]);
   await execFileP("ssh-keygen", ["-t", "ed25519", "-f", clientKeyPath, "-N", "", "-q"]);
-  chmodSync(clientKeyPath, 0o600);
-  chmodSync(hostKeyPath, 0o600);
+  securePrivateKeyFile(clientKeyPath, { username });
+  securePrivateKeyFile(hostKeyPath, { username });
 
   const publicKey = readFileSync(`${clientKeyPath}.pub`, "utf8");
   writeFileSync(authorizedKeysPath, publicKey, { mode: 0o600 });
 
   const port = await findFreePort();
-  const username = userInfo().username;
 
   // StrictModes off: this fixture's run-root directories are created with
   // whatever permissive default mkdirSync/mkdtempSync produce, which
   // StrictModes' home/authorized_keys ownership-and-permission checks can
   // reject depending on the host's umask — irrelevant here since this sshd
   // only ever accepts connections from the one ephemeral key generated
-  // above. UsePAM off avoids depending on the host's PAM stack for a
-  // same-user, key-only, localhost-only login.
-  const sshdConfig = [
-    `Port ${port}`,
-    "ListenAddress 127.0.0.1",
-    `HostKey ${hostKeyPath}`,
-    `AuthorizedKeysFile ${authorizedKeysPath}`,
-    "PubkeyAuthentication yes",
-    "PasswordAuthentication no",
-    "KbdInteractiveAuthentication no",
-    "UsePAM no",
-    "StrictModes no",
-    `PidFile ${pidFilePath}`,
-    "AllowTcpForwarding no",
-    "X11Forwarding no",
-    "LogLevel ERROR",
-    "",
-  ].join("\n");
+  // above.
+  const sshdConfig = buildSshdConfig({ port, hostKeyPath, authorizedKeysPath, pidFilePath });
   writeFileSync(sshdConfigPath, sshdConfig);
 
   log(`starting sshd on 127.0.0.1:${port} (workDir=${workDir})`);

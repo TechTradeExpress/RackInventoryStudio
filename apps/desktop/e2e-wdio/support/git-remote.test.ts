@@ -17,6 +17,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   buildSshRemoteUrl,
+  buildSshdConfig,
+  buildWindowsAclArgs,
   buildWindowsSshdCandidates,
   cleanup,
   configureSsh,
@@ -28,6 +30,7 @@ import {
   parseCandidateLines,
   pushSimulatedRemoteCommit,
   raceSpawnAgainstReadiness,
+  securePrivateKeyFile,
   seedBareRemoteFromLocalRepo,
   selectFirstUsableCandidate,
   startRemote,
@@ -181,6 +184,117 @@ describe("raceSpawnAgainstReadiness", () => {
     // A real, always-spawnable command so no 'error' event ever fires.
     const child = spawn(process.execPath, ["--version"]);
     await expect(raceSpawnAgainstReadiness(child, process.execPath, Promise.resolve())).resolves.toBeUndefined();
+  });
+});
+
+describe("buildWindowsAclArgs", () => {
+  it("strips inherited ACEs and grants Full Control to exactly the given user", () => {
+    expect(buildWindowsAclArgs("C:\\work\\hostkey", "alice")).toEqual([
+      "C:\\work\\hostkey",
+      "/inheritance:r",
+      "/grant:r",
+      "alice:F",
+    ]);
+  });
+
+  it("preserves a path containing spaces verbatim", () => {
+    expect(buildWindowsAclArgs("C:\\work dir\\hostkey", "bob")).toEqual([
+      "C:\\work dir\\hostkey",
+      "/inheritance:r",
+      "/grant:r",
+      "bob:F",
+    ]);
+  });
+});
+
+describe("securePrivateKeyFile", () => {
+  it("on win32, runs icacls with the args built by buildWindowsAclArgs and never calls chmod", () => {
+    const icaclsCalls: string[][] = [];
+    const chmodCalls: Array<[string, number]> = [];
+    securePrivateKeyFile("C:\\work\\hostkey", {
+      platform: "win32",
+      username: "alice",
+      runIcacls: (args) => icaclsCalls.push(args),
+      chmod: (p, m) => chmodCalls.push([p, m]),
+    });
+    expect(icaclsCalls).toEqual([["C:\\work\\hostkey", "/inheritance:r", "/grant:r", "alice:F"]]);
+    expect(chmodCalls).toEqual([]);
+  });
+
+  it("on linux, chmods to 0o600 and never calls icacls", () => {
+    const icaclsCalls: string[][] = [];
+    const chmodCalls: Array<[string, number]> = [];
+    securePrivateKeyFile("/tmp/hostkey", {
+      platform: "linux",
+      runIcacls: (args) => icaclsCalls.push(args),
+      chmod: (p, m) => chmodCalls.push([p, m]),
+    });
+    expect(chmodCalls).toEqual([["/tmp/hostkey", 0o600]]);
+    expect(icaclsCalls).toEqual([]);
+  });
+
+  it("on darwin, also chmods to 0o600 (same as linux)", () => {
+    const chmodCalls: Array<[string, number]> = [];
+    securePrivateKeyFile("/tmp/hostkey", { platform: "darwin", chmod: (p, m) => chmodCalls.push([p, m]) });
+    expect(chmodCalls).toEqual([["/tmp/hostkey", 0o600]]);
+  });
+
+  it("defaults to process.platform when no platform is given", () => {
+    const chmodCalls: Array<[string, number]> = [];
+    const icaclsCalls: string[][] = [];
+    securePrivateKeyFile("key", { chmod: (p, m) => chmodCalls.push([p, m]), runIcacls: (a) => icaclsCalls.push(a) });
+    if (process.platform === "win32") {
+      expect(icaclsCalls.length).toBe(1);
+      expect(chmodCalls).toEqual([]);
+    } else {
+      expect(chmodCalls).toEqual([["key", 0o600]]);
+      expect(icaclsCalls).toEqual([]);
+    }
+  });
+});
+
+describe("buildSshdConfig", () => {
+  const baseOptions = {
+    port: 54321,
+    hostKeyPath: "/work/hostkey",
+    authorizedKeysPath: "/work/authorized_keys",
+    pidFilePath: "/work/sshd.pid",
+  };
+
+  it("includes UsePAM no on linux", () => {
+    const config = buildSshdConfig({ ...baseOptions, platform: "linux" });
+    expect(config).toContain("UsePAM no");
+  });
+
+  it("includes UsePAM no on darwin (POSIX, same as linux)", () => {
+    const config = buildSshdConfig({ ...baseOptions, platform: "darwin" });
+    expect(config).toContain("UsePAM no");
+  });
+
+  it("omits UsePAM entirely on win32 (unsupported directive, not merely a no-op)", () => {
+    const config = buildSshdConfig({ ...baseOptions, platform: "win32" });
+    expect(config).not.toContain("UsePAM");
+  });
+
+  it("keeps every other directive identical between win32 and linux", () => {
+    const linux = buildSshdConfig({ ...baseOptions, platform: "linux" })
+      .split("\n")
+      .filter((line) => !line.startsWith("UsePAM"));
+    const windows = buildSshdConfig({ ...baseOptions, platform: "win32" }).split("\n");
+    expect(windows).toEqual(linux);
+  });
+
+  it("includes the port, host key path, and authorized_keys path", () => {
+    const config = buildSshdConfig({ ...baseOptions, platform: "linux" });
+    expect(config).toContain("Port 54321");
+    expect(config).toContain("HostKey /work/hostkey");
+    expect(config).toContain("AuthorizedKeysFile /work/authorized_keys");
+    expect(config).toContain("PidFile /work/sshd.pid");
+  });
+
+  it("defaults to process.platform when no platform is given", () => {
+    const config = buildSshdConfig(baseOptions);
+    expect(config.includes("UsePAM")).toBe(process.platform !== "win32");
   });
 });
 
