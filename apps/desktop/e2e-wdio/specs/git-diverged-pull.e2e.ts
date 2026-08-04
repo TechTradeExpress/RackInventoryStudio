@@ -144,6 +144,26 @@
  * fetch-only workflow, multiple remotes, HTTPS, SSH passphrase prompt,
  * clone, tags, submodules, detached HEAD, force push, and any change to
  * the application's Git strategy (--ff-only stays exactly as it is).
+ *
+ * ── Stage 3F.5.5: provider-neutral migration ─────────────────────────────────
+ *
+ * Migrated to the shared `createGitRemoteFixture()` adapter
+ * (support/git-remote-fixture.ts) — see that module's own doc comment and
+ * git-remote-workflows.e2e.ts for the provider-selection pattern this spec
+ * now follows. Scenario meaning, and which component performs each action
+ * (app pushes A; test-side `runGit` creates local-only commit B; the
+ * provider's `pushSimulatedRemoteCommit` creates remote-only commit C), are
+ * both unchanged from Stage 3F.4. One deliberate, provider-neutrality-driven
+ * change: the pre-pull divergence-confirmation probe fetch now targets
+ * `fixture.buildRemoteUrl(bareDir)` (a real SSH URL, reachable from Windows
+ * for either provider) instead of the raw `bareDir` filesystem path (only
+ * ever reachable directly for the native provider — the container
+ * provider's bare remote lives inside the container's own filesystem). A
+ * `git fetch` over SSH brings the same object into the local repo's object
+ * database without touching `refs/remotes/origin/<branch>`, identical in
+ * effect to the local-filesystem fetch this scenario originally used —
+ * both are a plain object-transfer fetch with no destination refspec;
+ * only the transport differs.
  */
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -161,17 +181,10 @@ import {
   runGit,
 } from "../support/local-git";
 import {
-  buildSshRemoteUrl,
-  cleanup as cleanupRemoteServer,
-  configureSsh,
-  createBareRemote,
-  findSshd,
-  getRemoteCommitCount,
-  getRemoteHeadCommit,
-  pushSimulatedRemoteCommit,
-  startRemote,
-  type SshRemoteServer,
-} from "../support/git-remote";
+  assertFixtureCleanupSucceeded,
+  createGitRemoteFixture,
+  type GitRemoteFixture,
+} from "../support/git-remote-fixture";
 
 function log(msg: string) {
   const ts = new Date().toISOString().substring(11, 23);
@@ -230,7 +243,7 @@ async function addRemoteThroughUi(name: string, url: string): Promise<void> {
 }
 
 describe("Rack Inventory Studio — diverged pull over SSH ('--ff-only' failure and recovery)", () => {
-  let server: SshRemoteServer;
+  let fixture: GitRemoteFixture;
 
   before(async () => {
     if (!process.env["RIS_E2E_REPOSITORY_PARENT"]) {
@@ -240,35 +253,19 @@ describe("Rack Inventory Studio — diverged pull over SSH ('--ff-only' failure 
       );
     }
 
-    const sshdPath = await findSshd();
-    if (!sshdPath) {
-      // Hard failure, not a skip — same policy as git-remote-workflows.e2e.ts
-      // and git-clone-workflows.e2e.ts: this spec's entire purpose is SSH
-      // remote coverage, so a quiet skip would let a run report green while
-      // testing nothing.
-      throw new Error(
-        "sshd was not found (checked PATH and /usr/sbin, /sbin, /usr/local/sbin) — " +
-          "required to run git-diverged-pull. Install OpenSSH server " +
-          "(e.g. `sudo apt-get install -y openssh-server` on Linux) before running this spec.",
-      );
-    }
-
-    log("starting the local sshd remote-Git fixture (Stage 3F.2 infrastructure, unmodified)");
-    server = await startRemote();
-    configureSsh(server);
-    log(`fixture ready: 127.0.0.1:${server.port}, username=${server.username}`);
+    fixture = await createGitRemoteFixture();
   });
 
   after(async () => {
-    if (server) await cleanupRemoteServer(server);
+    if (fixture) assertFixtureCleanupSucceeded(await fixture.cleanup());
   });
 
   it("fails a diverged pull safely, preserving both histories, working tree, and remote configuration", async () => {
     log("creating a fixture with initial commit A");
     const repo = await createLocalGitRepository({ initialCommit: true, label: "diverged-pull" });
     const aSha = await getHeadCommit(repo.path);
-    const bareDir = await createBareRemote(server.remotesParent, "diverged");
-    const remoteUrl = buildSshRemoteUrl(server, bareDir);
+    const bareDir = await fixture.createBareRemote("diverged");
+    const remoteUrl = fixture.buildRemoteUrl(bareDir);
 
     let opened = false;
     try {
@@ -283,7 +280,7 @@ describe("Rack Inventory Studio — diverged pull over SSH ('--ff-only' failure 
       log("pushing A through the app to establish upstream tracking");
       await clickWhenEnabled("git-stepper-push-btn");
       await browser.waitUntil(
-        async () => (await getRemoteCommitCount(bareDir, branch).catch(() => 0)) === 1,
+        async () => (await fixture.getRemoteCommitCount(bareDir, branch).catch(() => 0)) === 1,
         { timeout: 20_000, interval: 200, timeoutMsg: "initial push of A never landed on the remote" },
       );
       expect(await readGitConfig(repo.path, `branch.${branch}.remote`)).toBe("origin");
@@ -298,9 +295,8 @@ describe("Rack Inventory Studio — diverged pull over SSH ('--ff-only' failure 
       expect(bSha).not.toBe(aSha);
 
       log("creating remote-only commit C, independent of B (child of A, never pushed to B)");
-      const cSha = await pushSimulatedRemoteCommit(
+      const cSha = await fixture.pushSimulatedRemoteCommit(
         bareDir,
-        server.remotesParent,
         branch,
         "remote-only-change.txt",
         "Remote-only commit C",
@@ -314,13 +310,13 @@ describe("Rack Inventory Studio — diverged pull over SSH ('--ff-only' failure 
       // without touching refs/remotes/origin/<branch> — a harmless probe,
       // confirmed standalone (see module doc comment) not to disturb
       // anything the app's own real pull later does.
-      await runGit(repo.path, ["fetch", "-q", bareDir, branch]);
+      await runGit(repo.path, ["fetch", "-q", fixture.buildRemoteUrl(bareDir), branch]);
       expect(await isAncestor(repo.path, bSha, cSha)).toBe(false);
       expect(await isAncestor(repo.path, cSha, bSha)).toBe(false);
       expect(await getHeadCommit(repo.path)).toBe(bSha);
-      expect(await getRemoteHeadCommit(bareDir, branch)).toBe(cSha);
+      expect(await fixture.getRemoteHeadCommit(bareDir, branch)).toBe(cSha);
       expect(await getCommitCount(repo.path)).toBe(2); // A, B
-      expect(await getRemoteCommitCount(bareDir, branch)).toBe(2); // A, C
+      expect(await fixture.getRemoteCommitCount(bareDir, branch)).toBe(2); // A, C
       log("confirmed — neither commit is an ancestor of the other; local=B, remote=C, both 2 commits deep");
 
       log("clicking git-stepper-pull-btn (expected to fail — --ff-only cannot reconcile a diverged history)");
@@ -334,9 +330,9 @@ describe("Rack Inventory Studio — diverged pull over SSH ('--ff-only' failure 
 
       log("verifying every piece of repository state survived the failed pull, via helpers");
       expect(await getHeadCommit(repo.path)).toBe(bSha);
-      expect(await getRemoteHeadCommit(bareDir, branch)).toBe(cSha);
+      expect(await fixture.getRemoteHeadCommit(bareDir, branch)).toBe(cSha);
       expect(await getCommitCount(repo.path)).toBe(2);
-      expect(await getRemoteCommitCount(bareDir, branch)).toBe(2);
+      expect(await fixture.getRemoteCommitCount(bareDir, branch)).toBe(2);
       expect(await getWorkingTreeStatus(repo.path)).toBe("clean");
       expect(existsSync(join(repo.path, ".git", "MERGE_HEAD"))).toBe(false);
       expect(await getCurrentBranch(repo.path)).toBe(branch);
