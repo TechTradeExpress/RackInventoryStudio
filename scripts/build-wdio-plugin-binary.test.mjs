@@ -3,7 +3,7 @@
 // construction, and exit-code determination.
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { join } from "node:path";
+import { join, win32, posix } from "node:path";
 
 import {
   TARGET_DIR_NAME,
@@ -18,34 +18,124 @@ import {
 
 const WIN_REPO_ROOT = "C:\\ris\\RackInventoryStudio";
 const LINUX_REPO_ROOT = "/home/dev/RackInventoryStudio";
+const MAC_REPO_ROOT = "/Users/dev/RackInventoryStudio";
+const SPACEY_WIN_REPO_ROOT = "C:\\Users\\dev user\\Rack Inventory Studio";
+const SPACEY_LINUX_REPO_ROOT = "/home/dev user/Rack Inventory Studio";
+
+// These tests must prove the cross-platform contract regardless of which OS
+// they happen to run on — expected values are built with the explicit
+// path.win32/path.posix APIs, never the host-bound bare `join` from
+// "node:path", so a test run on Windows cannot accidentally validate itself
+// against the same host-bound bug it's meant to catch.
 
 describe("resolveTargetDir", () => {
-  it("uses a separate target-wdio-plugin directory, never target/", () => {
-    const dir = resolveTargetDir(LINUX_REPO_ROOT);
-    assert.equal(dir, join(LINUX_REPO_ROOT, TARGET_DIR_NAME));
+  it("never uses target/ (the regular, non-wdio-plugin dir)", () => {
+    const dir = resolveTargetDir(LINUX_REPO_ROOT, "linux");
     assert.ok(!dir.endsWith(`${LINUX_REPO_ROOT}/target`));
+  });
+
+  it("win32: produces a backslash-separated path under target-wdio-plugin", () => {
+    const dir = resolveTargetDir(WIN_REPO_ROOT, "win32");
+    assert.equal(dir, win32.join(WIN_REPO_ROOT, TARGET_DIR_NAME));
+    assert.equal(dir, `${WIN_REPO_ROOT}\\target-wdio-plugin`);
+  });
+
+  it("linux: produces a forward-slash-separated path under target-wdio-plugin", () => {
+    const dir = resolveTargetDir(LINUX_REPO_ROOT, "linux");
+    assert.equal(dir, posix.join(LINUX_REPO_ROOT, TARGET_DIR_NAME));
+    assert.equal(dir, `${LINUX_REPO_ROOT}/target-wdio-plugin`);
+  });
+
+  it("darwin: produces a forward-slash-separated path, same as linux", () => {
+    const dir = resolveTargetDir(MAC_REPO_ROOT, "darwin");
+    assert.equal(dir, posix.join(MAC_REPO_ROOT, TARGET_DIR_NAME));
+    assert.equal(dir, `${MAC_REPO_ROOT}/target-wdio-plugin`);
+  });
+
+  it("defaults to process.platform when no platform argument is given", () => {
+    const dir = resolveTargetDir(LINUX_REPO_ROOT);
+    assert.equal(dir, pathApiForCurrentPlatform().join(LINUX_REPO_ROOT, TARGET_DIR_NAME));
+  });
+
+  it("win32: repo roots containing spaces are preserved verbatim", () => {
+    const dir = resolveTargetDir(SPACEY_WIN_REPO_ROOT, "win32");
+    assert.equal(dir, `${SPACEY_WIN_REPO_ROOT}\\target-wdio-plugin`);
+  });
+
+  it("linux: repo roots containing spaces are preserved verbatim", () => {
+    const dir = resolveTargetDir(SPACEY_LINUX_REPO_ROOT, "linux");
+    assert.equal(dir, `${SPACEY_LINUX_REPO_ROOT}/target-wdio-plugin`);
   });
 });
 
 describe("resolveBinaryPath", () => {
-  it("resolves the Windows binary path with .exe", () => {
-    const targetDir = resolveTargetDir(WIN_REPO_ROOT);
+  it("resolves the Windows binary path with .exe using backslashes, even off a POSIX-style target dir", () => {
+    const targetDir = resolveTargetDir(WIN_REPO_ROOT, "win32");
     const binPath = resolveBinaryPath(targetDir, "win32");
     assert.equal(
       binPath,
-      join(WIN_REPO_ROOT, "target-wdio-plugin", "release", "rack-inventory-studio-desktop.exe"),
+      `${WIN_REPO_ROOT}\\target-wdio-plugin\\release\\rack-inventory-studio-desktop.exe`,
     );
   });
 
-  it("resolves the Linux binary path without an extension", () => {
-    const targetDir = resolveTargetDir(LINUX_REPO_ROOT);
+  it("resolves the Linux binary path without an extension, using forward slashes throughout", () => {
+    const targetDir = resolveTargetDir(LINUX_REPO_ROOT, "linux");
     const binPath = resolveBinaryPath(targetDir, "linux");
     assert.equal(
       binPath,
-      join(LINUX_REPO_ROOT, "target-wdio-plugin", "release", "rack-inventory-studio-desktop"),
+      `${LINUX_REPO_ROOT}/target-wdio-plugin/release/rack-inventory-studio-desktop`,
+    );
+    assert.ok(!binPath.endsWith(".exe"));
+  });
+
+  it("resolves the darwin binary path the same way as linux (no .exe, forward slashes)", () => {
+    const targetDir = resolveTargetDir(MAC_REPO_ROOT, "darwin");
+    const binPath = resolveBinaryPath(targetDir, "darwin");
+    assert.equal(
+      binPath,
+      `${MAC_REPO_ROOT}/target-wdio-plugin/release/rack-inventory-studio-desktop`,
+    );
+    assert.ok(!binPath.endsWith(".exe"));
+  });
+
+  it("requesting a platform explicitly produces that platform's separators even when it differs from the host", () => {
+    // Regression test for the historical bug: resolveBinaryPath/resolveTargetDir
+    // used the bare, host-bound `join` from "node:path", so an explicit
+    // platform argument only ever controlled the .exe suffix, never the
+    // separator style — a "linux" request on a Windows host still produced
+    // backslashes. This must hold true independent of process.platform.
+    const linuxTargetDir = resolveTargetDir(LINUX_REPO_ROOT, "linux");
+    const linuxBinPath = resolveBinaryPath(linuxTargetDir, "linux");
+    assert.equal(linuxBinPath.includes("\\"), false, `expected no backslashes, got: ${linuxBinPath}`);
+
+    const winTargetDir = resolveTargetDir(WIN_REPO_ROOT, "win32");
+    const winBinPath = resolveBinaryPath(winTargetDir, "win32");
+    assert.equal(winBinPath.includes("/"), false, `expected no forward slashes, got: ${winBinPath}`);
+  });
+
+  it("win32: paths containing spaces are preserved verbatim", () => {
+    const targetDir = resolveTargetDir(SPACEY_WIN_REPO_ROOT, "win32");
+    const binPath = resolveBinaryPath(targetDir, "win32");
+    assert.equal(
+      binPath,
+      `${SPACEY_WIN_REPO_ROOT}\\target-wdio-plugin\\release\\rack-inventory-studio-desktop.exe`,
+    );
+  });
+
+  it("linux: paths containing spaces are preserved verbatim", () => {
+    const targetDir = resolveTargetDir(SPACEY_LINUX_REPO_ROOT, "linux");
+    const binPath = resolveBinaryPath(targetDir, "linux");
+    assert.equal(
+      binPath,
+      `${SPACEY_LINUX_REPO_ROOT}/target-wdio-plugin/release/rack-inventory-studio-desktop`,
     );
   });
 });
+
+/** Mirrors resolveTargetDir/resolveBinaryPath's own default-platform selection, for the one test that intentionally omits the platform argument. */
+function pathApiForCurrentPlatform() {
+  return process.platform === "win32" ? win32 : posix;
+}
 
 describe("isRegularTargetPath", () => {
   it("rejects a binary path under the regular target/release directory", () => {

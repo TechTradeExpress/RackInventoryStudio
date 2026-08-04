@@ -39,7 +39,7 @@
  * still starts — inert here since the key has no passphrase, matching this
  * stage's explicit exclusion of the SSH-passphrase workflow.
  */
-import { spawn, execFile, type ChildProcess } from "node:child_process";
+import { spawn, execFile, execFileSync, type ChildProcess } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -51,7 +51,7 @@ import {
 import { rm } from "node:fs/promises";
 import { createConnection, createServer } from "node:net";
 import { userInfo } from "node:os";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import { randomBytes } from "node:crypto";
 import { runGit } from "./local-git";
 import { isStrictChildPath } from "./test-environment";
@@ -75,12 +75,112 @@ function execFileP(cmd: string, args: string[]): Promise<{ stdout: string; stder
 }
 
 /**
- * Locates the `sshd` binary. Checked lazily (not at module load) so that
- * importing this module never fails on a machine without sshd — only
- * `startRemote()` (and thus any spec that actually needs SSH) does.
- * Returns null when sshd cannot be found anywhere.
+ * Splits raw discovery-command stdout (from `which`/`where.exe`, possibly
+ * multiple newline-separated matches) into trimmed, non-blank candidate
+ * paths, in the order the command reported them. Pure — no filesystem or
+ * platform access — so it's unit-testable without a real sshd installation.
  */
-export async function findSshd(): Promise<string | null> {
+export function parseCandidateLines(output: string): string[] {
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+/**
+ * Converts an MSYS/Git-Bash-style absolute path (`/c/Windows/...`, as
+ * reported by Git for Windows' `which`) to the native Windows form
+ * (`C:\Windows\...`) that Node's `spawn()` can execute directly on Windows.
+ * Only the drive letter is case-normalized (uppercased); the rest of the
+ * path's casing is preserved verbatim.
+ *
+ * Returns null for anything that isn't a single-drive-letter MSYS path —
+ * in particular, ordinary POSIX paths like `/usr/sbin/sshd` never match
+ * (their first segment is more than one character), so this never
+ * misinterprets a real POSIX path as a Windows drive path.
+ */
+export function convertMsysPathToNative(candidatePath: string): string | null {
+  const match = /^\/([A-Za-z])\/(.*)$/.exec(candidatePath);
+  if (!match) return null;
+  const [, drive, rest] = match;
+  return `${drive.toUpperCase()}:\\${rest.replace(/\//g, "\\")}`;
+}
+
+/**
+ * Returns the first candidate for which `exists` reports true, or null if
+ * none do. `exists` is dependency-injected (defaults to the real
+ * `existsSync`) so candidate prioritization stays unit-testable without
+ * touching the real filesystem.
+ */
+export function selectFirstUsableCandidate(
+  candidates: string[],
+  exists: (candidatePath: string) => boolean = existsSync,
+): string | null {
+  for (const candidate of candidates) {
+    if (exists(candidate)) return candidate;
+  }
+  return null;
+}
+
+/**
+ * Builds the ordered list of Windows sshd candidates to check for existence,
+ * in priority order, from already-fetched raw inputs. Pure — no filesystem
+ * or process access — so the full prioritization logic (not just individual
+ * parsing steps) is unit-testable in isolation:
+ *   1. The well-known native OpenSSH Server location under %WINDIR%/%SystemRoot%
+ *      (never a hardcoded "C:") — installed there by the Windows "OpenSSH Server"
+ *      optional feature.
+ *   2. Native PATH lookup results from `where.exe`, which (unlike Git Bash's
+ *      `which`) always reports native Windows paths — spawnable as-is.
+ *   3. Git Bash's `which` output, last resort, with its MSYS-style lines
+ *      (`/c/Windows/...`) normalized to native paths before use.
+ */
+export function buildWindowsSshdCandidates(
+  systemRoot: string | null,
+  whereOutput: string,
+  whichOutput: string,
+): string[] {
+  const candidates: string[] = [];
+  if (systemRoot) {
+    // Always path.win32.join, never the bare (host-bound) `join` — this
+    // builds a *Windows* path regardless of which host runs this function
+    // (it must also produce correct output under unit tests running on
+    // Linux CI, not just when actually running on Windows).
+    candidates.push(win32.join(systemRoot, "System32", "OpenSSH", "sshd.exe"));
+  }
+  candidates.push(...parseCandidateLines(whereOutput));
+  candidates.push(...parseCandidateLines(whichOutput).map((line) => convertMsysPathToNative(line) ?? line));
+  return candidates;
+}
+
+/**
+ * Windows sshd discovery: fetches the raw inputs (env var, `where.exe`,
+ * Git Bash's `which` — each tolerant of failing/being unavailable) and
+ * delegates prioritization to `buildWindowsSshdCandidates`, then returns the
+ * first candidate that actually exists on disk.
+ */
+async function findSshdWindows(): Promise<string | null> {
+  const systemRoot = process.env["WINDIR"] ?? process.env["SystemRoot"] ?? null;
+
+  let whereOutput = "";
+  try {
+    whereOutput = (await execFileP("where.exe", ["sshd"])).stdout;
+  } catch {
+    // where.exe found nothing (or isn't available) — fall through
+  }
+
+  let whichOutput = "";
+  try {
+    whichOutput = (await execFileP("which", ["sshd"])).stdout;
+  } catch {
+    // Git Bash's `which` found nothing (or isn't available) — fall through
+  }
+
+  return selectFirstUsableCandidate(buildWindowsSshdCandidates(systemRoot, whereOutput, whichOutput));
+}
+
+/** POSIX (Linux/macOS) sshd discovery — unchanged from the original, host-native behavior. */
+async function findSshdPosix(): Promise<string | null> {
   try {
     const { stdout } = await execFileP("which", ["sshd"]);
     const path = stdout.trim();
@@ -92,6 +192,116 @@ export async function findSshd(): Promise<string | null> {
     if (existsSync(candidate)) return candidate;
   }
   return null;
+}
+
+/**
+ * Locates the `sshd` binary, returning a path directly usable by Node's
+ * `spawn()` on the current platform. Checked lazily (not at module load) so
+ * that importing this module never fails on a machine without sshd — only
+ * `startRemote()` (and thus any spec that actually needs SSH) does. Returns
+ * null when sshd cannot be found anywhere — callers must treat that as a
+ * hard failure, not a skip (see startRemote()'s doc comment).
+ */
+export async function findSshd(): Promise<string | null> {
+  return process.platform === "win32" ? findSshdWindows() : findSshdPosix();
+}
+
+// ── Private key permissions ───────────────────────────────────────────────────
+
+/**
+ * Pure: builds the `icacls` argument list that strips inherited ACEs from
+ * `keyPath` and grants Full Control to exactly (and only) `username`. No
+ * Administrator privilege is required — a user can always re-ACL a file
+ * they own.
+ */
+export function buildWindowsAclArgs(keyPath: string, username: string): string[] {
+  return [keyPath, "/inheritance:r", "/grant:r", `${username}:F`];
+}
+
+/**
+ * Restricts a private key file (host key or client identity) to the current
+ * user only, so OpenSSH will load it instead of rejecting it as too
+ * permissive.
+ *
+ * `chmodSync`'s POSIX permission bits don't map onto NTFS ACLs — a freshly
+ * created file under a temp directory can inherit broader ACEs from its
+ * parent (observed in practice as an unresolvable `UNKNOWN\UNKNOWN` SID),
+ * and Win32 OpenSSH's own strict permission check rejects that outright
+ * ("Bad permissions" / "This private key will be ignored" / ultimately
+ * "no hostkeys available -- exiting" for the host key). `icacls` operates on
+ * the real ACL and is what actually satisfies that check; `chmod 600`
+ * remains exactly what POSIX sshd/ssh expect, unchanged from before.
+ *
+ * `platform`/`username`/`runIcacls`/`chmod` are all injectable so the
+ * platform branch and the exact command constructed are unit-testable
+ * without touching a real filesystem or requiring sshd/icacls to actually
+ * be present.
+ */
+export function securePrivateKeyFile(
+  keyPath: string,
+  options: {
+    platform?: NodeJS.Platform;
+    username?: string;
+    runIcacls?: (args: string[]) => void;
+    chmod?: (path: string, mode: number) => void;
+  } = {},
+): void {
+  const platform = options.platform ?? process.platform;
+  if (platform === "win32") {
+    const runIcacls =
+      options.runIcacls ??
+      ((args: string[]) => {
+        execFileSync("icacls", args, { stdio: "ignore" });
+      });
+    runIcacls(buildWindowsAclArgs(keyPath, options.username ?? userInfo().username));
+  } else {
+    (options.chmod ?? chmodSync)(keyPath, 0o600);
+  }
+}
+
+// ── sshd_config generation ───────────────────────────────────────────────────
+
+export interface SshdConfigOptions {
+  port: number;
+  hostKeyPath: string;
+  authorizedKeysPath: string;
+  pidFilePath: string;
+  platform?: NodeJS.Platform;
+}
+
+/**
+ * Builds the fixture's `sshd_config` contents. Pure — takes already-resolved
+ * paths/port, no filesystem or process access — so the platform-conditional
+ * directive logic is fully unit-testable.
+ *
+ * `UsePAM no` is POSIX/PAM-only: Win32 OpenSSH doesn't recognize the `UsePAM`
+ * directive at all and logs "Unsupported option UsePAM" if it's present, so
+ * it's omitted entirely on Windows rather than merely set to a no-op value.
+ * Every other directive is identical on both platforms.
+ */
+export function buildSshdConfig(options: SshdConfigOptions): string {
+  const platform = options.platform ?? process.platform;
+  const lines = [
+    `Port ${options.port}`,
+    "ListenAddress 127.0.0.1",
+    `HostKey ${options.hostKeyPath}`,
+    `AuthorizedKeysFile ${options.authorizedKeysPath}`,
+    "PubkeyAuthentication yes",
+    "PasswordAuthentication no",
+    "KbdInteractiveAuthentication no",
+  ];
+  if (platform !== "win32") {
+    lines.push("UsePAM no");
+  }
+  lines.push(
+    "StrictModes no",
+    `PidFile ${options.pidFilePath}`,
+    "AllowTcpForwarding no",
+    "X11Forwarding no",
+    "LogLevel ERROR",
+    "",
+  );
+  return lines.join("\n");
 }
 
 // ── Port + readiness ──────────────────────────────────────────────────────────
@@ -139,6 +349,30 @@ function waitForPortOpen(port: number, timeoutMs: number): Promise<void> {
   });
 }
 
+/**
+ * Races a readiness promise (normally `waitForPortOpen`) against the child
+ * process's own `error` event, so a spawn failure — e.g. a discovered path
+ * that stopped existing or isn't executable between discovery and spawn —
+ * surfaces immediately with its original error preserved as `cause`, instead
+ * of silently waiting out the full readiness timeout and reporting a generic
+ * "never became reachable" message that would mask the real cause. Exported
+ * so this behavior is unit-testable with a deliberately-unspawnable path,
+ * without depending on a real sshd installation or waiting out a real
+ * timeout.
+ */
+export function raceSpawnAgainstReadiness(
+  child: ChildProcess,
+  spawnedPath: string,
+  readinessPromise: Promise<void>,
+): Promise<void> {
+  const spawnErrorPromise = new Promise<never>((_resolve, reject) => {
+    child.once("error", (error) => {
+      reject(new Error(`[git-remote] failed to spawn sshd at "${spawnedPath}": ${error.message}`, { cause: error }));
+    });
+  });
+  return Promise.race([readinessPromise, spawnErrorPromise]);
+}
+
 // ── SSH remote server ─────────────────────────────────────────────────────────
 
 export interface SshRemoteServer {
@@ -184,9 +418,12 @@ function resolveRunRoot(): string {
 export async function startRemote(): Promise<SshRemoteServer> {
   const sshdPath = await findSshd();
   if (!sshdPath) {
+    const checked =
+      process.platform === "win32"
+        ? "checked %WINDIR%\\System32\\OpenSSH\\sshd.exe, `where.exe sshd`, and `which sshd`"
+        : "checked PATH and /usr/sbin, /sbin, /usr/local/sbin";
     throw new Error(
-      "[git-remote] sshd was not found (checked PATH and /usr/sbin, /sbin, /usr/local/sbin). " +
-        "Install OpenSSH server to run the SSH-remote WDIO specs.",
+      `[git-remote] sshd was not found (${checked}). ` + "Install OpenSSH server to run the SSH-remote WDIO specs.",
     );
   }
 
@@ -205,42 +442,26 @@ export async function startRemote(): Promise<SshRemoteServer> {
   const authorizedKeysPath = join(workDir, "authorized_keys");
   const sshdConfigPath = join(workDir, "sshd_config");
   const pidFilePath = join(workDir, "sshd.pid");
+  const username = userInfo().username;
 
   log("generating ephemeral host + client ed25519 keypairs (no passphrase)");
   await execFileP("ssh-keygen", ["-t", "ed25519", "-f", hostKeyPath, "-N", "", "-q"]);
   await execFileP("ssh-keygen", ["-t", "ed25519", "-f", clientKeyPath, "-N", "", "-q"]);
-  chmodSync(clientKeyPath, 0o600);
-  chmodSync(hostKeyPath, 0o600);
+  securePrivateKeyFile(clientKeyPath, { username });
+  securePrivateKeyFile(hostKeyPath, { username });
 
   const publicKey = readFileSync(`${clientKeyPath}.pub`, "utf8");
   writeFileSync(authorizedKeysPath, publicKey, { mode: 0o600 });
 
   const port = await findFreePort();
-  const username = userInfo().username;
 
   // StrictModes off: this fixture's run-root directories are created with
   // whatever permissive default mkdirSync/mkdtempSync produce, which
   // StrictModes' home/authorized_keys ownership-and-permission checks can
   // reject depending on the host's umask — irrelevant here since this sshd
   // only ever accepts connections from the one ephemeral key generated
-  // above. UsePAM off avoids depending on the host's PAM stack for a
-  // same-user, key-only, localhost-only login.
-  const sshdConfig = [
-    `Port ${port}`,
-    "ListenAddress 127.0.0.1",
-    `HostKey ${hostKeyPath}`,
-    `AuthorizedKeysFile ${authorizedKeysPath}`,
-    "PubkeyAuthentication yes",
-    "PasswordAuthentication no",
-    "KbdInteractiveAuthentication no",
-    "UsePAM no",
-    "StrictModes no",
-    `PidFile ${pidFilePath}`,
-    "AllowTcpForwarding no",
-    "X11Forwarding no",
-    "LogLevel ERROR",
-    "",
-  ].join("\n");
+  // above.
+  const sshdConfig = buildSshdConfig({ port, hostKeyPath, authorizedKeysPath, pidFilePath });
   writeFileSync(sshdConfigPath, sshdConfig);
 
   log(`starting sshd on 127.0.0.1:${port} (workDir=${workDir})`);
@@ -255,7 +476,7 @@ export async function startRemote(): Promise<SshRemoteServer> {
     log(`sshd exited (code=${code}, signal=${signal})`);
   });
 
-  await waitForPortOpen(port, 10_000);
+  await raceSpawnAgainstReadiness(child, sshdPath, waitForPortOpen(port, 10_000));
   log(`sshd ready on 127.0.0.1:${port}`);
 
   return {
@@ -268,11 +489,38 @@ export async function startRemote(): Promise<SshRemoteServer> {
   };
 }
 
+// ── Shell-safe env file serialization ────────────────────────────────────────
+
+/**
+ * Quotes `value` as a single POSIX shell word that `source` (any POSIX-
+ * compliant shell, including Git-for-Windows' bash) will parse back to
+ * exactly `value`, byte-for-byte — backslashes, spaces, `$`, backticks, and
+ * double quotes all included. Single-quoting suppresses *all* expansion
+ * inside a shell word; the only character that cannot appear literally
+ * between single quotes is the single quote itself, handled with the
+ * standard POSIX idiom of closing the quote, emitting a backslash-escaped
+ * one, then reopening: `it's` -> `'it'\''s'`.
+ *
+ * Every value written into ssh-remote-command.env must go through this —
+ * `configureSsh()` is the only writer, and this is the only quoting logic,
+ * so no call site hand-rolls its own escaping.
+ */
+export function shQuote(value: string): string {
+  return "'" + value.replace(/'/g, "'\\''") + "'";
+}
+
 /**
  * Writes the env file `support/ssh-wrapper.sh` reads at every ssh invocation
  * so the already-running app's git subprocesses can reach this fixture's
  * sshd — see this module's own doc comment for the full chain. Idempotent:
  * safe to call again if a spec re-targets a new server.
+ *
+ * Values are `shQuote()`d before being written: `support/ssh-wrapper.sh`
+ * loads this file via `source`, i.e. as bash syntax, not as a plain
+ * key/value format — an unquoted Windows path like
+ * `C:\Users\Test\id_ed25519` would have its backslashes consumed as bash
+ * escape characters during that `source`, corrupting the path before `ssh`
+ * ever sees it.
  */
 export function configureSsh(server: SshRemoteServer): void {
   const runRoot = resolveRunRoot();
@@ -281,7 +529,7 @@ export function configureSsh(server: SshRemoteServer): void {
   const configPath = join(gitDir, "ssh-remote-command.env");
   writeFileSync(
     configPath,
-    `RIS_SSH_REMOTE_PORT=${server.port}\nRIS_SSH_REMOTE_IDENTITY=${server.identityPath}\n`,
+    `RIS_SSH_REMOTE_PORT=${shQuote(String(server.port))}\nRIS_SSH_REMOTE_IDENTITY=${shQuote(server.identityPath)}\n`,
   );
   log(`wrote ssh-wrapper config -> ${configPath} (port=${server.port})`);
 }

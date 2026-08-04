@@ -24,7 +24,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve, join, win32, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -35,15 +35,25 @@ export const BINARY_NAME = "rack-inventory-studio-desktop";
 
 // ── Pure helpers (unit tested — no process spawned, no real build) ─────────────
 
+/**
+ * Selects the path implementation matching an explicit target platform,
+ * independent of the host OS running this code — `join` from bare
+ * "node:path" is bound to the host at import time, so it cannot be used
+ * wherever a `platform` argument is meant to control the output format.
+ */
+function pathApiForPlatform(platform) {
+  return platform === "win32" ? win32 : posix;
+}
+
 /** Absolute path to the wdio-plugin CARGO_TARGET_DIR, given the repo root. */
-export function resolveTargetDir(repoRoot) {
-  return join(repoRoot, TARGET_DIR_NAME);
+export function resolveTargetDir(repoRoot, platform = process.platform) {
+  return pathApiForPlatform(platform).join(repoRoot, TARGET_DIR_NAME);
 }
 
 /** Absolute path to the built binary, given the target dir and platform. */
 export function resolveBinaryPath(targetDir, platform = process.platform) {
   const name = platform === "win32" ? `${BINARY_NAME}.exe` : BINARY_NAME;
-  return join(targetDir, "release", name);
+  return pathApiForPlatform(platform).join(targetDir, "release", name);
 }
 
 /**

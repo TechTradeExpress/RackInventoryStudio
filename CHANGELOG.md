@@ -8,12 +8,11 @@ this section is meant to be used and split going forward.
 
 ---
 
-## v0.1.0-beta.3 — Unreleased
+## v0.1.0-beta.3 — 2026-08-01
 
-_Prepared during BRSP Stage B5A (Release Preparation), not yet tagged. Scope
-reconstructed from the `roadmap/beta3` PR sequence (`v0.1.0-beta.2..roadmap/beta3`,
-18 commits, PRs #119–#135) — see `docs/BETA3_ROADMAP.md` for the full PR-by-PR
-history and rationale._
+_Scope reconstructed from the `roadmap/beta3` PR sequence
+(`v0.1.0-beta.2..roadmap/beta3`, 18 commits, PRs #119–#135) — see
+`docs/BETA3_ROADMAP.md` for the full PR-by-PR history and rationale._
 
 ### Added
 
