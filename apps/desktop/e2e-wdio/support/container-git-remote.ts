@@ -90,6 +90,7 @@ import { lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:
 import { lstat, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { shQuote, securePrivateKeyFile as securePrivateKeyFileImpl } from "./git-remote";
+import { runGit } from "./local-git";
 import { isStrictChildPath } from "./test-environment";
 
 function log(msg: string): void {
@@ -1744,6 +1745,11 @@ export async function cleanupOrphanedContainers(
 export interface ContainerRemoteFixtureHandle {
   createBareRemote(label: string): Promise<string>;
   buildRemoteUrl(bareRepoPath: string): string;
+  /** Stage 3F.5.5 — the container counterpart to git-remote.ts's
+   * `seedBareRemoteFromLocalRepo`, needed by specs (e.g. git-clone-workflows)
+   * that require remote content to exist *before* the application acts on
+   * it. See `seedContainerBareRemoteFromLocalRepo`'s own doc comment. */
+  seedBareRemote(localRepoPath: string, bareRepoPath: string, branch: string): Promise<void>;
   getRemoteHeadCommit(bareRepoPath: string, ref?: string): Promise<string>;
   getRemoteCommitCount(bareRepoPath: string, ref?: string): Promise<number>;
   pushSimulatedRemoteCommit(bareRepoPath: string, branch: string, fileName: string, message: string): Promise<string>;
@@ -1829,6 +1835,8 @@ export async function createContainerRemoteFixture(
   return {
     createBareRemote: (label) => createContainerBareRemote(server, label),
     buildRemoteUrl: (bareRepoPath) => buildContainerSshRemoteUrl(bareRepoPath),
+    seedBareRemote: (localRepoPath, bareRepoPath, branch) =>
+      seedContainerBareRemoteFromLocalRepo(server, localRepoPath, bareRepoPath, branch),
     getRemoteHeadCommit: (bareRepoPath, ref) => getContainerRemoteHeadCommit(server, bareRepoPath, ref),
     getRemoteCommitCount: (bareRepoPath, ref) => getContainerRemoteCommitCount(server, bareRepoPath, ref),
     pushSimulatedRemoteCommit: (bareRepoPath, branch, fileName, message) =>
@@ -1856,6 +1864,47 @@ export async function createContainerBareRemote(
   const script = `mkdir -p ${bareDirQ} && git init --bare -q ${bareDirQ} && chown -R git:git ${bareDirQ}`;
   await execDocker(server.distro, ["exec", server.containerName, "sh", "-c", script]);
   return bareDir;
+}
+
+/**
+ * Seeds an otherwise-empty container-hosted bare remote with `localRepoPath`'s
+ * current branch — the container counterpart to git-remote.ts's
+ * `seedBareRemoteFromLocalRepo` (Stage 3F.5.5). That function pushes
+ * directly to the bare repo's filesystem path because the native fixture's
+ * remote is Windows-local; this container's bare remote is only reachable
+ * over SSH, so seeding here uses the exact same real SSH transport the
+ * application itself uses (`GIT_SSH_COMMAND` -> `ssh-wrapper.sh` -> this
+ * run's ephemeral identity/port, already wired up by `configureContainerSsh`
+ * by the time a spec calls this) — test-side only, a real `git push`, never
+ * a call into the application.
+ *
+ * Mirrors `seedBareRemoteFromLocalRepo`'s own HEAD-fix rationale exactly:
+ * `git init --bare` (`createContainerBareRemote`) sets the bare repo's
+ * symbolic HEAD to whatever `init.defaultBranch` resolves to inside the
+ * container image, independent of `branch` — left to chance, a mismatched
+ * HEAD produces a `git clone` that exits 0 but checks out nothing (see that
+ * function's own doc comment for the full failure mode). Fixed explicitly
+ * here via `docker exec`, administrative per this module's own "Repository
+ * administration may use docker exec" contract.
+ */
+export async function seedContainerBareRemoteFromLocalRepo(
+  server: ContainerSshRemoteServer,
+  localRepoPath: string,
+  bareRepoPath: string,
+  branch: string,
+): Promise<void> {
+  const remoteUrl = buildContainerSshRemoteUrl(bareRepoPath);
+  await runGit(localRepoPath, ["push", "-q", remoteUrl, `${branch}:${branch}`]);
+  await execDocker(server.distro, [
+    "exec",
+    server.containerName,
+    "git",
+    "-C",
+    bareRepoPath,
+    "symbolic-ref",
+    "HEAD",
+    `refs/heads/${branch}`,
+  ]);
 }
 
 export async function getContainerRemoteHeadCommit(
