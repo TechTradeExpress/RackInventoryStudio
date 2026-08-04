@@ -3825,6 +3825,158 @@ shape.
 
 **STAGE 3F.5.4-R5 COMPLETE — READY FOR MIGRATION.**
 
+### Stage 3F.5.5 — Migrate remaining Git-over-SSH WDIO specs (2026-08-04)
+
+Migrates the two remaining Git-over-SSH specs — `git-clone-workflows.e2e.ts`
+(Stage 3F.3) and `git-diverged-pull.e2e.ts` (Stage 3F.4) — to the
+containerized fixture, alongside `git-remote-workflows.e2e.ts` (already
+migrated, Stage 3F.5.4). All three now support
+`RIS_E2E_GIT_REMOTE_PROVIDER=container`/`native` identically. Scenario
+meaning is unchanged in both migrated specs; the application still performs
+every clone/pull itself.
+
+#### Shared adapter
+
+`support/git-remote-fixture.ts` (new) extracts the provider-selection
+pattern `git-remote-workflows.e2e.ts` already proved — `resolveGitRemoteProvider()`,
+atomic native/container setup, `FixtureCleanupResult` mapping — into
+`createGitRemoteFixture()`, avoiding a third near-identical copy of that
+~40-line block. `git-remote-workflows.e2e.ts` itself is deliberately left
+untouched: it is already migrated and validated across R1-R5, and
+retrofitting already-working code for uniformity alone was judged not worth
+the diff. The module has no WebdriverIO imports and adds no scenario
+assertions — it is a thin `GitRemoteFixture`-shaped pass-through to each
+provider's own already-hardened lifecycle (`createContainerRemoteFixture()`
+for container; `startRemote()`/`configureSsh()`/`cleanup()` for native).
+
+#### Clone remote seeding
+
+`git-clone-workflows.e2e.ts` needs remote content to exist *before* the
+application clones it (unlike the other two specs, which start from an
+empty remote). The native fixture already had `seedBareRemoteFromLocalRepo`
+(a local-filesystem push, since its bare remote is Windows-local). The
+container's bare remote is only reachable over SSH, so the new
+`seedContainerBareRemoteFromLocalRepo` (support/container-git-remote.ts)
+seeds it with a real `git push` over the exact same SSH transport the
+application itself uses (`GIT_SSH_COMMAND` → `ssh-wrapper.sh` → this run's
+ephemeral identity/port, already configured by the time a spec calls it),
+then fixes up the bare repo's symbolic HEAD via `docker exec` — mirroring
+`seedBareRemoteFromLocalRepo`'s own HEAD-fix rationale exactly (`git init
+--bare` sets HEAD independent of the pushed branch name; left uncorrected,
+`git clone` exits 0 but checks out nothing). Both are exposed uniformly as
+`GitRemoteFixture.seedBareRemote()`.
+
+#### Genuine divergence, provider-neutral
+
+`git-diverged-pull.e2e.ts` needed no new fixture capability — commit A is
+pushed through the app (already provider-neutral), local-only commit B is a
+plain test-side `runGit` (unaffected by provider), and remote-only commit C
+already had a container equivalent (`pushSimulatedContainerRemoteCommit`).
+The one deliberate change: the pre-pull divergence-confirmation probe fetch
+now targets `fixture.buildRemoteUrl(bareDir)` (a real SSH URL, reachable
+from Windows for either provider) instead of the raw `bareDir` filesystem
+path (only ever reachable directly for native — the container's bare
+remote lives inside the container's own filesystem). A `git fetch` over
+SSH brings the same object into the local object database without
+touching `refs/remotes/origin/<branch>`, identical in effect to the
+local-filesystem fetch this scenario originally used — only the transport
+differs. The resulting graph is still genuine divergence (A→B local,
+A→C remote, neither an ancestor of the other), proven via the same
+`isAncestor()` checks as before, for either provider.
+
+#### Path-domain discipline
+
+No Windows path is ever passed to a command running inside the container,
+and no container path is ever passed to Windows Git as a remote URL —
+every container-facing operation goes through `buildContainerSshRemoteUrl`
+(an SSH URL, Windows-safe) or `docker exec` (administrative, never
+touching the SSH port the application itself uses), exactly as
+`container-git-remote.ts`'s own "Repository administration may use docker
+exec; application Git operations must use SSH from Windows" contract
+already required. Neither migrated spec, nor the new shared adapter, ever
+sees a raw container server object, a Docker/WSL call, or a
+provider-specific SSH configuration detail.
+
+#### Default provider
+
+`resolveGitRemoteProvider()`'s default remains `native` (unset →
+`native`). This stage's own plan/documentation does not commit to flipping
+the default as part of this migration — only to migrating the two
+remaining specs and validating both providers — so the default flip is
+deliberately deferred to a dedicated future stage, per this stage's own
+"do not change it here if a later dedicated stage is implied" guidance.
+`RIS_E2E_GIT_REMOTE_PROVIDER=container`/`native` both remain fully
+supported, explicit overrides for all three specs.
+
+#### Individual real-host validation
+
+Container provider, one fresh-process run each: `git-remote-workflows`
+(26-42s across multiple runs this stage), `git-clone-workflows` (23-40s),
+`git-diverged-pull` (20-37s) — all passed, teardown conclusively
+successful each time.
+
+Native provider: `git-remote-workflows` (unmodified) passed cleanly
+(14-20s, multiple runs). `git-diverged-pull` passed cleanly on the first
+attempt (9s). `git-clone-workflows` hung at the WDIO/Tauri-service's own
+pre-spec diagnostics call (`get_window_states` — generic session-init
+infrastructure, before this spec's own `before()` hook or any of its code
+ever runs) on **every** attempt, including a controlled baseline run of
+the **original, pre-migration** spec file (temporarily restored via `git
+stash`) — which hung identically. This directly proves the hang is a
+pre-existing, host-specific condition unrelated to this stage's migration,
+not a regression it introduced. See "Remaining risks" below.
+
+#### Combined five-iteration container matrix
+
+`RIS_E2E_GIT_REMOTE_PROVIDER=container`, all three specs, five consecutive
+iterations, fresh fixture per spec per iteration, continue-on-failure so
+every result is recorded: **15/15 spec executions passed, 5/5 iterations
+clean** (each spec's own run consistently 35-42s). Independently verified
+after the matrix: `docker ps -a --filter label=ris.e2e.fixture=git-ssh`
+empty, no `sleep 86400` keep-alive process, all 15 run-specific work
+directories (and their `ssh-remote-command.env` files) removed from the OS
+temp root.
+
+One unrelated container was found and removed during this validation
+session: an orphan from an earlier, malformed matrix-invocation attempt
+(`run-wdio-e2e.mjs` only honors its *last* `--spec` flag when passed
+multiple times — an invocation-syntax mistake in this session's own
+validation tooling, not a fixture defect) that was force-killed via
+`taskkill` mid-run before its `after()` cleanup hook could ever execute —
+the same category of collateral any forceful process termination produces,
+unrelated to the fixture's own teardown correctness (which the 15 clean
+matrix runs, each independently verified, already established).
+
+#### Remaining native-fixture technical debt
+
+Unchanged from Stage 3F.5.4-R5: `support/git-remote.ts` has three
+`existsSync()`-as-authority call sites with the same correctness gap
+already fixed in the container fixture across R4/R5, not repaired here
+(out of scope for a migration stage). Newly observed this stage: on this
+host, `git-clone-workflows.e2e.ts` under the native provider hits a
+reproducible WDIO/Tauri driver-launch hang, confirmed present in the
+pre-migration original file — a pre-existing condition, not introduced by
+this migration, but real and blocking for that one spec/provider
+combination specifically until investigated. Neither issue blocks the
+container provider, which is now fully validated across all three specs.
+
+#### Native fixture retirement recommendation
+
+Not yet — the native fixture remains the sole validated path for
+`git-clone-workflows` on this host (its container-provider path is fully
+proven; its native-provider path is currently blocked by the driver-launch
+flake above, not by application/fixture logic). Retiring the native
+fixture is reasonable only after: (1) the git-clone-workflows/native
+driver-launch flake is root-caused and resolved or confirmed
+environment-specific, (2) a dedicated default-provider-switch stage flips
+`resolveGitRemoteProvider()`'s default to `container` with native
+demonstrated stable as the override, and (3) CI (not just this local host)
+validates the container path. This stage's own scope is migration and
+validation, not fixture retirement — consistent with its own explicit
+non-objective.
+
+**STAGE 3F.5.5 COMPLETE — READY FOR NATIVE FIXTURE RETIREMENT DECISION.**
+
 ### Not proposed as a numbered coverage stage
 
 - **CI execution / full WDIO in CI** — tracked separately in "Desktop E2E

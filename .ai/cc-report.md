@@ -1,121 +1,215 @@
 ## Summary
 
-Stage 3F.5.4-R5 RP: Stage 3F.5.4-R4's own report explicitly flagged, as a
-deliberately-unfixed follow-up, that `removeWorkDirImpl`'s
-`!existsSync(workDir) → "already-absent"` had the identical correctness
-gap R4 had just closed for SSH config. This RP closes that gap, plus a
-second, smaller one: a valid time-of-check/time-of-use race between a
-successful `lstat` and the `remove` call that follows it, where the
-correct final state (resource gone) was previously reported as a cleanup
-*failure* rather than idempotent success.
+Stage 3F.5.5 NSP: migrated the two remaining Git-over-SSH WDIO specs
+(`git-clone-workflows.e2e.ts`, `git-diverged-pull.e2e.ts`) to support the
+containerized Git-over-SSH fixture alongside the native fixture, completing
+the migration `git-remote-workflows.e2e.ts` started in Stage 3F.5.4. All
+three specs now support `RIS_E2E_GIT_REMOTE_PROVIDER=container`/`native`
+identically, with scenario meaning unchanged in both migrated specs.
 
-Fixed: `removeWorkDirImpl` renamed to the exported `removeContainerWorkDir`
-(mirroring `clearContainerSshConfig`'s naming/export rationale) and
-rewritten to use `lstat` instead of `existsSync`, with the same
-`isNodeErrorWithCode`-based classification — only a thrown `ENOENT`
-produces `"already-absent"`; `EACCES`, `EPERM`, `EBUSY`, `EIO`, `ENOTDIR`,
-and an error with no recognized code at all are all rethrown unchanged. An
-async `WorkDirFsDeps` (`{lstat, remove}`) injectable seam mirrors
-`SshConfigFsDeps`'s shape for deterministic testing. Both
-`clearContainerSshConfig` and `removeContainerWorkDir` now also wrap their
-`remove` call in the same ENOENT-aware try/catch as their `lstat` call — a
-`remove` that throws `ENOENT` (the resource was removed concurrently
-between inspection and removal) is idempotent success, not a failure.
-`RIS_E2E_RUN_ROOT` validation, `isStrictChildPath`, and the recursive
-removal retry behavior are all preserved exactly; `cleanupContainerRemote()`
-and `rollbackPartialContainerFixture()` needed no changes — both already
-treated a thrown error as authoritative failure and now simply receive
-more precisely classified results.
+Added: `support/git-remote-fixture.ts`, a shared provider-neutral adapter
+(`createGitRemoteFixture()`) extracting the provider-selection pattern
+`git-remote-workflows.e2e.ts` already proved, avoiding a third near-identical
+copy for the two new specs. `git-remote-workflows.e2e.ts` itself is left
+untouched (already migrated/validated; not worth retrofitting for
+uniformity alone). Added `seedContainerBareRemoteFromLocalRepo`
+(`support/container-git-remote.ts`) — the container counterpart to
+`seedBareRemoteFromLocalRepo`, seeding a container-hosted bare remote via a
+real SSH push (the same transport the application itself uses) since,
+unlike the native fixture's bare remote, the container's isn't reachable as
+a local filesystem path. `git-diverged-pull.e2e.ts` needed no new fixture
+capability, only one path-domain fix: its pre-pull divergence probe fetch
+now targets the fixture's SSH remote URL instead of a raw bare-repo
+filesystem path, making it reachable for either provider while remaining
+functionally identical for native.
 
-A full `existsSync()` sweep confirms `container-git-remote.ts` now has
-zero remaining authoritative-absence `existsSync()` calls. Three
-equivalent-defect call sites remain in `support/git-remote.ts` (the native
-fixture's `clearSshConfig`/`cleanup`) — explicitly out of this RP's scope,
-documented as an observation only.
+Validated individually (container: all three specs pass, 20-42s each) and
+as a combined stability matrix (`RIS_E2E_GIT_REMOTE_PROVIDER=container`,
+5 iterations × 3 specs): **15/15 spec executions passed, 5/5 iterations
+clean**, no fixture residue afterward. Native-provider validation surfaced
+one real finding: `git-clone-workflows` hangs reproducibly at a
+pre-spec WDIO/Tauri driver-diagnostics call on this host — confirmed,
+via a controlled baseline run of the unmodified pre-migration file, to be
+a pre-existing condition unrelated to this migration (`git-diverged-pull`
+and `git-remote-workflows` both pass cleanly under native).
 
-**Verdict: STAGE 3F.5.4-R5 COMPLETE — READY FOR MIGRATION.**
+**Verdict: STAGE 3F.5.5 COMPLETE — READY FOR NATIVE FIXTURE RETIREMENT DECISION.**
 
 ## Files changed
 
-- `apps/desktop/e2e-wdio/support/container-git-remote.ts` —
-  `clearContainerSshConfig`'s `remove` step wrapped in ENOENT-aware
-  try/catch (TOCTOU fix); `WorkDirFsDeps`/`defaultWorkDirFsDeps`; new
-  exported `removeContainerWorkDir` replacing the private
-  `removeWorkDirImpl`, using `lstat`/`isNodeErrorWithCode` classification
-  with the same TOCTOU handling on removal; `defaultContainerOpsDeps.
-  removeWorkDir` rewired to it. `existsSync` import removed (no longer
-  used); `lstat` added to the `node:fs/promises` import.
-- `apps/desktop/e2e-wdio/support/container-git-remote.test.ts` — grew from
-  194 to 212 tests: full `removeContainerWorkDir` dependency-injected
-  classification (refused/removed/ENOENT/EACCES/EPERM/EIO/ENOTDIR/no-code
-  on inspection, ENOENT/EPERM/EBUSY on removal), two SSH-config TOCTOU
-  cases, and cleanup/rollback integration tests including two that wire
-  the *real* `removeContainerWorkDir` into a real `cleanupContainerRemote`/
-  `rollbackPartialContainerFixture` call to prove the TOCTOU-ENOENT path
-  end to end.
-- `docs/E2E_WDIO_PLAN.md` — new "Stage 3F.5.4-R5" section, including the
-  `existsSync()` sweep result.
-- `apps/desktop/e2e-wdio/specs/git-remote-workflows.e2e.ts` — unchanged;
-  no type contract it references changed shape.
+- `apps/desktop/e2e-wdio/support/git-remote-fixture.ts` (new) —
+  `GitRemoteFixture` interface, `createGitRemoteFixture()`. No WebdriverIO
+  imports, no scenario assertions; a thin pass-through to each provider's
+  own already-hardened lifecycle.
+- `apps/desktop/e2e-wdio/support/container-git-remote.ts` — new
+  `seedContainerBareRemoteFromLocalRepo` (real SSH push + `docker exec`
+  HEAD fix); `seedBareRemote` added to `ContainerRemoteFixtureHandle` and
+  wired into `createContainerRemoteFixture()`; `runGit` (from
+  `./local-git`) imported for the push.
+- `apps/desktop/e2e-wdio/specs/git-clone-workflows.e2e.ts` — migrated to
+  `createGitRemoteFixture()`/`assertFixtureCleanupSucceeded`; all
+  `server.*`/direct `git-remote.ts` calls replaced with `fixture.*`
+  equivalents. Scenario bodies and assertions unchanged.
+- `apps/desktop/e2e-wdio/specs/git-diverged-pull.e2e.ts` — same migration
+  pattern; the probe-fetch step now uses `fixture.buildRemoteUrl(bareDir)`
+  instead of the raw bare-repo path.
+- `docs/E2E_WDIO_PLAN.md` — new "Stage 3F.5.5" section.
 
 ## Tests
 
 - `pnpm --filter @rack-inventory-studio/desktop test` — 1230 tests, 59
-  files, all passed (was 1212 before this RP; +18 net, all in
-  `container-git-remote.test.ts`, which itself grew from 194 to 212).
-- `pnpm --filter @rack-inventory-studio/desktop typecheck` — clean.
+  files, all passed (unchanged from Stage 3F.5.4-R5 — this stage's changes
+  are entirely in `e2e-wdio/`, not covered by the vitest suite's file
+  selection beyond `container-git-remote.test.ts`, which is itself
+  unaffected by this stage's additions — see rationale below).
+- `pnpm --filter @rack-inventory-studio/desktop typecheck` — clean (covers
+  `src/` only; `e2e-wdio/` has no dedicated `tsc` gate in this repo, same
+  as every prior Git-SSH stage).
 - `pnpm install --frozen-lockfile` / `pnpm check:version` /
   `pnpm check:hygiene` (8/8) / `pnpm test:scripts` (237/237) — all clean.
 - `git diff --check` — clean.
 - `cargo fmt --all -- --check` / `cargo clippy --workspace -- -D warnings`
   / `cargo test --workspace` — all clean (no Rust files touched).
-- **Real-host validation** (standalone script against real Docker/filesystem,
-  deleted before commit): a real container fixture's work directory and
-  ephemeral SSH key confirmed present; cleaned up once (succeeded, work
-  directory genuinely gone from disk); a second full cleanup call also
-  succeeded with the work directory correctly reported already-absent; no
-  container, work directory, or config remained afterward, and a repeated
-  `clearContainerSshConfig()` call independently confirmed already-absent.
-  No NTFS-denial or race experiment run (not required — structured-error
-  and TOCTOU paths are covered deterministically in unit tests).
-- **Container provider regression**: one `RIS_E2E_GIT_REMOTE_PROVIDER=container`
-  run against `git-remote-workflows` — passed cleanly (31s), teardown
-  conclusively successful, no leftover resources. Native-provider run
-  skipped per this RP's own guidance (spec/native adapter unchanged, no
-  shared cleanup-result type changed shape).
+- **No new unit tests added.** `seedContainerBareRemoteFromLocalRepo` and
+  `createGitRemoteFixture()` are real-process orchestration (a real `git
+  push`, `docker exec`, provider branching composed entirely of
+  already-unit-tested primitives — `resolveGitRemoteProvider`,
+  `createContainerRemoteFixture`, `startRemote`/`configureSsh`/`cleanup`),
+  matching this codebase's existing precedent: none of
+  `container-git-remote.ts`'s other administrative functions
+  (`createContainerBareRemote`, `pushSimulatedContainerRemoteCommit`, etc.)
+  have synthetic unit tests either — they're proven via real-host
+  validation, which both new capabilities received extensively (below).
+  Forcing dependency injection into either just to unit-test them would
+  restate their own composition, not test new logic.
+
+## Individual container runs
+
+- `git-remote-workflows`: passed, 26-42s across this stage's multiple runs.
+- `git-clone-workflows`: passed, 23-40s.
+- `git-diverged-pull`: passed, 20-37s.
+
+All teardowns conclusively successful; no residue after any individual run.
+
+## Individual native runs
+
+- `git-remote-workflows` (unmodified): passed, 14-20s, multiple runs.
+- `git-diverged-pull`: passed, 9s, first attempt.
+- `git-clone-workflows`: **hung** on every attempt (4 total: 2 against the
+  migrated file, 1 against the migrated file after an intervening
+  successful `git-remote-workflows`-native environment-health probe, 1
+  against the original pre-migration file restored via `git stash`) — see
+  "Root-cause finding" below.
+
+## Root-cause finding: native git-clone-workflows hang
+
+The hang occurs inside WDIO/`@wdio/tauri-service`'s own pre-spec session
+diagnostics (`get_window_states`, a generic `execute/async` WebDriver call)
+— before `git-clone-workflows.e2e.ts`'s `before()` hook, or any of its own
+code, ever runs. Diagnosis performed:
+
+1. Two attempts against the migrated file both hung identically.
+2. An intervening run of the **unmodified** `git-remote-workflows.e2e.ts`
+   under native passed cleanly (14s) — proving the environment itself
+   (driver, WebView2, ports) was healthy at that moment, ruling out a
+   session-wide degradation explanation.
+3. A third attempt against the migrated file hung again, identically.
+4. `git-clone-workflows.e2e.ts` was temporarily reverted to its
+   pre-migration `HEAD` content via `git stash push -- <file>` and run
+   again under native: **it hung identically** — conclusive proof this is
+   a pre-existing, host-specific condition, not caused by this stage's
+   migration. The stash was then popped to restore the migration.
+
+All hung attempts were killed via `taskkill /T /F` on the top-level
+process tree (verified via `Get-CimInstance Win32_Process` command-line
+inspection to identify exact PIDs) after confirming no forward progress in
+the log for 30-60s; ports 4444/4445 and all related processes were
+confirmed clear before each subsequent attempt.
+
+This is reported, not fixed — root-causing a WDIO/Tauri driver-launch flake
+specific to one spec file on one host is outside this migration stage's
+scope, and the RP's own instruction is explicit: do not add retries to
+hide a failure, and do not weaken teardown assertions to route around it.
+The container-provider path for this exact spec is fully validated (5/5 in
+the combined matrix, plus individual passes), so this does not block the
+container-provider migration's own completion.
+
+## Combined five-iteration container matrix
+
+`RIS_E2E_GIT_REMOTE_PROVIDER=container`, all three specs run sequentially
+per iteration (the orchestration script only honors its last `--spec` flag
+when repeated, so the matrix was driven by an explicit shell loop, not a
+single multi-spec invocation), five iterations, continue-on-failure:
+
+| Iteration | git-remote-workflows | git-clone-workflows | git-diverged-pull |
+|---|---|---|---|
+| 1 | PASS 41s | PASS 40s | PASS 36s |
+| 2 | PASS 42s | PASS 39s | PASS 35s |
+| 3 | PASS 40s | PASS 40s | PASS 36s |
+| 4 | PASS 42s | PASS 39s | PASS 37s |
+| 5 | PASS 40s | PASS 40s | PASS 37s |
+
+**15/15 spec executions passed, 5/5 iterations clean.** Every run's own log
+confirmed conclusive teardown (`cleaned up container ...`, the
+zero-errors log branch — never the error-count branch). Independently
+verified after the matrix completed: `docker ps -a --filter
+label=ris.e2e.fixture=git-ssh` empty, no `sleep 86400` keep-alive process,
+all 15 run-specific work directories (and their `ssh-remote-command.env`
+files) removed from the OS temp root.
+
+One unrelated container was found and removed during this validation
+session (not from the matrix itself): an orphan from an earlier malformed
+matrix-invocation attempt (`run-wdio-e2e.mjs --spec A --spec B --spec C`
+silently only honors the last `--spec`) that was force-killed via
+`taskkill` mid-run, before its own `after()` cleanup hook could execute —
+collateral from that forceful termination, not a fixture teardown defect.
+Removed via `docker rm -f` before the matrix's own residue check.
+
+## Default provider decision
+
+Kept `native` as the default (`resolveGitRemoteProvider()` unchanged).
+This stage's plan/documentation does not commit to flipping the default as
+part of this migration, and the native `git-clone-workflows` driver-launch
+flake (above) means flipping now would be premature regardless — reported
+explicitly per this stage's own instruction, deferred to a dedicated
+future default-switch stage. Both explicit overrides
+(`RIS_E2E_GIT_REMOTE_PROVIDER=container`/`native`) remain fully supported.
 
 ## Risks
 
-- Same residual items carried forward from R1-R4, none newly introduced:
-  WSL2 VM idle-shutdown worked around, not eliminated; `/mnt/c` automount
-  assumption untested on a remapped host; keep-alive "stopped" still means
-  "the kill call didn't throw," not a confirmed-exit wait; the intermittent
-  UI-open flake and driver-port contention are unrelated to fixture-cleanup
-  logic; only `git-remote-workflows` is migrated.
-- `support/git-remote.ts` (the native fixture) has three `existsSync()`
-  call sites with the identical correctness gap this RP just fixed for the
-  container fixture — not repaired here, explicitly out of scope (see
-  "Do not modify the native fixture").
+- The native `git-clone-workflows` driver-launch hang (root-caused as
+  pre-existing but not resolved) blocks native-provider validation for
+  that one spec on this host. Does not affect the container provider.
+- `support/git-remote.ts`'s three `existsSync()`-as-authority sites
+  (documented in Stage 3F.5.4-R5) remain unrepaired — unchanged, not
+  newly introduced.
+- Everything else carried forward from Stage 3F.5.4/R1-R5: WSL2 idle-shutdown
+  workaround, `/mnt/c` automount assumption, keep-alive "stopped" meaning
+  "didn't throw," the intermittent UI-open flake.
 
 ## Not done
 
-- Did not fix `support/git-remote.ts`'s equivalent `existsSync()` sites —
-  documented as an observation, out of this RP's explicit scope.
-- Did not migrate `git-clone-workflows` or `git-diverged-pull`.
-- Did not change application code, Docker lifecycle, the container image,
-  SSH authentication, Git workflow assertions, or the native fixture.
-- Did not investigate the UI-open flake or driver-port contention, add
-  retries, or add sleeps.
-- Did not run a native-provider WDIO regression (optional per this RP,
-  skipped since nothing shared changed shape).
+- Did not flip the default provider to `container` — explicitly deferred,
+  see "Default provider decision" above.
+- Did not fix the native `git-clone-workflows` driver-launch flake — out
+  of this migration stage's scope; reported with full diagnostic evidence.
+- Did not fix `support/git-remote.ts`'s `existsSync()` sites.
+- Did not remove the native fixture, `support/git-remote.ts`, Windows
+  OpenSSH-server branches, or Git Bash/ForceCommand/ACL compatibility
+  logic.
+- Did not change application code, production Git commands, or the
+  container image.
 - Did not restart the full Windows WDIO Gate, merge to `development`, or
   tag/publish a release.
 
 ## Suggested next step
 
-If a future repair pass is warranted, apply the same
-`lstat`/`ENOENT`/injectable-deps pattern to `support/git-remote.ts`'s three
-remaining `existsSync()`-as-authority sites (out of scope for the
-container-fixture-only stages so far). Otherwise, proceed with migrating
-`git-clone-workflows` and `git-diverged-pull` to the container provider —
-all identified container-fixture cleanup correctness gaps are now closed.
+Root-cause the native `git-clone-workflows` driver-launch hang (likely a
+targeted, isolated investigation — e.g. compare msedgedriver/WebView2
+version pinning, or a startup-ordering race specific to this spec's binary
+launch) as its own small repair pass. In parallel or after, a dedicated
+default-provider-switch stage can flip `resolveGitRemoteProvider()`'s
+default to `container` once native `git-clone-workflows` is resolved (or
+explicitly waived) and CI validates the container path — at that point the
+native fixture retirement recommendation from this stage's docs section
+becomes actionable.
