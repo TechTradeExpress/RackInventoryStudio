@@ -86,8 +86,8 @@
  */
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { rm } from "node:fs/promises";
+import { lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { lstat, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { shQuote, securePrivateKeyFile as securePrivateKeyFileImpl } from "./git-remote";
 import { isStrictChildPath } from "./test-environment";
@@ -950,7 +950,7 @@ function resolveRunRoot(): string {
 /**
  * Distinguishes "there was nothing to remove" from "removal was refused" —
  * both previously reported as the same silent no-op (Stage 3F.5.4-R2's
- * work-directory accuracy fix). `removeWorkDirImpl`'s existing
+ * work-directory accuracy fix). `removeContainerWorkDir`'s existing
  * path-safety guard (`RIS_E2E_RUN_ROOT` unset, or `workDir` outside it —
  * see `isStrictChildPath`, never weakened here) now surfaces as `"refused"`
  * rather than quietly doing nothing and letting the caller assume success.
@@ -1061,6 +1061,15 @@ const defaultSshConfigFsDeps: SshConfigFsDeps = {
  * directly against injected filesystem operations, without needing to go
  * through `cleanupContainerRemote`/`ContainerOpsDeps` — pure logic, same
  * testing rationale as `isStrictChildPath` itself.
+ *
+ * Stage 3F.5.4-R5: the removal step is now also wrapped — a valid
+ * time-of-check/time-of-use race exists between the `lstat` above
+ * confirming presence and this `remove` call (another concurrent cleanup,
+ * a forcibly-killed sibling process, ...). If `remove` itself throws
+ * `ENOENT`, the resource is, by definition, now gone — exactly the outcome
+ * `"already-absent"` already describes — so that specific race is
+ * idempotent success, not a cleanup failure. Every other removal error
+ * still propagates unchanged.
  */
 export function clearContainerSshConfig(deps: SshConfigFsDeps = defaultSshConfigFsDeps): SshConfigRemovalResult {
   const runRoot = process.env["RIS_E2E_RUN_ROOT"];
@@ -1074,20 +1083,87 @@ export function clearContainerSshConfig(deps: SshConfigFsDeps = defaultSshConfig
     }
     throw error;
   }
-  deps.remove(configPath);
-  return "removed";
+  try {
+    deps.remove(configPath);
+    return "removed";
+  } catch (error) {
+    if (isNodeErrorWithCode(error, "ENOENT")) {
+      return "already-absent";
+    }
+    throw error;
+  }
 }
 
-async function removeWorkDirImpl(workDir: string): Promise<WorkDirRemovalResult> {
+/** Injectable filesystem seam for `removeContainerWorkDir` (Stage
+ * 3F.5.4-R5) — async, mirroring `SshConfigFsDeps`'s synchronous shape but
+ * for the promise-based `node:fs/promises` operations the work-directory
+ * removal path already used. Both operations throw on failure, exactly
+ * like their real counterparts, so the classification logic is
+ * unit-tested with fabricated `NodeJS.ErrnoException`-shaped rejections
+ * and no real filesystem access required. */
+export interface WorkDirFsDeps {
+  lstat: (path: string) => Promise<void>;
+  remove: (path: string) => Promise<void>;
+}
+
+const defaultWorkDirFsDeps: WorkDirFsDeps = {
+  lstat: async (path) => {
+    await lstat(path);
+  },
+  remove: async (path) => {
+    await rm(path, { recursive: true, maxRetries: 10, retryDelay: 100 });
+  },
+};
+
+/**
+ * Stage 3F.5.4-R5: replaces the same `existsSync()`-as-authority pattern
+ * `clearContainerSshConfig` had (Stage 3F.5.4-R4) — this was the exact
+ * follow-up gap that stage's own report flagged and deliberately left
+ * unfixed. `existsSync()` returning `false` was read as `"already-absent"`
+ * with no way to distinguish that from "the directory could not be
+ * inspected" (access denied, an inaccessible parent, an I/O error) —
+ * meaning a real inspection failure could report `workDirRemoved = true`
+ * and let authoritative teardown pass with the directory (and the
+ * ephemeral SSH keys inside it) still on disk. Now uses `lstat` (never
+ * `statSync`-equivalent — this never needs to follow a symlink) with the
+ * same `isNodeErrorWithCode`-based tri-state classification
+ * `clearContainerSshConfig` uses: only `ENOENT` (on inspection *or* on
+ * removal — see this function's own TOCTOU handling) produces
+ * `"already-absent"`; `EACCES`, `EPERM`, `EBUSY`, `EIO`, `ENOTDIR`, and an
+ * error with no recognized code at all are all rethrown unchanged. Path
+ * safety (`RIS_E2E_RUN_ROOT` required, `isStrictChildPath`) and the
+ * existing recursive-removal retry behavior are both preserved exactly.
+ *
+ * Exported directly (not a separately-named wrapper) for the same reason
+ * `clearContainerSshConfig` is: the test must exercise the real production
+ * classification logic against injected filesystem operations, not a
+ * reimplemented copy.
+ */
+export async function removeContainerWorkDir(
+  workDir: string,
+  deps: WorkDirFsDeps = defaultWorkDirFsDeps,
+): Promise<WorkDirRemovalResult> {
   const runRoot = process.env["RIS_E2E_RUN_ROOT"];
   if (!runRoot || !isStrictChildPath(runRoot, workDir)) {
     return "refused";
   }
-  if (!existsSync(workDir)) {
-    return "already-absent";
+  try {
+    await deps.lstat(workDir);
+  } catch (error) {
+    if (isNodeErrorWithCode(error, "ENOENT")) {
+      return "already-absent";
+    }
+    throw error;
   }
-  await rm(workDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-  return "removed";
+  try {
+    await deps.remove(workDir);
+    return "removed";
+  } catch (error) {
+    if (isNodeErrorWithCode(error, "ENOENT")) {
+      return "already-absent";
+    }
+    throw error;
+  }
 }
 
 export const defaultContainerOpsDeps: ContainerOpsDeps = {
@@ -1120,7 +1196,7 @@ export const defaultContainerOpsDeps: ContainerOpsDeps = {
   securePrivateKeyFile: (identityPath) => securePrivateKeyFileImpl(identityPath),
   readPublicKey: (identityPath) => readFileSync(`${identityPath}.pub`, "utf8"),
   installPublicKey,
-  removeWorkDir: removeWorkDirImpl,
+  removeWorkDir: removeContainerWorkDir,
   clearSshConfig: clearContainerSshConfig,
 };
 

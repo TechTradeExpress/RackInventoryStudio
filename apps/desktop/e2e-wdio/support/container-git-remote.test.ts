@@ -55,6 +55,7 @@ import {
   parsePublishedPort,
   parseWslList,
   removeContainerViaDocker,
+  removeContainerWorkDir,
   resolveGitRemoteProvider,
   resolveWslDistroOverride,
   rollbackPartialContainerFixture,
@@ -1048,6 +1049,48 @@ describe("rollbackPartialContainerFixture", () => {
     expect(diagnostics.some((d) => d.includes("refused"))).toBe(true);
   });
 
+  // ── Authoritative work-directory cleanup (Stage 3F.5.4-R5) ────────────────
+
+  it("a structured EACCES from removeWorkDir is recorded as a diagnostic, and clearSshConfig + keep-alive shutdown still run afterward", async () => {
+    const keepAlive = {} as ContainerSshRemoteServer["keepAlive"];
+    const state: PartialContainerFixtureState = { workDir: "/work/dir", keepAlive, sshConfigCreated: true };
+    const eaccesError = Object.assign(new Error("permission denied"), { code: "EACCES" });
+    const { deps } = fakeDeps({
+      removeWorkDir: vi.fn(async () => {
+        throw eaccesError;
+      }),
+    });
+    const diagnostics = await rollbackPartialContainerFixture(state, deps);
+    expect(diagnostics.some((d) => d.includes("removing work directory") && d.includes("permission denied"))).toBe(
+      true,
+    );
+    expect(deps.clearSshConfig).toHaveBeenCalledTimes(1);
+    expect(deps.stopKeepAlive).toHaveBeenCalledTimes(1);
+  });
+
+  it("integration: the real removeContainerWorkDir wired in — remove throwing ENOENT (TOCTOU) adds no failure diagnostic", async () => {
+    const keepAlive = {} as ContainerSshRemoteServer["keepAlive"];
+    const state: PartialContainerFixtureState = { workDir: "C:\\fake-run-root\\git\\container-ssh-abc123", keepAlive };
+    const { deps } = fakeDeps({
+      removeWorkDir: (workDir) =>
+        removeContainerWorkDir(workDir, {
+          lstat: async () => {},
+          remove: async () => {
+            throw Object.assign(new Error("gone"), { code: "ENOENT" });
+          },
+        }),
+    });
+    const previousRunRoot = process.env["RIS_E2E_RUN_ROOT"];
+    process.env["RIS_E2E_RUN_ROOT"] = "C:\\fake-run-root";
+    try {
+      const diagnostics = await rollbackPartialContainerFixture(state, deps);
+      expect(diagnostics.some((d) => d.includes("removing work directory") && d.includes("failed"))).toBe(false);
+    } finally {
+      if (previousRunRoot === undefined) delete process.env["RIS_E2E_RUN_ROOT"];
+      else process.env["RIS_E2E_RUN_ROOT"] = previousRunRoot;
+    }
+  });
+
   // ── Idempotent removal / ssh-config tri-state (Stage 3F.5.4-R3) ───────────
 
   it("initial presence unknown, removeContainer reports already-absent, final presence absent: no removal-failure diagnostic is added", async () => {
@@ -1369,6 +1412,197 @@ describe("clearContainerSshConfig", () => {
       rmSync(runRoot, { recursive: true, force: true });
     }
   });
+
+  // ── TOCTOU: ENOENT during removal (Stage 3F.5.4-R5) ──────────────────────
+  //
+  // lstat can succeed and then a concurrent cleanup (or a forcibly-killed
+  // sibling process) removes the file before this function's own `remove`
+  // call runs. The final state is correct (the file is gone) — this must
+  // be idempotent success, not a reported cleanup failure.
+
+  it("returns 'already-absent' when lstat succeeds but remove throws ENOENT (TOCTOU race)", () => {
+    const runRoot = mkdtempSync(join(tmpdir(), "ris-e2e-sshconfig-"));
+    try {
+      withRunRoot(runRoot, () => {
+        const result = clearContainerSshConfig({
+          lstat: () => {},
+          remove: () => {
+            throw fakeFsError("ENOENT");
+          },
+        });
+        expect(result).toBe("already-absent");
+      });
+    } finally {
+      rmSync(runRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rethrows the exact original error when lstat succeeds but remove throws EACCES", () => {
+    const runRoot = mkdtempSync(join(tmpdir(), "ris-e2e-sshconfig-"));
+    try {
+      const original = fakeFsError("EACCES");
+      withRunRoot(runRoot, () => {
+        let caught: unknown;
+        try {
+          clearContainerSshConfig({
+            lstat: () => {},
+            remove: () => {
+              throw original;
+            },
+          });
+        } catch (error) {
+          caught = error;
+        }
+        expect(caught).toBe(original);
+      });
+    } finally {
+      rmSync(runRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+// ── removeContainerWorkDir: structured filesystem error classification (Stage 3F.5.4-R5) ──
+
+describe("removeContainerWorkDir", () => {
+  const RUN_ROOT_ENV = "RIS_E2E_RUN_ROOT";
+
+  function withRunRoot<T>(runRoot: string | undefined, fn: () => Promise<T>): Promise<T> {
+    const previous = process.env[RUN_ROOT_ENV];
+    if (runRoot === undefined) delete process.env[RUN_ROOT_ENV];
+    else process.env[RUN_ROOT_ENV] = runRoot;
+    return fn().finally(() => {
+      if (previous === undefined) delete process.env[RUN_ROOT_ENV];
+      else process.env[RUN_ROOT_ENV] = previous;
+    });
+  }
+
+  function fakeFsError(code: string, message = `simulated ${code}`): NodeJS.ErrnoException {
+    const error = new Error(message) as NodeJS.ErrnoException;
+    error.code = code;
+    return error;
+  }
+
+  const WORK_DIR = "C:\\fake-run-root\\git\\container-ssh-abc123";
+
+  it("returns 'refused' when RIS_E2E_RUN_ROOT is unset, without calling lstat or remove", async () => {
+    const lstat = vi.fn();
+    const remove = vi.fn();
+    await withRunRoot(undefined, async () => {
+      const result = await removeContainerWorkDir(WORK_DIR, { lstat, remove });
+      expect(result).toBe("refused");
+    });
+    expect(lstat).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it("returns 'refused' when workDir is not a strict child of the run root (path-safety), without calling lstat or remove", async () => {
+    const lstat = vi.fn();
+    const remove = vi.fn();
+    await withRunRoot("C:\\fake-run-root", async () => {
+      const result = await removeContainerWorkDir("C:\\somewhere-else\\workdir", { lstat, remove });
+      expect(result).toBe("refused");
+    });
+    expect(lstat).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it("returns 'removed' when lstat and remove both succeed", async () => {
+    await withRunRoot("C:\\fake-run-root", async () => {
+      const result = await removeContainerWorkDir(WORK_DIR, {
+        lstat: async () => {},
+        remove: async () => {},
+      });
+      expect(result).toBe("removed");
+    });
+  });
+
+  it("returns 'already-absent' when lstat throws ENOENT, without attempting removal", async () => {
+    const remove = vi.fn();
+    await withRunRoot("C:\\fake-run-root", async () => {
+      const result = await removeContainerWorkDir(WORK_DIR, {
+        lstat: async () => {
+          throw fakeFsError("ENOENT");
+        },
+        remove,
+      });
+      expect(result).toBe("already-absent");
+    });
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it.each(["EACCES", "EPERM", "EIO", "ENOTDIR"])(
+    "rethrows the exact original error when lstat throws %s",
+    async (code) => {
+      const original = fakeFsError(code);
+      await withRunRoot("C:\\fake-run-root", async () => {
+        let caught: unknown;
+        try {
+          await removeContainerWorkDir(WORK_DIR, {
+            lstat: async () => {
+              throw original;
+            },
+            remove: vi.fn(),
+          });
+        } catch (error) {
+          caught = error;
+        }
+        expect(caught).toBe(original);
+      });
+    },
+  );
+
+  it("rethrows an lstat error with no recognized code at all, rather than defaulting to already-absent", async () => {
+    const original = new Error("some unrecognized failure with no .code");
+    await withRunRoot("C:\\fake-run-root", async () => {
+      let caught: unknown;
+      try {
+        await removeContainerWorkDir(WORK_DIR, {
+          lstat: async () => {
+            throw original;
+          },
+          remove: vi.fn(),
+        });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBe(original);
+    });
+  });
+
+  // ── TOCTOU: ENOENT during removal ─────────────────────────────────────────
+
+  it("returns 'already-absent' when lstat succeeds but remove throws ENOENT (TOCTOU race)", async () => {
+    await withRunRoot("C:\\fake-run-root", async () => {
+      const result = await removeContainerWorkDir(WORK_DIR, {
+        lstat: async () => {},
+        remove: async () => {
+          throw fakeFsError("ENOENT");
+        },
+      });
+      expect(result).toBe("already-absent");
+    });
+  });
+
+  it.each(["EPERM", "EBUSY"])(
+    "rethrows the exact original error when lstat succeeds but remove throws %s",
+    async (code) => {
+      const original = fakeFsError(code);
+      await withRunRoot("C:\\fake-run-root", async () => {
+        let caught: unknown;
+        try {
+          await removeContainerWorkDir(WORK_DIR, {
+            lstat: async () => {},
+            remove: async () => {
+              throw original;
+            },
+          });
+        } catch (error) {
+          caught = error;
+        }
+        expect(caught).toBe(original);
+      });
+    },
+  );
 });
 
 describe("isNodeErrorWithCode", () => {
@@ -1529,6 +1763,45 @@ describe("cleanupContainerRemote", () => {
     });
     const result = await cleanupContainerRemote(fakeServer(), deps);
     expect(result.workDirRemoved).toBe(true);
+  });
+
+  // ── Authoritative work-directory cleanup (Stage 3F.5.4-R5) ────────────────
+
+  it("a structured EACCES thrown by removeWorkDir fails authoritative cleanup", async () => {
+    const eaccesError = Object.assign(new Error("permission denied"), { code: "EACCES" });
+    const { deps } = fakeDeps({
+      removeWorkDir: vi.fn(async () => {
+        throw eaccesError;
+      }),
+    });
+    const result = await cleanupContainerRemote(fakeServer(), deps);
+    expect(result.workDirRemoved).toBe(false);
+    expect(result.errors.some((e) => e.includes("permission denied"))).toBe(true);
+    expect(isCleanupSuccessful(result)).toBe(false);
+  });
+
+  it("integration: the real removeContainerWorkDir wired in — remove throwing ENOENT (TOCTOU) still yields a conclusively successful cleanup", async () => {
+    const { deps } = fakeDeps({
+      removeWorkDir: (workDir) =>
+        removeContainerWorkDir(workDir, {
+          lstat: async () => {},
+          remove: async () => {
+            throw Object.assign(new Error("gone"), { code: "ENOENT" });
+          },
+        }),
+    });
+    const server = fakeServer({ workDir: "C:\\fake-run-root\\git\\container-ssh-abc123" });
+    const previousRunRoot = process.env["RIS_E2E_RUN_ROOT"];
+    process.env["RIS_E2E_RUN_ROOT"] = "C:\\fake-run-root";
+    try {
+      const result = await cleanupContainerRemote(server, deps);
+      expect(result.workDirRemoved).toBe(true);
+      expect(result.errors).toEqual([]);
+      expect(isCleanupSuccessful(result)).toBe(true);
+    } finally {
+      if (previousRunRoot === undefined) delete process.env["RIS_E2E_RUN_ROOT"];
+      else process.env["RIS_E2E_RUN_ROOT"] = previousRunRoot;
+    }
   });
 
   it("never throws — a fully-failing cleanup still resolves with a structured result", async () => {

@@ -3730,6 +3730,101 @@ type changed shape.
 
 **STAGE 3F.5.4-R4 COMPLETE — READY FOR MIGRATION.**
 
+### Stage 3F.5.4-R5 — Authoritative work-directory cleanup (2026-08-04)
+
+**Why this RP.** Stage 3F.5.4-R4's own report explicitly flagged, as a
+deliberately-unfixed follow-up, that `removeWorkDirImpl`'s
+`!existsSync(workDir) → "already-absent"` had the identical correctness
+gap R4 had just closed for SSH config: `existsSync()` is a bare boolean
+that cannot distinguish genuine absence from an inspection failure (access
+denied, an inaccessible parent, an I/O error). This RP closes that gap,
+and also closes a second, smaller one R4 itself introduced: a valid
+time-of-check/time-of-use race between a successful `lstat` and the
+`remove` call that follows it, where the correct final state (resource
+gone) was previously reported as a cleanup *failure*.
+
+#### Only structured ENOENT means already-absent
+
+`removeWorkDirImpl` is renamed to the exported `removeContainerWorkDir`
+(mirroring `clearContainerSshConfig`'s naming and export rationale — the
+test must exercise real production classification logic, not a
+reimplemented copy) and now uses `lstat` instead of `existsSync`, with the
+same `isNodeErrorWithCode`-based classification: only a thrown `ENOENT`
+produces `"already-absent"`; `EACCES`, `EPERM`, `EBUSY`, `EIO`, `ENOTDIR`,
+and an error with no recognized code at all are all rethrown unchanged. An
+async `WorkDirFsDeps` (`{lstat, remove}`) injectable seam mirrors
+`SshConfigFsDeps`'s synchronous shape, letting every structured-error case
+be unit-tested deterministically with no real filesystem access.
+
+#### TOCTOU handling for both helpers
+
+Both `clearContainerSshConfig` and `removeContainerWorkDir` now wrap their
+`remove` call in the same try/catch as their `lstat` call: if `remove`
+itself throws `ENOENT` — a real, valid race where a concurrent cleanup (or
+a forcibly-killed sibling process) removed the resource between inspection
+and removal — the outcome is `"already-absent"`, not a failure. The final
+state (resource gone) is correct either way; only the reported result was
+wrong before this fix. Every other removal error still propagates.
+
+#### Path safety and cleanup semantics unchanged
+
+`RIS_E2E_RUN_ROOT` validation and `isStrictChildPath` are preserved
+exactly, and the recursive-removal retry behavior (`maxRetries`/
+`retryDelay`) carries over unchanged — only the "does it exist" check
+itself moved from `existsSync` to `lstat`. `cleanupContainerRemote()`'s and
+`rollbackPartialContainerFixture()`'s handling of `removeWorkDir()`'s
+result needed no changes: both already treated a thrown error as an
+authoritative failure and `"refused"`/`"already-absent"` correctly before
+this RP — they now simply receive more precisely classified results.
+
+#### `existsSync()` sweep
+
+A full sweep of `e2e-wdio/` found `container-git-remote.ts` now has zero
+remaining `existsSync()` calls (both prior sites — SSH config in R4, work
+directory here — are fixed). Three call sites with the identical defect
+class remain in `support/git-remote.ts` (the *native* fixture's
+`clearSshConfig`/`cleanup`), but that file is explicitly out of this RP's
+scope — flagged as an observation, not fixed. Every other `existsSync()`
+in the directory is either a test-assertion (`*.test.ts`/`*.e2e.ts`,
+correct use of a boolean check in test code) or a harmless non-authoritative
+existence probe unrelated to cleanup-success reporting (`findSshd()`'s
+PATH candidate search, `test-environment.ts`'s run-root ownership sentinel
+check).
+
+#### Tests
+
+`container-git-remote.test.ts` grew from 194 to 212 tests: `removeContainerWorkDir`'s
+full dependency-injected classification (refused via missing run root/
+path-safety without ever calling `lstat`/`remove`, removed, ENOENT/EACCES/
+EPERM/EIO/ENOTDIR/no-code on inspection, ENOENT/EPERM/EBUSY on removal —
+the exact original error instance preserved throughout), two SSH-config
+TOCTOU cases, and cleanup/rollback integration tests — including two that
+wire the *real* `removeContainerWorkDir` into a real `cleanupContainerRemote`/
+`rollbackPartialContainerFixture` call to prove the TOCTOU-ENOENT path
+threads through end to end, not just at the unit level.
+
+#### Real-host validation
+
+Against the same Windows+WSL2+Docker host: a real container fixture's work
+directory was confirmed present, cleaned up once (succeeded, directory
+genuinely gone from disk), then a second full cleanup also succeeded — SSH
+config, work directory, and container all correctly reported/verified
+already-absent, with no container, keep-alive process, work directory, or
+config file remaining. No real NTFS-denial or race experiment was needed —
+the structured-error and TOCTOU paths are covered deterministically in the
+dependency-injected unit tests above. Temporary validation script deleted
+before commit.
+
+#### Container provider regression
+
+One `RIS_E2E_GIT_REMOTE_PROVIDER=container` run against
+`git-remote-workflows`: passed cleanly, teardown conclusively successful,
+no fixture resources remained. Native-provider run skipped — the spec and
+native adapter are unchanged, and no shared cleanup-result type changed
+shape.
+
+**STAGE 3F.5.4-R5 COMPLETE — READY FOR MIGRATION.**
+
 ### Not proposed as a numbered coverage stage
 
 - **CI execution / full WDIO in CI** — tracked separately in "Desktop E2E
