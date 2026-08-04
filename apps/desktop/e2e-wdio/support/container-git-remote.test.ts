@@ -50,6 +50,7 @@ import {
   inspectContainerPresence,
   isCleanupSuccessful,
   isDockerNotFoundError,
+  isNodeErrorWithCode,
   isSafeIdentifier,
   parsePublishedPort,
   parseWslList,
@@ -1085,6 +1086,22 @@ describe("rollbackPartialContainerFixture", () => {
     expect(diagnostics).toEqual([]);
   });
 
+  it("sshConfigCreated=true and clearSshConfig throws a structured EACCES: rollback records a diagnostic and still stops the keep-alive (Stage 3F.5.4-R4)", async () => {
+    const keepAlive = {} as ContainerSshRemoteServer["keepAlive"];
+    const state: PartialContainerFixtureState = { keepAlive, sshConfigCreated: true };
+    const eaccesError = Object.assign(new Error("permission denied"), { code: "EACCES" });
+    const { deps } = fakeDeps({
+      clearSshConfig: vi.fn(() => {
+        throw eaccesError;
+      }),
+    });
+    const diagnostics = await rollbackPartialContainerFixture(state, deps);
+    expect(diagnostics.some((d) => d.includes("clearing ssh config failed") && d.includes("permission denied"))).toBe(
+      true,
+    );
+    expect(deps.stopKeepAlive).toHaveBeenCalledTimes(1);
+  });
+
   it("does not attempt ssh config cleanup when sshConfigCreated is not true", async () => {
     const keepAlive = {} as ContainerSshRemoteServer["keepAlive"];
     const state: PartialContainerFixtureState = { keepAlive };
@@ -1201,6 +1218,182 @@ describe("clearContainerSshConfig", () => {
     } finally {
       rmSync(runRoot, { recursive: true, force: true });
     }
+  });
+
+  // ── Structured filesystem error classification (Stage 3F.5.4-R4) ────────
+  //
+  // Deterministic via injected SshConfigFsDeps — never by changing real
+  // NTFS ACLs (see this stage's own "make these deterministic on Windows"
+  // requirement). `existsSync()` could only ever say "not there right now",
+  // never *why* — these prove only a structured ENOENT (never a message
+  // substring match) may produce "already-absent", and every other
+  // filesystem error propagates unchanged instead of being misread as
+  // confirmed absence.
+
+  function fakeFsError(code: string, message = `simulated ${code}`): NodeJS.ErrnoException {
+    const error = new Error(message) as NodeJS.ErrnoException;
+    error.code = code;
+    return error;
+  }
+
+  it("returns 'already-absent' when lstat throws ENOENT, without attempting removal", () => {
+    const runRoot = mkdtempSync(join(tmpdir(), "ris-e2e-sshconfig-"));
+    try {
+      const remove = vi.fn();
+      withRunRoot(runRoot, () => {
+        const result = clearContainerSshConfig({
+          lstat: () => {
+            throw fakeFsError("ENOENT");
+          },
+          remove,
+        });
+        expect(result).toBe("already-absent");
+      });
+      expect(remove).not.toHaveBeenCalled();
+    } finally {
+      rmSync(runRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rethrows the exact original error instance when lstat throws EACCES — never converted to already-absent", () => {
+    const runRoot = mkdtempSync(join(tmpdir(), "ris-e2e-sshconfig-"));
+    try {
+      const original = fakeFsError("EACCES");
+      withRunRoot(runRoot, () => {
+        let caught: unknown;
+        try {
+          clearContainerSshConfig({
+            lstat: () => {
+              throw original;
+            },
+            remove: vi.fn(),
+          });
+        } catch (error) {
+          caught = error;
+        }
+        expect(caught).toBe(original);
+      });
+    } finally {
+      rmSync(runRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rethrows the exact original error instance when lstat throws EPERM", () => {
+    const runRoot = mkdtempSync(join(tmpdir(), "ris-e2e-sshconfig-"));
+    try {
+      const original = fakeFsError("EPERM");
+      withRunRoot(runRoot, () => {
+        let caught: unknown;
+        try {
+          clearContainerSshConfig({
+            lstat: () => {
+              throw original;
+            },
+            remove: vi.fn(),
+          });
+        } catch (error) {
+          caught = error;
+        }
+        expect(caught).toBe(original);
+      });
+    } finally {
+      rmSync(runRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rethrows the exact original error instance when lstat throws EIO", () => {
+    const runRoot = mkdtempSync(join(tmpdir(), "ris-e2e-sshconfig-"));
+    try {
+      const original = fakeFsError("EIO");
+      withRunRoot(runRoot, () => {
+        let caught: unknown;
+        try {
+          clearContainerSshConfig({
+            lstat: () => {
+              throw original;
+            },
+            remove: vi.fn(),
+          });
+        } catch (error) {
+          caught = error;
+        }
+        expect(caught).toBe(original);
+      });
+    } finally {
+      rmSync(runRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rethrows an lstat error with no recognized code at all, rather than defaulting to already-absent", () => {
+    const runRoot = mkdtempSync(join(tmpdir(), "ris-e2e-sshconfig-"));
+    try {
+      const original = new Error("some unrecognized failure with no .code");
+      withRunRoot(runRoot, () => {
+        let caught: unknown;
+        try {
+          clearContainerSshConfig({
+            lstat: () => {
+              throw original;
+            },
+            remove: vi.fn(),
+          });
+        } catch (error) {
+          caught = error;
+        }
+        expect(caught).toBe(original);
+      });
+    } finally {
+      rmSync(runRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rethrows the exact original error when lstat succeeds but remove throws EPERM", () => {
+    const runRoot = mkdtempSync(join(tmpdir(), "ris-e2e-sshconfig-"));
+    try {
+      const original = fakeFsError("EPERM");
+      withRunRoot(runRoot, () => {
+        let caught: unknown;
+        try {
+          clearContainerSshConfig({
+            lstat: () => {},
+            remove: () => {
+              throw original;
+            },
+          });
+        } catch (error) {
+          caught = error;
+        }
+        expect(caught).toBe(original);
+      });
+    } finally {
+      rmSync(runRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("isNodeErrorWithCode", () => {
+  it("matches an Error whose .code equals the given code", () => {
+    const error = Object.assign(new Error("nope"), { code: "ENOENT" });
+    expect(isNodeErrorWithCode(error, "ENOENT")).toBe(true);
+  });
+
+  it("does not match a different code", () => {
+    const error = Object.assign(new Error("nope"), { code: "EACCES" });
+    expect(isNodeErrorWithCode(error, "ENOENT")).toBe(false);
+  });
+
+  it("does not match an Error with no code at all", () => {
+    expect(isNodeErrorWithCode(new Error("nope"), "ENOENT")).toBe(false);
+  });
+
+  it("does not match a non-Error value", () => {
+    expect(isNodeErrorWithCode("not an error", "ENOENT")).toBe(false);
+    expect(isNodeErrorWithCode(undefined, "ENOENT")).toBe(false);
+  });
+
+  it("never inspects the error message text (only the structured code)", () => {
+    const error = Object.assign(new Error("file not found somewhere"), { code: "EACCES" });
+    expect(isNodeErrorWithCode(error, "ENOENT")).toBe(false);
   });
 });
 
@@ -1447,6 +1640,19 @@ describe("cleanupContainerRemote", () => {
     const result = await cleanupContainerRemote(fakeServer(), deps);
     expect(result.sshConfigCleared).toBe(false);
     expect(result.errors.some((e) => e.includes("EPERM"))).toBe(true);
+  });
+
+  it("a structured EACCES thrown by clearSshConfig fails authoritative cleanup (Stage 3F.5.4-R4)", async () => {
+    const eaccesError = Object.assign(new Error("permission denied"), { code: "EACCES" });
+    const { deps } = fakeDeps({
+      clearSshConfig: vi.fn(() => {
+        throw eaccesError;
+      }),
+    });
+    const result = await cleanupContainerRemote(fakeServer(), deps);
+    expect(result.sshConfigCleared).toBe(false);
+    expect(result.errors.some((e) => e.includes("permission denied"))).toBe(true);
+    expect(isCleanupSuccessful(result)).toBe(false);
   });
 
   it("an inspectContainerPresence dependency that throws (violating its own contract) degrades to 'unknown' rather than aborting cleanup early", async () => {

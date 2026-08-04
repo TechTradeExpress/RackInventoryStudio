@@ -3637,6 +3637,99 @@ no leftover containers/keep-alive/work directories.
 
 **STAGE 3F.5.4-R3 COMPLETE — READY FOR MIGRATION.**
 
+### Stage 3F.5.4-R4 — Authoritative SSH config absence detection (2026-08-04)
+
+**Why this RP.** A strict review of Stage 3F.5.4-R3's `clearContainerSshConfig()`
+found its `already-absent` classification still rested on `existsSync()` —
+a bare boolean that cannot distinguish "the file genuinely does not exist"
+from "the filesystem could not be inspected" (access denied, an
+inaccessible parent directory, an I/O error). A real inspection failure
+could therefore be misclassified as confirmed absence, exactly the kind of
+self-reported-without-verification success this stage's whole R2-R4 arc
+exists to close off.
+
+#### Only ENOENT means already-absent
+
+`existsSync()` is replaced with `lstatSync()` (not `statSync` — nothing
+here needs to follow a symlink) wrapped in try/catch. Its thrown error
+carries a structured `.code`, checked by a new, narrowly-scoped
+`isNodeErrorWithCode(error, code)` — deliberately never a message-text
+match (mirrors `isDockerNotFoundError`'s own "inspect a specific field, not
+free text" discipline). Only `ENOENT` produces `"already-absent"`; `EACCES`,
+`EPERM`, `EBUSY`, `EIO`, `ENOTDIR`, and an error with no recognized code at
+all are all rethrown unchanged — never downgraded to `"refused"` (reserved
+for this function's own deliberate refusal to act, e.g. a missing
+`RIS_E2E_RUN_ROOT`) and never silently treated as success.
+
+#### Injectable filesystem seam
+
+`clearContainerSshConfig(deps: SshConfigFsDeps = defaultSshConfigFsDeps)`
+takes `{lstat, remove}` as an injectable dependency, mirroring
+`inspectContainerPresence`'s `DockerInspectFn` pattern — the structured
+`EACCES`/`EPERM`/`EIO`/no-code-error scenarios are unit-tested
+deterministically with fabricated `NodeJS.ErrnoException`-shaped throws,
+with no real NTFS ACL manipulation required. The real production path is
+unchanged in behavior for every case already covered by R3's tests
+(missing run root → `"refused"`, existing file → `"removed"`, absent file
+→ `"already-absent"`).
+
+#### Cleanup and rollback integration
+
+No conceptual change was required in `cleanupContainerRemote()` or
+`rollbackPartialContainerFixture()` — both already treated a thrown
+`clearSshConfig()` error as an authoritative failure (`sshConfigCleared =
+false`, error recorded, `isCleanupSuccessful` false) prior to this RP; that
+existing try/catch handling now simply receives a *more precisely
+classified* thrown error (structured `EACCES` rather than a generic
+message) rather than a false "already-absent" it would previously never
+have produced for these cases to begin with. New tests exercise this with
+a structured `EACCES` specifically, confirming rollback still records a
+diagnostic and still stops the keep-alive afterward.
+
+#### Other `existsSync()` call sites (observation, not fixed here)
+
+A sweep of the container-fixture lifecycle found one more `existsSync()`
+call interpreted as authoritative absence: `removeWorkDirImpl`'s
+`!existsSync(workDir) → "already-absent"` for `WorkDirRemovalResult`. It
+has the identical correctness gap this RP just closed for SSH config.
+Deliberately **not** fixed here — this RP's scope is the SSH-config path
+specifically, and combining an unrelated work-directory fix into the same
+minimal, single-commit repair would widen its review surface beyond what
+was asked. Flagged as a follow-up-candidate repair, same shape as this one
+(`lstatSync`/`ENOENT`/injectable deps), for a future stage.
+
+#### Tests
+
+`container-git-remote.test.ts` grew from 181 to 194 tests: `isNodeErrorWithCode`
+(pure classification), `clearContainerSshConfig`'s new structured-error
+coverage (ENOENT → already-absent without attempting removal; EACCES/EPERM/
+EIO/no-code-error on inspection all rethrow the exact original error
+instance; EPERM on removal itself also rethrows), and cleanup/rollback
+authority tests using a structured `EACCES`.
+
+#### Real-host validation
+
+Against the same Windows+WSL2+Docker host: a real container fixture was
+started, a real `ssh-remote-command.env` written, cleaned up once
+(succeeded, config file genuinely gone from disk), `clearContainerSshConfig()`
+called again directly (correctly reported `"already-absent"` via real
+`lstatSync`/`ENOENT`, not `existsSync`), then a second full
+`cleanupContainerRemote()` call also succeeded — no container, work
+directory, or config file remained afterward. No real ACL-denial
+experiment was needed, per this RP's own scope; the structured-error paths
+are covered deterministically in the dependency-injected unit tests above.
+Temporary validation script deleted before commit.
+
+#### Container provider regression
+
+One `RIS_E2E_GIT_REMOTE_PROVIDER=container` run against
+`git-remote-workflows`: passed cleanly, teardown conclusively successful,
+no fixture resources remained. A native-provider run was skipped — the
+spec and native adapter are both unchanged, and no shared cleanup-result
+type changed shape.
+
+**STAGE 3F.5.4-R4 COMPLETE — READY FOR MIGRATION.**
+
 ### Not proposed as a numbered coverage stage
 
 - **CI execution / full WDIO in CI** — tracked separately in "Desktop E2E

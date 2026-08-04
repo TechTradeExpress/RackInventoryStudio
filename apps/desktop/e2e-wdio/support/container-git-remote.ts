@@ -86,7 +86,7 @@
  */
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { shQuote, securePrivateKeyFile as securePrivateKeyFileImpl } from "./git-remote";
@@ -1011,16 +1011,70 @@ export interface ContainerOpsDeps {
   clearSshConfig: () => SshConfigRemovalResult;
 }
 
-/** Exported (Stage 3F.5.4-R3) so its tri-state result can be exercised
- * directly against a real temp `RIS_E2E_RUN_ROOT`, without needing to go
- * through `cleanupContainerRemote`/`ContainerOpsDeps` injection — pure
- * filesystem logic, same testing rationale as `isStrictChildPath` itself. */
-export function clearContainerSshConfig(): SshConfigRemovalResult {
+/**
+ * Narrow, structured-error-code check — deliberately never inspects
+ * `error.message` (a "not found" substring match would risk conflating an
+ * unrelated error that merely mentions "not found" in its text with a
+ * genuine `ENOENT`, exactly the kind of ambiguity `isDockerNotFoundError`
+ * already avoids for Docker errors by checking a specific field rather
+ * than free text — see this stage's own "do not classify errors by
+ * message text" rule).
+ */
+export function isNodeErrorWithCode(error: unknown, code: NodeJS.ErrnoException["code"]): boolean {
+  return error instanceof Error && (error as NodeJS.ErrnoException).code === code;
+}
+
+/** Injectable filesystem seam for `clearContainerSshConfig` (Stage
+ * 3F.5.4-R4) — both operations throw on failure, exactly like their real
+ * `node:fs` counterparts, so the classification logic below is unit-tested
+ * with fabricated `NodeJS.ErrnoException`-shaped throws and no real
+ * filesystem access (or NTFS ACL manipulation) required. */
+export interface SshConfigFsDeps {
+  lstat: (path: string) => void;
+  remove: (path: string) => void;
+}
+
+const defaultSshConfigFsDeps: SshConfigFsDeps = {
+  lstat: (path) => {
+    lstatSync(path);
+  },
+  remove: (path) => {
+    rmSync(path);
+  },
+};
+
+/**
+ * Stage 3F.5.4-R4: `existsSync()` only ever returns a boolean — it cannot
+ * distinguish "the file genuinely does not exist" from "the filesystem
+ * could not be inspected" (access denied, an inaccessible parent
+ * directory, an I/O error, ...), so a real inspection failure was
+ * previously misclassified as confirmed absence. `lstatSync` (not
+ * `statSync` — this never needs to follow a symlink) is used instead: its
+ * thrown error carries a structured `.code`, and only `ENOENT` may produce
+ * `"already-absent"`. Every other thrown error (`EACCES`, `EPERM`,
+ * `EBUSY`, `EIO`, `ENOTDIR`, an error with no recognized code at all) is
+ * rethrown unchanged — never downgraded to `"refused"` (which stays
+ * reserved for this function's own deliberate refusal to act, e.g. a
+ * missing `RIS_E2E_RUN_ROOT`) and never silently treated as success.
+ *
+ * Exported (Stage 3F.5.4-R3) so its tri-state result can be exercised
+ * directly against injected filesystem operations, without needing to go
+ * through `cleanupContainerRemote`/`ContainerOpsDeps` — pure logic, same
+ * testing rationale as `isStrictChildPath` itself.
+ */
+export function clearContainerSshConfig(deps: SshConfigFsDeps = defaultSshConfigFsDeps): SshConfigRemovalResult {
   const runRoot = process.env["RIS_E2E_RUN_ROOT"];
   if (!runRoot) return "refused";
   const configPath = join(runRoot, "git", "ssh-remote-command.env");
-  if (!existsSync(configPath)) return "already-absent";
-  rmSync(configPath, { force: true });
+  try {
+    deps.lstat(configPath);
+  } catch (error) {
+    if (isNodeErrorWithCode(error, "ENOENT")) {
+      return "already-absent";
+    }
+    throw error;
+  }
+  deps.remove(configPath);
   return "removed";
 }
 
