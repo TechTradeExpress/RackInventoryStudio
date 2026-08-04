@@ -20,11 +20,13 @@ import {
   buildSshRemoteUrl,
   buildSshdConfig,
   buildWindowsAclArgs,
+  buildWindowsGitBashCandidates,
   buildWindowsSshdCandidates,
   cleanup,
   configureSsh,
   convertMsysPathToNative,
   createBareRemote,
+  deriveGitRootFromExe,
   findSshd,
   getRemoteCommitCount,
   getRemoteHeadCommit,
@@ -169,6 +171,90 @@ describe("buildWindowsSshdCandidates", () => {
   });
 });
 
+describe("deriveGitRootFromExe", () => {
+  it("goes up one level for the cmd/ shim layout", () => {
+    expect(deriveGitRootFromExe("C:\\Program Files\\Git\\cmd\\git.exe")).toBe("C:\\Program Files\\Git");
+  });
+
+  it("goes up two levels for the mingw64/bin/ layout", () => {
+    expect(deriveGitRootFromExe("C:\\Program Files\\Git\\mingw64\\bin\\git.exe")).toBe("C:\\Program Files\\Git");
+  });
+
+  it("goes up two levels for the mingw32/bin/ layout (32-bit install)", () => {
+    expect(deriveGitRootFromExe("C:\\Program Files (x86)\\Git\\mingw32\\bin\\git.exe")).toBe(
+      "C:\\Program Files (x86)\\Git",
+    );
+  });
+
+  it("falls back to the immediate parent for an unrecognized layout", () => {
+    expect(deriveGitRootFromExe("D:\\SomeOtherTool\\git.exe")).toBe("D:\\SomeOtherTool");
+  });
+});
+
+describe("buildWindowsGitBashCandidates", () => {
+  it("derives both bin/bash.exe and usr/bin/bash.exe from git.exe's cmd/ location, ahead of the well-known fallbacks", () => {
+    const candidates = buildWindowsGitBashCandidates("C:\\Program Files\\Git\\cmd\\git.exe", null);
+    expect(candidates.slice(0, 2)).toEqual(["C:\\Program Files\\Git\\bin\\bash.exe", "C:\\Program Files\\Git\\usr\\bin\\bash.exe"]);
+  });
+
+  it("derives both bin/bash.exe and usr/bin/bash.exe from git.exe's mingw64/bin/ location", () => {
+    const candidates = buildWindowsGitBashCandidates("C:\\Program Files\\Git\\mingw64\\bin\\git.exe", null);
+    expect(candidates.slice(0, 2)).toEqual(["C:\\Program Files\\Git\\bin\\bash.exe", "C:\\Program Files\\Git\\usr\\bin\\bash.exe"]);
+  });
+
+  it("includes registry install path candidates after git.exe-derived candidates, before the well-known fallbacks", () => {
+    const candidates = buildWindowsGitBashCandidates("C:\\Program Files\\Git\\cmd\\git.exe", "D:\\Tools\\Git");
+    expect(candidates.slice(0, 4)).toEqual([
+      "C:\\Program Files\\Git\\bin\\bash.exe",
+      "C:\\Program Files\\Git\\usr\\bin\\bash.exe",
+      "D:\\Tools\\Git\\bin\\bash.exe",
+      "D:\\Tools\\Git\\usr\\bin\\bash.exe",
+    ]);
+  });
+
+  it("falls back to well-known Program Files locations when git.exe and registry are both unavailable", () => {
+    const candidates = buildWindowsGitBashCandidates(null, null);
+    expect(candidates).toEqual([
+      "C:\\Program Files\\Git\\bin\\bash.exe",
+      "C:\\Program Files\\Git\\usr\\bin\\bash.exe",
+      "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
+      "C:\\Program Files (x86)\\Git\\usr\\bin\\bash.exe",
+    ]);
+  });
+
+  it("always includes the well-known Program Files locations even when git.exe and registry resolve elsewhere", () => {
+    const candidates = buildWindowsGitBashCandidates("D:\\Tools\\Git\\cmd\\git.exe", null);
+    expect(candidates).toContain("C:\\Program Files\\Git\\bin\\bash.exe");
+    expect(candidates).toContain("C:\\Program Files (x86)\\Git\\usr\\bin\\bash.exe");
+  });
+
+  it("de-duplicates when git.exe/registry resolve to the same install root as a well-known fallback", () => {
+    const candidates = buildWindowsGitBashCandidates("C:\\Program Files\\Git\\cmd\\git.exe", "C:\\Program Files\\Git");
+    // Both the git.exe-derived root and the registry root collapse into
+    // C:\Program Files\Git (the same as one of the well-known fallbacks) —
+    // each candidate path must appear exactly once, not three times.
+    expect(candidates).toEqual([
+      "C:\\Program Files\\Git\\bin\\bash.exe",
+      "C:\\Program Files\\Git\\usr\\bin\\bash.exe",
+      "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
+      "C:\\Program Files (x86)\\Git\\usr\\bin\\bash.exe",
+    ]);
+  });
+
+  it("never returns a bare 'where.exe bash'-style path — every candidate is derived from git.exe, the registry, or a well-known root", () => {
+    // Regression guard for the WSL-launcher-stub trap this helper exists to
+    // avoid (see its own doc comment): nothing here should ever produce
+    // C:\Windows\System32\bash.exe or a WindowsApps alias.
+    const candidates = buildWindowsGitBashCandidates("C:\\Program Files\\Git\\cmd\\git.exe", null);
+    expect(candidates.some((c) => /system32|windowsapps/i.test(c))).toBe(false);
+  });
+
+  it("feeds selectFirstUsableCandidate returning null when nothing exists — the 'Git Bash not found' diagnostic path", () => {
+    const candidates = buildWindowsGitBashCandidates(null, null);
+    expect(selectFirstUsableCandidate(candidates, () => false)).toBeNull();
+  });
+});
+
 describe("raceSpawnAgainstReadiness", () => {
   it("rejects immediately with the original spawn error preserved as `cause`, not a generic timeout", async () => {
     const bogusPath = join(tmpdir(), "definitely-does-not-exist-sshd-binary-xyz");
@@ -299,6 +385,43 @@ describe("buildSshdConfig", () => {
   it("defaults to process.platform when no platform is given", () => {
     const config = buildSshdConfig(baseOptions);
     expect(config.includes("UsePAM")).toBe(process.platform !== "win32");
+  });
+
+  it("omits ForceCommand on win32 when no gitBashPath is given (no silent fallback to a broken config)", () => {
+    const config = buildSshdConfig({ ...baseOptions, platform: "win32" });
+    expect(config).not.toContain("ForceCommand");
+  });
+
+  it("emits a win32 ForceCommand routing through Git Bash with eval, when gitBashPath is given", () => {
+    const config = buildSshdConfig({
+      ...baseOptions,
+      platform: "win32",
+      gitBashPath: "C:\\Program Files\\Git\\usr\\bin\\bash.exe",
+    });
+    expect(config).toContain(
+      'ForceCommand "C:\\Program Files\\Git\\usr\\bin\\bash.exe" -c "eval \\"$SSH_ORIGINAL_COMMAND\\""',
+    );
+  });
+
+  it("never emits ForceCommand on POSIX even if gitBashPath is (incorrectly) given", () => {
+    const linux = buildSshdConfig({ ...baseOptions, platform: "linux", gitBashPath: "C:\\Program Files\\Git\\usr\\bin\\bash.exe" });
+    const darwin = buildSshdConfig({ ...baseOptions, platform: "darwin", gitBashPath: "C:\\Program Files\\Git\\usr\\bin\\bash.exe" });
+    expect(linux).not.toContain("ForceCommand");
+    expect(darwin).not.toContain("ForceCommand");
+  });
+
+  it("keeps every other directive identical between win32-with-ForceCommand and linux", () => {
+    const linux = buildSshdConfig({ ...baseOptions, platform: "linux" })
+      .split("\n")
+      .filter((line) => !line.startsWith("UsePAM"));
+    const windows = buildSshdConfig({
+      ...baseOptions,
+      platform: "win32",
+      gitBashPath: "C:\\Program Files\\Git\\usr\\bin\\bash.exe",
+    })
+      .split("\n")
+      .filter((line) => !line.startsWith("ForceCommand"));
+    expect(windows).toEqual(linux);
   });
 });
 
