@@ -679,6 +679,42 @@ export async function inspectContainerPresence(
   }
 }
 
+/** Injectable seam for `removeContainerViaDocker`, mirroring `DockerInspectFn` —
+ * lets the not-found-during-removal classification below be unit-tested
+ * with a fake `dockerRemove` and no real WSL/Docker access. */
+export type DockerRemoveFn = (distro: string, containerName: string) => Promise<ExecResult>;
+
+const defaultDockerRemove: DockerRemoveFn = (distro, containerName) => execDocker(distro, ["rm", "-f", containerName]);
+
+/**
+ * `docker rm -f <name>` against an already-absent container was observed
+ * to exit 0 on this project's validated host (Docker Engine 29.4.3) — but
+ * that specific behavior is a Docker Engine version detail, not a
+ * documented cross-version guarantee (Stage 3F.5.4-R3). On a Docker Engine
+ * that instead exits non-zero for that case, this function still treats it
+ * as idempotent success: it reuses `isDockerNotFoundError` (never a
+ * broadened or duplicated pattern) against the thrown `DockerCommandError`'s
+ * preserved stderr, exactly like `inspectContainerPresence` does. Any other
+ * failure — daemon down, WSL unavailable, permission denied, a generic
+ * unrelated "not found" — is rethrown, never classified as absence.
+ */
+export async function removeContainerViaDocker(
+  distro: string,
+  containerName: string,
+  dockerRemove: DockerRemoveFn = defaultDockerRemove,
+): Promise<ContainerRemovalResult> {
+  try {
+    await dockerRemove(distro, containerName);
+    return "removed";
+  } catch (error) {
+    const stderr = isDockerCommandError(error) ? error.stderr : "";
+    if (isDockerNotFoundError(stderr)) {
+      return "already-absent";
+    }
+    throw error;
+  }
+}
+
 // ── Readiness ─────────────────────────────────────────────────────────────────
 
 async function waitForContainerHealthy(distro: string, containerName: string, timeoutMs: number): Promise<void> {
@@ -921,6 +957,32 @@ function resolveRunRoot(): string {
  */
 export type WorkDirRemovalResult = "removed" | "already-absent" | "refused";
 
+/**
+ * Stage 3F.5.4-R3: `docker rm -f <already-absent-name>` was observed to
+ * exit 0 on this project's validated host (Docker Engine 29.4.3) — but
+ * that specific idempotent-exit-code behavior is a Docker Engine version
+ * detail, not a documented cross-version guarantee. On a Docker Engine
+ * that instead exits non-zero for `rm -f` against a missing container
+ * (Docker's own not-found stderr, e.g. `Error response from daemon: No
+ * such container: <name>`), the removal call must still be treated as
+ * idempotent success rather than a genuine failure — see
+ * `defaultContainerOpsDeps.removeContainer`, which classifies that exact
+ * stderr via `isDockerNotFoundError` (never a broadened/duplicated
+ * pattern) instead of relying solely on the exit code.
+ */
+export type ContainerRemovalResult = "removed" | "already-absent";
+
+/**
+ * Stage 3F.5.4-R3: distinguishes "the config file was actually removed",
+ * "there was nothing to remove", and "cleanup could not even determine
+ * where to look" — the last of which was previously indistinguishable
+ * from success (a silent `return` on a missing `RIS_E2E_RUN_ROOT` reported
+ * `sshConfigCleared = true` purely because nothing threw). Mirrors
+ * `WorkDirRemovalResult`'s own rationale: an inability to safely locate or
+ * act on the target is a refusal, not a success.
+ */
+export type SshConfigRemovalResult = "removed" | "already-absent" | "refused";
+
 export interface ContainerOpsDeps {
   resolveDistribution: () => Promise<string>;
   startKeepAlive: (distro: string) => ChildProcess;
@@ -930,7 +992,11 @@ export interface ContainerOpsDeps {
   dockerPort: (distro: string, containerName: string) => Promise<string>;
   waitForHealthy: (distro: string, containerName: string, timeoutMs: number) => Promise<void>;
   collectDiagnostics: (distro: string, containerName: string) => Promise<string>;
-  removeContainer: (distro: string, containerName: string) => Promise<void>;
+  /** Idempotent by contract (Stage 3F.5.4-R3): resolves `"already-absent"`
+   * rather than throwing when the container was already gone, on any
+   * Docker Engine version's exact not-found result — never merely on a
+   * non-throwing `rm -f` exit. Only a non-not-found failure ever throws. */
+  removeContainer: (distro: string, containerName: string) => Promise<ContainerRemovalResult>;
   /** Exact-identity, tri-state presence check (never a substring/name-filter
    * match, and never collapses "couldn't tell" into "absent" — see
    * `ContainerPresence`/`inspectContainerPresence`, Stage 3F.5.4-R2). */
@@ -942,14 +1008,20 @@ export interface ContainerOpsDeps {
   readPublicKey: (identityPath: string) => string;
   installPublicKey: (distro: string, containerName: string, publicKey: string) => Promise<void>;
   removeWorkDir: (workDir: string) => Promise<WorkDirRemovalResult>;
-  clearSshConfig: () => void;
+  clearSshConfig: () => SshConfigRemovalResult;
 }
 
-function clearContainerSshConfig(): void {
+/** Exported (Stage 3F.5.4-R3) so its tri-state result can be exercised
+ * directly against a real temp `RIS_E2E_RUN_ROOT`, without needing to go
+ * through `cleanupContainerRemote`/`ContainerOpsDeps` injection — pure
+ * filesystem logic, same testing rationale as `isStrictChildPath` itself. */
+export function clearContainerSshConfig(): SshConfigRemovalResult {
   const runRoot = process.env["RIS_E2E_RUN_ROOT"];
-  if (!runRoot) return;
+  if (!runRoot) return "refused";
   const configPath = join(runRoot, "git", "ssh-remote-command.env");
-  if (existsSync(configPath)) rmSync(configPath, { force: true });
+  if (!existsSync(configPath)) return "already-absent";
+  rmSync(configPath, { force: true });
+  return "removed";
 }
 
 async function removeWorkDirImpl(workDir: string): Promise<WorkDirRemovalResult> {
@@ -975,9 +1047,7 @@ export const defaultContainerOpsDeps: ContainerOpsDeps = {
   dockerPort: async (distro, containerName) => (await execDocker(distro, ["port", containerName])).stdout,
   waitForHealthy: waitForContainerHealthy,
   collectDiagnostics,
-  removeContainer: async (distro, containerName) => {
-    await execDocker(distro, ["rm", "-f", containerName]);
-  },
+  removeContainer: removeContainerViaDocker,
   inspectContainerPresence,
   listFixtureContainers: async (distro, runId) => {
     const { stdout } = await execDocker(distro, buildCleanupArgs(runId));
@@ -1056,6 +1126,10 @@ async function rollbackContainerByName(
 
   if (initialPresence.status !== "absent") {
     try {
+      // "already-absent" is not recorded as a diagnostic — removeContainer
+      // is idempotent by contract (Stage 3F.5.4-R3), so an already-gone
+      // container is a successful outcome here, not a failure to remove
+      // something that was never there.
       await deps.removeContainer(distro, containerName);
     } catch (error) {
       diagnostics.push(`removing container "${containerName}" failed: ${errMsg(error)}`);
@@ -1111,7 +1185,12 @@ export async function rollbackPartialContainerFixture(
 
   if (state.sshConfigCreated) {
     try {
-      deps.clearSshConfig();
+      const result = deps.clearSshConfig();
+      if (result === "refused") {
+        diagnostics.push(
+          "clearing ssh config was refused (RIS_E2E_RUN_ROOT unavailable or the config path could not be safely determined)",
+        );
+      }
     } catch (error) {
       diagnostics.push(`clearing ssh config failed: ${errMsg(error)}`);
     }
@@ -1314,21 +1393,43 @@ export async function cleanupContainerRemote(
 
   try {
     try {
-      deps.clearSshConfig();
-      sshConfigCleared = true;
+      const sshConfigResult = deps.clearSshConfig();
+      // "removed" and "already-absent" both count as cleared — the
+      // distinguishing case is "refused" (RIS_E2E_RUN_ROOT unavailable or
+      // the config path could not be safely determined), which must never
+      // be reported as if the config were conclusively cleared (Stage
+      // 3F.5.4-R3's defect-2 fix).
+      sshConfigCleared = sshConfigResult !== "refused";
+      if (sshConfigResult === "refused") {
+        errors.push(
+          "clearing ssh config was refused (RIS_E2E_RUN_ROOT unavailable or the config path could not be safely determined)",
+        );
+      }
     } catch (error) {
       errors.push(`clearing ssh config failed: ${errMsg(error)}`);
     }
 
     try {
       containerRemovalAttempted = true;
-      await deps.removeContainer(server.distro, server.containerName);
-      containerRemoved = true;
+      // "already-absent" is idempotent success, not a failure to remove
+      // something that was never there (Stage 3F.5.4-R3's defect-1 fix) —
+      // only a genuine removal failure ever reaches the catch below.
+      const removalResult = await deps.removeContainer(server.distro, server.containerName);
+      containerRemoved = removalResult === "removed";
     } catch (error) {
       errors.push(`removing container "${server.containerName}" failed: ${errMsg(error)}`);
     }
 
-    const presence = await deps.inspectContainerPresence(server.distro, server.containerName);
+    // Guarded so an unexpectedly throwing injected inspectContainerPresence
+    // (a custom test/ops dependency that violates its own never-throws
+    // contract) degrades to "unknown" rather than aborting cleanup before
+    // work-directory removal and keep-alive shutdown ever run.
+    let presence: ContainerPresence;
+    try {
+      presence = await deps.inspectContainerPresence(server.distro, server.containerName);
+    } catch (error) {
+      presence = { status: "unknown", error: errMsg(error) };
+    }
     containerVerifiedAbsent = presence.status === "absent";
     if (presence.status === "present") {
       const warning = `container "${server.containerName}" still present after removal attempt — may require manual cleanup`;
@@ -1469,8 +1570,20 @@ export function formatFixtureCleanupFailure(result: FixtureCleanupResult): strin
 
 /** Provider-neutral counterpart to `assertCleanupSucceeded` — the one call
  * a WDIO `after()` hook needs regardless of which provider `fixture.cleanup()`
- * came from. */
+ * came from. Also rejects an internally inconsistent result (`ok: true`
+ * with a non-empty `errors` array — Stage 3F.5.4-R3's defensive hardening):
+ * such a result cannot come from `toFixtureCleanupResult` itself, but a
+ * hand-built or third-party-adapter result could carry it, and silently
+ * trusting `ok` while discarding recorded errors would be exactly the kind
+ * of self-reported-without-verification success this stage's teardown
+ * work exists to close off. */
 export function assertFixtureCleanupSucceeded(result: FixtureCleanupResult): void {
+  if (result.ok && result.errors.length > 0) {
+    throw new Error(
+      `[e2e] ${result.provider} fixture cleanup reported ok:true but recorded ${result.errors.length} error(s) — treating as failed:\n` +
+        result.errors.map((issue) => `  - ${issue}`).join("\n"),
+    );
+  }
   if (!result.ok) {
     throw new Error(formatFixtureCleanupFailure(result));
   }

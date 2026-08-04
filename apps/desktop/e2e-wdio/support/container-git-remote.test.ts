@@ -21,6 +21,9 @@
  * Windows+WSL2+Docker host, as this stage's own "Real Windows Validation"
  * report section, not here.
  */
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   FIXTURE_LABEL,
@@ -35,6 +38,7 @@ import {
   classifyDockerError,
   cleanupContainerRemote,
   cleanupOrphanedContainers,
+  clearContainerSshConfig,
   computeCurrentFixtureImageTag,
   computeFixtureContentHash,
   createContainerRemoteFixture,
@@ -49,6 +53,7 @@ import {
   isSafeIdentifier,
   parsePublishedPort,
   parseWslList,
+  removeContainerViaDocker,
   resolveGitRemoteProvider,
   resolveWslDistroOverride,
   rollbackPartialContainerFixture,
@@ -60,11 +65,13 @@ import {
   type CleanupResult,
   type ContainerOpsDeps,
   type ContainerPresence,
+  type ContainerRemovalResult,
   type ContainerSshRemoteServer,
   type ErrorWithCleanupDiagnostics,
   type FixtureCleanupResult,
   type FixtureSourceFile,
   type PartialContainerFixtureState,
+  type SshConfigRemovalResult,
   type WorkDirRemovalResult,
   type WslDistribution,
 } from "./container-git-remote";
@@ -841,8 +848,9 @@ describe("rollbackPartialContainerFixture", () => {
         calls.push(`collectDiagnostics(${distro},${name})`);
         return "fake diagnostics";
       }),
-      removeContainer: vi.fn(async (distro: string, name: string) => {
+      removeContainer: vi.fn(async (distro: string, name: string): Promise<ContainerRemovalResult> => {
         calls.push(`removeContainer(${distro},${name})`);
+        return "removed";
       }),
       // Default: genuinely present before rollback, genuinely gone after —
       // the realistic shape a successful removeContainer call produces.
@@ -857,8 +865,9 @@ describe("rollbackPartialContainerFixture", () => {
         calls.push(`removeWorkDir(${workDir})`);
         return "removed";
       }),
-      clearSshConfig: vi.fn(() => {
+      clearSshConfig: vi.fn((): SshConfigRemovalResult => {
         calls.push("clearSshConfig()");
+        return "removed";
       }),
       stopKeepAlive: vi.fn(() => {
         calls.push("stopKeepAlive()");
@@ -1037,6 +1046,162 @@ describe("rollbackPartialContainerFixture", () => {
     const diagnostics = await rollbackPartialContainerFixture(state, deps);
     expect(diagnostics.some((d) => d.includes("refused"))).toBe(true);
   });
+
+  // ── Idempotent removal / ssh-config tri-state (Stage 3F.5.4-R3) ───────────
+
+  it("initial presence unknown, removeContainer reports already-absent, final presence absent: no removal-failure diagnostic is added", async () => {
+    const keepAlive = {} as ContainerSshRemoteServer["keepAlive"];
+    const state: PartialContainerFixtureState = { distro: "Ubuntu", containerName: "c1", keepAlive };
+    let call = 0;
+    const { deps } = fakeDeps({
+      inspectContainerPresence: vi.fn(async (): Promise<ContainerPresence> => {
+        call++;
+        return call === 1 ? { status: "unknown", error: "daemon unavailable" } : { status: "absent" };
+      }),
+      removeContainer: vi.fn(async (): Promise<ContainerRemovalResult> => "already-absent"),
+    });
+    const diagnostics = await rollbackPartialContainerFixture(state, deps);
+    expect(diagnostics.some((d) => d.includes("could not be determined before rollback"))).toBe(true);
+    expect(diagnostics.some((d) => d.includes("removing container") && d.includes("failed"))).toBe(false);
+  });
+
+  it("sshConfigCreated=true and clearSshConfig returns 'refused' adds a diagnostic", async () => {
+    const keepAlive = {} as ContainerSshRemoteServer["keepAlive"];
+    const state: PartialContainerFixtureState = { keepAlive, sshConfigCreated: true };
+    const { deps } = fakeDeps({
+      clearSshConfig: vi.fn((): SshConfigRemovalResult => "refused"),
+    });
+    const diagnostics = await rollbackPartialContainerFixture(state, deps);
+    expect(diagnostics.some((d) => d.includes("clearing ssh config was refused"))).toBe(true);
+  });
+
+  it("sshConfigCreated=true and clearSshConfig returns 'already-absent' adds no error", async () => {
+    const keepAlive = {} as ContainerSshRemoteServer["keepAlive"];
+    const state: PartialContainerFixtureState = { keepAlive, sshConfigCreated: true };
+    const { deps } = fakeDeps({
+      clearSshConfig: vi.fn((): SshConfigRemovalResult => "already-absent"),
+    });
+    const diagnostics = await rollbackPartialContainerFixture(state, deps);
+    expect(diagnostics).toEqual([]);
+  });
+
+  it("does not attempt ssh config cleanup when sshConfigCreated is not true", async () => {
+    const keepAlive = {} as ContainerSshRemoteServer["keepAlive"];
+    const state: PartialContainerFixtureState = { keepAlive };
+    const { deps } = fakeDeps();
+    await rollbackPartialContainerFixture(state, deps);
+    expect(deps.clearSshConfig).not.toHaveBeenCalled();
+  });
+});
+
+// ── removeContainerViaDocker: idempotent not-found classification (Stage 3F.5.4-R3) ──
+
+describe("removeContainerViaDocker", () => {
+  it("returns 'removed' when docker rm succeeds", async () => {
+    const dockerRemove = vi.fn(async () => ({ stdout: "abc123", stderr: "" }));
+    await expect(removeContainerViaDocker("Ubuntu", "c1", dockerRemove)).resolves.toBe("removed");
+  });
+
+  it("returns 'already-absent' for docker's exact 'No such container' not-found result (cross-version: exit non-zero rather than 0)", async () => {
+    const dockerRemove = vi.fn(async () => {
+      throw fakeDockerError("Error response from daemon: No such container: c1");
+    });
+    await expect(removeContainerViaDocker("Ubuntu", "c1", dockerRemove)).resolves.toBe("already-absent");
+  });
+
+  it("returns 'already-absent' for docker's exact 'no such object' not-found result", async () => {
+    const dockerRemove = vi.fn(async () => {
+      throw fakeDockerError("error: no such object: c1");
+    });
+    await expect(removeContainerViaDocker("Ubuntu", "c1", dockerRemove)).resolves.toBe("already-absent");
+  });
+
+  it("rethrows when the Docker daemon is unavailable — never misread as already-absent", async () => {
+    const dockerRemove = vi.fn(async () => {
+      throw fakeDockerError("Cannot connect to the Docker daemon at unix:///var/run/docker.sock");
+    });
+    await expect(removeContainerViaDocker("Ubuntu", "c1", dockerRemove)).rejects.toThrow();
+  });
+
+  it("rethrows when WSL itself is unavailable — never misread as already-absent", async () => {
+    const dockerRemove = vi.fn(async () => {
+      throw fakeDockerError("Wsl/Service/CreateInstance/HCS_E_SERVICE_NOT_AVAILABLE");
+    });
+    await expect(removeContainerViaDocker("Ubuntu", "c1", dockerRemove)).rejects.toThrow();
+  });
+
+  it("rethrows on permission denied — never misread as already-absent", async () => {
+    const dockerRemove = vi.fn(async () => {
+      throw fakeDockerError("permission denied while trying to connect to the Docker daemon socket");
+    });
+    await expect(removeContainerViaDocker("Ubuntu", "c1", dockerRemove)).rejects.toThrow();
+  });
+
+  it("rethrows for a generic 'not found' unrelated to the container itself — never misread as already-absent", async () => {
+    const dockerRemove = vi.fn(async () => {
+      throw fakeDockerError("bash: some-script.sh: not found");
+    });
+    await expect(removeContainerViaDocker("Ubuntu", "c1", dockerRemove)).rejects.toThrow();
+  });
+
+  it("preserves the original error identity/message when rethrowing a non-not-found failure", async () => {
+    const original = fakeDockerError("Cannot connect to the Docker daemon");
+    const dockerRemove = vi.fn(async () => {
+      throw original;
+    });
+    await expect(removeContainerViaDocker("Ubuntu", "c1", dockerRemove)).rejects.toBe(original);
+  });
+});
+
+// ── clearContainerSshConfig: tri-state result (Stage 3F.5.4-R3) ─────────────
+
+describe("clearContainerSshConfig", () => {
+  const RUN_ROOT_ENV = "RIS_E2E_RUN_ROOT";
+
+  function withRunRoot<T>(runRoot: string | undefined, fn: () => T): T {
+    const previous = process.env[RUN_ROOT_ENV];
+    if (runRoot === undefined) delete process.env[RUN_ROOT_ENV];
+    else process.env[RUN_ROOT_ENV] = runRoot;
+    try {
+      return fn();
+    } finally {
+      if (previous === undefined) delete process.env[RUN_ROOT_ENV];
+      else process.env[RUN_ROOT_ENV] = previous;
+    }
+  }
+
+  it("returns 'refused' when RIS_E2E_RUN_ROOT is unset", () => {
+    withRunRoot(undefined, () => {
+      expect(clearContainerSshConfig()).toBe("refused");
+    });
+  });
+
+  it("returns 'already-absent' when the run root is valid but the config file does not exist", () => {
+    const runRoot = mkdtempSync(join(tmpdir(), "ris-e2e-sshconfig-"));
+    try {
+      withRunRoot(runRoot, () => {
+        expect(clearContainerSshConfig()).toBe("already-absent");
+      });
+    } finally {
+      rmSync(runRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("returns 'removed' and actually deletes the file when the config exists", () => {
+    const runRoot = mkdtempSync(join(tmpdir(), "ris-e2e-sshconfig-"));
+    try {
+      const gitDir = join(runRoot, "git");
+      mkdirSync(gitDir, { recursive: true });
+      const configPath = join(gitDir, "ssh-remote-command.env");
+      writeFileSync(configPath, "RIS_SSH_REMOTE_PORT=1234\n");
+      withRunRoot(runRoot, () => {
+        expect(clearContainerSshConfig()).toBe("removed");
+      });
+      expect(existsSync(configPath)).toBe(false);
+    } finally {
+      rmSync(runRoot, { recursive: true, force: true });
+    }
+  });
 });
 
 // ── cleanupContainerRemote ordering (Stage 3F.5.4-R1) ────────────────────────
@@ -1069,8 +1234,9 @@ describe("cleanupContainerRemote", () => {
       dockerPort: vi.fn(async () => "22/tcp -> 127.0.0.1:32768"),
       waitForHealthy: vi.fn(async () => {}),
       collectDiagnostics: vi.fn(async () => "diag"),
-      removeContainer: vi.fn(async () => {
+      removeContainer: vi.fn(async (): Promise<ContainerRemovalResult> => {
         calls.push("removeContainer");
+        return "removed";
       }),
       // Never throws in the real implementation — a "verification failed"
       // scenario is expressed as `status: "unknown"`, not a rejection (see
@@ -1089,8 +1255,9 @@ describe("cleanupContainerRemote", () => {
         calls.push("removeWorkDir");
         return "removed";
       }),
-      clearSshConfig: vi.fn(() => {
+      clearSshConfig: vi.fn((): SshConfigRemovalResult => {
         calls.push("clearSshConfig");
+        return "removed";
       }),
       ...overrides,
     };
@@ -1208,7 +1375,7 @@ describe("cleanupContainerRemote", () => {
     const { deps } = fakeDeps({
       // rm -f on an already-absent container does not throw — confirmed
       // empirically against real Docker Engine 29.4.3 (exit 0).
-      removeContainer: vi.fn(async () => {}),
+      removeContainer: vi.fn(async (): Promise<ContainerRemovalResult> => "already-absent"),
       inspectContainerPresence: vi.fn(async (): Promise<ContainerPresence> => ({ status: "absent" })),
       removeWorkDir: vi.fn(async (): Promise<WorkDirRemovalResult> => "already-absent"),
     });
@@ -1217,6 +1384,85 @@ describe("cleanupContainerRemote", () => {
     const second = await cleanupContainerRemote(server, deps);
     expect(isCleanupSuccessful(first)).toBe(true);
     expect(isCleanupSuccessful(second)).toBe(true);
+  });
+
+  // ── Idempotent removal / ssh-config tri-state (Stage 3F.5.4-R3) ───────────
+
+  it("removeContainer reporting 'already-absent' plus a conclusive final 'absent' inspect is a successful cleanup", async () => {
+    const { deps } = fakeDeps({
+      removeContainer: vi.fn(async (): Promise<ContainerRemovalResult> => "already-absent"),
+      inspectContainerPresence: vi.fn(async (): Promise<ContainerPresence> => ({ status: "absent" })),
+    });
+    const result = await cleanupContainerRemote(fakeServer(), deps);
+    expect(result.containerRemovalAttempted).toBe(true);
+    expect(result.containerRemoved).toBe(false);
+    expect(result.containerVerifiedAbsent).toBe(true);
+    expect(isCleanupSuccessful(result)).toBe(true);
+  });
+
+  it("remains successful even when the SECOND cleanup's removal reports exact Docker not-found rather than a non-throwing exit code (cross-version idempotency)", async () => {
+    let call = 0;
+    const { deps } = fakeDeps({
+      removeContainer: vi.fn(async (): Promise<ContainerRemovalResult> => {
+        call++;
+        return call === 1 ? "removed" : "already-absent";
+      }),
+      inspectContainerPresence: vi.fn(async (): Promise<ContainerPresence> => ({ status: "absent" })),
+    });
+    const server = fakeServer();
+    const first = await cleanupContainerRemote(server, deps);
+    const second = await cleanupContainerRemote(server, deps);
+    expect(first.containerRemoved).toBe(true);
+    expect(second.containerRemoved).toBe(false);
+    expect(isCleanupSuccessful(first)).toBe(true);
+    expect(isCleanupSuccessful(second)).toBe(true);
+  });
+
+  it("clearSshConfig returning 'refused' makes sshConfigCleared false and adds a refusal diagnostic, failing isCleanupSuccessful", async () => {
+    const { deps } = fakeDeps({
+      clearSshConfig: vi.fn((): SshConfigRemovalResult => "refused"),
+    });
+    const result = await cleanupContainerRemote(fakeServer(), deps);
+    expect(result.sshConfigCleared).toBe(false);
+    expect(result.errors.some((e) => e.includes("clearing ssh config was refused"))).toBe(true);
+    expect(isCleanupSuccessful(result)).toBe(false);
+  });
+
+  it("clearSshConfig returning 'already-absent' makes sshConfigCleared true and adds no error", async () => {
+    const { deps } = fakeDeps({
+      clearSshConfig: vi.fn((): SshConfigRemovalResult => "already-absent"),
+    });
+    const result = await cleanupContainerRemote(fakeServer(), deps);
+    expect(result.sshConfigCleared).toBe(true);
+    expect(result.errors).toEqual([]);
+    expect(isCleanupSuccessful(result)).toBe(true);
+  });
+
+  it("a filesystem exception from clearSshConfig leaves sshConfigCleared false and adds a cleanup error", async () => {
+    const { deps } = fakeDeps({
+      clearSshConfig: vi.fn(() => {
+        throw new Error("EPERM: operation not permitted");
+      }),
+    });
+    const result = await cleanupContainerRemote(fakeServer(), deps);
+    expect(result.sshConfigCleared).toBe(false);
+    expect(result.errors.some((e) => e.includes("EPERM"))).toBe(true);
+  });
+
+  it("an inspectContainerPresence dependency that throws (violating its own contract) degrades to 'unknown' rather than aborting cleanup early", async () => {
+    const { deps, calls } = fakeDeps({
+      inspectContainerPresence: vi.fn(async () => {
+        throw new Error("injected: dependency violated its never-throws contract");
+      }),
+    });
+    const result = await cleanupContainerRemote(fakeServer(), deps);
+    expect(result.containerVerifiedAbsent).toBe(false);
+    expect(result.errors.some((e) => e.includes("injected: dependency violated its never-throws contract"))).toBe(true);
+    // work-directory removal and keep-alive shutdown still ran afterward.
+    expect(calls).toContain("removeWorkDir");
+    expect(calls).toContain("stopKeepAlive");
+    expect(result.workDirRemoved).toBe(true);
+    expect(result.keepAliveStopped).toBe(true);
   });
 });
 
@@ -1327,6 +1573,25 @@ describe("toFixtureCleanupResult / assertFixtureCleanupSucceeded / formatFixture
     const fixtureResult: FixtureCleanupResult = { ok: true, provider: "native", errors: [] };
     expect(() => assertFixtureCleanupSucceeded(fixtureResult)).not.toThrow();
   });
+
+  // ── Defensive hardening (Stage 3F.5.4-R3) ──────────────────────────────
+
+  it("rejects an internally inconsistent result — ok:true with a non-empty errors array — rather than trusting ok blindly", () => {
+    const inconsistent: FixtureCleanupResult = {
+      ok: true,
+      provider: "container",
+      errors: ["this should never coexist with ok:true"],
+    };
+    expect(() => assertFixtureCleanupSucceeded(inconsistent)).toThrow(
+      /reported ok:true but recorded 1 error\(s\)/,
+    );
+    expect(() => assertFixtureCleanupSucceeded(inconsistent)).toThrow(/this should never coexist with ok:true/);
+  });
+
+  it("does not flag a consistent ok:true/no-errors result as inconsistent", () => {
+    const consistent: FixtureCleanupResult = { ok: true, provider: "native", errors: [] };
+    expect(() => assertFixtureCleanupSucceeded(consistent)).not.toThrow();
+  });
 });
 
 // ── cleanupOrphanedContainers: never sweeps unrelated containers ────────────
@@ -1383,7 +1648,7 @@ describe("startContainerRemote (fault injection, no real WSL/Docker)", () => {
       dockerPort: vi.fn(async () => "22/tcp -> 127.0.0.1:32768"),
       waitForHealthy: vi.fn(async () => {}),
       collectDiagnostics: vi.fn(async () => "diag"),
-      removeContainer: vi.fn(async () => {}),
+      removeContainer: vi.fn(async (): Promise<ContainerRemovalResult> => "removed"),
       // Default: present on the first (pre-removal) check, absent on the
       // second (post-removal) check — the realistic shape a successful
       // rollback removal produces. Individual tests override this when a
@@ -1399,7 +1664,7 @@ describe("startContainerRemote (fault injection, no real WSL/Docker)", () => {
       readPublicKey: vi.fn(() => "ssh-ed25519 AAAA"),
       installPublicKey: vi.fn(async () => {}),
       removeWorkDir: vi.fn(async (): Promise<WorkDirRemovalResult> => "removed"),
-      clearSshConfig: vi.fn(),
+      clearSshConfig: vi.fn((): SshConfigRemovalResult => "removed"),
       ...overrides,
     };
     return { deps, keepAlive };

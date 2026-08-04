@@ -3552,6 +3552,91 @@ remapped host; only `git-remote-workflows` is migrated.
 
 **STAGE 3F.5.4-R2 COMPLETE — READY FOR MIGRATION.**
 
+### Stage 3F.5.4-R3 — Finalized cleanup idempotency (2026-08-04)
+
+**Why this RP.** A strict review of Stage 3F.5.4-R2 found two remaining
+edge cases where cleanup could still incorrectly fail or incorrectly
+report success, both driven by the same root cause: two of the four
+cleanup steps (`removeContainer`, `clearSshConfig`) reported success purely
+from "the call didn't throw", rather than an explicit, inspectable result —
+exactly the pattern R2 had already fixed for container presence and
+work-directory removal, just not yet applied to these two.
+
+#### Cross-version Docker `rm` not-found handling
+
+`docker rm -f <already-absent-name>` was observed to exit 0 on this
+project's validated host (Docker Engine 29.4.3) — but that is a version
+detail, not a documented cross-version guarantee. `removeContainerViaDocker`
+(mirroring `inspectContainerPresence`'s injectable `DockerInspectFn` seam
+with its own `DockerRemoveFn`) now classifies a thrown removal error via
+the same `isDockerNotFoundError` pattern used for presence inspection:
+Docker's exact not-found stderr becomes `ContainerRemovalResult =
+"already-absent"`, idempotent success, regardless of exit code; every other
+failure (daemon down, WSL unavailable, permission denied, a generic
+unrelated "not found") is rethrown unchanged.
+
+#### SSH config removal result
+
+`clearContainerSshConfig` (now exported for direct testing) returns a
+`SshConfigRemovalResult` (`"removed" | "already-absent" | "refused"`)
+instead of `void`. A missing `RIS_E2E_RUN_ROOT` — previously a silent
+`return` that `cleanupContainerRemote` read as `sshConfigCleared = true`
+purely because nothing threw — is now `"refused"`, reported as an error,
+never as success.
+
+#### Cleanup and rollback integration
+
+`cleanupContainerRemote`: `"already-absent"` from either helper is treated
+as success with no error recorded; `"refused"` from `clearSshConfig` sets
+`sshConfigCleared = false` and adds a diagnostic. `containerRemoved`
+remains outside `isCleanupSuccessful`'s predicate — only
+`containerVerifiedAbsent` (the post-removal tri-state inspect) is
+authoritative. `rollbackContainerByName`/`rollbackPartialContainerFixture`
+apply the same treatment: an `"already-absent"` removal or ssh-config
+result adds no diagnostic; `"refused"` does.
+
+#### Defensive hardening
+
+Two small, directly-adjacent additions: `assertFixtureCleanupSucceeded` now
+also rejects an internally inconsistent result (`ok: true` with a
+non-empty `errors` array) rather than trusting `ok` blindly; and
+`cleanupContainerRemote`'s `inspectContainerPresence` call is now
+try/catch-guarded so an injected dependency that violates its own
+never-throws contract degrades to `"unknown"` instead of aborting cleanup
+before work-directory removal and keep-alive shutdown ever run.
+
+#### Tests
+
+`container-git-remote.test.ts` grew from 158 to 181 tests: `removeContainerViaDocker`
+classification (success, both not-found stderr shapes, daemon/WSL/
+permission/generic-unrelated all rethrow), `clearContainerSshConfig`
+against a real temp `RIS_E2E_RUN_ROOT` (removed/already-absent/refused),
+cleanup and rollback integration for both new tri-state results, and the
+two defensive-hardening cases.
+
+#### Real-host validation
+
+Against the same Windows+WSL2+Docker host: a normal start+cleanup cycle
+succeeded, independently confirmed via `docker inspect`; a second cleanup
+call (including a second `clearContainerSshConfig()`, which correctly
+reported `"already-absent"`) also succeeded; and — since this host's Docker
+happens to exit 0 for `rm -f` on an absent container — a real container was
+removed out-of-band first, then `removeContainerViaDocker` was driven
+through a *simulated* non-zero-exit "No such container" response for that
+same, now-genuinely-absent container: it correctly returned
+`"already-absent"`, and a `cleanupContainerRemote` built on that
+classification still succeeded. No residue left behind; temporary
+validation script deleted before commit.
+
+#### Container and native provider regression
+
+Single runs of `git-remote-workflows` against both
+`RIS_E2E_GIT_REMOTE_PROVIDER=container` and `=native`: both passed cleanly
+on the first attempt, teardown conclusively successful for both providers,
+no leftover containers/keep-alive/work directories.
+
+**STAGE 3F.5.4-R3 COMPLETE — READY FOR MIGRATION.**
+
 ### Not proposed as a numbered coverage stage
 
 - **CI execution / full WDIO in CI** — tracked separately in "Desktop E2E
