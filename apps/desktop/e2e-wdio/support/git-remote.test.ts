@@ -10,10 +10,11 @@
  * crates/ris-git/tests' `if !git_available() { return; }` pattern for an
  * optional local dependency.
  */
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   buildSshRemoteUrl,
@@ -33,9 +34,12 @@ import {
   securePrivateKeyFile,
   seedBareRemoteFromLocalRepo,
   selectFirstUsableCandidate,
+  shQuote,
   startRemote,
 } from "./git-remote";
 import { runGit } from "./local-git";
+
+const execFileAsync = promisify(execFile);
 
 const ENV_KEYS = ["RIS_E2E_RUN_ROOT"];
 
@@ -298,6 +302,136 @@ describe("buildSshdConfig", () => {
   });
 });
 
+// ── shQuote: pure serialization ──────────────────────────────────────────────
+//
+// No filesystem/process access — exercises the escaping logic in isolation,
+// unconditionally, on every platform/CI runner.
+
+describe("shQuote", () => {
+  it("wraps a plain value in single quotes", () => {
+    expect(shQuote("hello")).toBe("'hello'");
+  });
+
+  it("preserves a Windows path with backslashes", () => {
+    expect(shQuote("C:\\Users\\Test\\id_ed25519")).toBe("'C:\\Users\\Test\\id_ed25519'");
+  });
+
+  it("preserves a Windows path with spaces", () => {
+    expect(shQuote("C:\\Users\\Test User\\ssh keys\\id_ed25519")).toBe(
+      "'C:\\Users\\Test User\\ssh keys\\id_ed25519'",
+    );
+  });
+
+  it("preserves a POSIX path unchanged", () => {
+    expect(shQuote("/home/test/.ssh/id_ed25519")).toBe("'/home/test/.ssh/id_ed25519'");
+  });
+
+  it("leaves a dollar sign inert (no expansion inside single quotes)", () => {
+    expect(shQuote("$HOME/test")).toBe("'$HOME/test'");
+  });
+
+  it("leaves backticks inert (no command substitution inside single quotes)", () => {
+    expect(shQuote("`test`")).toBe("'`test`'");
+  });
+
+  it("leaves double quotes untouched", () => {
+    expect(shQuote('"quoted"')).toBe("'\"quoted\"'");
+  });
+
+  it("escapes an embedded single quote with the close/escape/reopen idiom", () => {
+    expect(shQuote("'value'")).toBe("''\\''value'\\'''");
+  });
+
+  it("preserves a trailing backslash", () => {
+    expect(shQuote("C:\\Users\\Test\\")).toBe("'C:\\Users\\Test\\'");
+  });
+
+  it("preserves embedded spaces", () => {
+    expect(shQuote("a b c")).toBe("'a b c'");
+  });
+});
+
+// ── shQuote: round-trip through a real Bash `source` ─────────────────────────
+//
+// Proves the contract end-to-end the way ssh-wrapper.sh actually consumes
+// it: write `NAME=<shQuote(value)>` to a file, source that file in a real
+// Bash process, echo the variable back, and compare byte-for-byte. Requires
+// only `bash` on PATH (present wherever ssh-wrapper.sh itself can run,
+// including Git-for-Windows CI) — no sshd, so this is deterministic and
+// doesn't depend on the sshd-gated tests below.
+
+const bashAvailable = await (async () => {
+  try {
+    await execFileAsync("bash", ["-c", "true"]);
+    return true;
+  } catch {
+    return false;
+  }
+})();
+if (!bashAvailable) {
+  // eslint-disable-next-line no-console
+  console.warn("[git-remote.test] bash not found — skipping shQuote round-trip tests");
+}
+
+describe.skipIf(!bashAvailable)("shQuote round-trip through a real Bash source", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "shquote-roundtrip-"));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** Writes `NAME=<shQuote(value)>` to a fresh env file and sources it in a
+   * real bash subprocess, returning exactly what that bash resolved `NAME`
+   * to. `envPath` is passed as bash's positional `$1` (via the `_` $0
+   * placeholder) rather than interpolated into the `-c` script string, so
+   * this harness's own quoting can't mask a bug in `shQuote` itself. */
+  async function roundTrip(name: string, value: string): Promise<string> {
+    const envPath = join(dir, "env");
+    writeFileSync(envPath, `${name}=${shQuote(value)}\n`);
+    const { stdout } = await execFileAsync("bash", [
+      "-c",
+      `source "$1" && printf '%s' "\${${name}}"`,
+      "_",
+      envPath,
+    ]);
+    return stdout;
+  }
+
+  it.each([
+    ["Windows path", "C:\\Users\\Test\\id_ed25519"],
+    ["Windows path with spaces", "C:\\Users\\Test User\\ssh keys\\id_ed25519"],
+    ["POSIX path", "/home/test/.ssh/id_ed25519"],
+    ["dollar sign", "$HOME/test"],
+    ["backticks", "`test`"],
+    ["double quotes", '"quoted"'],
+    ["single quotes", "'value'"],
+    ["trailing backslash", "C:\\Users\\Test\\"],
+    ["embedded spaces", "a b c"],
+  ])("preserves %s byte-for-byte", async (_label, value) => {
+    expect(await roundTrip("RIS_TEST_VAR", value)).toBe(value);
+  });
+
+  it("preserves multiple exported variables independently", async () => {
+    const envPath = join(dir, "env");
+    const a = "C:\\Users\\Test\\id_ed25519";
+    const b = "$literal `not a command` \"quoted\" 'and single'";
+    writeFileSync(envPath, `RIS_TEST_A=${shQuote(a)}\nRIS_TEST_B=${shQuote(b)}\n`);
+    const { stdout } = await execFileAsync("bash", [
+      "-c",
+      'source "$1" && printf \'%s\\x1f%s\' "$RIS_TEST_A" "$RIS_TEST_B"',
+      "_",
+      envPath,
+    ]);
+    const [gotA, gotB] = stdout.split("\x1f");
+    expect(gotA).toBe(a);
+    expect(gotB).toBe(b);
+  });
+});
+
 // Top-level await: resolved once, before any test/skipIf is registered —
 // skipIf only accepts a boolean (a function is truthy and would always
 // "skip"), so this has to be a real value by the time describe() runs.
@@ -425,8 +559,8 @@ describe.sequential("git-remote", () => {
         const configPath = join(runRoot, "git", "ssh-remote-command.env");
         expect(existsSync(configPath)).toBe(true);
         const contents = readFileSync(configPath, "utf8");
-        expect(contents).toContain(`RIS_SSH_REMOTE_PORT=${server.port}`);
-        expect(contents).toContain(`RIS_SSH_REMOTE_IDENTITY=${server.identityPath}`);
+        expect(contents).toContain(`RIS_SSH_REMOTE_PORT=${shQuote(String(server.port))}`);
+        expect(contents).toContain(`RIS_SSH_REMOTE_IDENTITY=${shQuote(server.identityPath)}`);
       } finally {
         await cleanup(server);
       }

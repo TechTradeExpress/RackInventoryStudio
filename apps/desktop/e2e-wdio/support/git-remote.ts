@@ -489,11 +489,38 @@ export async function startRemote(): Promise<SshRemoteServer> {
   };
 }
 
+// ── Shell-safe env file serialization ────────────────────────────────────────
+
+/**
+ * Quotes `value` as a single POSIX shell word that `source` (any POSIX-
+ * compliant shell, including Git-for-Windows' bash) will parse back to
+ * exactly `value`, byte-for-byte — backslashes, spaces, `$`, backticks, and
+ * double quotes all included. Single-quoting suppresses *all* expansion
+ * inside a shell word; the only character that cannot appear literally
+ * between single quotes is the single quote itself, handled with the
+ * standard POSIX idiom of closing the quote, emitting a backslash-escaped
+ * one, then reopening: `it's` -> `'it'\''s'`.
+ *
+ * Every value written into ssh-remote-command.env must go through this —
+ * `configureSsh()` is the only writer, and this is the only quoting logic,
+ * so no call site hand-rolls its own escaping.
+ */
+export function shQuote(value: string): string {
+  return "'" + value.replace(/'/g, "'\\''") + "'";
+}
+
 /**
  * Writes the env file `support/ssh-wrapper.sh` reads at every ssh invocation
  * so the already-running app's git subprocesses can reach this fixture's
  * sshd — see this module's own doc comment for the full chain. Idempotent:
  * safe to call again if a spec re-targets a new server.
+ *
+ * Values are `shQuote()`d before being written: `support/ssh-wrapper.sh`
+ * loads this file via `source`, i.e. as bash syntax, not as a plain
+ * key/value format — an unquoted Windows path like
+ * `C:\Users\Test\id_ed25519` would have its backslashes consumed as bash
+ * escape characters during that `source`, corrupting the path before `ssh`
+ * ever sees it.
  */
 export function configureSsh(server: SshRemoteServer): void {
   const runRoot = resolveRunRoot();
@@ -502,7 +529,7 @@ export function configureSsh(server: SshRemoteServer): void {
   const configPath = join(gitDir, "ssh-remote-command.env");
   writeFileSync(
     configPath,
-    `RIS_SSH_REMOTE_PORT=${server.port}\nRIS_SSH_REMOTE_IDENTITY=${server.identityPath}\n`,
+    `RIS_SSH_REMOTE_PORT=${shQuote(String(server.port))}\nRIS_SSH_REMOTE_IDENTITY=${shQuote(server.identityPath)}\n`,
   );
   log(`wrote ssh-wrapper config -> ${configPath} (port=${server.port})`);
 }
