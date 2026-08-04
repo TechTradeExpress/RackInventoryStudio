@@ -1,6 +1,8 @@
 /**
  * Containerized Git-over-SSH fixture infrastructure (Stage 3F.5.4 proof of
- * concept).
+ * concept; hardened in Stage 3F.5.4-R1 — see that RP's section in
+ * docs/E2E_WDIO_PLAN.md for the lifecycle/cache defects this file's design
+ * now guards against).
  *
  * Alternative to support/git-remote.ts's local-sshd fixture: instead of a
  * Windows-native `sshd` process (which Stage 3F.5.1-3F.5.3 found forces every
@@ -34,7 +36,9 @@
  * behavior — see resolveGitRemoteProvider). Only git-remote-workflows.e2e.ts
  * wires this up for this proof-of-concept stage; git-clone-workflows and
  * git-diverged-pull stay on the native fixture until a full migration is
- * separately approved.
+ * separately approved. Use createContainerRemoteFixture() — not
+ * startContainerRemote()/configureContainerSsh() called separately — for the
+ * atomic-initialization guarantee described below.
  *
  * ── The WSL2 VM idle-shutdown finding (critical to this module's design) ───
  *
@@ -56,14 +60,36 @@
  * sleep <n>` child process open for the fixture's entire lifetime keeps the
  * distro "attached" and prevents the teardown. `startContainerRemote` starts
  * this keep-alive session before doing anything else and
- * `cleanupContainerRemote` is responsible for killing it.
+ * `cleanupContainerRemote` is responsible for killing it — last, in a
+ * `finally`, so it stays available for every Docker command cleanup itself
+ * still needs to run (see cleanupContainerRemote's own doc comment).
+ *
+ * ── Transactional startup (Stage 3F.5.4-R1) ─────────────────────────────────
+ *
+ * `startContainerRemote()` never returns a partially-built server object,
+ * and never leaves resources it acquired dangling on failure: every
+ * resource it acquires (keep-alive session, container, Windows work
+ * directory) is tracked in a `PartialContainerFixtureState` as it goes, and
+ * any failure — at any step, including ones after the container already
+ * exists — triggers `rollbackPartialContainerFixture()` before the original
+ * error is rethrown. `cleanupContainerRemote()` is deliberately *not* reused
+ * for this: it expects a complete `ContainerSshRemoteServer`, which may not
+ * exist yet during a partial startup failure.
+ *
+ * `createContainerRemoteFixture()` is the atomic boundary one layer up: it
+ * calls `startContainerRemote()` then `configureContainerSsh()` and only
+ * returns the ready provider abstraction once both succeed. If
+ * `configureContainerSsh()` throws — a complete server *does* exist by that
+ * point — it calls `cleanupContainerRemote()` (not the partial-rollback
+ * helper) before rethrowing. Callers (the spec) should use this factory, not
+ * call `startContainerRemote()`/`configureContainerSsh()` separately.
  */
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { shQuote, securePrivateKeyFile } from "./git-remote";
+import { shQuote, securePrivateKeyFile as securePrivateKeyFileImpl } from "./git-remote";
 import { isStrictChildPath } from "./test-environment";
 
 function log(msg: string): void {
@@ -75,6 +101,10 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function errMsg(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────
 
 const IMAGE_REPOSITORY = "ris-e2e-git-ssh-server";
@@ -84,6 +114,7 @@ const CONTAINER_NAME_PREFIX = "ris-e2e-git-ssh-";
  * Never remove a container that doesn't carry this label. */
 export const FIXTURE_LABEL = "ris.e2e.fixture=git-ssh";
 const RUN_LABEL_PREFIX = "ris.e2e.run=";
+const FIXTURE_HASH_LABEL_PREFIX = "ris.e2e.fixture-hash=";
 const FIXTURE_DIR = join(import.meta.dirname, "..", "fixtures", "git-ssh-server");
 const CONTAINER_USERNAME = "git";
 const CONTAINER_REPOS_DIR = "/home/git/repos";
@@ -123,21 +154,65 @@ export function buildContainerName(runId: string): string {
 
 /** Builds `<repository>:<tag>` after validating `tag` — the only caller-supplied
  * part — as a safe identifier. Kept separate from the fixed repository name so
- * a future content-hash-based cache key (see computeFixtureContentHash) can't
+ * a content-hash-based cache key (see computeFixtureContentHash) can't
  * accidentally smuggle shell/argument metacharacters into a docker CLI arg. */
 export function buildImageTag(tag: string): string {
   return `${IMAGE_REPOSITORY}:${assertSafeIdentifier(tag, "image tag")}`;
 }
 
-/** Deterministic image cache key from already-read fixture source file
- * contents (Dockerfile, entrypoint.sh, sshd_config) — pure, no filesystem
- * access, so callers control exactly what's hashed and this stays unit
- * testable. Truncated to 12 hex chars: plenty of collision resistance for a
- * dev-machine build cache key, short enough to stay a comfortable image tag. */
-export function computeFixtureContentHash(fileContents: string[]): string {
+// ── Content-addressed image identity (Stage 3F.5.4-R1) ──────────────────────
+
+export interface FixtureSourceFile {
+  name: string;
+  content: string;
+}
+
+/** Deterministic, boundary-safe order — `ensureImageBuilt` always reads and
+ * hashes exactly these three files, in exactly this order. */
+const FIXTURE_SOURCE_FILENAMES = ["Dockerfile", "entrypoint.sh", "sshd_config"] as const;
+
+/**
+ * Deterministic image cache key from an ordered list of named fixture
+ * source files. Pure — no filesystem access, so callers control exactly
+ * what's hashed and this stays unit testable.
+ *
+ * Each file's name and content are both fed into the hash, delimited by NUL
+ * bytes on both sides of the name (`\0<name>\0<content>`) — plain
+ * concatenation of file *contents* alone (the original Stage 3F.5.4 design)
+ * is ambiguous: `["ab", "c"]` and `["a", "bc"]` hash identically with no
+ * separators. Including the name as an explicit, delimited field (not just
+ * a separator character, which content could still theoretically contain)
+ * means two different (name, content) sequences cannot collide through
+ * concatenation alone — changing which file a byte sequence belongs to
+ * changes which name-fields surround it.
+ *
+ * Truncated to 12 hex chars: plenty of collision resistance for a
+ * dev-machine build cache key, short enough to stay a comfortable image tag.
+ */
+export function computeFixtureContentHash(files: readonly FixtureSourceFile[]): string {
   const hash = createHash("sha256");
-  for (const content of fileContents) hash.update(content);
+  for (const file of files) {
+    hash.update("\0");
+    hash.update(file.name);
+    hash.update("\0");
+    hash.update(file.content);
+  }
   return hash.digest("hex").slice(0, 12);
+}
+
+function readFixtureSourceFiles(): FixtureSourceFile[] {
+  return FIXTURE_SOURCE_FILENAMES.map((name) => ({
+    name,
+    content: readFileSync(join(FIXTURE_DIR, name), "utf8"),
+  }));
+}
+
+/** The content-addressed tag `ensureImageBuilt` would currently select,
+ * derived from the fixture source files actually on disk right now. Exposed
+ * separately from `ensureImageBuilt` so callers/tests can predict or assert
+ * the expected tag without invoking Docker. */
+export function computeCurrentFixtureImageTag(sourceFiles: FixtureSourceFile[] = readFixtureSourceFiles()): string {
+  return buildImageTag(computeFixtureContentHash(sourceFiles));
 }
 
 // ── Windows path -> WSL /mnt path ────────────────────────────────────────────
@@ -197,16 +272,39 @@ function execFileP(cmd: string, args: string[]): Promise<ExecResult> {
  * wsl.exe's own meta-commands (`--status`, `--list`) emit UTF-16LE whenever
  * stdout is not a real console — which is always true when invoked via
  * child_process — confirmed empirically in this stage's Phase 1 environment
- * audit: naively decoding the captured bytes as UTF-8 renders every
- * character separated by a stray space (each ASCII byte's paired null byte
- * surfaces as U+0000, which most terminals/loggers render as blank). Output
- * from a program run *inside* a distro (`wsl -d <distro> -- <cmd>`) is that
- * program's own native UTF-8 and is unaffected — decodeWslMetaOutput is
- * only ever applied to `wsl.exe`'s own list/status output, never to
- * anything docker/git prints from inside the container.
+ * audit. Detection is content-based rather than assumed unconditionally
+ * (Stage 3F.5.4-R1 hardening): a UTF-16LE BOM, if present, is authoritative;
+ * otherwise NUL-byte density is used as a heuristic (UTF-16LE encoding of
+ * ASCII/Latin-1-range text puts a 0x00 byte in every other position, ~50%
+ * density, vs. ~0% for ordinary UTF-8 text) — anything not clearly UTF-16LE
+ * by either signal is decoded as UTF-8. Output from a program run *inside*
+ * a distro (`wsl -d <distro> -- <cmd>`) is that program's own native UTF-8
+ * and is unaffected — decodeWslMetaOutput is only ever applied to
+ * `wsl.exe`'s own list/status output, never to anything docker/git prints
+ * from inside the container.
  */
+const UTF16LE_BOM_BYTES: readonly [number, number] = [0xff, 0xfe];
+const UTF16LE_NUL_DENSITY_THRESHOLD = 0.3;
+
+function hasUtf16LeBom(buffer: Buffer): boolean {
+  return buffer.length >= 2 && buffer[0] === UTF16LE_BOM_BYTES[0] && buffer[1] === UTF16LE_BOM_BYTES[1];
+}
+
+function looksLikeUtf16Le(buffer: Buffer): boolean {
+  if (buffer.length === 0) return false;
+  if (hasUtf16LeBom(buffer)) return true;
+  let nulCount = 0;
+  for (let i = 0; i < buffer.length; i++) {
+    if (buffer[i] === 0) nulCount++;
+  }
+  return nulCount / buffer.length > UTF16LE_NUL_DENSITY_THRESHOLD;
+}
+
 export function decodeWslMetaOutput(buffer: Buffer): string {
-  return buffer.toString("utf16le").replace(/^\uFEFF/, "");
+  if (looksLikeUtf16Le(buffer)) {
+    return buffer.toString("utf16le").replace(/^\uFEFF/, "");
+  }
+  return buffer.toString("utf8");
 }
 
 async function execWslMeta(args: string[]): Promise<string> {
@@ -230,9 +328,7 @@ async function execDocker(distro: string, dockerArgs: string[]): Promise<ExecRes
     return await execFileP("wsl.exe", ["-d", distro, "--", "docker", ...dockerArgs]);
   } catch (error) {
     throw new Error(
-      `[container-git-remote] docker ${dockerArgs.join(" ")} failed in WSL distribution "${distro}": ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      `[container-git-remote] docker ${dockerArgs.join(" ")} failed in WSL distribution "${distro}": ${errMsg(error)}`,
       { cause: error },
     );
   }
@@ -302,8 +398,7 @@ async function checkDockerAvailability(distro: string): Promise<DockerAvailabili
     await execDocker(distro, ["info"]);
     return { available: true };
   } catch (error) {
-    const stderr = error instanceof Error ? error.message : String(error);
-    return { available: false, diagnostic: classifyDockerError(stderr) };
+    return { available: false, diagnostic: classifyDockerError(errMsg(error)) };
   }
 }
 
@@ -427,9 +522,9 @@ export interface DockerRunOptions {
  * Builds the `docker run` argument array for a fresh fixture container.
  * Deliberately omits `--rm`: a crashed/unhealthy container's logs are the
  * primary failure diagnostic (see collectDiagnostics) and `--rm` would
- * destroy them the instant the container exits — cleanupContainerRemote
- * removes the container explicitly instead, after any diagnostics have
- * already been collected.
+ * destroy them the instant the container exits — cleanup removes the
+ * container explicitly instead, after any diagnostics have already been
+ * collected.
  *
  * `-p 127.0.0.1::22` is Docker's own syntax for "publish to a random host
  * port, bound only to 127.0.0.1" (empty host-port segment) — never a fixed
@@ -526,7 +621,7 @@ export async function collectDiagnostics(distro: string, containerName: string):
       const { stdout } = await execDocker(distro, args);
       sections.push(`--- ${label} ---\n${stdout.trim()}`);
     } catch (error) {
-      sections.push(`--- ${label} (failed) ---\n${error instanceof Error ? error.message : String(error)}`);
+      sections.push(`--- ${label} (failed) ---\n${errMsg(error)}`);
     }
   };
   await tryRun("docker inspect", ["inspect", containerName]);
@@ -535,37 +630,90 @@ export async function collectDiagnostics(distro: string, containerName: string):
   return sections.join("\n\n");
 }
 
-// ── Image lifecycle ───────────────────────────────────────────────────────────
+// ── Image lifecycle (content-addressed — Stage 3F.5.4-R1) ───────────────────
+
+interface EnsureImageBuiltDeps {
+  imageExists: (distro: string, tag: string) => Promise<boolean>;
+  buildImage: (distro: string, tag: string, mountPath: string, hash: string) => Promise<void>;
+  /** Separated from `buildImage` so the hash/cache-reuse decision logic
+   * this function exists to test is unit-testable without depending on
+   * FIXTURE_DIR actually being a Windows path — true only incidentally,
+   * because this whole module happens to run on a Windows host in
+   * production, not something the cache-invalidation logic itself should
+   * ever need to know about. */
+  resolveMountPath: () => string;
+}
+
+const defaultEnsureImageBuiltDeps: EnsureImageBuiltDeps = {
+  imageExists: (distro, tag) =>
+    execDocker(distro, ["image", "inspect", tag])
+      .then(() => true)
+      .catch(() => false),
+  buildImage: async (distro, tag, mountPath, hash) => {
+    await execDocker(distro, [
+      "build",
+      "--label",
+      FIXTURE_LABEL,
+      "--label",
+      `${FIXTURE_HASH_LABEL_PREFIX}${hash}`,
+      "-t",
+      tag,
+      mountPath,
+    ]);
+  },
+  resolveMountPath: () => windowsPathToWslMountPath(FIXTURE_DIR),
+};
 
 /**
- * Builds (or reuses) the fixture image. By default, reuses an existing
- * `ris-e2e-git-ssh-server:dev` image if one is already present in the
- * selected distro — the build context rarely changes between spec runs, so
- * rebuilding on every `startContainerRemote` call would add several seconds
- * of pure overhead per run for no benefit. Set RIS_E2E_CONTAINER_REBUILD=1
- * to force a rebuild (diagnostics / after editing the fixture's Dockerfile).
+ * Builds (or reuses) the fixture image, keyed by a content-addressed tag
+ * (`ris-e2e-git-ssh-server:<12-char-hash>` — see computeFixtureContentHash)
+ * derived from the Dockerfile/entrypoint.sh/sshd_config actually on disk
+ * right now, not a fixed `:dev` tag.
+ *
+ * Stage 3F.5.4-R1 hardening: the original `:dev`-tag design reused
+ * whatever image happened to already carry that tag, with no check that it
+ * still matched the checked-out fixture source — editing the Dockerfile and
+ * re-running a spec would silently keep testing against the *old* image.
+ * Content-addressing makes that structurally impossible: a source edit
+ * changes the hash, which changes the tag, which this function's own
+ * `imageExists` check will then correctly report as absent, triggering a
+ * rebuild — with no explicit cache-invalidation logic required.
+ *
+ * `forceRebuild` (RIS_E2E_CONTAINER_REBUILD=1) always rebuilds the exact
+ * same content-addressed tag, even if it already exists — useful for
+ * diagnostics (e.g. suspecting a corrupted local image) without needing to
+ * touch the fixture source just to change its hash.
+ *
+ * The returned tag is the source of truth `startContainerRemote` runs —
+ * never call `buildImageTag("dev")` (or any other tag) independently after
+ * this returns.
  */
-export async function ensureImageBuilt(distro: string, forceRebuild = false): Promise<string> {
-  const tag = buildImageTag("dev");
+export async function ensureImageBuilt(
+  distro: string,
+  forceRebuild = false,
+  sourceFiles: FixtureSourceFile[] = readFixtureSourceFiles(),
+  deps: EnsureImageBuiltDeps = defaultEnsureImageBuiltDeps,
+): Promise<string> {
+  const hash = computeFixtureContentHash(sourceFiles);
+  const tag = buildImageTag(hash);
+
   if (!forceRebuild) {
-    const exists = await execDocker(distro, ["image", "inspect", tag])
-      .then(() => true)
-      .catch(() => false);
+    const exists = await deps.imageExists(distro, tag);
     if (exists) {
-      log(`reusing existing image ${tag} (set RIS_E2E_CONTAINER_REBUILD=1 to force a rebuild)`);
+      log(`reusing existing content-addressed image ${tag} (fixture source unchanged; set RIS_E2E_CONTAINER_REBUILD=1 to force a rebuild)`);
       return tag;
     }
   }
-  const mountPath = windowsPathToWslMountPath(FIXTURE_DIR);
-  log(`building fixture image ${tag} from ${mountPath}`);
+
+  const mountPath = deps.resolveMountPath();
+  log(`building fixture image ${tag} from ${mountPath}${forceRebuild ? " (forced rebuild)" : ""}`);
   try {
-    await execDocker(distro, ["build", "-t", tag, mountPath]);
+    await deps.buildImage(distro, tag, mountPath, hash);
   } catch (error) {
     throw new Error(
       `[container-git-remote] failed to build ${tag} from ${mountPath} inside WSL distribution "${distro}". ` +
         "If Windows drives are not auto-mounted under /mnt in this distribution (automount disabled or " +
-        "remapped), set RIS_E2E_WSL_DISTRO to one where they are. " +
-        `Underlying error: ${error instanceof Error ? error.message : String(error)}`,
+        `remapped), set RIS_E2E_WSL_DISTRO to one where they are. Underlying error: ${errMsg(error)}`,
       { cause: error },
     );
   }
@@ -581,7 +729,7 @@ export function shouldForceRebuild(env: NodeJS.ProcessEnv = process.env): boolea
 // See this module's own doc comment for the empirical finding this exists
 // to work around. 86400s (24h) is just "far longer than any single WDIO
 // spec run could take" — the process is always explicitly killed by
-// cleanupContainerRemote, never left to time out on its own.
+// cleanup, never left to time out on its own.
 
 function startKeepAliveSession(distro: string): ChildProcess {
   const child = spawn("wsl.exe", ["-d", distro, "--", "sleep", "86400"], { stdio: "ignore" });
@@ -651,6 +799,176 @@ function resolveRunRoot(): string {
   return runRoot;
 }
 
+// ── Injectable lifecycle operations ──────────────────────────────────────────
+//
+// Every side-effecting step startContainerRemote/cleanupContainerRemote/
+// cleanupOrphanedContainers performs is exposed here as a narrow, injectable
+// function — production code always uses defaultContainerOpsDeps (real
+// wsl.exe/docker/fs calls); tests inject fakes for deterministic
+// fault-injection coverage with no real WSL/Docker required (Stage
+// 3F.5.4-R1's "lifecycle fault-injection tests" requirement). Mirrors the
+// dependency-injection style selectDistribution/securePrivateKeyFile/
+// buildSshdConfig already use elsewhere in this program.
+
+export interface ContainerOpsDeps {
+  resolveDistribution: () => Promise<string>;
+  startKeepAlive: (distro: string) => ChildProcess;
+  stopKeepAlive: (child: ChildProcess) => void;
+  ensureImageBuilt: (distro: string, forceRebuild: boolean) => Promise<string>;
+  dockerRun: (distro: string, args: string[]) => Promise<void>;
+  dockerPort: (distro: string, containerName: string) => Promise<string>;
+  waitForHealthy: (distro: string, containerName: string, timeoutMs: number) => Promise<void>;
+  collectDiagnostics: (distro: string, containerName: string) => Promise<string>;
+  removeContainer: (distro: string, containerName: string) => Promise<void>;
+  /** Exact-identity check (never a substring/name-filter match — see this
+   * stage's "Container verification" requirement). Returns true iff a
+   * container with exactly this name currently exists. */
+  checkContainerExists: (distro: string, containerName: string) => Promise<boolean>;
+  listFixtureContainers: (distro: string, runId?: string) => Promise<string[]>;
+  removeContainersByIds: (distro: string, ids: string[]) => Promise<void>;
+  generateKeypair: (identityPath: string) => Promise<void>;
+  securePrivateKeyFile: (identityPath: string) => void;
+  readPublicKey: (identityPath: string) => string;
+  installPublicKey: (distro: string, containerName: string, publicKey: string) => Promise<void>;
+  removeWorkDir: (workDir: string) => Promise<void>;
+  clearSshConfig: () => void;
+}
+
+function clearContainerSshConfig(): void {
+  const runRoot = process.env["RIS_E2E_RUN_ROOT"];
+  if (!runRoot) return;
+  const configPath = join(runRoot, "git", "ssh-remote-command.env");
+  if (existsSync(configPath)) rmSync(configPath, { force: true });
+}
+
+async function removeWorkDirImpl(workDir: string): Promise<void> {
+  const runRoot = process.env["RIS_E2E_RUN_ROOT"];
+  if (runRoot && isStrictChildPath(runRoot, workDir) && existsSync(workDir)) {
+    await rm(workDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+}
+
+export const defaultContainerOpsDeps: ContainerOpsDeps = {
+  resolveDistribution,
+  startKeepAlive: startKeepAliveSession,
+  stopKeepAlive: stopKeepAliveSession,
+  ensureImageBuilt: (distro, forceRebuild) => ensureImageBuilt(distro, forceRebuild),
+  dockerRun: async (distro, args) => {
+    await execDocker(distro, args);
+  },
+  dockerPort: async (distro, containerName) => (await execDocker(distro, ["port", containerName])).stdout,
+  waitForHealthy: waitForContainerHealthy,
+  collectDiagnostics,
+  removeContainer: async (distro, containerName) => {
+    await execDocker(distro, ["rm", "-f", containerName]);
+  },
+  checkContainerExists: (distro, containerName) =>
+    execDocker(distro, ["inspect", containerName])
+      .then(() => true)
+      .catch(() => false),
+  listFixtureContainers: async (distro, runId) => {
+    const { stdout } = await execDocker(distro, buildCleanupArgs(runId));
+    return stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+  },
+  removeContainersByIds: async (distro, ids) => {
+    if (ids.length === 0) return;
+    await execDocker(distro, ["rm", "-f", ...ids]);
+  },
+  generateKeypair: async (identityPath) => {
+    await execFileP("ssh-keygen", ["-t", "ed25519", "-f", identityPath, "-N", "", "-q"]);
+  },
+  securePrivateKeyFile: (identityPath) => securePrivateKeyFileImpl(identityPath),
+  readPublicKey: (identityPath) => readFileSync(`${identityPath}.pub`, "utf8"),
+  installPublicKey,
+  removeWorkDir: removeWorkDirImpl,
+  clearSshConfig: clearContainerSshConfig,
+};
+
+// ── Transactional startup + rollback (Stage 3F.5.4-R1) ──────────────────────
+
+/** Whatever startContainerRemote has actually acquired so far at the point
+ * of failure — every field is optional because failure can happen before
+ * any given resource was ever created. */
+export interface PartialContainerFixtureState {
+  distro?: string;
+  containerName?: string;
+  workDir?: string;
+  keepAlive?: ChildProcess;
+  /** True only once configureContainerSsh (a layer above startContainerRemote
+   * — see createContainerRemoteFixture) has successfully written the
+   * wrapper's env file for this run. Always false for a state built purely
+   * from startContainerRemote's own internals, which never writes it. */
+  sshConfigCreated?: boolean;
+}
+
+type RollbackDeps = Pick<
+  ContainerOpsDeps,
+  "collectDiagnostics" | "removeContainer" | "removeWorkDir" | "clearSshConfig" | "stopKeepAlive"
+>;
+
+/**
+ * Rolls back whatever subset of a container fixture's resources partial
+ * `state` describes, in the order this stage's NSP specifies: diagnostics
+ * (while the container still exists) → remove container → remove work
+ * directory → clear SSH wrapper config → stop keep-alive last (so it stays
+ * available for the Docker commands the earlier steps still need). Every
+ * step is independently guarded — a missing field is skipped entirely
+ * (safe with no container, no work directory, etc.), and a failure in one
+ * step never prevents the next from being attempted. Returns the list of
+ * diagnostic strings produced (collected container diagnostics plus any
+ * step failures) — never throws itself, so a caller's own error handling
+ * is never masked by a rollback failure.
+ */
+export async function rollbackPartialContainerFixture(
+  state: PartialContainerFixtureState,
+  deps: RollbackDeps = defaultContainerOpsDeps,
+): Promise<string[]> {
+  const diagnostics: string[] = [];
+
+  if (state.distro && state.containerName) {
+    try {
+      const diag = await deps.collectDiagnostics(state.distro, state.containerName);
+      diagnostics.push(`diagnostics for ${state.containerName} before rollback:\n${diag}`);
+    } catch (error) {
+      diagnostics.push(`collecting diagnostics for ${state.containerName} failed: ${errMsg(error)}`);
+    }
+    try {
+      await deps.removeContainer(state.distro, state.containerName);
+    } catch (error) {
+      diagnostics.push(`removing container "${state.containerName}" failed: ${errMsg(error)}`);
+    }
+  }
+
+  if (state.workDir) {
+    try {
+      await deps.removeWorkDir(state.workDir);
+    } catch (error) {
+      diagnostics.push(`removing work directory "${state.workDir}" failed: ${errMsg(error)}`);
+    }
+  }
+
+  if (state.sshConfigCreated) {
+    try {
+      deps.clearSshConfig();
+    } catch (error) {
+      diagnostics.push(`clearing ssh config failed: ${errMsg(error)}`);
+    }
+  }
+
+  if (state.keepAlive) {
+    try {
+      deps.stopKeepAlive(state.keepAlive);
+    } catch (error) {
+      diagnostics.push(`stopping keep-alive failed: ${errMsg(error)}`);
+    }
+  }
+
+  return diagnostics;
+}
+
 /**
  * Starts the containerized Git-over-SSH fixture: resolves a working WSL2
  * distribution, keeps a session attached to it for the fixture's lifetime,
@@ -659,6 +977,17 @@ function resolveRunRoot(): string {
  * healthcheck, generates an ephemeral client keypair, and installs the
  * public half into the container.
  *
+ * Transactional (Stage 3F.5.4-R1): every resource acquired along the way is
+ * tracked in a `PartialContainerFixtureState`. On *any* failure — including
+ * ones after the container already exists (port parsing, healthcheck,
+ * ssh-keygen, key permissions, installPublicKey, …) — that partial state is
+ * rolled back via `rollbackPartialContainerFixture` before the error is
+ * rethrown. The rethrown error is the *same* error instance the failing
+ * step produced (so `error instanceof Error && error === originalError`
+ * holds for callers) with any rollback failures attached as a
+ * non-replacing `rollbackDiagnostics` array property — the original failure
+ * is never masked by a cleanup problem.
+ *
  * Mirrors git-remote.ts's startRemote() in shape (both return a server
  * object with `port`/`username`/`identityPath` that configureSsh-equivalents
  * turn into the same ssh-wrapper.sh env file), but every implementation
@@ -666,68 +995,70 @@ function resolveRunRoot(): string {
  */
 export async function startContainerRemote(
   options: { forceRebuild?: boolean } = {},
+  deps: ContainerOpsDeps = defaultContainerOpsDeps,
 ): Promise<ContainerSshRemoteServer> {
   const runRoot = resolveRunRoot();
-  const distro = await resolveDistribution();
-  log(`selected WSL2 distribution: ${distro}`);
+  const state: PartialContainerFixtureState = {};
 
-  const keepAlive = startKeepAliveSession(distro);
   try {
-    await ensureImageBuilt(distro, options.forceRebuild ?? shouldForceRebuild());
+    const distro = await deps.resolveDistribution();
+    state.distro = distro;
+    log(`selected WSL2 distribution: ${distro}`);
+
+    const keepAlive = deps.startKeepAlive(distro);
+    state.keepAlive = keepAlive;
+
+    const imageTag = await deps.ensureImageBuilt(distro, options.forceRebuild ?? shouldForceRebuild());
 
     const runId = generateRunId();
     const containerName = buildContainerName(runId);
-    const imageTag = buildImageTag("dev");
 
     log(`starting container ${containerName} from ${imageTag}`);
-    await execDocker(distro, buildDockerRunArgs({ containerName, imageTag, runId }));
+    await deps.dockerRun(distro, buildDockerRunArgs({ containerName, imageTag, runId }));
+    state.containerName = containerName;
 
-    let port: number;
-    try {
-      const { stdout: portOutput } = await execDocker(distro, ["port", containerName]);
-      const parsedPort = parsePublishedPort(portOutput);
-      if (parsedPort === null) {
-        throw new Error(`could not parse a 127.0.0.1 published port from: "${portOutput.trim()}"`);
-      }
-      port = parsedPort;
-      await waitForContainerHealthy(distro, containerName, 20_000);
-    } catch (error) {
-      const diagnostics = await collectDiagnostics(distro, containerName).catch((diagError) => String(diagError));
-      await execDocker(distro, ["rm", "-f", containerName]).catch(() => {});
+    const portOutput = await deps.dockerPort(distro, containerName);
+    const parsedPort = parsePublishedPort(portOutput);
+    if (parsedPort === null) {
       throw new Error(
-        `[container-git-remote] container "${containerName}" failed to become ready: ` +
-          `${error instanceof Error ? error.message : String(error)}\n\n${diagnostics}`,
-        { cause: error },
+        `[container-git-remote] could not parse a 127.0.0.1 published port for "${containerName}" from: "${portOutput.trim()}"`,
       );
     }
-    log(`container healthy: 127.0.0.1:${port}`);
+    await deps.waitForHealthy(distro, containerName, 20_000);
+    log(`container healthy: 127.0.0.1:${parsedPort}`);
 
     const gitDir = join(runRoot, "git");
     mkdirSync(gitDir, { recursive: true });
     const workDir = join(gitDir, `container-ssh-${runId}`);
     mkdirSync(workDir, { recursive: true });
+    state.workDir = workDir;
     const identityPath = join(workDir, "id_ed25519");
 
     log("generating ephemeral client ed25519 keypair (no passphrase)");
-    await execFileP("ssh-keygen", ["-t", "ed25519", "-f", identityPath, "-N", "", "-q"]);
-    securePrivateKeyFile(identityPath);
+    await deps.generateKeypair(identityPath);
+    deps.securePrivateKeyFile(identityPath);
 
-    const publicKey = readFileSync(`${identityPath}.pub`, "utf8");
-    await installPublicKey(distro, containerName, publicKey);
+    const publicKey = deps.readPublicKey(identityPath);
+    await deps.installPublicKey(distro, containerName, publicKey);
     log("public key installed in container");
 
     return {
       distro,
       containerName,
       runId,
-      port,
+      port: parsedPort,
       username: CONTAINER_USERNAME,
       identityPath,
       workDir,
       keepAlive,
     };
   } catch (error) {
-    stopKeepAliveSession(keepAlive);
+    const rollbackDiagnostics = await rollbackPartialContainerFixture(state, deps).catch((rollbackError) => [
+      `rollback itself threw: ${errMsg(rollbackError)}`,
+    ]);
+    if (rollbackDiagnostics.length > 0 && error instanceof Error) {
+      (error as Error & { rollbackDiagnostics?: string[] }).rollbackDiagnostics = rollbackDiagnostics;
+    }
     throw error;
   }
 }
@@ -754,55 +1085,175 @@ export function configureContainerSsh(server: ContainerSshRemoteServer): void {
   log(`wrote ssh-wrapper config -> ${configPath} (port=${server.port})`);
 }
 
-function clearContainerSshConfig(): void {
-  const runRoot = process.env["RIS_E2E_RUN_ROOT"];
-  if (!runRoot) return;
-  const configPath = join(runRoot, "git", "ssh-remote-command.env");
-  if (existsSync(configPath)) rmSync(configPath, { force: true });
+// ── Cleanup (successful-run teardown — Stage 3F.5.4-R1 ordering) ────────────
+
+export interface CleanupResult {
+  sshConfigCleared: boolean;
+  containerRemoved: boolean;
+  containerVerifiedAbsent: boolean;
+  workDirRemoved: boolean;
+  keepAliveStopped: boolean;
+  /** Non-fatal problems encountered during cleanup — cleanup never throws;
+   * a failed step is recorded here instead (see this stage's "do not
+   * silently treat a failed container removal as success" requirement). */
+  errors: string[];
 }
 
 /**
- * Idempotent cleanup: stops the keep-alive session, clears the ssh-wrapper
- * config, force-removes the container, and removes the Windows-side key
- * directory. Verifies the container is actually gone afterward rather than
- * trusting `docker rm -f`'s exit code alone, per this stage's cleanup
- * contract ("verify container removed").
+ * Idempotent, non-throwing cleanup for a fully-started container fixture.
+ * Order matters (Stage 3F.5.4-R1): clear SSH wrapper config → remove
+ * container → verify removal (exact-identity check, never a substring
+ * match — see `ContainerOpsDeps.checkContainerExists`) → remove Windows
+ * work directory → stop the WSL keep-alive **last, in a `finally`**, so it
+ * stays available for every Docker command the earlier steps still need,
+ * even if one of them fails. A failed container removal is recorded in
+ * `errors`/logged as a warning, never silently treated as success. Safe to
+ * call twice on the same server (each step tolerates its target already
+ * being gone).
  */
-export async function cleanupContainerRemote(server: ContainerSshRemoteServer): Promise<void> {
-  stopKeepAliveSession(server.keepAlive);
-  clearContainerSshConfig();
+export async function cleanupContainerRemote(
+  server: ContainerSshRemoteServer,
+  deps: ContainerOpsDeps = defaultContainerOpsDeps,
+): Promise<CleanupResult> {
+  const errors: string[] = [];
+  let sshConfigCleared = false;
+  let containerRemoved = false;
+  let containerVerifiedAbsent = false;
+  let workDirRemoved = false;
+  let keepAliveStopped = false;
 
-  await execDocker(server.distro, ["rm", "-f", server.containerName]).catch(() => {});
+  try {
+    try {
+      deps.clearSshConfig();
+      sshConfigCleared = true;
+    } catch (error) {
+      errors.push(`clearing ssh config failed: ${errMsg(error)}`);
+    }
 
-  const stillPresent = await execDocker(server.distro, ["ps", "-aq", "--filter", `name=${server.containerName}`])
-    .then((result) => result.stdout.trim().length > 0)
-    .catch(() => false);
-  if (stillPresent) {
-    log(`WARNING: container ${server.containerName} still present after "docker rm -f" — may require manual cleanup`);
+    try {
+      await deps.removeContainer(server.distro, server.containerName);
+      containerRemoved = true;
+    } catch (error) {
+      errors.push(`removing container "${server.containerName}" failed: ${errMsg(error)}`);
+    }
+
+    try {
+      const stillPresent = await deps.checkContainerExists(server.distro, server.containerName);
+      containerVerifiedAbsent = !stillPresent;
+      if (stillPresent) {
+        const warning = `container "${server.containerName}" still present after removal attempt — may require manual cleanup`;
+        errors.push(warning);
+        log(`WARNING: ${warning}`);
+      }
+    } catch (error) {
+      errors.push(`verifying container removal for "${server.containerName}" failed: ${errMsg(error)}`);
+    }
+
+    try {
+      await deps.removeWorkDir(server.workDir);
+      workDirRemoved = true;
+    } catch (error) {
+      errors.push(`removing work directory "${server.workDir}" failed: ${errMsg(error)}`);
+    }
+  } finally {
+    try {
+      deps.stopKeepAlive(server.keepAlive);
+      keepAliveStopped = true;
+    } catch (error) {
+      errors.push(`stopping keep-alive failed: ${errMsg(error)}`);
+    }
   }
 
-  const runRoot = process.env["RIS_E2E_RUN_ROOT"];
-  if (runRoot && isStrictChildPath(runRoot, server.workDir) && existsSync(server.workDir)) {
-    await rm(server.workDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  if (errors.length > 0) {
+    log(`cleanup for ${server.containerName} completed with ${errors.length} error(s): ${errors.join(" | ")}`);
+  } else {
+    log(`cleaned up container ${server.containerName} and ${server.workDir}`);
   }
-  log(`cleaned up container ${server.containerName} and ${server.workDir}`);
+
+  return { sshConfigCleared, containerRemoved, containerVerifiedAbsent, workDirRemoved, keepAliveStopped, errors };
 }
 
 /**
  * Safe, label-scoped sweep for containers left behind by a forcibly-killed
- * test process (see this stage's cleanup contract). Only ever touches
- * containers carrying FIXTURE_LABEL — optionally further scoped to one
- * run id — never anything else on the host.
+ * test process (see this stage's cleanup contract). Only ever removes the
+ * exact container IDs `listFixtureContainers` returns — which is itself
+ * always filtered to FIXTURE_LABEL (optionally further scoped to one run
+ * id) — never anything else on the host; this function has no path that
+ * falls back to "remove everything" if the filtered list comes back empty
+ * or malformed.
  */
-export async function cleanupOrphanedContainers(distro: string, runId?: string): Promise<string[]> {
-  const { stdout } = await execDocker(distro, buildCleanupArgs(runId));
-  const ids = stdout
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
+export async function cleanupOrphanedContainers(
+  distro: string,
+  runId?: string,
+  deps: Pick<ContainerOpsDeps, "listFixtureContainers" | "removeContainersByIds"> = defaultContainerOpsDeps,
+): Promise<string[]> {
+  const ids = await deps.listFixtureContainers(distro, runId);
   if (ids.length === 0) return [];
-  await execDocker(distro, ["rm", "-f", ...ids]);
+  await deps.removeContainersByIds(distro, ids);
   return ids;
+}
+
+// ── Atomic fixture initialization (Stage 3F.5.4-R1) ──────────────────────────
+
+export interface ContainerRemoteFixtureHandle {
+  createBareRemote(label: string): Promise<string>;
+  buildRemoteUrl(bareRepoPath: string): string;
+  getRemoteHeadCommit(bareRepoPath: string, ref?: string): Promise<string>;
+  getRemoteCommitCount(bareRepoPath: string, ref?: string): Promise<number>;
+  pushSimulatedRemoteCommit(bareRepoPath: string, branch: string, fileName: string, message: string): Promise<string>;
+  cleanup(): Promise<CleanupResult>;
+}
+
+export interface CreateContainerRemoteFixtureDeps {
+  startContainerRemote: (options?: { forceRebuild?: boolean }) => Promise<ContainerSshRemoteServer>;
+  configureContainerSsh: (server: ContainerSshRemoteServer) => void;
+  cleanupContainerRemote: (server: ContainerSshRemoteServer) => Promise<CleanupResult>;
+}
+
+const defaultCreateContainerRemoteFixtureDeps: CreateContainerRemoteFixtureDeps = {
+  startContainerRemote: (options) => startContainerRemote(options),
+  configureContainerSsh,
+  cleanupContainerRemote: (server) => cleanupContainerRemote(server),
+};
+
+/**
+ * Atomic initialization boundary for the container provider (Stage
+ * 3F.5.4-R1's defect 2 fix): calls `startContainerRemote()` then
+ * `configureContainerSsh()`, and only returns the ready provider
+ * abstraction once *both* succeed. Callers (the spec) should use this
+ * factory instead of calling `startContainerRemote()`/
+ * `configureContainerSsh()` separately and building the fixture object
+ * themselves — doing that left a window where `startContainerRemote()`
+ * had already succeeded (container running, keys installed) but a
+ * `configureContainerSsh()` failure meant the caller's own fixture
+ * variable was never assigned, so nothing ever called cleanup.
+ *
+ * Here, by the time `configureContainerSsh()` runs, a complete
+ * `ContainerSshRemoteServer` already exists — so its failure path calls
+ * `cleanupContainerRemote()` directly (not `rollbackPartialContainerFixture`,
+ * which exists specifically for the *incomplete*-server case inside
+ * `startContainerRemote()` itself) before rethrowing the original error.
+ */
+export async function createContainerRemoteFixture(
+  options: { forceRebuild?: boolean } = {},
+  deps: CreateContainerRemoteFixtureDeps = defaultCreateContainerRemoteFixtureDeps,
+): Promise<ContainerRemoteFixtureHandle> {
+  const server = await deps.startContainerRemote(options);
+  try {
+    deps.configureContainerSsh(server);
+  } catch (error) {
+    await deps.cleanupContainerRemote(server).catch(() => {});
+    throw error;
+  }
+  return {
+    createBareRemote: (label) => createContainerBareRemote(server, label),
+    buildRemoteUrl: (bareRepoPath) => buildContainerSshRemoteUrl(bareRepoPath),
+    getRemoteHeadCommit: (bareRepoPath, ref) => getContainerRemoteHeadCommit(server, bareRepoPath, ref),
+    getRemoteCommitCount: (bareRepoPath, ref) => getContainerRemoteCommitCount(server, bareRepoPath, ref),
+    pushSimulatedRemoteCommit: (bareRepoPath, branch, fileName, message) =>
+      pushSimulatedContainerRemoteCommit(server, bareRepoPath, branch, fileName, message),
+    cleanup: () => deps.cleanupContainerRemote(server),
+  };
 }
 
 // ── Bare remote repositories (administered via `docker exec`, as root) ──────

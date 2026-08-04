@@ -1,121 +1,116 @@
 ## Summary
 
-Stage 3F.5.4 NSP: proof of concept for a containerized Git-over-SSH E2E
-fixture, replacing the Windows-native `sshd`/`cmd.exe`/`ForceCommand`/Git-Bash
-chain (Stage 3F.5.1–3F.5.3, source of intermittent `git-clone-workflows`
-hangs) with a disposable Linux container (OpenSSH + git) managed through
-Docker Engine inside WSL2 — no Docker Desktop, no elevated privileges.
-Windows stays fully native throughout: only the SSH *server* moves off
-Windows; `RackInventoryStudio.exe`, `git.exe`, `ssh.exe`, askpass, and every
-WDIO interaction are unchanged.
+Stage 3F.5.4-R1 RP: a strict pre-push review of Stage 3F.5.4's containerized
+Git-over-SSH fixture proof of concept found real lifecycle and
+cache-correctness defects — fixed all of them, added fault-injection test
+coverage proving the fixes, and re-validated on the real
+Windows+WSL2+Docker host.
 
-Built the fixture image/entrypoint/sshd_config, a WSL2/Docker Windows-side
-runtime helper (`container-git-remote.ts`), wired it into
-`git-remote-workflows.e2e.ts` behind an opt-in env var
-(`RIS_E2E_GIT_REMOTE_PROVIDER=container`, default `native` — unchanged
-behavior), added 67 unit tests, and validated end-to-end on this Windows
-host: 5/5 consecutive real WDIO runs passed. Full writeup, including two
-real defects found and fixed during validation and the critical WSL2
-VM-idle-shutdown finding (and its workaround), is in
-`docs/E2E_WDIO_PLAN.md`'s new "Stage 3F.5.4" section.
+Fixed: (1) `startContainerRemote()` could leave a running container/work
+directory/keys behind on partial failure — now tracks acquired resources
+in a `PartialContainerFixtureState` and rolls them back via
+`rollbackPartialContainerFixture()`, rethrowing the *same* error instance
+with rollback failures attached as a non-replacing `rollbackDiagnostics`
+property. (2) The spec's container-provider `before()` could leak a fully
+started container if `configureContainerSsh()` failed afterward — replaced
+with `createContainerRemoteFixture()`, an atomic init boundary that cleans
+up via `cleanupContainerRemote()` if configuration fails; gave the native
+provider equivalent safety inline in the spec. (3) `ensureImageBuilt()`
+reused a fixed `:dev` tag with no check it matched the checked-out fixture
+source — now keyed by a boundary-safe content hash
+(`ris-e2e-git-ssh-server:<12-char-hash>`, NUL-delimited name+content per
+file so `["ab","c"]`/`["a","bc"]`-style concatenation ambiguity can't
+collide), so a fixture edit structurally invalidates the cache. Also
+hardened `cleanupContainerRemote()`'s ordering (keep-alive stopped last, in
+a `finally`, structured `CleanupResult` instead of throwing), switched
+container-existence verification from a substring-matching `docker ps
+--filter name=` to exact-identity `docker inspect`, and made
+`decodeWslMetaOutput()` detect UTF-16LE by content (BOM or NUL density)
+instead of assuming it unconditionally.
 
-**Verdict: STAGE 3F.5.4 COMPLETE — PROCEED TO MIGRATION** (not migrated in
-this stage, per its own explicit scope limit — see "Not done").
+**Verdict: STAGE 3F.5.4-R1 COMPLETE — READY TO PUSH.**
 
 ## Files changed
 
-- `apps/desktop/e2e-wdio/fixtures/git-ssh-server/Dockerfile` (new) — pinned
-  `alpine:3.20.3`, OpenSSH + git, dedicated `git` user with `git-shell` as
-  its login shell (restricts SSH-authenticated command execution to
-  git-upload-pack/git-receive-pack/git-upload-archive only), no elevated
-  capabilities.
-- `apps/desktop/e2e-wdio/fixtures/git-ssh-server/entrypoint.sh` (new) —
-  generates fresh host keys per container start (no persistent volume);
-  `git config --system --add safe.directory '*'` (fixes root/`docker exec`
-  vs. `git`-owned-repo ownership check — see Risks).
-- `apps/desktop/e2e-wdio/fixtures/git-ssh-server/sshd_config` (new) —
-  pubkey-only, no PAM directive (Alpine's OpenSSH has none compiled in;
-  including it destabilized `sshd` under the healthcheck's connection
-  frequency — see docs), random 127.0.0.1-only port at the Docker level.
-- `apps/desktop/e2e-wdio/support/container-git-remote.ts` (new) — WSL2
-  distribution discovery/selection, image build/reuse, container
-  lifecycle, ephemeral key generation/installation, `docker exec`-based
-  repository administration, the WSL2-VM-idle-shutdown keep-alive
-  workaround, diagnostics collection, idempotent verified cleanup.
-- `apps/desktop/e2e-wdio/support/container-git-remote.test.ts` (new) — 67
-  unit tests, all pure/dependency-injected, no real WSL/Docker required.
-- `apps/desktop/e2e-wdio/specs/git-remote-workflows.e2e.ts` (modified) —
-  added a `RemoteFixture` abstraction unifying native/container providers;
-  `before()` selects one via `resolveGitRemoteProvider()`
-  (`RIS_E2E_GIT_REMOTE_PROVIDER`, default `native`); all three scenario
-  bodies now call `fixture.*` instead of native-fixture functions directly.
-  No behavioral change when the env var is unset.
-- `docs/E2E_WDIO_PLAN.md` (modified) — new "Stage 3F.5.4" section (full
-  writeup per this NSP's required report sections); updated the Stage 3F
-  status-table row to reflect Repair 1 landing and this stage's addition.
+- `apps/desktop/e2e-wdio/support/container-git-remote.ts` — the bulk of
+  this RP: `PartialContainerFixtureState`/`rollbackPartialContainerFixture`,
+  `ContainerOpsDeps` injection layer (every lifecycle side effect is now a
+  narrow injectable function, production defaults use real wsl.exe/docker),
+  rewritten `startContainerRemote` (transactional), new
+  `createContainerRemoteFixture` factory + `ContainerRemoteFixtureHandle`,
+  content-addressed `computeFixtureContentHash`/`ensureImageBuilt`/
+  `computeCurrentFixtureImageTag`, rewritten `cleanupContainerRemote`
+  (ordering + `CleanupResult`) and `cleanupOrphanedContainers` (injected
+  deps), resilient `decodeWslMetaOutput`.
+- `apps/desktop/e2e-wdio/support/container-git-remote.test.ts` — grew from
+  67 to 109 tests: all 13 fault-injection scenarios this RP's NSP listed,
+  plus hash-boundary-safety and UTF-16LE-detection tests.
+- `apps/desktop/e2e-wdio/specs/git-remote-workflows.e2e.ts` — container
+  branch now calls `createContainerRemoteFixture()` instead of
+  `startContainerRemote()`/`configureContainerSsh()` separately; native
+  branch wraps `configureNativeSsh()` in a try/catch that cleans up on
+  failure; `RemoteFixture.cleanup()` return type loosened to
+  `Promise<unknown>` (container's cleanup now returns a structured
+  `CleanupResult`, not `void`).
+- `docs/E2E_WDIO_PLAN.md` — new "Stage 3F.5.4-R1" section; updated the
+  Stage 3F status-table row.
 
 ## Tests
 
-- `pnpm --filter @rack-inventory-studio/desktop test` — 1085 tests, 59
-  files, all passed (includes the 67 new container-git-remote tests).
+- `pnpm --filter @rack-inventory-studio/desktop test` — 1127 tests, 59
+  files, all passed (was 1085 before this RP; +42 net from the rewritten
+  container-git-remote.test.ts).
 - `pnpm --filter @rack-inventory-studio/desktop typecheck` — clean.
-- `pnpm check:version` — clean.
-- `pnpm check:hygiene` — 8/8 passed.
-- `pnpm test:scripts` — 237/237 passed.
+- `pnpm check:version` / `check:hygiene` (8/8) / `test:scripts` (237/237) —
+  all clean.
 - `git diff --check` — clean.
-- `cargo fmt --all -- --check` — clean.
-- `cargo clippy --workspace -- -D warnings` — clean (no Rust files touched).
-- `cargo test --workspace` — all passed (no Rust files touched).
-- **Real Windows+WSL2+Docker validation** (not part of the command suite
-  above, run manually on this host): standalone push/clone reproduction
-  outside WDIO; `git-remote-workflows` via
-  `RIS_E2E_GIT_REMOTE_PROVIDER=container` × 5 consecutive runs through the
-  canonical runner (`scripts/run-wdio-e2e.mjs --repeat 5
-  --continue-on-failure`) — **5/5 "1 passed, 1 total"** (~30s each); default
-  `native` provider re-run once and confirmed unaffected (1 passed, 14s);
-  verified no leftover containers, keep-alive processes, or run-root temp
-  directories after the 5-run matrix.
+- `cargo fmt --all -- --check` / `cargo clippy --workspace -- -D warnings`
+  / `cargo test --workspace` — all clean (no Rust files touched).
+- **Real Windows+WSL2+Docker validation**: forced content-hash build
+  produced the expected tag with expected labels; a non-forced call
+  correctly reused it. First 5-run stability matrix hit one genuine
+  failure (a UI-open flake, same signature/class already documented in
+  Stage 3F.5.4's own report, unrelated to either fixture provider — see
+  Risks); a **fresh** 5-run matrix then passed 5/5 cleanly (22-28s each),
+  per this RP's "no retries within a run" rule. A controlled real-host
+  failure injection (fake `installPublicKey` throwing after the container
+  genuinely existed and was healthy) confirmed against real Docker state:
+  same error instance rethrown with `rollbackDiagnostics` attached,
+  container actually gone from `docker inspect`, work directory removed,
+  no `sleep 86400` keep-alive process left running. Native provider
+  re-verified unaffected (1 passed, 14s).
 
 ## Risks
 
-- **WSL2 VM idle-shutdown** is a real host characteristic this fixture
-  works around (a held-open `wsl.exe ... sleep 86400` session) but cannot
-  eliminate. Validated on this host down to a ~10-30s idle window; a host
-  with an even shorter timeout, or an in-test step that outlasts the
-  keep-alive handling, is a theoretical residual risk beyond what the 5-run
-  matrix empirically bounds.
-- `ensureImageBuilt`'s Docker-build-context path assumes WSL2's default
-  `/mnt/c` automount convention; the error path if that's disabled/remapped
-  is clear but untested against a real such host.
-- Two real defects were found and fixed only through actual Windows+WSL2
-  execution, not through unit tests or code review (Alpine's `UsePAM`
-  behavior destabilizing `sshd`, and `adduser -S`'s locked-account default
-  blocking all pubkey auth) — the fixture's current correctness rests on
-  this stage's own empirical validation, not on the Dockerfile "looking
-  right".
+- The intermittent UI-open flake (`repository-active-root` not rendering
+  within 30s on a scenario's very first "open repository" step, before any
+  remote/SSH interaction) recurred once during this RP's real-host
+  validation, in the same failure class already noted in Stage 3F.5.4's
+  own report. It does not reproduce across either stage's clean 5-run
+  matrices and its root cause is not understood — flagged, not
+  investigated further here (out of this RP's scope).
+- Everything else carried forward from Stage 3F.5.4's own report is
+  unchanged: WSL2 VM idle-shutdown is a real host characteristic worked
+  around, not eliminated; `/mnt/c` automount path assumption untested on a
+  remapped host; only `git-remote-workflows` is migrated.
 
 ## Not done
 
-- **Only `git-remote-workflows` is wired to the container provider**, per
-  this stage's explicit scope limit. `git-clone-workflows` and
-  `git-diverged-pull` are untouched — migrating them needs additional
-  repository-seeding helpers (`seedBareRemoteFromLocalRepository`
-  equivalent) not yet built for the container provider.
-- **The native fixture's Windows-only components are not removed or
-  refactored** (also per this stage's explicit instruction) —
-  `findSshdWindows`, Win32 ACL handling (`securePrivateKeyFile`'s `icacls`
-  branch), Git Bash discovery, the native `ForceCommand`, and the
-  Win32-conditional `sshd_config` branches all remain in
-  `support/git-remote.ts`, listed as migration-obsolete candidates in the
-  new doc section but not touched.
-- Did not restart the full Windows WDIO Gate, merge to `development`, or
-  tag/publish a release — all explicitly out of scope for this stage.
+- Did not migrate `git-clone-workflows` or `git-diverged-pull` — out of
+  this RP's explicit scope ("narrow repair pass... do not migrate
+  additional specs").
+- Did not remove or refactor the native fixture (`git-remote.ts`) — out of
+  scope; the native provider only gained a small inline safety fix at its
+  point of use in the spec.
+- Did not rewrite the three pre-existing Stage 3F.5.4 commits — this RP's
+  changes are a new, fourth commit on top, per its own commit policy.
+- Did not push. Did not restart the full Windows WDIO Gate, merge to
+  `development`, or tag/publish a release — all explicitly out of scope.
 
 ## Suggested next step
 
-Migrate `git-clone-workflows` and `git-diverged-pull` to the container
-provider (per the "PROCEED TO MIGRATION" verdict), which will require
-building the equivalent of `seedBareRemoteFromLocalRepository` for
-`container-git-remote.ts`; once all three specs are on the container
-provider and stable, retire the native fixture's Windows-only branches
-listed above as a follow-up cleanup stage.
+Push the four local commits on `feature/windows-ssh-fixture` to origin
+(pending explicit confirmation — pushing is a visible/shared action). After
+that, the Stage 3F.5.4 report's own recommended next step still applies:
+migrate `git-clone-workflows` and `git-diverged-pull` to the container
+provider, then retire the native fixture's Windows-only branches.

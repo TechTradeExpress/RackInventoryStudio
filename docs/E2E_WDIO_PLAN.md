@@ -6,7 +6,7 @@
 |------|--------|
 | Integration branch | `roadmap/e2e-wdio` (long-lived; merged into `development`, see below — not deleted, per this doc's own branch policy) |
 | Current stage | Stage 3 COMPLETED (3A, 3B.1–3B.4, 3C) — embedded WDIO provider fully removed (PR #158); Stage 3D PARTIAL (merged as PR #159 — Placement Validation COMPLETE, Rack Export moved to NEEDS APPLICATION CHANGE); Stage 3E COMPLETE (merged as PR #160) — low-risk selector additions; Stage 3F.0 COMPLETE (merged as PR #161) — git workflow foundation audit; Stage 3F.0.5 COMPLETE (merged as PR #162) — local Git E2E test foundation, no workflow coverage added; Stage 3F.1A COMPLETE (merged as PR #163) — Git detection/init workflow coverage; Stage 3F.1B COMPLETE (merged as PR #164) — validate/commit/add-remote COVERED, push/pull local error paths PARTIAL; Stage 3F.2 COMPLETE (approved, RP applied) — remote Git over SSH: local-sshd fixture infrastructure, successful push/pull round-trips, upstream tracking, and SSH key-based authentication all COVERED; Stage 3F.3 COMPLETE — Git clone over SSH: scaffold-only clone, multi-commit clone, and clone-state persistence across close/reopen all COVERED, reusing Stage 3F.2's fixture infrastructure unmodified; Stage 3F.4 COMPLETE — diverged pull over SSH: `--ff-only` failure on a genuinely diverged history COVERED, proving both commits, working tree, branch, upstream, and remote configuration all survive the failure and a close/reopen cycle, reusing Stage 3F.2's fixture infrastructure unmodified |
-| Stage 3F | **Reopened** (2026-08-04, Stage 3F.5) — Stage 3F.2–3F.4's SSH coverage was marked complete without ever running against a real, authenticating Windows connection (the fixture's identity-path serialization was broken until a same-day RP). Fixing that exposed a second, unrelated Windows-only defect (remote shell mangles Git's POSIX-quoted remote path); Repair 1 (POSIX remote shell via `ForceCommand` → Git Bash) has since landed. Stage 3F.5.1–3F.5.3 then found this Win32-OpenSSH/`cmd.exe`/Git-Bash chain intermittently hangs (`git-clone-workflows`); Stage 3F.5.4 built and validated a containerized (WSL2 + Docker Engine) alternative as a proof of concept — see below. `v0.1.0-beta.3` is superseded by `v0.1.0-beta.4`; see `docs/BETA3_ROADMAP.md`. |
+| Stage 3F | **Reopened** (2026-08-04, Stage 3F.5) — Stage 3F.2–3F.4's SSH coverage was marked complete without ever running against a real, authenticating Windows connection (the fixture's identity-path serialization was broken until a same-day RP). Fixing that exposed a second, unrelated Windows-only defect (remote shell mangles Git's POSIX-quoted remote path); Repair 1 (POSIX remote shell via `ForceCommand` → Git Bash) has since landed. Stage 3F.5.1–3F.5.3 then found this Win32-OpenSSH/`cmd.exe`/Git-Bash chain intermittently hangs (`git-clone-workflows`); Stage 3F.5.4 built and validated a containerized (WSL2 + Docker Engine) alternative as a proof of concept; Stage 3F.5.4-R1 hardened its lifecycle (transactional startup rollback, atomic provider initialization, content-addressed image caching) after a strict pre-push review — see below. `v0.1.0-beta.3` is superseded by `v0.1.0-beta.4`; see `docs/BETA3_ROADMAP.md`. |
 | BRSP Stages B1/B2/B2.5 | **Complete** — repo cleanup, CI architecture redesign (composite actions, Rust caching fix, concurrency/timeouts), `wdio-e2e.yml` (manual, non-blocking WDIO CI), and real-GitHub-Actions validation of `ci.yml`/`dependency-audit.yml`. See `.ai/BRSP_B1_PROJECT_CLEANUP_REPORT.md`, `.ai/BRSP_B2_CI_ARCHITECTURE_REPORT.md`, `.ai/BRSP_B2_5_CI_VALIDATION_REPORT.md`. |
 | Integration PR to development | **Merged** — PR #167, merge commit `70d9c8b` (BRSP Stage B3, whole-program integration) |
 | Decision | Whole-program review completed as BRSP Stage B3; `roadmap/e2e-wdio` is merged into `development`. Any further E2E program work now branches from `development` directly (`feature/e2e-*` → `development`), not from `roadmap/e2e-wdio`. |
@@ -3215,6 +3215,156 @@ automatically; and runtime overhead is comparable to the native fixture
 (~25-31s full-spec runs either way). Recommended next stage: migrate
 `git-clone-workflows` and `git-diverged-pull` to the container provider,
 then retire the native fixture's Windows-only branches identified above.
+
+### Stage 3F.5.4-R1 — Container fixture lifecycle and image cache hardening (2026-08-04)
+
+**Why this RP.** A strict review of Stage 3F.5.4's proof-of-concept
+implementation (before its commits were pushed) found real lifecycle and
+cache-correctness defects: `startContainerRemote()` could leave a running
+container, a Windows work directory, and key files behind if it failed
+partway through (no server object was ever returned to trigger cleanup);
+the spec's own container-provider `before()` branch could leak the same
+resources if `configureContainerSsh()` failed after `startContainerRemote()`
+had already succeeded; and `ensureImageBuilt()` reused whatever image
+happened to carry the `:dev` tag with no check that it still matched the
+checked-out Dockerfile/entrypoint.sh/sshd_config — editing the fixture and
+re-running a spec could silently keep testing against a stale image. None
+of this was visible in Stage 3F.5.4's own 5-run stability matrix, because
+every one of those runs completed successfully; only a failure partway
+through startup, or an edit to the fixture source, would have exposed it.
+
+#### Transactional startup
+
+`startContainerRemote()` now tracks every resource it acquires —
+distribution, keep-alive session, container name, Windows work directory —
+in a `PartialContainerFixtureState` as it goes. Any failure at any step,
+including ones after the container already exists (port parsing,
+healthcheck, `ssh-keygen`, key permissions, `installPublicKey`, …),
+triggers `rollbackPartialContainerFixture()` before the error is rethrown.
+The **same error instance** that failed is what callers see (`error ===
+originalError` holds) — rollback failures are attached as a non-replacing
+`rollbackDiagnostics` array property, never masking the original failure.
+Rollback order: collect diagnostics (while the container still exists) →
+remove container → remove work directory → clear SSH wrapper config (only
+if one was actually written — never true from inside
+`startContainerRemote()` itself, see below) → stop the keep-alive last.
+`cleanupContainerRemote()` is deliberately not reused here: it expects a
+complete `ContainerSshRemoteServer`, which may not exist yet.
+
+#### Atomic provider initialization
+
+`createContainerRemoteFixture()` is the new atomic boundary the spec now
+calls instead of `startContainerRemote()`/`configureContainerSsh()`
+separately: it only returns the ready provider abstraction once *both*
+succeed. By the time `configureContainerSsh()` runs, a complete server
+object already exists, so its failure path calls `cleanupContainerRemote()`
+directly (not the partial-rollback helper) before rethrowing. The spec's
+`before()` no longer has a window where `fixture` is unassigned but a
+container is already running. The native provider got the equivalent
+guarantee inline in the spec (a `try`/`catch` around `configureNativeSsh()`
+that calls the native fixture's own `cleanup()` on failure) rather than a
+change to `support/git-remote.ts` itself, keeping this RP's native-fixture
+footprint to zero.
+
+#### Content-addressed image cache
+
+`ensureImageBuilt()` is now keyed by `ris-e2e-git-ssh-server:<12-char-hash>`,
+where the hash (`computeFixtureContentHash`) covers the Dockerfile,
+`entrypoint.sh`, and `sshd_config` actually on disk, each delimited by its
+own NUL-bounded name field (`\0<name>\0<content>`) rather than plain
+concatenation — plain concatenation of file *contents* alone is ambiguous
+(`["ab","c"]` and `["a","bc"]` hash identically with no separators); a
+dedicated test proves the boundary-safe design doesn't collide the same
+way. A source edit changes the hash, which changes the tag, which
+`ensureImageBuilt`'s own existence check then correctly reports as absent —
+cache invalidation falls out of the design rather than needing separate
+logic. `RIS_E2E_CONTAINER_REBUILD=1` still rebuilds the same content-hash
+tag on demand. Images are labeled `ris.e2e.fixture=git-ssh` and
+`ris.e2e.fixture-hash=<hash>` for auditability; old-hash images are not
+deleted automatically — a safe manual sweep is
+`wsl -d <distro> -- docker image prune --filter label=ris.e2e.fixture=git-ssh`
+(add `-a` to remove all unused images, not just dangling ones, if
+reclaiming disk space from superseded fixture versions is the goal).
+
+#### Cleanup ordering and container verification
+
+`cleanupContainerRemote()`'s successful-teardown order is now: clear SSH
+wrapper config → remove container → verify removal → remove Windows work
+directory → stop the keep-alive **last, in a `finally`** — so it stays
+available for every Docker command the earlier steps still need, even if
+one of them fails. It returns a structured `CleanupResult`
+(`sshConfigCleared`/`containerRemoved`/`containerVerifiedAbsent`/
+`workDirRemoved`/`keepAliveStopped`/`errors`) instead of throwing — a
+failed container removal is recorded, never silently treated as success.
+Verification switched from `docker ps -aq --filter name=<containerName>`
+(a substring match — a real Docker footgun) to `docker inspect
+<containerName>`, an exact-identity check that cannot match a
+similarly-named unrelated container.
+
+#### WSL output decoding (non-blocking hardening)
+
+`decodeWslMetaOutput()` no longer assumes every `wsl.exe` meta-command
+result is UTF-16LE unconditionally: a UTF-16LE BOM is authoritative when
+present; otherwise NUL-byte density (~50% for UTF-16LE-encoded ASCII/
+Latin-1 text vs. ~0% for UTF-8) decides; anything not clearly UTF-16LE by
+either signal decodes as UTF-8.
+
+#### Fault-injection test coverage
+
+`container-git-remote.test.ts` grew from 67 to 109 tests, adding
+dependency-injected fault-injection coverage for every lifecycle function
+this RP touched — `startContainerRemote` (port-parse failure, `ssh-keygen`
+failure, `installPublicKey` failure, distribution-resolution failure, the
+original error surviving as the same thrown instance, rollback diagnostics
+attaching without replacing it), `createContainerRemoteFixture`
+(`configureContainerSsh` failing after a successful start),
+`rollbackPartialContainerFixture` and `cleanupContainerRemote` (safe with
+no container/no work directory, keep-alive always stopped even when every
+other step fails, safe to call twice, never throws), and
+`cleanupOrphanedContainers` (never removes anything beyond the exact,
+label-filtered id list — no fallback to "remove everything"). None of this
+requires real WSL/Docker access.
+
+#### Real-host validation
+
+On the same Windows+WSL2+Docker host as the original Stage 3F.5.4 proof of
+concept: a forced content-hash build produced the expected tag with the
+expected labels, and a subsequent non-forced call correctly reused it
+without rebuilding. A fresh 5-run stability matrix
+(`RIS_E2E_GIT_REMOTE_PROVIDER=container`, fresh container per run) hit one
+genuine failure on its first attempt — `[data-testid="repository-active-
+root"]` never rendered within 30s on a scenario's very first "open
+repository" UI action, before any remote/SSH/container interaction; the
+same container/SSH pipeline in the same run then completed its remaining
+two scenarios successfully — the identical failure signature and location
+class already documented as a one-off UI flake in Stage 3F.5.4's own report
+(there, on scenario 3's first open; here, on scenario 1's). Per this RP's
+own "a failed run remains a failure, no retries inside one run" rule, that
+run was counted as a failure and a **fresh** 5-run matrix was started; all
+5 of those passed cleanly (22-28s each). A controlled real-host failure
+injection (a fake `installPublicKey` throwing after the container was
+genuinely created and became healthy) confirmed, against real Docker
+state: the same injected error instance was rethrown with
+`rollbackDiagnostics` attached, the container was actually gone from
+Docker's own `inspect` afterward, the run's `container-ssh-<runId>`
+subdirectory was removed, and no `sleep 86400` keep-alive process was left
+running. The default native provider was re-run once and confirmed
+unaffected (1 passed, 14s).
+
+#### Remaining risks
+
+Unchanged from Stage 3F.5.4's own report: the WSL2 VM idle-shutdown
+behavior is a real host characteristic this fixture works around, not
+eliminates; the `/mnt/c` automount path assumption is untested on a
+remapped host; only `git-remote-workflows` is migrated. The intermittent
+UI-open flake observed once during this RP's real-host validation (and
+once during the original stage's) appears unrelated to either fixture
+provider — it occurs before any remote/SSH/container interaction and does
+not reproduce across either stage's clean 5-run matrices — but is noted
+here rather than silently discarded, since its root cause is not yet
+understood.
+
+**STAGE 3F.5.4-R1 COMPLETE — READY TO PUSH.**
 
 ### Not proposed as a numbered coverage stage
 

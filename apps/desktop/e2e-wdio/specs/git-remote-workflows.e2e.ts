@@ -97,17 +97,7 @@ import {
   pushSimulatedRemoteCommit as pushSimulatedNativeRemoteCommit,
   startRemote,
 } from "../support/git-remote";
-import {
-  buildContainerSshRemoteUrl,
-  cleanupContainerRemote,
-  configureContainerSsh,
-  createContainerBareRemote,
-  getContainerRemoteCommitCount,
-  getContainerRemoteHeadCommit,
-  pushSimulatedContainerRemoteCommit,
-  resolveGitRemoteProvider,
-  startContainerRemote,
-} from "../support/container-git-remote";
+import { createContainerRemoteFixture, resolveGitRemoteProvider } from "../support/container-git-remote";
 
 /**
  * Unifies the two Git-remote fixture providers (native local-sshd vs.
@@ -131,7 +121,12 @@ interface RemoteFixture {
     fileName: string,
     message: string,
   ): Promise<string>;
-  cleanup(): Promise<void>;
+  /** `Promise<unknown>`, not `Promise<void>`: the container provider's
+   * cleanup returns a structured `CleanupResult` (Stage 3F.5.4-R1) that
+   * this spec has no reason to inspect, while the native provider's stays
+   * `Promise<void>` — this interface only needs "returns a promise the
+   * caller can await," not a specific resolved shape. */
+  cleanup(): Promise<unknown>;
 }
 
 function log(msg: string) {
@@ -210,19 +205,13 @@ describe("Rack Inventory Studio — remote Git workflows (SSH)", () => {
     if (provider === "container") {
       // Stage 3F.5.4 proof of concept — see support/container-git-remote.ts's
       // module doc comment. Opt-in only (RIS_E2E_GIT_REMOTE_PROVIDER=container).
+      // createContainerRemoteFixture() is the atomic init boundary (Stage
+      // 3F.5.4-R1): it only returns once the container is fully started AND
+      // configured for SSH, and cleans up after itself if either step
+      // fails — `fixture` is never assigned a half-initialized provider.
       log("starting the containerized Git-over-SSH fixture");
-      const server = await startContainerRemote();
-      configureContainerSsh(server);
-      log(`fixture ready: 127.0.0.1:${server.port}, username=${server.username}, container=${server.containerName}`);
-      fixture = {
-        createBareRemote: (label) => createContainerBareRemote(server, label),
-        buildRemoteUrl: (bareRepoPath) => buildContainerSshRemoteUrl(bareRepoPath),
-        getRemoteHeadCommit: (bareRepoPath, ref) => getContainerRemoteHeadCommit(server, bareRepoPath, ref),
-        getRemoteCommitCount: (bareRepoPath, ref) => getContainerRemoteCommitCount(server, bareRepoPath, ref),
-        pushSimulatedRemoteCommit: (bareRepoPath, branch, fileName, message) =>
-          pushSimulatedContainerRemoteCommit(server, bareRepoPath, branch, fileName, message),
-        cleanup: () => cleanupContainerRemote(server),
-      };
+      fixture = await createContainerRemoteFixture();
+      log("containerized fixture ready");
       return;
     }
 
@@ -243,7 +232,18 @@ describe("Rack Inventory Studio — remote Git workflows (SSH)", () => {
 
     log("starting the local sshd remote-Git fixture");
     const server = await startRemote();
-    configureNativeSsh(server);
+    try {
+      configureNativeSsh(server);
+    } catch (error) {
+      // Equivalent atomic-init safety to the container provider's
+      // createContainerRemoteFixture() (Stage 3F.5.4-R1): startRemote()
+      // already succeeded here (sshd running, keys on disk) — if
+      // configureNativeSsh() throws before `fixture` is assigned below,
+      // after() would otherwise have nothing to call cleanup on, leaking
+      // the sshd process and its key directory.
+      await cleanupNativeRemoteServer(server).catch(() => {});
+      throw error;
+    }
     log(`fixture ready: 127.0.0.1:${server.port}, username=${server.username}`);
     fixture = {
       createBareRemote: (label) => createNativeBareRemote(server.remotesParent, label),
