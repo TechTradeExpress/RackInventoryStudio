@@ -254,13 +254,35 @@ interface ExecResult {
   stderr: string;
 }
 
+/** A failed `docker <args>` invocation, with the raw stderr/exit code
+ * preserved rather than only a flattened message string — see this stage's
+ * Docker not-found classification, which needs the exact stderr text, not
+ * `error.message` (which also carries this module's own
+ * `[container-git-remote] docker ... failed in WSL distribution "..."`
+ * prefix and the generic `execFile` error text). */
+export interface DockerCommandError extends Error {
+  dockerArgs: string[];
+  distro: string;
+  stderr: string;
+  exitCode: number | null;
+}
+
+export function isDockerCommandError(value: unknown): value is DockerCommandError {
+  return (
+    value instanceof Error &&
+    typeof (value as Partial<DockerCommandError>).stderr === "string" &&
+    Array.isArray((value as Partial<DockerCommandError>).dockerArgs)
+  );
+}
+
 function execFileP(cmd: string, args: string[]): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
     execFile(cmd, args, { encoding: "buffer", maxBuffer: 16 * 1024 * 1024 }, (error, stdoutBuf, stderrBuf) => {
       const stdout = stdoutBuf.toString("utf8");
       const stderr = stderrBuf.toString("utf8");
       if (error) {
-        reject(Object.assign(new Error(`${error.message}\n${stderr}`.trim()), { stdout, stderr, cause: error }));
+        const exitCode = typeof (error as NodeJS.ErrnoException).code === "number" ? (error as unknown as { code: number }).code : null;
+        reject(Object.assign(new Error(`${error.message}\n${stderr}`.trim()), { stdout, stderr, exitCode, cause: error }));
       } else {
         resolve({ stdout, stderr });
       }
@@ -327,10 +349,18 @@ async function execDocker(distro: string, dockerArgs: string[]): Promise<ExecRes
   try {
     return await execFileP("wsl.exe", ["-d", distro, "--", "docker", ...dockerArgs]);
   } catch (error) {
-    throw new Error(
+    const stderr = error instanceof Error && "stderr" in error ? String((error as { stderr: unknown }).stderr) : "";
+    const exitCode =
+      error instanceof Error && "exitCode" in error ? ((error as { exitCode: number | null }).exitCode) : null;
+    const wrapped = new Error(
       `[container-git-remote] docker ${dockerArgs.join(" ")} failed in WSL distribution "${distro}": ${errMsg(error)}`,
       { cause: error },
-    );
+    ) as DockerCommandError;
+    wrapped.dockerArgs = dockerArgs;
+    wrapped.distro = distro;
+    wrapped.stderr = stderr;
+    wrapped.exitCode = exitCode;
+    throw wrapped;
   }
 }
 
@@ -578,6 +608,77 @@ export function buildContainerSshRemoteUrl(bareRepoPath: string): string {
   return `${CONTAINER_USERNAME}@127.0.0.1:${bareRepoPath}`;
 }
 
+// ── Container presence (tri-state — Stage 3F.5.4-R2) ─────────────────────────
+//
+// Stage 3F.5.4-R1's `checkContainerExists` collapsed every `docker inspect`
+// failure to "absent" — indistinguishable from a genuine "no such
+// container" result. That's wrong: a Docker daemon outage, a WSL2 VM
+// hiccup, a permission error, or `wsl.exe` itself failing all throw too,
+// and none of them prove the container is gone. Teardown built on that
+// boolean could report success while a real container (and its published
+// port) was still sitting there — the exact defect this stage's RP exists
+// to close. `ContainerPresence` makes the third case explicit so no caller
+// can accidentally treat "I couldn't check" as "it's gone".
+
+export type ContainerPresence = { status: "present" } | { status: "absent" } | { status: "unknown"; error: string };
+
+/**
+ * Recognizes only Docker's own "the exact named object does not exist"
+ * result — never a generic "not found" (missing binary, missing file
+ * inside a container, an unrelated ENOENT). Confirmed against this
+ * project's real Docker Engine (29.4.3 under WSL2): `docker inspect` on a
+ * missing name prints `error: no such object: <name>` (lowercase, no
+ * daemon-response prefix); `docker rm`/`docker port` print
+ * `Error response from daemon: No such container: <name>`. Both are
+ * covered by the same case-insensitive "no such object|container:" match;
+ * neither "command not found" nor "permission denied" nor a connection
+ * failure matches it, so those correctly fall through to "unknown" in
+ * `inspectContainerPresence` rather than being misread as absence.
+ */
+const DOCKER_NOT_FOUND_RE = /no such (?:object|container):/i;
+
+export function isDockerNotFoundError(stderr: string): boolean {
+  return DOCKER_NOT_FOUND_RE.test(stderr);
+}
+
+/** Injectable seam for `inspectContainerPresence` — mirrors `selectDistribution`'s
+ * injected `checkDocker` dependency, so the tri-state classification below
+ * is unit-testable with a fake `dockerInspect` that throws fabricated
+ * `DockerCommandError`-shaped stderr, with no real WSL/Docker access. */
+export type DockerInspectFn = (distro: string, containerName: string) => Promise<ExecResult>;
+
+const defaultDockerInspect: DockerInspectFn = (distro, containerName) => execDocker(distro, ["inspect", containerName]);
+
+/**
+ * The single source of truth for "does this exact container currently
+ * exist" — always an exact-identity `docker inspect <containerName>` (never
+ * a substring/name-filter match), and always tri-state: `docker inspect`
+ * succeeding is `"present"`; failing with Docker's own not-found message
+ * (`isDockerNotFoundError`, checked against the preserved `DockerCommandError.
+ * stderr`, not the flattened `error.message`) is `"absent"`; any other
+ * failure — daemon down, WSL unavailable, permission denied, `wsl.exe`
+ * itself erroring, a malformed/unexpected stderr shape — is `"unknown"`,
+ * carrying the underlying diagnostic. Only `"absent"` may ever set
+ * `containerVerifiedAbsent = true` downstream (see `CleanupResult` and
+ * `rollbackPartialContainerFixture`).
+ */
+export async function inspectContainerPresence(
+  distro: string,
+  containerName: string,
+  dockerInspect: DockerInspectFn = defaultDockerInspect,
+): Promise<ContainerPresence> {
+  try {
+    await dockerInspect(distro, containerName);
+    return { status: "present" };
+  } catch (error) {
+    const stderr = isDockerCommandError(error) ? error.stderr : "";
+    if (isDockerNotFoundError(stderr)) {
+      return { status: "absent" };
+    }
+    return { status: "unknown", error: errMsg(error) };
+  }
+}
+
 // ── Readiness ─────────────────────────────────────────────────────────────────
 
 async function waitForContainerHealthy(distro: string, containerName: string, timeoutMs: number): Promise<void> {
@@ -810,6 +911,16 @@ function resolveRunRoot(): string {
 // dependency-injection style selectDistribution/securePrivateKeyFile/
 // buildSshdConfig already use elsewhere in this program.
 
+/**
+ * Distinguishes "there was nothing to remove" from "removal was refused" —
+ * both previously reported as the same silent no-op (Stage 3F.5.4-R2's
+ * work-directory accuracy fix). `removeWorkDirImpl`'s existing
+ * path-safety guard (`RIS_E2E_RUN_ROOT` unset, or `workDir` outside it —
+ * see `isStrictChildPath`, never weakened here) now surfaces as `"refused"`
+ * rather than quietly doing nothing and letting the caller assume success.
+ */
+export type WorkDirRemovalResult = "removed" | "already-absent" | "refused";
+
 export interface ContainerOpsDeps {
   resolveDistribution: () => Promise<string>;
   startKeepAlive: (distro: string) => ChildProcess;
@@ -820,17 +931,17 @@ export interface ContainerOpsDeps {
   waitForHealthy: (distro: string, containerName: string, timeoutMs: number) => Promise<void>;
   collectDiagnostics: (distro: string, containerName: string) => Promise<string>;
   removeContainer: (distro: string, containerName: string) => Promise<void>;
-  /** Exact-identity check (never a substring/name-filter match — see this
-   * stage's "Container verification" requirement). Returns true iff a
-   * container with exactly this name currently exists. */
-  checkContainerExists: (distro: string, containerName: string) => Promise<boolean>;
+  /** Exact-identity, tri-state presence check (never a substring/name-filter
+   * match, and never collapses "couldn't tell" into "absent" — see
+   * `ContainerPresence`/`inspectContainerPresence`, Stage 3F.5.4-R2). */
+  inspectContainerPresence: (distro: string, containerName: string) => Promise<ContainerPresence>;
   listFixtureContainers: (distro: string, runId?: string) => Promise<string[]>;
   removeContainersByIds: (distro: string, ids: string[]) => Promise<void>;
   generateKeypair: (identityPath: string) => Promise<void>;
   securePrivateKeyFile: (identityPath: string) => void;
   readPublicKey: (identityPath: string) => string;
   installPublicKey: (distro: string, containerName: string, publicKey: string) => Promise<void>;
-  removeWorkDir: (workDir: string) => Promise<void>;
+  removeWorkDir: (workDir: string) => Promise<WorkDirRemovalResult>;
   clearSshConfig: () => void;
 }
 
@@ -841,11 +952,16 @@ function clearContainerSshConfig(): void {
   if (existsSync(configPath)) rmSync(configPath, { force: true });
 }
 
-async function removeWorkDirImpl(workDir: string): Promise<void> {
+async function removeWorkDirImpl(workDir: string): Promise<WorkDirRemovalResult> {
   const runRoot = process.env["RIS_E2E_RUN_ROOT"];
-  if (runRoot && isStrictChildPath(runRoot, workDir) && existsSync(workDir)) {
-    await rm(workDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  if (!runRoot || !isStrictChildPath(runRoot, workDir)) {
+    return "refused";
   }
+  if (!existsSync(workDir)) {
+    return "already-absent";
+  }
+  await rm(workDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  return "removed";
 }
 
 export const defaultContainerOpsDeps: ContainerOpsDeps = {
@@ -862,10 +978,7 @@ export const defaultContainerOpsDeps: ContainerOpsDeps = {
   removeContainer: async (distro, containerName) => {
     await execDocker(distro, ["rm", "-f", containerName]);
   },
-  checkContainerExists: (distro, containerName) =>
-    execDocker(distro, ["inspect", containerName])
-      .then(() => true)
-      .catch(() => false),
+  inspectContainerPresence,
   listFixtureContainers: async (distro, runId) => {
     const { stdout } = await execDocker(distro, buildCleanupArgs(runId));
     return stdout
@@ -906,21 +1019,73 @@ export interface PartialContainerFixtureState {
 
 type RollbackDeps = Pick<
   ContainerOpsDeps,
-  "collectDiagnostics" | "removeContainer" | "removeWorkDir" | "clearSshConfig" | "stopKeepAlive"
+  "collectDiagnostics" | "removeContainer" | "inspectContainerPresence" | "removeWorkDir" | "clearSshConfig" | "stopKeepAlive"
 >;
 
 /**
+ * Rolls back the one container `distro`/`containerName` names, tri-state
+ * aware (Stage 3F.5.4-R2's defect-1 fix applied to rollback, not just
+ * `cleanupContainerRemote`): inspects presence first — confirmed absent
+ * needs no removal attempt at all; confirmed present or unknown (a failed
+ * inspection proves nothing, so it still gets a safe removal attempt — the
+ * name is unique to this run, per this stage's "track the name before
+ * `docker run`" fix, so an idempotent `docker rm -f` is always safe to try)
+ * both trigger `removeContainer`. A final presence check (skipped only when
+ * the initial check already proved absence) is what actually sets
+ * `containerVerifiedAbsent` — a failed final check stays `false` rather
+ * than being assumed away.
+ */
+async function rollbackContainerByName(
+  distro: string,
+  containerName: string,
+  deps: RollbackDeps,
+): Promise<{ diagnostics: string[]; containerVerifiedAbsent: boolean }> {
+  const diagnostics: string[] = [];
+
+  try {
+    const diag = await deps.collectDiagnostics(distro, containerName);
+    diagnostics.push(`diagnostics for ${containerName} before rollback:\n${diag}`);
+  } catch (error) {
+    diagnostics.push(`collecting diagnostics for ${containerName} failed: ${errMsg(error)}`);
+  }
+
+  const initialPresence = await deps.inspectContainerPresence(distro, containerName);
+  if (initialPresence.status === "unknown") {
+    diagnostics.push(`presence of "${containerName}" could not be determined before rollback: ${initialPresence.error}`);
+  }
+
+  if (initialPresence.status !== "absent") {
+    try {
+      await deps.removeContainer(distro, containerName);
+    } catch (error) {
+      diagnostics.push(`removing container "${containerName}" failed: ${errMsg(error)}`);
+    }
+  }
+
+  const finalPresence =
+    initialPresence.status === "absent" ? initialPresence : await deps.inspectContainerPresence(distro, containerName);
+  if (finalPresence.status === "unknown") {
+    diagnostics.push(`presence of "${containerName}" could not be verified after rollback: ${finalPresence.error}`);
+  } else if (finalPresence.status === "present") {
+    diagnostics.push(`container "${containerName}" still present after rollback removal attempt`);
+  }
+
+  return { diagnostics, containerVerifiedAbsent: finalPresence.status === "absent" };
+}
+
+/**
  * Rolls back whatever subset of a container fixture's resources partial
- * `state` describes, in the order this stage's NSP specifies: diagnostics
- * (while the container still exists) → remove container → remove work
- * directory → clear SSH wrapper config → stop keep-alive last (so it stays
- * available for the Docker commands the earlier steps still need). Every
- * step is independently guarded — a missing field is skipped entirely
- * (safe with no container, no work directory, etc.), and a failure in one
- * step never prevents the next from being attempted. Returns the list of
- * diagnostic strings produced (collected container diagnostics plus any
- * step failures) — never throws itself, so a caller's own error handling
- * is never masked by a rollback failure.
+ * `state` describes, in the order this stage's NSP specifies: diagnostics +
+ * tri-state presence-aware container removal (`rollbackContainerByName`,
+ * Stage 3F.5.4-R2) → remove work directory → clear SSH wrapper config →
+ * stop keep-alive last (so it stays available for the Docker commands the
+ * earlier steps still need). Every step is independently guarded — a
+ * missing field is skipped entirely (safe with no container, no work
+ * directory, etc.), and a failure in one step never prevents the next from
+ * being attempted. Returns the list of diagnostic strings produced
+ * (collected container diagnostics plus any step failures) — never throws
+ * itself, so a caller's own error handling is never masked by a rollback
+ * failure.
  */
 export async function rollbackPartialContainerFixture(
   state: PartialContainerFixtureState,
@@ -929,22 +1094,16 @@ export async function rollbackPartialContainerFixture(
   const diagnostics: string[] = [];
 
   if (state.distro && state.containerName) {
-    try {
-      const diag = await deps.collectDiagnostics(state.distro, state.containerName);
-      diagnostics.push(`diagnostics for ${state.containerName} before rollback:\n${diag}`);
-    } catch (error) {
-      diagnostics.push(`collecting diagnostics for ${state.containerName} failed: ${errMsg(error)}`);
-    }
-    try {
-      await deps.removeContainer(state.distro, state.containerName);
-    } catch (error) {
-      diagnostics.push(`removing container "${state.containerName}" failed: ${errMsg(error)}`);
-    }
+    const containerResult = await rollbackContainerByName(state.distro, state.containerName, deps);
+    diagnostics.push(...containerResult.diagnostics);
   }
 
   if (state.workDir) {
     try {
-      await deps.removeWorkDir(state.workDir);
+      const result = await deps.removeWorkDir(state.workDir);
+      if (result === "refused") {
+        diagnostics.push(`removing work directory "${state.workDir}" was refused (outside RIS_E2E_RUN_ROOT or run root unset)`);
+      }
     } catch (error) {
       diagnostics.push(`removing work directory "${state.workDir}" failed: ${errMsg(error)}`);
     }
@@ -1012,10 +1171,17 @@ export async function startContainerRemote(
 
     const runId = generateRunId();
     const containerName = buildContainerName(runId);
+    // Recorded before `docker run` is even attempted (Stage 3F.5.4-R2's
+    // defect-4 fix): the name is unique and generated by this run, so it's
+    // always safe to target for rollback — even if `docker run` itself
+    // throws after Docker has already created the container engine-side
+    // (partial success, a lost response, an interrupted call). Without
+    // this, such a failure left an orphaned container no rollback path
+    // ever knew the name of.
+    state.containerName = containerName;
 
     log(`starting container ${containerName} from ${imageTag}`);
     await deps.dockerRun(distro, buildDockerRunArgs({ containerName, imageTag, runId }));
-    state.containerName = containerName;
 
     const portOutput = await deps.dockerPort(distro, containerName);
     const parsedPort = parsePublishedPort(portOutput);
@@ -1085,13 +1251,32 @@ export function configureContainerSsh(server: ContainerSshRemoteServer): void {
   log(`wrote ssh-wrapper config -> ${configPath} (port=${server.port})`);
 }
 
-// ── Cleanup (successful-run teardown — Stage 3F.5.4-R1 ordering) ────────────
+// ── Cleanup (successful-run teardown — Stage 3F.5.4-R2 authoritative) ───────
 
 export interface CleanupResult {
   sshConfigCleared: boolean;
+  /** True once a removal call was made — not itself a success signal (the
+   * call is idempotent and doesn't throw for an already-absent container,
+   * see `isDockerNotFoundError`'s exit-0-on-`rm -f` finding); the
+   * authoritative signal is `containerVerifiedAbsent`, always set from a
+   * post-removal `inspectContainerPresence` call, never inferred from this
+   * flag or from the removal call simply not throwing. */
+  containerRemovalAttempted: boolean;
   containerRemoved: boolean;
+  /** Only ever `true` when a tri-state presence check (`ContainerPresence`)
+   * conclusively reported `"absent"` — a `"present"` or `"unknown"` result
+   * (inspection itself failed: daemon down, WSL unavailable, permission
+   * denied, …) both leave this `false`. This is the field
+   * `isCleanupSuccessful` treats as authoritative for the container; a
+   * generic inspection failure can never masquerade as removal success
+   * (Stage 3F.5.4-R2's defect-1 fix). */
   containerVerifiedAbsent: boolean;
+  /** Derived from `WorkDirRemovalResult`: `true` for `"removed"` or
+   * `"already-absent"` (both are success — see idempotency requirements),
+   * `false` for `"refused"` (the path-safety guard declined to act, which
+   * must never be reported as if the directory were gone). */
   workDirRemoved: boolean;
+  keepAliveStopRequested: boolean;
   keepAliveStopped: boolean;
   /** Non-fatal problems encountered during cleanup — cleanup never throws;
    * a failed step is recorded here instead (see this stage's "do not
@@ -1101,15 +1286,18 @@ export interface CleanupResult {
 
 /**
  * Idempotent, non-throwing cleanup for a fully-started container fixture.
- * Order matters (Stage 3F.5.4-R1): clear SSH wrapper config → remove
- * container → verify removal (exact-identity check, never a substring
- * match — see `ContainerOpsDeps.checkContainerExists`) → remove Windows
- * work directory → stop the WSL keep-alive **last, in a `finally`**, so it
- * stays available for every Docker command the earlier steps still need,
- * even if one of them fails. A failed container removal is recorded in
- * `errors`/logged as a warning, never silently treated as success. Safe to
- * call twice on the same server (each step tolerates its target already
- * being gone).
+ * Order matters (Stage 3F.5.4-R1, unchanged by R2): clear SSH wrapper
+ * config → remove container → verify removal (exact-identity, tri-state
+ * presence check — see `ContainerPresence`/`inspectContainerPresence`,
+ * Stage 3F.5.4-R2) → remove Windows work directory → stop the WSL
+ * keep-alive **last, in a `finally`**, so it stays available for every
+ * Docker command the earlier steps still need, even if one of them fails.
+ * A failed container removal is recorded in `errors`/logged as a warning,
+ * never silently treated as success. Safe to call twice on the same server
+ * — each step tolerates its target already being gone, and an
+ * already-absent target is reported as success, not as a failure to remove
+ * something that was never there (Stage 3F.5.4-R2's idempotency
+ * requirement).
  */
 export async function cleanupContainerRemote(
   server: ContainerSshRemoteServer,
@@ -1117,9 +1305,11 @@ export async function cleanupContainerRemote(
 ): Promise<CleanupResult> {
   const errors: string[] = [];
   let sshConfigCleared = false;
+  let containerRemovalAttempted = false;
   let containerRemoved = false;
   let containerVerifiedAbsent = false;
   let workDirRemoved = false;
+  let keepAliveStopRequested = false;
   let keepAliveStopped = false;
 
   try {
@@ -1131,31 +1321,38 @@ export async function cleanupContainerRemote(
     }
 
     try {
+      containerRemovalAttempted = true;
       await deps.removeContainer(server.distro, server.containerName);
       containerRemoved = true;
     } catch (error) {
       errors.push(`removing container "${server.containerName}" failed: ${errMsg(error)}`);
     }
 
-    try {
-      const stillPresent = await deps.checkContainerExists(server.distro, server.containerName);
-      containerVerifiedAbsent = !stillPresent;
-      if (stillPresent) {
-        const warning = `container "${server.containerName}" still present after removal attempt — may require manual cleanup`;
-        errors.push(warning);
-        log(`WARNING: ${warning}`);
-      }
-    } catch (error) {
-      errors.push(`verifying container removal for "${server.containerName}" failed: ${errMsg(error)}`);
+    const presence = await deps.inspectContainerPresence(server.distro, server.containerName);
+    containerVerifiedAbsent = presence.status === "absent";
+    if (presence.status === "present") {
+      const warning = `container "${server.containerName}" still present after removal attempt — may require manual cleanup`;
+      errors.push(warning);
+      log(`WARNING: ${warning}`);
+    } else if (presence.status === "unknown") {
+      const warning = `presence of container "${server.containerName}" could not be verified after removal: ${presence.error}`;
+      errors.push(warning);
+      log(`WARNING: ${warning}`);
     }
 
     try {
-      await deps.removeWorkDir(server.workDir);
-      workDirRemoved = true;
+      const workDirResult = await deps.removeWorkDir(server.workDir);
+      workDirRemoved = workDirResult !== "refused";
+      if (workDirResult === "refused") {
+        errors.push(
+          `removing work directory "${server.workDir}" was refused (outside RIS_E2E_RUN_ROOT or run root unset)`,
+        );
+      }
     } catch (error) {
       errors.push(`removing work directory "${server.workDir}" failed: ${errMsg(error)}`);
     }
   } finally {
+    keepAliveStopRequested = true;
     try {
       deps.stopKeepAlive(server.keepAlive);
       keepAliveStopped = true;
@@ -1170,7 +1367,113 @@ export async function cleanupContainerRemote(
     log(`cleaned up container ${server.containerName} and ${server.workDir}`);
   }
 
-  return { sshConfigCleared, containerRemoved, containerVerifiedAbsent, workDirRemoved, keepAliveStopped, errors };
+  return {
+    sshConfigCleared,
+    containerRemovalAttempted,
+    containerRemoved,
+    containerVerifiedAbsent,
+    workDirRemoved,
+    keepAliveStopRequested,
+    keepAliveStopped,
+    errors,
+  };
+}
+
+/**
+ * The fields `isCleanupSuccessful` treats as authoritative — anything not
+ * true here is a reason teardown must fail the spec (Stage 3F.5.4-R2's
+ * defect-2 fix), listed alongside every `CleanupResult.errors` entry.
+ * `containerRemoved`/`containerRemovalAttempted` are deliberately *not*
+ * part of the predicate: an idempotent removal call that ran against an
+ * already-absent container is still a successful cleanup (see
+ * `CleanupResult.containerVerifiedAbsent`'s own doc comment).
+ */
+function collectCleanupIssues(result: CleanupResult): string[] {
+  const issues: string[] = [];
+  if (!result.sshConfigCleared) issues.push("sshConfigCleared=false");
+  if (!result.containerVerifiedAbsent) {
+    issues.push("containerVerifiedAbsent=false (container presence was not conclusively confirmed absent)");
+  }
+  if (!result.workDirRemoved) issues.push("workDirRemoved=false");
+  if (!result.keepAliveStopped) issues.push("keepAliveStopped=false");
+  issues.push(...result.errors);
+  return issues;
+}
+
+/**
+ * The clear success predicate this stage's RP requires: a container
+ * cleanup is only successful when SSH config was cleared, the container is
+ * *conclusively* verified absent (never merely "removal didn't throw" —
+ * see `CleanupResult.containerVerifiedAbsent`), the work directory was
+ * removed or was already absent, the keep-alive was confirmed stopped, and
+ * no other error was recorded.
+ */
+export function isCleanupSuccessful(result: CleanupResult): boolean {
+  return collectCleanupIssues(result).length === 0;
+}
+
+/** Human-readable teardown-failure diagnostic — container name plus every
+ * unmet success-predicate field and recorded error, for use in the WDIO
+ * after-hook's thrown error (see `assertCleanupSucceeded`). */
+export function formatCleanupFailure(result: CleanupResult, containerName?: string): string {
+  const label = containerName ? ` for container "${containerName}"` : "";
+  const issues = collectCleanupIssues(result);
+  return [`[container-git-remote] cleanup${label} was not conclusively successful:`, ...issues.map((issue) => `  - ${issue}`)].join(
+    "\n",
+  );
+}
+
+/**
+ * Throws a descriptive error (via `formatCleanupFailure`) when `result` was
+ * not conclusively successful. Intended for a WDIO `after()` hook — makes
+ * cleanup success part of the test result instead of a result the spec
+ * silently discards (Stage 3F.5.4-R2's defect-2 fix: "a WDIO spec cannot
+ * pass when its fixture teardown reports unremoved or unverified
+ * resources").
+ */
+export function assertCleanupSucceeded(result: CleanupResult, containerName?: string): void {
+  if (!isCleanupSuccessful(result)) {
+    throw new Error(formatCleanupFailure(result, containerName));
+  }
+}
+
+// ── Provider-neutral cleanup contract (Stage 3F.5.4-R2) ─────────────────────
+//
+// The native (support/git-remote.ts) and container fixtures previously
+// exposed `cleanup(): Promise<unknown>` at the RemoteFixture boundary the
+// spec uses — a shape so weak the spec had no way to act on a cleanup
+// failure even if it wanted to. FixtureCleanupResult is the shared,
+// providerneutral result both adapters map onto; the spec's single after()
+// hook can then assert against it without forking on provider.
+
+export interface FixtureCleanupResult {
+  ok: boolean;
+  provider: "native" | "container";
+  errors: string[];
+}
+
+/** Maps a container-specific `CleanupResult` onto the shared
+ * provider-neutral shape — the container adapter's side of the contract
+ * (see this section's own doc comment). */
+export function toFixtureCleanupResult(result: CleanupResult): FixtureCleanupResult {
+  const issues = collectCleanupIssues(result);
+  return { ok: issues.length === 0, provider: "container", errors: issues };
+}
+
+export function formatFixtureCleanupFailure(result: FixtureCleanupResult): string {
+  return [
+    `[e2e] ${result.provider} fixture cleanup did not conclusively succeed:`,
+    ...result.errors.map((issue) => `  - ${issue}`),
+  ].join("\n");
+}
+
+/** Provider-neutral counterpart to `assertCleanupSucceeded` — the one call
+ * a WDIO `after()` hook needs regardless of which provider `fixture.cleanup()`
+ * came from. */
+export function assertFixtureCleanupSucceeded(result: FixtureCleanupResult): void {
+  if (!result.ok) {
+    throw new Error(formatFixtureCleanupFailure(result));
+  }
 }
 
 /**
@@ -1201,7 +1504,17 @@ export interface ContainerRemoteFixtureHandle {
   getRemoteHeadCommit(bareRepoPath: string, ref?: string): Promise<string>;
   getRemoteCommitCount(bareRepoPath: string, ref?: string): Promise<number>;
   pushSimulatedRemoteCommit(bareRepoPath: string, branch: string, fileName: string, message: string): Promise<string>;
-  cleanup(): Promise<CleanupResult>;
+  /** Provider-neutral (Stage 3F.5.4-R2) — see `FixtureCleanupResult`. Never
+   * `Promise<unknown>`: a caller (the spec's after() hook) must be able to
+   * act on whether cleanup actually succeeded. */
+  cleanup(): Promise<FixtureCleanupResult>;
+}
+
+/** An `Error` decorated with cleanup diagnostics collected while handling
+ * that same error (Stage 3F.5.4-R2's defect-3 fix) — the original error is
+ * never replaced, only annotated. */
+export interface ErrorWithCleanupDiagnostics extends Error {
+  cleanupDiagnostics?: string[];
 }
 
 export interface CreateContainerRemoteFixtureDeps {
@@ -1233,6 +1546,17 @@ const defaultCreateContainerRemoteFixtureDeps: CreateContainerRemoteFixtureDeps 
  * `cleanupContainerRemote()` directly (not `rollbackPartialContainerFixture`,
  * which exists specifically for the *incomplete*-server case inside
  * `startContainerRemote()` itself) before rethrowing the original error.
+ *
+ * Stage 3F.5.4-R2's defect-3 fix: that rethrow used to discard whatever
+ * `cleanupContainerRemote()` found — a caller diagnosing "why did the
+ * fixture fail to start" had no idea whether the container it left behind
+ * was actually cleaned up. The *original* configuration error is always
+ * what's thrown (the same instance when it already was an `Error`; a
+ * non-`Error` thrown value is wrapped in one with the original value as
+ * `cause` — see `ErrorWithCleanupDiagnostics`); cleanup's outcome — a
+ * failed/unverified `CleanupResult`, or the cleanup call itself throwing —
+ * is attached as a non-replacing `cleanupDiagnostics` array property, and
+ * omitted entirely when cleanup fully succeeds.
  */
 export async function createContainerRemoteFixture(
   options: { forceRebuild?: boolean } = {},
@@ -1241,9 +1565,23 @@ export async function createContainerRemoteFixture(
   const server = await deps.startContainerRemote(options);
   try {
     deps.configureContainerSsh(server);
-  } catch (error) {
-    await deps.cleanupContainerRemote(server).catch(() => {});
-    throw error;
+  } catch (rawError) {
+    const originalError: ErrorWithCleanupDiagnostics =
+      rawError instanceof Error ? rawError : new Error(String(rawError), { cause: rawError });
+
+    let cleanupDiagnostics: string[] | undefined;
+    try {
+      const cleanupResult = await deps.cleanupContainerRemote(server);
+      if (!isCleanupSuccessful(cleanupResult)) {
+        cleanupDiagnostics = collectCleanupIssues(cleanupResult);
+      }
+    } catch (cleanupError) {
+      cleanupDiagnostics = [`cleanup itself threw: ${errMsg(cleanupError)}`];
+    }
+    if (cleanupDiagnostics && cleanupDiagnostics.length > 0) {
+      originalError.cleanupDiagnostics = cleanupDiagnostics;
+    }
+    throw originalError;
   }
   return {
     createBareRemote: (label) => createContainerBareRemote(server, label),
@@ -1252,7 +1590,7 @@ export async function createContainerRemoteFixture(
     getRemoteCommitCount: (bareRepoPath, ref) => getContainerRemoteCommitCount(server, bareRepoPath, ref),
     pushSimulatedRemoteCommit: (bareRepoPath, branch, fileName, message) =>
       pushSimulatedContainerRemoteCommit(server, bareRepoPath, branch, fileName, message),
-    cleanup: () => deps.cleanupContainerRemote(server),
+    cleanup: async () => toFixtureCleanupResult(await deps.cleanupContainerRemote(server)),
   };
 }
 

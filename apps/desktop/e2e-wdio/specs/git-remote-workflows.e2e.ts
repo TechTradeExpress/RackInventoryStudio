@@ -97,7 +97,12 @@ import {
   pushSimulatedRemoteCommit as pushSimulatedNativeRemoteCommit,
   startRemote,
 } from "../support/git-remote";
-import { createContainerRemoteFixture, resolveGitRemoteProvider } from "../support/container-git-remote";
+import {
+  createContainerRemoteFixture,
+  resolveGitRemoteProvider,
+  assertFixtureCleanupSucceeded,
+  type FixtureCleanupResult,
+} from "../support/container-git-remote";
 
 /**
  * Unifies the two Git-remote fixture providers (native local-sshd vs.
@@ -121,12 +126,12 @@ interface RemoteFixture {
     fileName: string,
     message: string,
   ): Promise<string>;
-  /** `Promise<unknown>`, not `Promise<void>`: the container provider's
-   * cleanup returns a structured `CleanupResult` (Stage 3F.5.4-R1) that
-   * this spec has no reason to inspect, while the native provider's stays
-   * `Promise<void>` — this interface only needs "returns a promise the
-   * caller can await," not a specific resolved shape. */
-  cleanup(): Promise<unknown>;
+  /** Provider-neutral (Stage 3F.5.4-R2's defect-2/unified-contract fix):
+   * both providers now map onto the shared `FixtureCleanupResult` shape —
+   * `after()` below asserts against it via `assertFixtureCleanupSucceeded`,
+   * so an unremoved or unverified resource fails the suite instead of
+   * silently disappearing behind a discarded `Promise<unknown>`. */
+  cleanup(): Promise<FixtureCleanupResult>;
 }
 
 function log(msg: string) {
@@ -252,12 +257,35 @@ describe("Rack Inventory Studio — remote Git workflows (SSH)", () => {
       getRemoteCommitCount: (bareRepoPath, ref) => getNativeRemoteCommitCount(bareRepoPath, ref),
       pushSimulatedRemoteCommit: (bareRepoPath, branch, fileName, message) =>
         pushSimulatedNativeRemoteCommit(bareRepoPath, server.remotesParent, branch, fileName, message),
-      cleanup: () => cleanupNativeRemoteServer(server),
+      // Maps the native fixture's own Promise<void>/throws-on-failure
+      // cleanup onto the shared FixtureCleanupResult shape (Stage
+      // 3F.5.4-R2's provider-neutral contract) rather than changing
+      // support/git-remote.ts itself — same "zero native-fixture footprint"
+      // approach Stage 3F.5.4-R1 used for atomic init. A thrown error is
+      // never silently swallowed: it's captured into `errors` so
+      // assertFixtureCleanupSucceeded's thrown message names it explicitly.
+      cleanup: async () => {
+        try {
+          await cleanupNativeRemoteServer(server);
+          return { ok: true, provider: "native", errors: [] };
+        } catch (error) {
+          return {
+            ok: false,
+            provider: "native",
+            errors: [error instanceof Error ? error.message : String(error)],
+          };
+        }
+      },
     };
   });
 
   after(async () => {
-    if (fixture) await fixture.cleanup();
+    // Teardown is now part of the test result (Stage 3F.5.4-R2's defect-2
+    // fix): an unremoved container, an unverified presence check, a
+    // refused work-directory removal, or a still-running keep-alive all
+    // fail this hook — the suite cannot pass while fixture teardown is
+    // inconclusive, for either provider.
+    if (fixture) assertFixtureCleanupSucceeded(await fixture.cleanup());
   });
 
   it("pushes a new commit to a remote over SSH, configuring upstream tracking", async () => {

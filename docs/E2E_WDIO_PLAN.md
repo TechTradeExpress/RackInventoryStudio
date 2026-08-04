@@ -3366,6 +3366,192 @@ understood.
 
 **STAGE 3F.5.4-R1 COMPLETE — READY TO PUSH.**
 
+### Stage 3F.5.4-R2 — Verified container teardown (2026-08-04)
+
+**Why this RP.** A strict review of Stage 3F.5.4-R1 found one remaining
+class of correctness issue: fixture teardown could report success without
+that success ever being *conclusively verified*. `checkContainerExists`
+collapsed every `docker inspect` failure (daemon down, WSL unavailable,
+permission denied, `wsl.exe` itself erroring) to the same boolean as a
+genuine "container not found" — meaning a Docker communication failure
+during verification could be silently read as "the container is gone".
+Worse, the spec's `after()` hook never inspected `cleanup()`'s return value
+at all, so even an honestly-reported failure had no way to fail the suite.
+This RP makes teardown *authoritative*: a WDIO run cannot pass while its
+fixture teardown is unverified.
+
+#### Tri-state container presence
+
+`ContainerPresence` replaces the old boolean with `{status: "present"} |
+{status: "absent"} | {status: "unknown"; error: string}`. Only Docker's own
+exact not-found result may produce `"absent"` — confirmed against this
+project's real Docker Engine (29.4.3 under WSL2): `docker inspect` on a
+missing name prints `error: no such object: <name>` (lowercase, no
+daemon-response prefix), `docker rm`/`docker port` print `Error response
+from daemon: No such container: <name>`; both are recognized by
+`isDockerNotFoundError`'s single case-insensitive `no such
+(object|container):` pattern. Every other failure — daemon unavailable, WSL
+unavailable, permission denied, a missing docker CLI, a generic unrelated
+"not found" — falls through to `"unknown"`, never `"absent"`.
+`inspectContainerPresence` takes its `docker inspect` call as an injectable
+dependency (mirroring `selectDistribution`'s `checkDocker` seam), so the
+whole classification is unit-tested with fabricated stderr text — no real
+WSL/Docker required for that coverage. `execDocker` now throws a
+`DockerCommandError` that preserves `stderr`/`exitCode`/`cause` rather than
+only a flattened message string, since the classifier needs the raw stderr.
+
+An empirically important finding from this stage's real-host work: `docker
+rm -f <name>` on an already-absent container exits **0** on this Docker
+version (idempotent by design) — only `docker inspect` reliably signals
+absence via a non-zero exit, which is exactly why `containerVerifiedAbsent`
+is always derived from a dedicated post-removal `inspectContainerPresence`
+call, never from "the removal call didn't throw".
+
+#### Authoritative teardown
+
+`CleanupResult` gained `containerRemovalAttempted` and
+`keepAliveStopRequested` (distinguishing "we tried" from "we confirmed"),
+and `isCleanupSuccessful`/`assertCleanupSucceeded`/`formatCleanupFailure`
+give it a single, testable success predicate: `sshConfigCleared &&
+containerVerifiedAbsent && workDirRemoved && keepAliveStopped &&
+errors.length === 0`. `containerRemoved`/`containerRemovalAttempted` are
+deliberately *not* part of the predicate — an idempotent removal against an
+already-absent container is still a successful cleanup, provided
+`containerVerifiedAbsent` is conclusively `true`.
+
+#### Provider-neutral cleanup contract
+
+`RemoteFixture.cleanup(): Promise<unknown>` — a shape the spec had no way
+to act on even if it wanted to — is now `Promise<FixtureCleanupResult>`
+(`{ok, provider: "native" | "container", errors}`). The container adapter
+maps its `CleanupResult` via `toFixtureCleanupResult`; the native adapter
+(unchanged in `git-remote.ts` itself, same "zero native-fixture footprint"
+approach Stage 3F.5.4-R1 used) gets an inline try/catch in the spec that
+converts a thrown error into `{ok: false, errors: [message]}` rather than
+letting it disappear. The spec's `after()` hook is now one line:
+`assertFixtureCleanupSucceeded(await fixture.cleanup())` — a container left
+running, an unverified presence check, a refused work-directory removal, or
+a still-running keep-alive all fail the suite, for either provider.
+
+#### Atomic-init cleanup diagnostics
+
+`createContainerRemoteFixture()`'s `configureContainerSsh()`-failure path
+previously called `cleanupContainerRemote()` only to discard the outcome
+(`.catch(() => {})`). It now attaches that outcome — a failed/unverified
+`CleanupResult`, or the cleanup call itself throwing — as a non-replacing
+`cleanupDiagnostics` string-array property on the *original* configuration
+error, which stays the primary thrown error (the same instance when it was
+already an `Error`; a non-`Error` thrown value is wrapped in one with the
+original value preserved as `cause`).
+
+#### Partial docker-run rollback
+
+The generated container name is now recorded in
+`PartialContainerFixtureState` *before* `docker run` is even attempted
+(previously only after it resolved successfully) — the name is unique and
+controlled by this run, so targeting it for rollback is always safe, even
+when `docker run` itself throws after partial engine-side work.
+`rollbackPartialContainerFixture` is tri-state aware end to end: it
+inspects presence first (confirmed absent skips the removal attempt
+entirely — idempotency), attempts removal for `"present"` or `"unknown"`
+(a failed inspection proves nothing), and re-verifies afterward — a generic
+final-inspection failure is recorded as a diagnostic, never silently
+converted into confirmed absence.
+
+#### Work-directory verification
+
+`removeWorkDir` now returns a tri-state `WorkDirRemovalResult` (`"removed"
+| "already-absent" | "refused"`) instead of silently no-op'ing when
+`RIS_E2E_RUN_ROOT` is unset or the target is outside it (the path-safety
+guard, `isStrictChildPath`, is unchanged). `"refused"` is reported as an
+error, never as success; `"removed"`/`"already-absent"` both count as
+success in `CleanupResult.workDirRemoved`.
+
+#### Idempotency
+
+Calling cleanup twice on already-absent resources still yields two
+conclusively successful results: Docker's own exact not-found counts as
+absent, a missing work directory counts as already-cleared, a missing SSH
+config file counts as already-cleared. Proven both in fault-injection tests
+and against real Docker state (see below).
+
+#### Unit and fault-injection tests
+
+`container-git-remote.test.ts` grew from 109 to 158 tests: presence
+classification (`isDockerNotFoundError`/`inspectContainerPresence`, all 9
+scenarios this RP's own checklist named — present, both not-found message
+shapes, daemon/WSL/permission/CLI-missing/generic-unrelated all `"unknown"`,
+never `"absent"`), teardown authority
+(`isCleanupSuccessful`/`assertCleanupSucceeded`/`formatCleanupFailure`,
+provider-neutral `toFixtureCleanupResult`/`assertFixtureCleanupSucceeded`),
+rewritten `rollbackPartialContainerFixture`/`cleanupContainerRemote`
+coverage for the tri-state contract plus new idempotency cases, three new
+partial-`docker run`-failure fault-injection scenarios, and atomic-init
+diagnostics coverage (clean rethrow with no diagnostics, diagnostics
+attached without replacing the original error, a thrown cleanup error
+itself captured as a diagnostic, non-`Error` thrown values wrapped with
+`cause`).
+
+#### Controlled real-host validation
+
+On the same Windows+WSL2+Docker host as Stage 3F.5.4/R1, a standalone
+script exercised the real production functions (not fakes) against real
+Docker state: (1) a normal start+cleanup cycle succeeded, independently
+confirmed absent via a fresh `docker inspect` call; (2) a second cleanup
+call on the now-absent container also reported success (idempotency); (3)
+a forced `"unknown"` presence result on a real, already-removed container
+made `assertCleanupSucceeded` throw and left `containerVerifiedAbsent:
+false` — teardown correctly went red on an unverifiable result, never
+silently green; (4) a real `docker run` was allowed to actually create a
+container engine-side, then made to throw immediately afterward (simulating
+a lost response) — rollback still removed that exact real container,
+independently confirmed via `docker inspect`. All temporary injection code
+was removed before commit; no container, work directory, or keep-alive
+process was left behind by the script.
+
+#### Container provider validation
+
+`RIS_E2E_GIT_REMOTE_PROVIDER=container` against `git-remote-workflows`: one
+functional run, then a fresh 5-run stability matrix
+(`--repeat 5 --continue-on-failure`) — **5/5 passed** (24-31s each), every
+run's teardown conclusively successful per its own `[container-git-remote]
+cleaned up container ...` log line. Independently verified after all five
+runs: `docker ps -a --filter label=ris.e2e.fixture=git-ssh` empty, no
+`sleep 86400` keep-alive process, no per-run work directory left under the
+OS temp root.
+
+#### Native provider regression
+
+Re-run against `RIS_E2E_GIT_REMOTE_PROVIDER=native`: the first attempt,
+launched immediately after the container matrix's last run, failed at the
+WDIO-launcher level (`exitCode=1`, `reportValid=false` — no spec dot-report
+was ever produced, i.e. a session-start failure, not a test assertion
+failure) — consistent with driver-port contention immediately following
+the preceding container-provider matrix's own forced port cleanup (see
+wdio.conf.ts's own doc comment on tauri-driver/msedgedriver port handling).
+Four immediate, consecutive re-runs all passed cleanly (1 passed each,
+14-35s), and this RP touched no native-fixture internals
+(`support/git-remote.ts` is unchanged) — the one failure is attributed to
+transient driver-port state, not a regression from this RP's changes.
+
+#### Remaining risks
+
+The intermittent driver-port-contention failure observed once during this
+RP's native-provider regression check (see above) joins the intermittent
+UI-open flake already flagged in Stage 3F.5.4/R1's own reports as a
+residual, not-yet-eliminated characteristic of this Windows WDIO
+environment — neither is caused by, nor fixed by, this RP's container
+fixture changes. The keep-alive process's "stopped" state is still
+reported as "the kill call didn't throw", not a confirmed-exit wait (this
+RP's own scope explicitly allows leaving this as a residual risk rather
+than enlarging the repair with a bounded exit-confirmation helper).
+Everything else carried forward from Stage 3F.5.4/R1's own reports is
+unchanged: WSL2 VM idle-shutdown is a real host characteristic worked
+around, not eliminated; `/mnt/c` automount path assumption untested on a
+remapped host; only `git-remote-workflows` is migrated.
+
+**STAGE 3F.5.4-R2 COMPLETE — READY FOR MIGRATION.**
+
 ### Not proposed as a numbered coverage stage
 
 - **CI execution / full WDIO in CI** — tracked separately in "Desktop E2E
