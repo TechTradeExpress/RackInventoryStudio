@@ -6,7 +6,7 @@
 |------|--------|
 | Integration branch | `roadmap/e2e-wdio` (long-lived; merged into `development`, see below — not deleted, per this doc's own branch policy) |
 | Current stage | Stage 3 COMPLETED (3A, 3B.1–3B.4, 3C) — embedded WDIO provider fully removed (PR #158); Stage 3D PARTIAL (merged as PR #159 — Placement Validation COMPLETE, Rack Export moved to NEEDS APPLICATION CHANGE); Stage 3E COMPLETE (merged as PR #160) — low-risk selector additions; Stage 3F.0 COMPLETE (merged as PR #161) — git workflow foundation audit; Stage 3F.0.5 COMPLETE (merged as PR #162) — local Git E2E test foundation, no workflow coverage added; Stage 3F.1A COMPLETE (merged as PR #163) — Git detection/init workflow coverage; Stage 3F.1B COMPLETE (merged as PR #164) — validate/commit/add-remote COVERED, push/pull local error paths PARTIAL; Stage 3F.2 COMPLETE (approved, RP applied) — remote Git over SSH: local-sshd fixture infrastructure, successful push/pull round-trips, upstream tracking, and SSH key-based authentication all COVERED; Stage 3F.3 COMPLETE — Git clone over SSH: scaffold-only clone, multi-commit clone, and clone-state persistence across close/reopen all COVERED, reusing Stage 3F.2's fixture infrastructure unmodified; Stage 3F.4 COMPLETE — diverged pull over SSH: `--ff-only` failure on a genuinely diverged history COVERED, proving both commits, working tree, branch, upstream, and remote configuration all survive the failure and a close/reopen cycle, reusing Stage 3F.2's fixture infrastructure unmodified |
-| Stage 3F | **Functionally complete** (2026-07-28) — the Git workflow surface scoped by the Stage 3F.0 audit (detection/init, validate/commit/add-remote, local and remote push/pull, clone, diverged-pull recovery) is fully covered. No further Stage 3F.x sub-stage is planned; a new NSP would be required to reopen this area (e.g. the SSH passphrase prompt, still NEEDS SELECTOR — see `docs/E2E_WDIO_COVERAGE_GAPS.md`). |
+| Stage 3F | **Reopened** (2026-08-04, Stage 3F.5) — Stage 3F.2–3F.4's SSH coverage was marked complete without ever running against a real, authenticating Windows connection (the fixture's identity-path serialization was broken until a same-day RP). Fixing that exposed a second, unrelated Windows-only defect (remote shell mangles Git's POSIX-quoted remote path) — audited and repair-planned in Stage 3F.5, not yet implemented. `v0.1.0-beta.3` is superseded by `v0.1.0-beta.4` pending this fix; see `docs/BETA3_ROADMAP.md`. |
 | BRSP Stages B1/B2/B2.5 | **Complete** — repo cleanup, CI architecture redesign (composite actions, Rust caching fix, concurrency/timeouts), `wdio-e2e.yml` (manual, non-blocking WDIO CI), and real-GitHub-Actions validation of `ci.yml`/`dependency-audit.yml`. See `.ai/BRSP_B1_PROJECT_CLEANUP_REPORT.md`, `.ai/BRSP_B2_CI_ARCHITECTURE_REPORT.md`, `.ai/BRSP_B2_5_CI_VALIDATION_REPORT.md`. |
 | Integration PR to development | **Merged** — PR #167, merge commit `70d9c8b` (BRSP Stage B3, whole-program integration) |
 | Decision | Whole-program review completed as BRSP Stage B3; `roadmap/e2e-wdio` is merged into `development`. Any further E2E program work now branches from `development` directly (`feature/e2e-*` → `development`), not from `roadmap/e2e-wdio`. |
@@ -2765,6 +2765,146 @@ before this stage.
   surface as scoped by the Stage 3F.0 audit; any future Git-workflow stage
   would need its own NSP to scope new ground (e.g. the SSH passphrase
   prompt itself, or a workflow not yet in the application at all).
+
+### Stage 3F.5 — Windows remote-shell compatibility (audit complete, 2026-08-04; implementation pending)
+
+**Why reopened.** Stage 3F.2–3F.4 were marked functionally complete without
+ever having run against a real, authenticating Windows SSH connection — the
+fixture's identity-path env-file serialization was broken
+(`configureSsh()` wrote an unquoted Windows path into a file loaded via
+bash `source`, corrupting every backslash) until a same-day RP fixed it
+(`shQuote()`, `support/git-remote.ts`). Fixing that let a real connection
+authenticate for the first time and immediately exposed a second, deeper,
+unrelated defect: `git push`/`pull` now reach the remote, but fail with
+`fatal: ''<path>'' does not appear to be a git repository`. `v0.1.0-beta.3`
+is being superseded by `v0.1.0-beta.4` specifically so this can be fixed
+properly on `development` instead of forced through the release branch —
+see `docs/BETA3_ROADMAP.md` and `docs/releases/v0.1.0-beta.3.md` for the
+release-level decision record.
+
+#### Root cause
+
+Git constructs its SSH exec payload unconditionally as
+`<git-command> '<path>'` — POSIX single-quoted — regardless of remote OS;
+this is Git's own behavior, not something this fixture or the application
+controls. The receiving shell must be POSIX-quote-aware for the path to
+survive. Win32-OpenSSH Server, absent a `DefaultShell` registry override
+(confirmed unset on the dev machine used for this audit: `reg query
+HKLM\SOFTWARE\OpenSSH` shows no such value), executes incoming exec
+commands via `%ComSpec% /c "<command>"` — `cmd.exe`. `cmd.exe` has no
+single-quote quoting construct; the quote characters reach
+`git-receive-pack.exe`'s argv literally, corrupting the path. This was
+invisible through Stage 3F.2–3F.4 because the identity bug always failed
+the connection before authentication completed, long before the remote
+shell ever got a command to misinterpret.
+
+#### Full execution-path audit
+
+Traced end-to-end, `wdio.conf.ts` → `git-remote.ts` → `ssh-wrapper.sh` →
+`sshd` → remote git:
+
+1. `wdio.conf.ts` sets `GIT_SSH_COMMAND` once, before app launch, to
+   `bash "<abs path>/ssh-wrapper.sh"` — this `bash` is the *local* client
+   invoker (resolved from PATH at app-launch time), unrelated to the
+   remote-shell defect below.
+2. `startRemote()` resolves `sshd` (`findSshd`/`findSshdWindows`/
+   `findSshdPosix`), generates ephemeral host+client ed25519 keys, secures
+   them (`chmod` POSIX / `icacls` Windows via `securePrivateKeyFile`),
+   writes `sshd_config` (`buildSshdConfig`), and spawns `sshd` as a direct
+   `child_process.spawn` child — **this is a private, unprivileged,
+   127.0.0.1-only sshd instance, never the OS's system service** — a fact
+   the recommended repair below depends on.
+3. `configureSsh()` writes port + identity path into
+   `ssh-remote-command.env`, now shell-quoted (`shQuote()`, same-day RP).
+4. `git push`/`pull` → `ssh` (via the wrapper) → connects to the fixture's
+   `sshd` → authenticates (works, as of the same-day RP) → sends
+   `git-upload-pack`/`git-receive-pack '<path>'` as the SSH exec payload.
+5. **Defect boundary**: `sshd` hands that string to `cmd.exe` (no
+   `DefaultShell` override), which passes the quote characters through
+   literally instead of stripping them.
+
+**Every shell boundary in the chain**, audited individually:
+`writeFileSync` calls (no shell, safe) → local `bash source` of the env
+file (fixed this session, `shQuote()`) → local `ssh` argv construction in
+`ssh-wrapper.sh` (already double-quoted, safe) → Git's own POSIX-quoted
+remote-command construction (fixed, not under this fixture's control) →
+**server-side shell interpretation of that string (the actual gap)**.
+
+**Windows-specific assumptions already handled correctly** (audited, no
+changes needed): `findSshdWindows()`'s three-tier candidate search;
+`securePrivateKeyFile()`'s ACL (`icacls`) branch instead of `chmod`;
+`buildSshdConfig()`'s conditional omission of `UsePAM` (unsupported on
+Win32 OpenSSH). **Not yet handled anywhere**: remote command-shell
+selection (this stage's subject), and Git Bash discovery (no
+`findGitBash()`-equivalent exists yet — needed by the recommended repair).
+
+**POSIX assumption** (implicit, not a deliberate mechanism): the fixture
+"just works" on Linux/macOS only because sshd's OS-native default
+(`/bin/sh`/`$SHELL`) already parses `'...'` correctly — nothing in this
+codebase asserts that; it's inherited OS behavior, which is exactly why
+the Windows gap stayed invisible until now.
+
+**PATH / environment propagation**: the fixture's own `sshd` process
+inherits the full test-runner environment (plain `child_process.spawn`,
+no `env` override) — confirmed fine. **Open risk, not yet resolved
+empirically**: Win32-OpenSSH is documented to build a fresh environment
+for each incoming logon/exec session (via a Windows logon token) rather
+than inheriting sshd's own process environment, so `PATH` inside a remote
+exec session is not guaranteed to match what the test runner and sshd's
+parent process see. Mitigation, required by Repair 1 below: any shell or
+binary invoked as part of the fix must be referenced by an absolute,
+discovered path — never a bare command name relying on session PATH.
+
+**Temporary repo/config lifecycle and cleanup**: audited, no gap found.
+`createBareRemote()`, `configureSsh()`/`clearSshConfig()`, and `cleanup()`
+(SIGTERM → 3s grace → SIGKILL, retrying removal up to 10× — already
+Windows-aware, per its own inline reasoning about lingering file handles)
+are all unaffected by the remote-shell defect and need no changes for this
+repair.
+
+#### Alternatives evaluated
+
+| Option | Verdict | Why |
+|---|---|---|
+| `DefaultShell` registry override (`HKLM:\SOFTWARE\OpenSSH\DefaultShell`) | Rejected | Confirmed via Win32-OpenSSH's own wiki: `HKLM`-only, admin-required, machine-wide — affects every SSH session on the host, not just this fixture. Wrong layer for an ephemeral, unprivileged, per-test-run process; this fixture's whole design principle (see `securePrivateKeyFile`'s own doc comment) is zero elevated privilege. |
+| **`ForceCommand` in the fixture's own generated `sshd_config`, pointed at Git Bash** | **Recommended** | Because `startRemote()` spawns its **own** private `sshd` from its **own** generated config (never the system service), a `ForceCommand` directive there is scoped to exactly this one ephemeral instance — no registry writes, no elevated privilege, zero effect on the host's real SSH setup. `ForceCommand` is confirmed to apply to non-PTY sessions, exactly what `git push`/`pull` use. |
+| Wrapper executable (compiled/scripted shim as the effective remote command) | Rejected as first choice | Solves the same problem `ForceCommand` already solves declaratively, at the cost of a new build artifact. Kept as a documented fallback if empirical testing shows `ForceCommand`'s own string can't reliably reach bash. |
+| Native `cmd.exe` adaptation (make Git emit cmd-style quoting) | Rejected | Git's SSH exec-command quoting isn't configurable per-remote from a client application; would mean patching Git itself, disproportionate to a test-fixture problem, and would make the fixture stop exercising the application's real, unmodified code path. |
+| Skip Windows SSH coverage, ship beta.3 as-is | Rejected | Superseded by the same-day strategic decision to ship `v0.1.0-beta.4` Windows-complete instead. |
+
+#### Recommended repair staging
+
+**Repair 1 — Windows remote shell compatibility (first, blocking).**
+- Add `findGitBash()`: absolute-path candidate search (well-known
+  `Program Files\Git\bin\bash.exe` / `Git\usr\bin\bash.exe` locations,
+  `where.exe bash`, MSYS `which bash` fallback normalized via the existing
+  `convertMsysPathToNative`) — same three-tier pattern as
+  `findSshdWindows()`.
+- Empirically determine (small standalone experiment against a throwaway
+  fixture instance, *before* committing to syntax) whether Win32-OpenSSH
+  parses the `ForceCommand` string itself via `cmd.exe` (→
+  `%SSH_ORIGINAL_COMMAND%`) or bypasses shell resolution entirely (→
+  `$SSH_ORIGINAL_COMMAND`) — official docs don't specify this and it must
+  not be assumed.
+- Add the resulting `win32`-conditional `ForceCommand` line to
+  `buildSshdConfig()`, targeting `findGitBash()`'s absolute path.
+- Extend the existing real round-trip test in `git-remote.test.ts` (today
+  gated on `sshdAvailable`, currently the test that surfaced this defect)
+  to assert success end-to-end on Windows once this lands.
+- Re-run `git-remote-workflows`, `git-clone-workflows`, `git-diverged-pull`
+  — the first real Windows pass these specs will have had.
+
+**Repair 2 — Windows logon-session environment audit (follow-up).**
+- Empirically confirm `git-upload-pack`/`git-receive-pack` resolve
+  correctly once invoked inside the `ForceCommand`'d bash session, under
+  the Windows logon-session environment (not the sshd parent process's
+  inherited one). If they don't resolve, extend `ForceCommand` to prepend
+  an explicit, discovered `PATH` before invoking bash.
+
+**Repair 3 — Full Windows WDIO Gate restart (after 1 and 2 land).**
+- `app-smoke`, the three SSH-dependent representative specs, the full
+  22-spec matrix, and stability repeats — the release-gate sequence this
+  work was originally blocked on, run for real for the first time.
 
 ### Not proposed as a numbered coverage stage
 
