@@ -3917,14 +3917,13 @@ successful each time.
 
 Native provider: `git-remote-workflows` (unmodified) passed cleanly
 (14-20s, multiple runs). `git-diverged-pull` passed cleanly on the first
-attempt (9s). `git-clone-workflows` hung at the WDIO/Tauri-service's own
-pre-spec diagnostics call (`get_window_states` — generic session-init
-infrastructure, before this spec's own `before()` hook or any of its code
-ever runs) on **every** attempt, including a controlled baseline run of
-the **original, pre-migration** spec file (temporarily restored via `git
-stash`) — which hung identically. This directly proves the hang is a
-pre-existing, host-specific condition unrelated to this stage's migration,
-not a regression it introduced. See "Remaining risks" below.
+attempt (9s). `git-clone-workflows` hung on **every** attempt (4 in this
+stage), including a controlled baseline run of the **original,
+pre-migration** spec file (temporarily restored via `git stash`) — which
+hung identically, proving the hang is not a regression this stage's
+migration introduced. **This gate did not pass** — see Stage 3F.5.5-R1
+below for the corrected completion status and a deeper root-cause
+finding.
 
 #### Combined five-iteration container matrix
 
@@ -3952,30 +3951,160 @@ matrix runs, each independently verified, already established).
 Unchanged from Stage 3F.5.4-R5: `support/git-remote.ts` has three
 `existsSync()`-as-authority call sites with the same correctness gap
 already fixed in the container fixture across R4/R5, not repaired here
-(out of scope for a migration stage). Newly observed this stage: on this
-host, `git-clone-workflows.e2e.ts` under the native provider hits a
-reproducible WDIO/Tauri driver-launch hang, confirmed present in the
-pre-migration original file — a pre-existing condition, not introduced by
-this migration, but real and blocking for that one spec/provider
-combination specifically until investigated. Neither issue blocks the
-container provider, which is now fully validated across all three specs.
+(out of scope for a migration stage). Newly observed this stage:
+`git-clone-workflows.e2e.ts` under the native provider hangs on this host —
+see Stage 3F.5.5-R1 for the full investigation and root-cause finding.
+Neither issue blocks the container provider, which is fully validated
+across all three specs.
 
 #### Native fixture retirement recommendation
 
-Not yet — the native fixture remains the sole validated path for
-`git-clone-workflows` on this host (its container-provider path is fully
-proven; its native-provider path is currently blocked by the driver-launch
-flake above, not by application/fixture logic). Retiring the native
-fixture is reasonable only after: (1) the git-clone-workflows/native
-driver-launch flake is root-caused and resolved or confirmed
-environment-specific, (2) a dedicated default-provider-switch stage flips
-`resolveGitRemoteProvider()`'s default to `container` with native
-demonstrated stable as the override, and (3) CI (not just this local host)
-validates the container path. This stage's own scope is migration and
-validation, not fixture retirement — consistent with its own explicit
-non-objective.
+Not yet — see Stage 3F.5.5-R1's own recommendation, which supersedes this.
 
-**STAGE 3F.5.5 COMPLETE — READY FOR NATIVE FIXTURE RETIREMENT DECISION.**
+**Migration implementation status: container-provider migration for all
+three specs is implemented and validated (15/15 in the combined matrix).
+Parent-stage gate status: see Stage 3F.5.5-R1 immediately below — this
+stage's own original "COMPLETE" verdict was corrected there after review
+found the required native `git-clone-workflows` validation had not
+actually passed.**
+
+### Stage 3F.5.5-R1 — Harden shared fixture setup, correct gate status (2026-08-04)
+
+**Why this RP.** A strict review of Stage 3F.5.5 found two issues: (1) the
+new shared adapter's native-setup failure path silently discarded native
+cleanup failure diagnostics (`.catch(() => {})`) — the exact class of bug
+Stage 3F.5.4-R1/R2/R3 had already closed for the container provider's own
+atomic init, just not yet applied here; (2) Stage 3F.5.5 was marked
+COMPLETE despite native `git-clone-workflows` never passing — 4 hangs, 0
+passes. Root-cause evidence that the hang predates the migration is real
+and valuable, but it is not a passed gate, and the stage's own verdict
+conflated "the container migration is done" with "every required
+validation passed."
+
+#### Native atomic setup and cleanup diagnostics
+
+`createGitRemoteFixture()`'s `configureNativeSsh()`-failure path now
+mirrors `createContainerRemoteFixture()`'s own atomic-init diagnostics
+exactly (reusing its exported `ErrorWithCleanupDiagnostics` shape rather
+than duplicating it): the original setup error is always what's thrown —
+the same instance when it was already an `Error`, wrapped with the
+original value preserved as `cause` otherwise — and if
+`cleanupNativeRemote()` then also throws, that failure is attached as a
+non-replacing `cleanupDiagnostics` array property instead of being
+silently swallowed. No partially-initialized fixture is ever returned.
+
+#### Adapter dependency injection
+
+`createGitRemoteFixture()` gained an injectable `CreateGitRemoteFixtureDeps`
+seam (mirroring `container-git-remote.ts`'s own `ContainerOpsDeps`
+pattern) — every side-effecting step (provider resolution, container
+factory, native `sshd` discovery/start/configure/cleanup, and every native
+remote operation) is now a narrow injectable function. Production code
+always calls `createGitRemoteFixture()` with no argument; the parameter
+exists for `git-remote-fixture.test.ts` only. `git-remote-workflows.e2e.ts`
+was not retrofitted to use the shared adapter — out of this RP's scope,
+same call Stage 3F.5.5 itself made.
+
+#### Adapter unit tests
+
+New `git-remote-fixture.test.ts` (12 tests, auto-discovered by the
+existing vitest config — no test-runner configuration change needed):
+container-provider pass-through (no native dependency touched), missing
+native prerequisite, native setup success with full argument-wiring
+verification, native configure-failure with successful/failed/non-`Error`
+cleanup, ready-fixture cleanup success/failure mapping, no-partial-fixture
+on setup failure, and confirmation that `server.remotesParent` is supplied
+solely by the adapter (never part of the spec-facing
+`pushSimulatedRemoteCommit` signature).
+
+#### Explicit container seed refspec
+
+`seedContainerBareRemoteFromLocalRepo`'s push now uses the explicit full
+refspec `refs/heads/<branch>:refs/heads/<branch>` instead of the short
+`<branch>:<branch>` form — removes any ambiguity in short-ref resolution.
+The transport is unchanged (still a real SSH push from Windows Git). No
+injectable seam existed naturally for this function, so it was verified
+through real-host `git-clone-workflows`/container validation instead (3/3
+passed with the new refspec).
+
+#### Native clone hang investigation
+
+Performed with a confirmed-clean environment (no lingering
+node/tauri-driver/msedgedriver/app processes; ports 4444/4445 free before
+the run) — this was also the RP-required post-repair validation attempt.
+It hung again, a 5th consecutive reproduction. Bounded diagnostics
+collected via `Get-CimInstance Win32_Process` (exact PIDs/command lines
+for every driver/app process), port state, and process responsiveness:
+
+**New finding, more precise than Stage 3F.5.5's own characterization**:
+`rack-inventory-studio-desktop.exe` itself reports `Responding: False`
+with near-zero accumulated CPU time (0.125s) — a genuine Windows
+message-loop deadlock in the *application binary*, not a WDIO/Tauri-service
+polling or driver-launch issue. The WebDriver session and TCP layer are
+healthy throughout (ports 4444/4445 correctly bound, an `ESTABLISHED`
+connection between `msedgedriver.exe` and the app). `@wdio/tauri-service`'s
+`get_window_states` call (traced into its own source:
+`ensureActiveWindowFocus`, a per-command focus-check hook triggered by the
+first relevant WebDriver command of any session, e.g. `getTitle`) times
+out simply because the deadlocked application never answers the Tauri IPC
+call it makes — a symptom of the app hang, not its cause.
+
+This is **Outcome B — still unresolved**: no safe, narrow test-infrastructure
+fix was found (the deadlock is inside the application binary's own message
+loop, and this RP's explicit scope excludes changing application code).
+The pre-existing, migration-unrelated nature of the hang is confirmed with
+stronger evidence than Stage 3F.5.5 had (a responsiveness-level OS
+diagnostic, not just a log-timing inference), but a pre-existing failure
+outside this migration's regression responsibility is not the same as a
+passed gate — both facts are true simultaneously and are represented
+separately here, per this RP's own instruction.
+
+#### Parent Stage 3F.5.5 status — corrected
+
+Splitting what Stage 3F.5.5's own single "COMPLETE" verdict conflated:
+
+- **A. Migration implementation status**: container-provider migration for
+  all three SSH specs is implemented and validated — 15/15 passed in the
+  original combined matrix, plus this RP's own fresh single-run regression
+  (`git-remote-workflows`, `git-clone-workflows` ×3 with the new refspec,
+  `git-diverged-pull`, all container, all passed).
+- **B. Parent-stage gate status**: native `git-clone-workflows` validation
+  has never passed (5 attempts, 5 hangs, across both stages) — the
+  original Stage 3F.5.5 completion criteria are **not** all met. Native
+  `git-remote-workflows` and `git-diverged-pull` both pass under native.
+- **C. Repair stage status**: this RP's own scope (adapter diagnostics fix,
+  dependency-injection seam, unit tests, refspec hardening, investigation,
+  documentation correction) is complete.
+
+#### Default provider decision
+
+Unchanged: `native` remains the default. The actual reasons, per this RP's
+own instruction not to cite the clone flake as the primary justification:
+the default switch was always intentionally deferred to a dedicated future
+stage; the container path is not yet validated in CI (only on this local
+host); developer/CI environment rollout still needs explicit documentation;
+and — additionally, now — parent Stage 3F.5.5 has an unresolved required
+native gate. Native's flakiness on this host is native technical debt, not
+evidence that the container path should be avoided — the container path
+remains the more thoroughly validated one (15/15 plus this RP's own
+regression, versus native's confirmed, unresolved `git-clone-workflows`
+gap).
+
+#### Native fixture retirement recommendation (supersedes Stage 3F.5.5's)
+
+Not yet, for the same underlying reason Stage 3F.5.5 gave, now on firmer
+evidence: retiring the native fixture is reasonable only after (1) the
+native `git-clone-workflows` application-level deadlock is root-caused at
+the application level and resolved (a real app-debugging investigation,
+out of scope for both this stage and this repair pass) or the gate is
+explicitly waived by a human decision-maker, (2) a dedicated
+default-provider-switch stage flips `resolveGitRemoteProvider()`'s default
+to `container`, and (3) CI validates the container path, not just this
+local host.
+
+**STAGE 3F.5.5-R1 COMPLETE.**
+
+**STAGE 3F.5.5 INCOMPLETE — NATIVE CLONE VALIDATION UNRESOLVED.**
 
 ### Not proposed as a numbered coverage stage
 
