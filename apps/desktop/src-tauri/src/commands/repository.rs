@@ -237,11 +237,22 @@ pub fn create_repository_cmd(
     })
 }
 
+/// Clone `url` into `destination`, then open the cloned directory as the
+/// active repository.
+///
+/// This is an **async** command so the Tauri WebView remains responsive
+/// while git runs the clone. On Windows with WebView2, a synchronous
+/// `#[tauri::command]` handler executes on the UI/event-loop thread; a
+/// slow or stalled git subprocess there blocks the entire message loop
+/// (the app stops responding to any input, including the driver's own
+/// health-check IPC calls) instead of just the clone request. Both the
+/// blocking git subprocess and the subsequent disk read are offloaded to
+/// `spawn_blocking`, mirroring `push_git_current_branch`/`pull_git_ff_only`.
 #[tauri::command]
-pub fn clone_repository_cmd(
+pub async fn clone_repository_cmd(
     url: String,
     destination: String,
-    state: State<AppState>,
+    state: State<'_, AppState>,
 ) -> Result<OpenRepositoryResultDto, String> {
     let url = url.trim().to_string();
     if url.is_empty() {
@@ -273,7 +284,14 @@ pub fn clone_repository_cmd(
         basename(dest_path),
     );
 
-    ris_git::clone(&url, &destination).map_err(|e| {
+    let url_for_clone = url.clone();
+    let destination_for_clone = destination.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        ris_git::clone(&url_for_clone, &destination_for_clone)
+    })
+    .await
+    .map_err(|e| format!("clone task join error: {e}"))?
+    .map_err(|e| {
         let msg = e.to_string();
         log::error!("clone_repository failed: {}", sanitize_error(&msg));
         msg
@@ -287,11 +305,17 @@ pub fn clone_repository_cmd(
     // Open the cloned directory through the same path as open_repository_cmd.
     // If the clone is not a valid RIS repo this returns an error; the cloned
     // directory is intentionally NOT deleted so the user can inspect it.
-    let session = open_repository(dest_path).map_err(|e| {
-        let msg = format!("Repository cloned but is not a valid RIS repository: {e}");
-        log::error!("clone_repository: open failed: {}", sanitize_error(&msg));
-        msg
-    })?;
+    // Also done in spawn_blocking because open_repository reads YAML from disk.
+    let dest_path_for_open = dest_path.to_path_buf();
+    let session =
+        tauri::async_runtime::spawn_blocking(move || open_repository(&dest_path_for_open))
+            .await
+            .map_err(|e| format!("open task join error: {e}"))?
+            .map_err(|e| {
+                let msg = format!("Repository cloned but is not a valid RIS repository: {e}");
+                log::error!("clone_repository: open failed: {}", sanitize_error(&msg));
+                msg
+            })?;
 
     let issues = session.validate();
     let summary = build_summary(&session);
