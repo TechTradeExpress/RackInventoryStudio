@@ -26,13 +26,18 @@
  * ── Audit findings (pre-implementation) ──────────────────────────────────────
  *
  * - `clone_repository_cmd` (apps/desktop/src-tauri/src/commands/repository.rs)
- *   is unchanged since the Stage 3F.0/3F.2 audits: a plain, synchronous
- *   command that validates `destination` is empty/absent, calls the plain
- *   `ris_git::clone()` (no askpass wiring — still a known, pre-existing gap
- *   for a passphrase-protected key, irrelevant here since this stage's key
- *   has none), then opens the cloned directory via the same `open_repository`
+ *   validates `destination` is empty/absent, calls `ris_git::clone()` (no
+ *   askpass wiring — still a known, pre-existing gap for a
+ *   passphrase-protected key, irrelevant here since this stage's key has
+ *   none), then opens the cloned directory via the same `open_repository`
  *   path `open_repository_cmd`/`create_repository_cmd` use, and returns the
- *   same `OpenRepositoryResultDto` create/open both return.
+ *   same `OpenRepositoryResultDto` create/open both return. As of Stage
+ *   3F.5.6 this is an **async** command: the clone and the post-clone
+ *   `open_repository` disk read both run in `spawn_blocking`, so a slow
+ *   or stalled git subprocess no longer blocks the WebView's UI/event-loop
+ *   thread (previously a plain synchronous command — see Stage 3F.5.6 in
+ *   docs/E2E_WDIO_PLAN.md for the root-cause investigation this native
+ *   `git-clone-workflows` run itself served as evidence for).
  * - `ris_git::clone()` (crates/ris-git/src/lib.rs) is unchanged: validates
  *   the URL via `validate_remote_url` (same SCP-like acceptance already
  *   proven for push/pull in Stage 3F.2), then runs `git clone` via

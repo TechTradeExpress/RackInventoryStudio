@@ -1,206 +1,195 @@
 ## Summary
 
-Stage 3F.5.5-R1 RP: a strict review of Stage 3F.5.5 found two issues. (1)
-The new shared adapter's native-setup failure path silently discarded
-native cleanup failure diagnostics — the same bug class Stage
-3F.5.4-R1/R2/R3 had already closed for the container provider's own atomic
-init, just not yet applied to the new native adapter. (2) Stage 3F.5.5 was
-marked COMPLETE despite native `git-clone-workflows` never passing (4
-hangs, 0 passes) — real, valuable root-cause evidence that the hang
-predates the migration is not the same thing as a passed gate, and the
-stage's own verdict conflated "the container migration is implemented" with
-"every required validation passed."
+Stage 3F.5.6: root-caused and fixed the native `git-clone-workflows`
+application hang that Stage 3F.5.5-R1 left unresolved.
 
-Fixed: `createGitRemoteFixture()`'s `configureNativeSsh()`-failure path now
-mirrors `createContainerRemoteFixture()`'s own atomic-init diagnostics
-exactly (reusing its `ErrorWithCleanupDiagnostics` shape) — the original
-setup error stays primary; a subsequent cleanup failure is attached as
-`cleanupDiagnostics`, never swallowed. Added an injectable
-`CreateGitRemoteFixtureDeps` seam and 12 new unit tests
-(`git-remote-fixture.test.ts`, auto-discovered by the existing vitest
-config). Hardened the container seed push to an explicit full refspec
-(`refs/heads/<branch>:refs/heads/<branch>`).
+Captured a live symbolized thread-stack trace (via `cdb.exe -pv -p <pid>`,
+a non-invasive live attach that doesn't require elevation, against a
+locally-built PDB) during a reproduced hang. It proved — not inferred —
+the exact blocking chain: `clone_repository_cmd` → `ris_git::clone()` →
+`std::process::Command::output()` → `WaitForMultipleObjects`, running
+synchronously on the WebView2 message-dispatch (UI/event-loop) thread.
+That same thread also services `@wdio/tauri-service`'s own
+`get_window_states` health-check IPC call, so a slow-but-finite clone
+under real resource contention presented to WDIO as a total application
+hang rather than a slow command.
 
-Performed a bounded, confirmed-clean-environment investigation of the
-native `git-clone-workflows` hang (this doubled as the RP-required
-post-repair validation attempt) and found something more precise than
-Stage 3F.5.5's own characterization: `rack-inventory-studio-desktop.exe`
-itself reports `Responding: False` with near-zero CPU — a genuine Windows
-message-loop deadlock **inside the application binary**, not a
-WDIO/Tauri-service driver-launch flake. The WebDriver session and TCP
-layer are healthy throughout. This remains Outcome B (still unresolved) —
-no safe, narrow test-infrastructure fix exists for an application-level
-deadlock, and fixing application code is out of both this RP's and Stage
-3F.5.5's scope.
+A standalone reproduction (outside WDIO/Tauri, same native-sshd-fixture
+seed-then-clone sequence) completed in 560ms, ruling out "the SSH/
+ForceCommand mechanism is broken" as the cause. Direct source comparison
+found `push_git_current_branch`/`pull_git_ff_only` (the two operations
+used by the two already-passing native specs) are both `async fn` that
+offload their blocking git subprocess call to
+`tauri::async_runtime::spawn_blocking` — `pull_git_ff_only`'s own doc
+comment states why: "so the WebView remains responsive." `clone_repository_cmd`
+was a plain synchronous `fn` with no such offloading.
 
-**Repair status: STAGE 3F.5.5-R1 COMPLETE.**
+**Fix**: converted `clone_repository_cmd` to `async fn`, wrapping both the
+blocking `ris_git::clone()` call and the post-clone `open_repository()`
+disk read in `spawn_blocking`, mirroring the existing, already-reviewed
+push/pull pattern exactly. No sleeps, retries, timeout increases, or
+weakened assertions.
 
-**Parent stage status: STAGE 3F.5.5 INCOMPLETE — NATIVE CLONE VALIDATION UNRESOLVED.**
+**Validated**: native `git-clone-workflows` now passes 3/3 consecutively
+(11-12s each, down from a ~12.5-minute hang/timeout), plus 1/1 each of
+native `git-remote-workflows`/`git-diverged-pull` and all three specs
+under the container provider — 7/7 real-host runs, all clean teardown, no
+residue.
 
-Container-provider migration for all three specs remains fully implemented
-and validated (Stage 3F.5.5's original 15/15 combined-matrix result, plus
-this RP's own fresh single-run regression, all passed) — that evidence is
-not discarded by the corrected parent-stage status.
+**Stage 3F.5.6 status: COMPLETE — ROOT CAUSE FIXED.**
+
+**Parent Stage 3F.5.5 status: COMPLETE — READY FOR DEFAULT-PROVIDER DECISION.**
+
+Per this stage's own completion rule, all required native/container
+regressions plus the full static validation suite pass, so the
+previously-blocking gate (native clone never passing) is now closed. The
+default provider itself was not flipped — that remains a deliberately
+separate future stage.
 
 ## Files changed
 
-- `apps/desktop/e2e-wdio/support/git-remote-fixture.ts` — added
-  `CreateGitRemoteFixtureDeps` (injectable seam) and
-  `defaultCreateGitRemoteFixtureDeps`; `createGitRemoteFixture()` now takes
-  an optional `deps` parameter; the native `configureNativeSsh()`-failure
-  path rewritten to preserve the original error instance and attach
-  `cleanupDiagnostics` (imported from `container-git-remote.ts`) on a
-  subsequent cleanup failure instead of `.catch(() => {})`.
-- `apps/desktop/e2e-wdio/support/git-remote-fixture.test.ts` (new) — 12
-  tests covering container pass-through, native prerequisite-missing,
-  native setup success with full argument-wiring verification, native
-  configure-failure (successful/failed/non-`Error` cleanup), ready-fixture
-  cleanup mapping, no-partial-fixture, and `server.remotesParent`
-  argument-scoping.
-- `apps/desktop/e2e-wdio/support/container-git-remote.ts` —
-  `seedContainerBareRemoteFromLocalRepo`'s push refspec changed from
-  `${branch}:${branch}` to `refs/heads/${branch}:refs/heads/${branch}`.
-- `docs/E2E_WDIO_PLAN.md` — corrected Stage 3F.5.5's own verdict and
-  supporting claims; new "Stage 3F.5.5-R1" section.
+- `apps/desktop/src-tauri/src/commands/repository.rs` — `clone_repository_cmd`
+  converted from a synchronous `pub fn` to `pub async fn`
+  (`state: State<'_, AppState>`); the blocking `ris_git::clone()` call and
+  the post-clone `open_repository()` disk read are now each run inside
+  `tauri::async_runtime::spawn_blocking`, mirroring
+  `push_git_current_branch`/`pull_git_ff_only` in `commands/git.rs`. Added
+  a doc comment explaining why (UI-thread responsiveness).
+- `apps/desktop/e2e-wdio/specs/git-clone-workflows.e2e.ts` — doc-comment-only
+  correction: the audit note describing `clone_repository_cmd` as
+  synchronous was directly superseded by this fix; updated to describe the
+  new async/`spawn_blocking` behavior and point at the Stage 3F.5.6
+  investigation. No test logic, assertions, or timeouts changed.
+- `docs/E2E_WDIO_PLAN.md` — new "Stage 3F.5.6" section: reproduction
+  matrix, dump-capture method, exact symbolized execution boundary,
+  comparative analysis (clone vs. push/pull), root cause, fix, regression
+  coverage rationale, full real-host validation table, static validation
+  results, and corrected parent Stage 3F.5.5 status. Marked the prior
+  "STAGE 3F.5.5 INCOMPLETE" line as superseded rather than rewritten.
+- `.ai/cc-report.md` — this file.
 
 ## Tests
 
-- `pnpm --filter @rack-inventory-studio/desktop test` — 1242 tests, 60
-  files, all passed (was 1230/59 before this RP; +12 tests, +1 file —
-  `git-remote-fixture.test.ts`, auto-discovered by the existing vitest
-  glob, no configuration change needed).
+- `cargo check` (desktop crate) — clean.
+- `cargo fmt --all -- --check` — clean (after `cargo fmt` applied
+  formatting to the new code in `repository.rs`).
+- `cargo clippy --workspace -- -D warnings` — clean.
+- `cargo test --workspace` — all passed (no regressions; no new Rust
+  test added — see rationale below).
+- `git diff --check` — clean (two harmless CRLF-normalization warnings
+  from git's own autocrlf handling, not real conflicts; `Cargo.toml` shows
+  as modified in `git status` but is byte-identical to `HEAD` — an
+  index/eol artifact, not a real change, left unstaged).
+- `pnpm install --frozen-lockfile` — clean.
+- `pnpm check:version` — clean.
+- `pnpm check:hygiene` — 8/8 clean.
+- `pnpm test:scripts` — 237/237 passed.
 - `pnpm --filter @rack-inventory-studio/desktop typecheck` — clean.
-- `pnpm install --frozen-lockfile` / `pnpm check:version` /
-  `pnpm check:hygiene` (8/8) / `pnpm test:scripts` (237/237) — all clean.
-- `git diff --check` — clean.
-- `cargo fmt --all -- --check` / `cargo clippy --workspace -- -D warnings`
-  / `cargo test --workspace` — all clean (no Rust files touched).
+- `pnpm --filter @rack-inventory-studio/desktop test` — 1242/1242 passed,
+  60 files.
+- `node scripts/build-wdio-plugin-binary.mjs` — rebuilt the WDIO test
+  binary with the fix; succeeded.
 
-## Container regression
+### Real-host WDIO validation (fresh binary, clean environment verified
+before every run: no leftover app/driver process, ports 4444/4445 clear)
 
-Fresh single-process runs, `RIS_E2E_GIT_REMOTE_PROVIDER=container`:
+| Spec | Provider | Result | Runtime |
+|------|----------|--------|---------|
+| `git-clone-workflows` | native | PASS (1/3) | 12s |
+| `git-clone-workflows` | native | PASS (2/3) | 12s |
+| `git-clone-workflows` | native | PASS (3/3) | 11s |
+| `git-remote-workflows` | native | PASS | 14s |
+| `git-diverged-pull` | native | PASS | 9s |
+| `git-clone-workflows` | container | PASS | 25s |
+| `git-remote-workflows` | container | PASS | 26s |
+| `git-diverged-pull` | container | PASS | 21s |
 
-- `git-remote-workflows`: passed, 32s.
-- `git-clone-workflows`: passed **3/3** (26-30s each) — run three times
-  because the seeding refspec changed.
-- `git-diverged-pull`: passed, 25s.
+All seven runs: `ports_free=true`, no residual app/driver/`sshd` process.
+Every run also reported the runner's own `PASS_WITH_FORCED_CLEANUP`
+benchmark categorization — a pre-existing driver-process teardown-timing
+quirk in `scripts/run-wdio-performance-benchmark.mjs` (invoked internally
+by `scripts/run-wdio-e2e.mjs` for every spec run), identical across all
+seven runs regardless of spec/provider, confirming it predates and is
+unrelated to this fix.
 
-All teardowns conclusive; no residue after any run. A fresh 5-iteration
-matrix was not re-run — not required, since this RP does not alter
-container lifecycle architecture and Stage 3F.5.5 already passed 15/15.
+### Regression coverage rationale
 
-## Native regression
+No new Rust-level unit test was added. This codebase has no existing
+harness for invoking a `#[tauri::command]` outside a running Tauri app,
+and a test that only asserts "this function is `async`" or "calls
+`spawn_blocking`" would merely assert new implementation text. The
+existing native `git-clone-workflows.e2e.ts` spec (unmodified except the
+superseded doc comment) is real, non-synthetic, end-to-end regression
+coverage: it reliably hung on the pre-fix implementation (5/5
+reproductions across this and the parent stage) and now passes reliably
+(3/3 post-fix).
 
-- `git-remote-workflows`: passed, 20s.
-- `git-diverged-pull`: passed, 14s.
-- `git-clone-workflows`: **hung** — the single required post-repair
-  fresh-process attempt (launched with a confirmed-clean environment: no
-  lingering driver/app processes, ports 4444/4445 free beforehand). Per
-  the RP's own branching rule, a second attempt is required only if the
-  first *passes*; since it hung, no further attempts were made. Not
-  reported as passed.
+## Diagnostic artifacts (not committed)
 
-## Native clone hang investigation
+All temporary diagnostics for this investigation live under
+`%LOCALAPPDATA%\Temp\stage-3f.5.6\` on the local investigation host and
+were never added to Git, per this stage's evidence-handling rule:
 
-Traced `@wdio/tauri-service`'s `get_window_states` call into its own
-source (`ensureActiveWindowFocus` in `node_modules/@wdio/tauri-service`) —
-a per-command focus-check hook triggered by the first relevant WebDriver
-command of any session (`getTitle`, `$`, `elementClick`, etc.), not a
-one-time pre-`before()` diagnostic as Stage 3F.5.5 had characterized it.
+- `control1-live1.dmp` — full memory dump captured via `cdb.exe .dump /ma`
+  during a reproduced hang. **108.3 MB (113,511,012 bytes).**
+- `control1-cdb1.txt` / `control1-cdb2-symbols.txt` — unsymbolized and
+  PDB-symbolized thread-stack dumps; the symbolized thread-0 stack is the
+  evidence behind this report's root-cause claim.
+- `control1-processes.txt`, `control1-app-metrics-1.txt`,
+  `control1-windows.txt`, `control1-children.txt` — process list, app
+  responsiveness metrics, Win32 window enumeration, child-process query.
+- `enum-windows.ps1` — the P/Invoke window-enumeration script used for the
+  hidden-modal-dialog check.
+- `standalone-repro.mjs` / `.log` / `2.log` — the isolated seed+clone
+  reproduction used to rule out the SSH/ForceCommand mechanism.
+- `native-clone-pass{1,2,3}.log`, `native-remote-workflows.log`,
+  `native-diverged-pull.log`, `container-{clone,remote-workflows,
+  diverged-pull}.log` — the eight post-fix real-host validation run logs.
 
-Captured bounded diagnostics for the 5th reproduction (via
-`Get-CimInstance Win32_Process` for exact PIDs/command lines of every
-`node.exe`/`tauri-driver.exe`/`msedgedriver.exe`/app process, `netstat`
-for port state, and `Get-Process`/`Responding` for the application
-process):
-
-- Driver layer healthy: `tauri-driver.exe` listening on 4444, established
-  connection to `msedgedriver.exe` on 4445, `msedgedriver.exe` itself with
-  an established connection to the application.
-- **`rack-inventory-studio-desktop.exe`: `Responding = False`, CPU time
-  0.125s** (near-zero — not a slow/busy operation, a genuine stalled
-  Windows message loop).
-
-Conclusion: the hang is an application-binary-level deadlock, not a
-WDIO/Tauri driver-launch flake. `get_window_states` times out because the
-deadlocked app never answers the Tauri IPC call — a symptom, not the
-cause. **Outcome B (still unresolved)**: no safe, narrow
-test-infrastructure fix exists for an in-process application deadlock;
-fixing application code is out of scope for both this RP and the parent
-migration stage. This is a more precise, better-evidenced characterization
-than Stage 3F.5.5's own "WDIO/Tauri driver-launch hang" — still confirmed
-pre-existing (reproduces on the unmodified pre-migration file) and still
-blocking for this one spec/provider combination.
-
-## Parent Stage 3F.5.5 completion status
-
-- **A. Migration implementation**: container-provider migration for all
-  three SSH specs is implemented and validated — Stage 3F.5.5's original
-  15/15 combined-matrix result stands, plus this RP's own fresh regression
-  (5/5 container runs, including 3/3 for the refspec-changed clone seed).
-- **B. Parent-stage gate**: native `git-clone-workflows` has never passed
-  (5 attempts total across both stages, 5 hangs) — the original Stage
-  3F.5.5 completion criteria are not all met. This RP does not
-  self-authorize a waiver.
-- **C. Repair stage**: this RP's own scope is complete.
-
-## Default provider decision
-
-Unchanged — `native` remains the default. Reasons (not the clone flake as
-primary justification, per this RP's own instruction): the default switch
-was always deferred to a dedicated future stage; the container path is
-validated only on this local host, not yet in CI; developer/CI rollout
-needs explicit documentation; and parent Stage 3F.5.5 now has a
-confirmed-unresolved required native gate. Native's flakiness here is
-native technical debt, not evidence against the container path — the
-container path remains the more thoroughly validated one.
-
-## Resource residue verification
-
-After all real-host execution in this RP: no `ris.e2e.fixture=git-ssh`
-container, no `sleep 86400` keep-alive process, no `node.exe`/
-`tauri-driver.exe`/`msedgedriver.exe`/app-binary process, no `sshd`
-process, ports 4444/4445 both clear (no `LISTENING` entries), and every
-run-specific work directory (with its `ssh-remote-command.env`) removed
-from the OS temp root — verified directly via `docker ps`, `pgrep`,
-`tasklist`, and `netstat`, not solely via hook log messages.
+No `.dmp`, private keys, env secrets, WebView2 profile data, or
+investigation-only binaries were committed.
 
 ## Risks
 
-- Native `git-clone-workflows` remains blocked by a genuine application-level
-  deadlock on this host — root cause is now much better characterized
-  (message-loop hang, not driver flake) but not fixed; that would require
-  application-level debugging, out of scope here.
-- `support/git-remote.ts`'s three `existsSync()` sites remain unrepaired
-  (unchanged from R5).
-- Everything else carried forward from Stage 3F.5.4/R1-R5 and Stage
-  3F.5.5: WSL2 idle-shutdown workaround, `/mnt/c` automount assumption,
-  keep-alive "stopped" meaning "didn't throw," the intermittent UI-open
-  flake.
+- The `spawn_blocking` fix does not add askpass/SSH-passphrase wiring to
+  `clone_repository_cmd` (it still has none) — this was already a known,
+  documented, pre-existing gap noted in the spec's own doc comment and is
+  unrelated to this stage's scope; not introduced or worsened here.
+- The exact reason the underlying git-upload-pack/SSH round trip is slow
+  enough under real WDIO+WebView2 contention to matter (vs. the 560ms
+  standalone timing) was not independently isolated further — this became
+  moot once the fix was applied, since a merely-slow operation now
+  completes well within the spec's existing tolerance (observed p99 well
+  under 2.5s across all seven post-fix runs).
+- `PASS_WITH_FORCED_CLEANUP` (driver-process teardown-timing) is a
+  pre-existing runner-level quirk observed on every run in this
+  investigation, native and container alike — not new, not blocking, and
+  out of this stage's scope to fix.
+- Everything carried forward from Stage 3F.5.4/R1-R5 and 3F.5.5/R1 that
+  this stage did not touch: `support/git-remote.ts`'s three unrepaired
+  `existsSync()` sites, the WSL2 idle-shutdown workaround, the
+  intermittent UI-open flake.
 
 ## Not done
 
-- Did not fix the native `git-clone-workflows` application deadlock — out
-  of scope (application code); reported with concrete new diagnostic
-  evidence instead.
-- Did not self-authorize a waiver for the unresolved native clone gate.
-- Did not flip the default provider.
-- Did not remove the native fixture or retrofit `git-remote-workflows.e2e.ts`
-  onto the shared adapter.
-- Did not fix `support/git-remote.ts`'s `existsSync()` sites.
-- Did not run a new 5-iteration container matrix (not required; container
-  lifecycle architecture unchanged).
-- Did not restart the full Windows WDIO Gate, merge to `development`, or
+- Did not flip `resolveGitRemoteProvider()`'s default — remains a
+  deliberately separate future stage per this stage's own non-objective.
+- Did not remove the native fixture.
+- Did not add askpass/passphrase support to `clone_repository_cmd` — out
+  of scope.
+- Did not add sleeps, retries, or timeout increases to any spec.
+- Did not merge to `development`, run the full release gate, or
   tag/publish a release.
+- Did not fix the pre-existing `PASS_WITH_FORCED_CLEANUP` runner quirk —
+  unrelated to the proven root cause and out of this stage's scope.
+- Did not add a new Rust-level unit test — see "Regression coverage
+  rationale" above for why the existing E2E spec is the appropriate
+  coverage instead.
 
 ## Suggested next step
 
-The native `git-clone-workflows` gate needs one of: (a) an application-level
-debugging investigation into the message-loop deadlock (attach a debugger
-or add targeted app-side diagnostics to `rack-inventory-studio-desktop.exe`
-during a hung repro), or (b) an explicit human waiver accepting the
-container-provider validation as sufficient for this stage's completion,
-given native remains available as a documented fallback for the other two
-specs. Once either resolves, a dedicated default-provider-switch stage
-(flip `resolveGitRemoteProvider()`'s default to `container`, validate in
-CI) becomes the natural next stage.
+With Stage 3F.5.5 now COMPLETE — READY FOR DEFAULT-PROVIDER DECISION, the
+natural next stage is a dedicated default-provider-switch stage: flip
+`resolveGitRemoteProvider()`'s default to `container` and validate the
+container path in CI (currently validated only on this local host), per
+the non-objective this stage deliberately left alone.
