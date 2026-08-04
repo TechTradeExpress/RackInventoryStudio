@@ -1894,7 +1894,10 @@ export async function seedContainerBareRemoteFromLocalRepo(
   branch: string,
 ): Promise<void> {
   const remoteUrl = buildContainerSshRemoteUrl(bareRepoPath);
-  await runGit(localRepoPath, ["push", "-q", remoteUrl, `${branch}:${branch}`]);
+  // Explicit full refspec (Stage 3F.5.5-R1) — removes any ambiguity in
+  // short-ref resolution and makes the source/destination namespaces
+  // unambiguous, rather than relying on git's own short-name inference.
+  await runGit(localRepoPath, ["push", "-q", remoteUrl, `refs/heads/${branch}:refs/heads/${branch}`]);
   await execDocker(server.distro, [
     "exec",
     server.containerName,
