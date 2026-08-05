@@ -1,138 +1,129 @@
 ## Summary
 
-Stage 3F.5.8A: implemented a native Linux Docker host backend for the
-containerized Git-over-SSH E2E fixture, so
-`RIS_E2E_GIT_REMOTE_PROVIDER=container` has a real, working implementation
-on Linux (previously it only worked on Windows via WSL2 — the resolver
-already accepted the value on Linux, but the backend behind it invoked
-`wsl.exe` unconditionally and would fail immediately on a non-Windows
-host).
+Stage 3F.5.8A-R1: repair substage addressing review findings against Stage
+3F.5.8A's Linux-native Docker backend, all fixable without a normal
+(non-sandboxed) Linux host. Fixed a real defect (Node's structured `ENOENT`
+error code was silently dropped by the exec wrapper, causing a genuinely
+missing `docker` executable to misclassify as "unknown Docker error"),
+brought stdin-based Docker execution into the same structured
+`DockerCommandError` contract as the rest of the module, corrected doc
+comments that implied real-host WDIO acceptance had been proven when it had
+not, and resolved the `pnpm` version-mismatch investigation via Corepack
+(no lockfile/dependency changes). All static and unit validation is green.
 
-Introduced a `ContainerHostBackend` interface
-(`apps/desktop/e2e-wdio/support/container-git-remote.ts`) with two
-implementations: `createWindowsWsl2Backend()` (the pre-existing WSL2
-behavior, moved behind the interface, unchanged in effect) and
-`createLinuxNativeBackend()` (new — talks to the local `docker` CLI
-directly via `execFile`/`spawn`, never through `sudo` or a shell,
-passes host paths through unchanged instead of translating them). All
-shared lifecycle logic (image content-hash caching, transactional
-startup/rollback, container health polling, authoritative cleanup,
-bare-remote administration) takes a `ContainerHostBackend` parameter and
-is not duplicated per platform. Container security posture
-(loopback-only port publish, no privileged mode, no host networking, no
-socket mount, non-root `git-shell` user) is inherited unchanged from the
-already-shared `buildDockerRunArgs`.
-
-The Linux default provider resolution is **unchanged**: unset/empty still
-resolves to `"native"` on Linux (only `win32` defaults to `"container"`).
-That default switch is explicitly out of scope for this stage.
-
-**Stage O (running all three Git SSH specs for real on a Linux host with
-the container provider) is blocked**, not by a defect in this stage's
-code, but by a Docker networking restriction in this development sandbox
-itself — see Risks below. All other stage requirements are complete.
+The parent stage remains **STAGE 3F.5.8A BLOCKED** — this repair hardens
+the implementation and its own documentation but does not and cannot
+complete Stage O's real-host WDIO acceptance from this sandbox; that stays
+explicitly deferred.
 
 ## Files changed
 
-- `apps/desktop/e2e-wdio/support/container-git-remote.ts` — added the
-  `ContainerHostBackend` interface, `createWindowsWsl2Backend()`,
-  `createLinuxNativeBackend()`, `resolveContainerHostKind()`,
-  `createContainerHostBackend()`, `assertLinuxAbsolutePath()`,
-  `classifyLinuxExecError()`, `wrapDockerError()`. Reworked all shared
-  lifecycle functions (`ensureImageBuilt`, `inspectContainerPresence`,
-  `removeContainerViaDocker`, `waitForContainerHealthy`,
-  `collectDiagnostics`, `rollbackContainerByName`,
-  `rollbackPartialContainerFixture`, `startContainerRemote`,
-  `cleanupContainerRemote`, `cleanupOrphanedContainers`, and the
-  bare-remote admin functions) to take a `ContainerHostBackend` instead
-  of a WSL distro string. `ContainerOpsDeps` gained `createBackend()` and
-  lost `resolveDistribution`/`startKeepAlive`/`stopKeepAlive` (keep-alive
-  is now a backend method). `resolveGitRemoteProvider()` body/signature
-  unchanged; only its doc comment was extended.
-- `apps/desktop/e2e-wdio/support/container-git-remote.test.ts` — added
-  `fakeBackend()` test helper; reworked every describe block that
-  previously threaded a WSL distro string to thread a fake
-  `ContainerHostBackend` instead; added new describe blocks for
-  `resolveContainerHostKind`, `createContainerHostBackend`,
-  `assertLinuxAbsolutePath`, `classifyLinuxExecError`, and a
-  real-Docker-if-available probe block (skips gracefully without Docker).
-  Fixed 9 pre-existing test failures caused by hardcoded Windows-style
-  path fixtures (`"C:\\fake-run-root"`) that don't parse as absolute
-  paths under Linux's `node:path` semantics — replaced with
-  `join(tmpdir(), ...)`-based fixtures; this only changed fixture path
-  *values*, not the path-safety logic under test.
-- `apps/desktop/e2e-wdio/wdio.conf.ts` — no net change (a temporary debug
-  `console.error` added during diagnosis was removed before finalizing).
-- `docs/E2E_WDIO_PLAN.md` — added the "Stage 3F.5.8A — Linux-native
-  Docker backend bootstrap" section.
+- `apps/desktop/e2e-wdio/support/container-git-remote.ts`:
+  - `execFileP` now preserves Node's structured `code` (errno string or
+    numeric exit code) on the rejected error, not just on the original
+    error stashed in `cause`. Exported (narrowly) so tests can exercise the
+    real wrapping chain.
+  - `wrapDockerError` propagates `code` onto the resulting
+    `DockerCommandError`; `DockerCommandError` gained an optional `code`
+    field.
+  - `execDockerWithStdinViaWsl`/`execDockerWithStdinNative` rewritten as
+    thin wrappers over a new shared `spawnWithStdin` helper (exported
+    narrowly, same rationale as `execFileP`): preserves `code` on spawn
+    failure, preserves exit code/stderr on non-zero exit, always produces
+    a real `DockerCommandError`, bounds accumulated stderr to 64KB with an
+    explicit truncation marker, never a shell, never `sudo`.
+  - `resolveGitRemoteProvider`'s doc comment and the module's top-of-file
+    doc comment reworded: no longer imply the explicit-container path was
+    "proven on a real Linux host" — state precisely that a Linux-native
+    backend implementation exists and was exercised manually against a
+    real Docker daemon, while full WDIO acceptance remains unvalidated.
+- `apps/desktop/e2e-wdio/support/container-git-remote.test.ts`:
+  - New `execFileP real execution-chain` test: a genuinely nonexistent
+    executable name, a real Node `ENOENT`, through the real production
+    wrapper — proves `code`/`cause` preservation and correct
+    classification, rather than only asserting against a hand-constructed
+    error shape (the pre-existing `classifyLinuxExecError` tests, kept,
+    were insufficient alone).
+  - New `spawnWithStdin` describe block (6 tests, no Docker required, uses
+    `node -e ...` as a deterministic local executable): missing-executable
+    ENOENT preservation, non-zero-exit diagnostics, successful stdin
+    delivery, a stdin-mismatch proof that data actually reaches the child,
+    bounded stderr, no-shell argument-literalness. This caught a real
+    off-by-boundary bug in the first version of the stderr-truncation
+    logic (fixed before merge — see Risks).
+- `docs/E2E_WDIO_PLAN.md` — added the "Stage 3F.5.8A-R1" subsection
+  documenting the repair and the deferred real-host acceptance checklist.
 
 ## Tests
 
-- `pnpm vitest run e2e-wdio/support/container-git-remote.test.ts` — 259/259
-  passed, including full Windows/WSL2 backend regression coverage and the
-  new Linux-backend unit tests.
-- `pnpm build:e2e:wdio-plugin` — succeeded; used to build the real WDIO
-  test binary for manual fixture validation.
-- Manual, direct invocation of `startContainerRemote()` /
-  `createContainerBareRemote()` against the real local Docker daemon
-  confirmed: image build/reuse, container start, healthcheck pass, SSH
-  keypair generation, public-key install via `docker exec`, and
-  authoritative cleanup all succeed end-to-end on this Linux host with
-  the native backend.
-- `pnpm test:e2e:wdio --spec git-remote-workflows --skip-build --binary
-  <built-binary> --expect-plugin present` with
-  `RIS_E2E_GIT_REMOTE_PROVIDER=container` — provider correctly resolved
-  to `container`, correctly selected the Linux-native backend, container
-  fixture lifecycle completed successfully per logs — but all 3 scenarios
-  failed at the point of the actual `git push` over SSH ("push never
-  landed on the remote bare repository"), traced to the environment issue
-  below, not application/fixture logic.
-- Static validation not yet run at report-write time — see Not done.
+- `pnpm vitest run e2e-wdio/support/container-git-remote.test.ts` —
+  266/266 passed (259 pre-existing + 7 new: 1 real-chain ENOENT test + 6
+  `spawnWithStdin` tests).
+- `pnpm --filter @rack-inventory-studio/desktop test` — 1301/1301 passed
+  (full desktop suite, includes the above).
+- `pnpm --filter @rack-inventory-studio/desktop typecheck` — clean.
+
+## Static validation
+
+All re-run through the repository-declared `pnpm@10.33.4` (see Risks for
+why this mattered):
+
+| Check | Result |
+|---|---|
+| `git diff --check` | clean |
+| `pnpm install --frozen-lockfile` | clean — lockfile already up to date, no reinstall (see Risks) |
+| `pnpm check:version` | ✓ versions and toolchain declarations match |
+| `pnpm check:hygiene` | ✓ 8/8 |
+| `pnpm test:scripts` | ✓ 237/237 |
+| `pnpm --filter @rack-inventory-studio/desktop typecheck` | clean |
+| `pnpm --filter @rack-inventory-studio/desktop test` | ✓ 1301/1301 |
+| `cargo fmt --all -- --check` | clean |
+| `cargo clippy --workspace -- -D warnings` | clean |
+| `cargo test --workspace` | ✓ all passed (no Rust code touched this stage) |
+| `pnpm build:e2e:wdio-plugin` | succeeded |
 
 ## Risks
 
-- **Docker port-publishing is not reachable from the host in this
-  sandbox.** This Claude Code session runs inside its own Docker
-  container (confirmed via `/.dockerenv` and `docker ps` showing the
-  outer `ccw-ris` container). Reproduced with a completely unrelated
-  `nginx:alpine` container: `docker port` reports the mapping as active
-  and the container as healthy, but connecting to the published port on
-  `127.0.0.1` gives "Connection refused", `ss -ltnp` shows no listening
-  socket for it, no `docker-proxy` process exists, `iptables -t nat -L`
-  fails with "Permission denied (you must be root)", and even a direct
-  connection to the container's bridge IP (bypassing port-publishing
-  entirely) times out. This points to the sandbox itself lacking the
-  privileges Docker needs to program NAT/forwarding rules for
-  newly-published ports — an environment limitation, not a defect in the
-  Linux-native backend. `--network host` would likely work around it but
-  is explicitly forbidden by this stage's security requirements, so it
-  was not attempted.
-- Because of the above, **Stage O's "all three specs pass on a real Linux
-  host" requirement could not be completed in this environment.** The
-  fixture's own logic (image build, container start, health check, key
-  install via `docker exec`, cleanup) is verified working; only the
-  actual SSH data-plane connection through the published port could not
-  be validated here.
+- **`pnpm` version mismatch in this sandbox, now resolved for validation
+  purposes.** `package.json` declares `pnpm@10.33.4`; the `pnpm` on `PATH`
+  is 9.15.9, from a different Node installation than the one `npm`'s own
+  global prefix points at (`/usr/local/bin/node` vs. `npm config get
+  prefix` → `/opt/nvm/versions/node/v24.18.0`). Under 9.15.9, `pnpm
+  install --frozen-lockfile` prompted to destructively wipe and reinstall
+  `node_modules`. Resolved narrowly via Corepack, invoked by explicit path
+  since it isn't on `PATH` either: `corepack enable` itself fails
+  ("Internal Error: not found: corepack" — it cannot self-shim without
+  being on `PATH`), but `corepack prepare pnpm@10.33.4 --activate` +
+  `corepack pnpm ...` correctly resolves and runs the declared version. Do
+  not conflate this with a real dependency problem — running the correct
+  version confirmed the lockfile was already up to date the whole time.
+  This is a sandbox `PATH` inconsistency, not a repository issue; no
+  lockfile or dependency file was changed.
+- **A real bug was found and fixed by the new tests, not before them.**
+  The first version of the stderr-truncation logic in `spawnWithStdin`
+  could silently stop appending the truncation marker if a chunk boundary
+  landed exactly on the 64KB limit. The new bounded-stderr test caught
+  this immediately; fixed by checking for the marker itself rather than
+  only comparing lengths.
+- **Stage O real-host WDIO acceptance remains unvalidated from this
+  sandbox** — unchanged from Stage 3F.5.8A, and explicitly not attempted
+  again in this repair (out of scope per this substage's own NSP). See the
+  "Deferred real-host acceptance checklist" in
+  `docs/E2E_WDIO_PLAN.md`.
 
 ## Not done
 
-- Stage O real-host spec validation (blocked — see Risks).
-- Stage P (explicit native control run) and Stage Q (resource residue
-  verification) were not formally executed as separate steps; residue
-  checks were folded into ad-hoc `docker ps`/`ss`/cleanup verification
-  during diagnosis.
-- Full static validation suite (`git diff --check`, `pnpm
-  check:version`, `pnpm check:hygiene`, `pnpm test:scripts`, typecheck,
-  `cargo fmt`/`clippy`/`test`) not yet run as of this report — planned as
-  the next step before committing.
-- Commits not yet made / not yet pushed to
-  `origin/feature/windows-ssh-fixture` as of this report — planned next.
+- Real-host Stage O/P validation (explicitly deferred, not this
+  substage's scope).
+- `corepack enable`'s shim step could not be made to work in this sandbox
+  (self-referential `PATH` requirement); documented as a known gap rather
+  than forced through with a global `PATH` modification, which was
+  explicitly out of scope.
 
 ## Suggested next step
 
-Run this Linux-native backend's real-host validation (Stage O) on a
-Linux host with normal (non-nested) Docker networking — e.g., a CI
-runner or a bare-metal/VM development machine rather than this
-Docker-in-Docker sandbox — to get a genuine pass/fail on all three Git
-SSH specs before considering a future Stage 3F.5.8B (switching the Linux
-default to container).
+Same as the parent stage: run the deferred real-host acceptance checklist
+(`docs/E2E_WDIO_PLAN.md`, Stage 3F.5.8A-R1 section) on a normal Linux host
+with working Docker port publication and a working `tauri-driver` session
+handshake, before Stage 3F.5.8A can become COMPLETE or Stage 3F.5.8B can
+begin.

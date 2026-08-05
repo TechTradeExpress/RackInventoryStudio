@@ -4874,6 +4874,122 @@ Linux-native Docker execution, native path handling, unit test coverage,
 Windows backend regression, security posture, no Linux default change)
 is complete. See `.ai/cc-report.md` for the full report.
 
+#### Stage 3F.5.8A-R1 — Harden the Linux Docker backend, defer real-host acceptance (2026-08-05)
+
+Repair substage triggered by review findings against Stage 3F.5.8A's
+implementation and its own documentation/comment wording, all fixable
+without a normal (non-sandboxed) Linux host.
+
+**Real defect: ENOENT was silently dropped.** `execFileP`'s wrapped
+rejection preserved `stdout`/`stderr`/`exitCode`/`cause` but never Node's
+structured `code` field. Since `classifyLinuxExecError` and
+`isNodeErrorWithCode` classify by checking `error.code` directly (never by
+matching `error.message` text — an existing, deliberate rule in this
+module), a genuinely missing `docker` executable misclassified as "unknown
+Docker error" instead of "Docker CLI is not installed". Fixed by
+preserving `code` on the rejected error; `wrapDockerError` and the new
+`DockerCommandError.code` field propagate it further so
+`isNodeErrorWithCode` also works directly on a wrapped
+`DockerCommandError`, not just on `execFileP`'s own rejection. A new test
+(`execFileP real execution-chain`) exercises the real chain — a genuinely
+nonexistent executable name, a real Node ENOENT, through the real
+production wrapper — rather than only a hand-constructed error shape (the
+pre-existing `classifyLinuxExecError` unit tests, kept, were insufficient
+alone: they never proved the wrapper actually preserved `code` in the
+first place).
+
+**Stdin Docker execution brought into the structured-error contract.**
+`execDockerWithStdinNative` (and, for shared-contract consistency,
+`execDockerWithStdinViaWsl`) previously threw bare `Error` objects with no
+`DockerCommandError` shape, no preserved `code` on spawn failure, and
+unbounded stderr accumulation. Both now go through a shared
+`spawnWithStdin` helper that: preserves `code` on spawn failure, preserves
+exit code and stderr on non-zero exit, always produces a real
+`DockerCommandError` (`isDockerCommandError` true), bounds accumulated
+stderr to 64KB with an explicit truncation marker, and never uses a shell
+or `sudo`. Six new tests exercise this against real local child processes
+(`node -e ...`, no Docker required): missing-executable ENOENT
+preservation, non-zero-exit diagnostics, successful stdin delivery, a
+stdin-mismatch proof that data is actually plumbed through (not just
+assumed), bounded stderr, and no-shell argument-literalness. The bounded-
+stderr test caught a real off-by-boundary bug in the first version of the
+truncation logic (a chunk landing exactly at the 64KB limit could suppress
+the truncation marker on all subsequent chunks) — fixed before merge.
+
+**Inaccurate wording corrected.** `resolveGitRemoteProvider`'s doc comment
+previously said the explicit-container path had been "proven on a real
+Linux host... which this stage does" — false under Stage 3F.5.8A's own
+completion criteria: the fixture lifecycle started and the container
+became healthy, but the actual application → Git → SSH → container path
+was never validated (blocked by the sandbox issues documented above), and
+native control was blocked before fixture startup entirely. Reworded to
+state precisely what was and wasn't established: a Linux-native backend
+implementation exists and was exercised manually against a real Docker
+daemon; full WDIO acceptance remains unvalidated; the Linux default stays
+`native`; Stage 3F.5.8B may begin only after a real-host acceptance run
+passes (see checklist below). The module's top-of-file doc comment had
+the same ambiguity ("makes `RIS_E2E_GIT_REMOTE_PROVIDER=container` *work*
+on Linux") and was corrected the same way.
+
+**Package manager investigation.** `package.json` declares
+`packageManager: "pnpm@10.33.4"`; the `pnpm` on `PATH` in this sandbox is
+9.15.9 (a separate, unrelated Node/npm installation's global bin
+directory is on `PATH` instead of the one `npm`'s own global prefix
+points at — `/usr/local/bin/node` vs. `npm config get prefix` reporting
+`/opt/nvm/versions/node/v24.18.0`). Under 9.15.9, `pnpm install
+--frozen-lockfile` prompted to destructively wipe and reinstall
+`node_modules` from scratch. Rather than accept that or force it through,
+resolved narrowly via Corepack: `corepack` is present at
+`/opt/nvm/versions/node/v24.18.0/bin/corepack` (not on `PATH`, so invoked
+by explicit path — `node <path>/corepack pnpm ...`); `corepack enable`
+itself fails (`Internal Error: not found: corepack` — it cannot self-shim
+without itself being on `PATH`), but `corepack prepare pnpm@10.33.4
+--activate` succeeds and `node <path>/corepack pnpm --version` correctly
+reports `10.33.4`. Re-running `pnpm install --frozen-lockfile` through
+that exact declared version reported the lockfile already up to date with
+no reinstall needed — confirming the destructive prompt was purely a
+version-mismatch artifact, not a real lockfile/dependency problem. All of
+this stage's static validation was re-run through the correct
+`pnpm@10.33.4` via this Corepack path. No dependency or lockfile change
+was made.
+
+**Static validation (all re-run through the correct pnpm version).**
+`git diff --check`, `pnpm check:version`, `pnpm check:hygiene` (8/8),
+`pnpm test:scripts` (237/237), desktop `typecheck`, desktop `test`
+(1301/1301, +7 from this repair), `cargo fmt --check`, `cargo clippy -D
+warnings`, `cargo test --workspace`, `pnpm build:e2e:wdio-plugin` — all
+green, including `pnpm install --frozen-lockfile` this time.
+
+**Deferred real-host acceptance checklist.** Before Stage 3F.5.8A can
+become COMPLETE and Stage 3F.5.8B may begin, on a normal (non-sandboxed)
+Linux host:
+
+1. Docker port publication is reachable from the host.
+2. `tauri-driver` successfully creates a WebDriver session.
+3. With `RIS_E2E_GIT_REMOTE_PROVIDER=container`:
+   - `git-remote-workflows` passes,
+   - `git-clone-workflows` passes,
+   - `git-diverged-pull` passes.
+4. An explicit native (`RIS_E2E_GIT_REMOTE_PROVIDER=native`) representative
+   control spec passes on the same host.
+5. Fixture cleanup is conclusive (no ambiguous state).
+6. No container, process, file, or port residue remains after the run.
+7. Only then: Stage 3F.5.8A becomes COMPLETE, and Stage 3F.5.8B (the
+   Linux default-provider switch decision) may begin.
+
+(The full 5×3 default/override provider matrix belongs to Stage 3F.5.8B,
+after a default change is actually proposed — not listed here.)
+
+**STAGE 3F.5.8A-R1 COMPLETE — IMPLEMENTATION HARDENED.**
+
+Parent status remains:
+
+**STAGE 3F.5.8A BLOCKED — REAL-HOST LINUX E2E VALIDATION DEFERRED.** The
+blocker is environmental (this sandbox's Docker-in-Docker networking and
+`tauri-driver` session handshake), not a code defect — but acceptance is
+objectively unmet regardless of cause, and this repair does not claim
+otherwise. See `.ai/cc-report.md` for the full report.
+
 ---
 
 ## Integration criteria
