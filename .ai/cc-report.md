@@ -45,6 +45,26 @@ been rerun on a real Windows + WSL2 + Docker host. A fresh confirmation
 run against this exact HEAD remains an outstanding precondition for
 marking the PR ready for review.
 
+**Stage 3F.5.10-WIN update (2026-08-05):** ran the outstanding Windows
+validation on a real Windows 11 + WSL2 (Ubuntu) + Docker Engine 29.4.3
+host, against `bc524a6` (the exact, unmodified PR #171 HEAD, reached by
+fast-forwarding a stale local checkout — no unique local commits, no
+reset/rebase/force-push used). All five required runs (`app-smoke`,
+`git-remote-workflows`, `git-clone-workflows`, `git-diverged-pull` with
+the provider genuinely unset, and `git-clone-workflows` with
+`RIS_E2E_GIT_REMOTE_PROVIDER=native` explicitly set) **passed**, with
+container/`windows-wsl2` backend resolution confirmed for the four
+unset-provider-path runs and `native` backend confirmed for the fifth.
+Fixture cleanup was conclusive on every run and independently verified
+residue-free (no fixture container, no port-4444/4445 listener, no
+lingering driver/application process) after each run. See
+`docs/E2E_WDIO_PLAN.md`'s new Stage 3F.5.10-WIN section for full
+per-run evidence. This resolves the "No Windows host access" risk below
+for the initial-acceptance pass; a mandatory final rerun against the
+exact HEAD produced by this stage's own documentation-only closure
+commit is still outstanding and gates PR #171 moving from draft to
+ready (see Risks/Not done, updated below).
+
 ## Files changed
 
 - `docs/E2E_WDIO_PLAN.md` — added the Stage 3F.5.9 section: program
@@ -69,6 +89,13 @@ marking the PR ready for review.
   detailed Stage 3F.5.8A-R1/R2 narrative is preserved in git history and
   `docs/E2E_WDIO_PLAN.md`, not reproduced here).
 
+**Stage 3F.5.10-WIN update:** `docs/E2E_WDIO_PLAN.md` — added the Stage
+3F.5.10-WIN section recording the initial Windows acceptance pass
+(host/tool versions, all five run results, provider/backend evidence,
+runner-classification-vs-fixture-cleanup distinction, residue
+verification). `.ai/cc-report.md` — this update. No application code,
+fixture code, or provider-resolution logic changed.
+
 **Stage 3F.5.9-R1 update:** corrected three inaccuracies review found in
 the above — a false claim that no Windows runtime code changed after
 Stage 3F.5.7 (Stage 3F.5.8A's shared-backend refactor did change code the
@@ -91,9 +118,18 @@ green before opening the PR — see Static Validation below for the
 authoritative results table.
 
 Windows E2E validation (the three Git-over-SSH specs, explicit-native
-control, `app-smoke`) was **not re-run** — no Windows host is reachable
-from this sandbox. See the Summary's honesty note and
-`docs/E2E_WDIO_PLAN.md`'s Stage 3F.5.9 "Final Windows validation" section.
+control, `app-smoke`) was **not re-run** in Stage 3F.5.9 itself — no
+Windows host was reachable from that sandbox. See the Summary's honesty
+note and `docs/E2E_WDIO_PLAN.md`'s Stage 3F.5.9 "Final Windows
+validation" section.
+
+**Stage 3F.5.10-WIN update:** the above gap is now closed for an
+initial-acceptance pass. All five required Windows runs (three
+unset-provider Git-over-SSH specs, explicit-native control, `app-smoke`)
+were executed on a real Windows 11 + WSL2 + Docker host against
+`bc524a6` and passed — see `docs/E2E_WDIO_PLAN.md`'s Stage 3F.5.10-WIN
+section. A second, mandatory exact-HEAD rerun against the post-doc-commit
+SHA is still outstanding.
 
 Optional Linux regression (`RIS_E2E_GIT_REMOTE_PROVIDER=native`,
 `git-clone-workflows`) was attempted and failed at WebDriver session
@@ -125,18 +161,17 @@ used):
 
 ## Risks
 
-- **No Windows host access in this sandbox.** This is the primary open
-  risk for this stage. The PR's ready-for-review gate requires a fresh
-  Windows regression (three unset-provider specs + explicit-native
-  control + `app-smoke`) that this session cannot perform. Stage 3F.5.7's
-  real, already-recorded 15/15-matrix evidence remains valuable, but it
-  predates Stage 3F.5.8A's shared-backend/process-handling refactor
-  (`ContainerHostBackend`, `spawnWithStdin`'s R1/R2 changes) — code the
-  Windows backend itself runs through. That refactor is unit-tested and
-  intended to preserve Windows behavior, but is not itself a substitute
-  for re-running the real command against a real host; see
-  `docs/E2E_WDIO_PLAN.md`'s "Final Windows validation" section (corrected
-  in Stage 3F.5.9-R1).
+- **No Windows host access in this sandbox (Stage 3F.5.9).** Resolved by
+  Stage 3F.5.10-WIN's initial acceptance pass: all five required runs
+  executed and passed on a real Windows 11 + WSL2 + Docker host against
+  `bc524a6`, confirming `ContainerHostBackend`/`spawnWithStdin`'s R1/R2
+  changes did not regress real Windows behavior. See
+  `docs/E2E_WDIO_PLAN.md`'s Stage 3F.5.10-WIN section.
+- **Mandatory final exact-HEAD rerun still outstanding.** Stage
+  3F.5.10-WIN's NSP requires a documentation-only closure commit followed
+  by a second complete five-run rerun against that new exact HEAD before
+  PR #171 may move from draft to ready. That commit and rerun have not
+  happened as of this update.
 - **`.github/workflows/wdio-e2e.yml` does not exist on `master`.** GitHub
   requires a workflow to exist on the default branch before
   `workflow_dispatch` can target it, so the documented release process
@@ -154,18 +189,24 @@ used):
 
 ## Not done
 
-- Fresh Windows E2E validation (no host access — see Risks).
+- Fresh Windows E2E validation — **now done** as of Stage 3F.5.10-WIN's
+  initial-acceptance pass (see above); the mandatory final exact-HEAD
+  rerun after this stage's documentation-only closure commit is not yet
+  done.
 - Real-host Linux container-provider acceptance (explicitly deferred by
   project decision, not this stage's scope).
-- Any code change — this is a documentation/integration-audit stage only.
+- Any application/fixture/provider code change — this and Stage
+  3F.5.10-WIN remain documentation/acceptance stages only.
 - Merging the PR, creating `release/v0.1.0-beta.4`, bumping the version,
   modifying `master`, or building/tagging a release — all explicitly out
   of scope per this stage's NSP.
 
 ## Suggested next step
 
-Run the required Windows validation (unset-provider specs ×3, explicit-
-native control, `app-smoke`) on a real Windows + WSL2 + Docker host, and
-resolve the `.github/workflows/wdio-e2e.yml`/`master` bootstrap gap as
-part of `v0.1.0-beta.4` preparation, before marking this PR ready for
+Create the Stage 3F.5.10-WIN documentation-only closure commit, push it,
+then rerun the full five-spec acceptance against that exact new HEAD;
+once green, wait for PR CI, update the PR body/comment, and mark PR #171
+ready for review. Separately, resolve the
+`.github/workflows/wdio-e2e.yml`/`master` bootstrap gap as part of
+`v0.1.0-beta.4` preparation, before marking this PR ready for
 review or beginning release-branch work.

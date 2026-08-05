@@ -5498,6 +5498,81 @@ CONFIRMATION PENDING.**
 
 ---
 
+### Stage 3F.5.10-WIN — Windows synchronization and initial acceptance (2026-08-05)
+
+Synchronized a stale local Windows checkout (`e9b3e49`) with `origin` and ran
+the first real Windows acceptance pass against the exact, unmodified PR #171
+HEAD.
+
+**Synchronized/initial acceptance SHA:** `bc524a6cbb7267421f652d47281eeb9f4ad41116`
+(matched `origin/feature/windows-ssh-fixture` and PR #171's `headRefOid`
+exactly; fast-forward only, `ahead=0`/`behind=9`, no local commits at risk).
+
+**Host:** Windows 11 Pro, build 10.0.26200 (`Get-ComputerInfo` reports
+`WindowsProductName=Windows 10 Pro`/`WindowsVersion=2009` — a known
+`Get-ComputerInfo` product-name/registry-cache quirk; `OsBuildNumber=26200`
+and `[System.Environment]::OSVersion` are consistent with Windows 11 24H2).
+WSL2 distribution: Ubuntu (default, WSL version 2). Docker: native Docker
+Engine 29.4.3 running inside WSL2 Ubuntu (no Docker Desktop installed on this
+host — permitted, since the requirement is "Docker Desktop or another Docker
+Engine reachable from WSL2"). Node v24.18.1, pnpm 10.33.4 (via Corepack), Git
+2.51.0, OpenSSH 10.0p2.
+
+**Preflight:** `pnpm install --frozen-lockfile`, `check:version`,
+`check:hygiene`, `build:e2e:wdio-plugin`, desktop `typecheck` — all passed.
+
+**Initial acceptance — five runs, provider genuinely unset except where noted:**
+
+| Spec | Provider → backend | Result | Notes |
+|---|---|---|---|
+| `app-smoke` | container → windows-wsl2 | PASSED | `PASS_WITH_FORCED_CLEANUP` (pre-existing runner quirk, see below) |
+| `git-remote-workflows` | container → windows-wsl2 (WSL2 "Ubuntu") | PASSED | fixture container created and conclusively cleaned up |
+| `git-clone-workflows` | container → windows-wsl2 (WSL2 "Ubuntu") | PASSED | fixture container created and conclusively cleaned up |
+| `git-diverged-pull` | container → windows-wsl2 (WSL2 "Ubuntu") | PASSED | fixture container created and conclusively cleaned up |
+| `git-clone-workflows` (explicit `RIS_E2E_GIT_REMOTE_PROVIDER=native`) | native | PASSED | no container started; native SSH-wrapper fixture used (`ssh-remote-command.env` written); variable removed and confirmed absent afterward |
+
+SSH publish for every container run was bound to `127.0.0.1` only (confirmed
+in `tauri-driver`/fixture logs). No sudo was required for any WSL2/Docker
+command.
+
+**Runner classification vs. fixture cleanup — kept distinct, per this doc's
+existing convention (Stage 3F.5.6 onward):** all five runs reported the
+canonical runner's (`scripts/run-wdio-performance-benchmark.mjs`) pre-existing
+`PASS_WITH_FORCED_CLEANUP` classification (`cleanupSafe=true`,
+`cleanupSucceeded=true` every time — a `tauri-driver.exe`/`msedgedriver.exe`
+teardown-timing quirk in the benchmark tool itself, unrelated to the fixture
+or the Windows Git-remote work, already documented in this file for Stage
+3F.5.6/3F.5.7/3F.5.7-R1). Fixture-level teardown was independently
+conclusive on every run (container removed and logged, or native cleanup
+logged with no container ever started).
+
+**Residue verification after every run:** no `ris.e2e.fixture=git-ssh`
+container (`docker ps -a` filtered), no listener on port 4444 or 4445, no
+lingering `tauri-driver`/`msedgedriver`/`sshd`/application process — verified
+independently of the runner's own port-kill step, after each of the five
+runs.
+
+**Initial acceptance decision: PASS.** All five runs passed; provider/backend
+evidence captured for each; fixture cleanup conclusive; zero residue after
+every run.
+
+Per Stage 3F.5.10-WIN's NSP, this initial pass validates the exact PR #171
+HEAD as fetched from `origin`, but a mandatory final rerun against the exact
+HEAD produced by this stage's documentation-only closure commit is still
+required before PR #171 can be marked ready for review — that rerun has not
+yet happened as of this section.
+
+**STAGE 3F.5 WINDOWS CONTAINER FIXTURE PROGRAM COMPLETE — READY FOR
+DEVELOPMENT INTEGRATION.**
+
+**STAGE 3F.5.9 COMPLETE — DEVELOPMENT PR READY FOR REVIEW.**
+
+(Both statuses above reflect the initial-acceptance pass on `bc524a6`. The
+final exact-HEAD rerun mandated by Stage 3F.5.10-WIN remains outstanding and
+gates changing PR #171 from draft to ready.)
+
+---
+
 ## Integration criteria
 
 Conditions to consider before opening a future integration PR from `roadmap/e2e-wdio`
