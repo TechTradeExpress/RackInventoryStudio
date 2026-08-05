@@ -2768,6 +2768,12 @@ before this stage.
 
 ### Stage 3F.5 — Windows remote-shell compatibility (audit complete, 2026-08-04; implementation pending)
 
+> **Status update (2026-08-05).** This heading's "implementation pending"
+> is historical — left as written. The program it opens is now closed: see
+> Stage 3F.5.9 below (**STAGE 3F.5 WINDOWS CONTAINER FIXTURE PROGRAM
+> COMPLETE — READY FOR DEVELOPMENT INTEGRATION**) for the final platform
+> contract, closure decision, and integration PR.
+
 **Why reopened.** Stage 3F.2–3F.4 were marked functionally complete without
 ever having run against a real, authenticating Windows SSH connection — the
 fixture's identity-path env-file serialization was broken
@@ -5110,6 +5116,298 @@ own code; it does not attempt and does not resolve the sandbox's Docker
 port-publishing or `tauri-driver` session-handshake limitations. The
 deferred real-host acceptance checklist (above, under R1) remains
 authoritative and unchanged.
+
+### Stage 3F.5.9 — Close the Windows Git fixture program and open the development PR (2026-08-05)
+
+**Goal.** Formally close the Windows Git-over-SSH fixture program (Stage
+3F.5, all of 3F.5.4–3F.5.8A-R2), classify the unfinished Linux
+container-provider acceptance as explicitly deferred non-release work, and
+open the integration PR from `feature/windows-ssh-fixture` to
+`development`. Not a beta.4 release stage — no version bump, no release
+branch, no tag.
+
+#### Program closure decision
+
+`STAGE 3F.5.8A BLOCKED` correctly recorded, at the time, that Stage
+3F.5.8A's own completion criteria (all three Git SSH specs passing against
+the container provider on a real Linux host) could not be met from the
+sandbox that stage was implemented in. That record is **not being
+rewritten** — it was accurate when written and remains the correct
+historical account of Stage 3F.5.8A and its R1/R2 repairs.
+
+What changes here is a **project decision**, not a retroactive claim about
+test results: the normal-host Linux container-provider acceptance and the
+Linux default-provider switch are deferred to a later program and are not
+release blockers for the Windows-only beta.4. This does not make the
+missing Linux E2E acceptance pass — it converts an open blocker into an
+explicitly scoped-out follow-up so the (fully validated, Windows-default)
+container fixture program can integrate into `development` without waiting
+on work nobody has committed a normal Linux host to complete.
+
+Final statuses, superseding the working `BLOCKED` framing for planning
+purposes while leaving every historical section above unchanged:
+
+**STAGE 3F.5.8A IMPLEMENTATION COMPLETE — REAL-HOST LINUX ACCEPTANCE
+DEFERRED.**
+
+**STAGE 3F.5 WINDOWS CONTAINER FIXTURE PROGRAM COMPLETE — READY FOR
+DEVELOPMENT INTEGRATION.**
+
+#### Final platform contract
+
+**Windows** (validated, this is the beta.4-scope default):
+
+- Unset/empty `RIS_E2E_GIT_REMOTE_PROVIDER` → `container`.
+- Container backend → WSL2 Docker (`wsl.exe`-mediated, no Docker Desktop,
+  no elevated privileges, no host filesystem mounts into the container).
+- Explicit `RIS_E2E_GIT_REMOTE_PROVIDER=native` fallback remains fully
+  supported.
+- All three Git-over-SSH workflows (`git-remote-workflows`,
+  `git-clone-workflows`, `git-diverged-pull`) have been validated with the
+  container default (Stage 3F.5.7: individual runs + a 5-iteration/15-spec
+  matrix, all passing).
+- Native fallback has been validated (native-provider control runs,
+  documented in Stage 3F.5.5/3F.5.6/3F.5.7).
+- No automatic container-to-native fallback exists on any platform — a
+  container startup failure fails the run rather than silently retrying
+  under `native`.
+
+**Linux** (implementation exists, acceptance explicitly deferred):
+
+- Unset/empty `RIS_E2E_GIT_REMOTE_PROVIDER` → `native` — **unchanged by
+  this stage or any prior one**.
+- Explicit `native` remains the supported and default path.
+- An explicit Linux-native container backend implementation exists
+  (Stage 3F.5.8A: `createLinuxNativeBackend`, direct `docker` CLI
+  execution, no `wsl.exe`, native path handling).
+- Its process-execution and lifecycle code are unit-tested and hardened
+  (Stage 3F.5.8A-R1/R2: 278 tests covering backend selection, path
+  validation, structured Docker/exec errors, close-event finalization,
+  bounded diagnostics, no-shell/no-sudo guarantees).
+- Its direct Docker lifecycle was manually exercised against a real local
+  Docker daemon (image build/reuse, container start, healthcheck, key
+  install, cleanup — Stage 3F.5.8A).
+- Full application → Git → SSH → container WDIO acceptance **has not
+  passed** — blocked in every sandbox available during this program by
+  Docker-in-Docker port-publishing restrictions and a `tauri-driver`
+  session-handshake limitation, neither of which is a defect in this
+  program's own code (see Stage 3F.5.8A/R1/R2 and the deferred follow-up
+  below).
+- It is **not** the Linux default.
+- It is **not** part of beta.4 acceptance.
+
+**macOS and other platforms:**
+
+- Unset/empty → `native`.
+- Explicit `container` fails clearly (`resolveContainerHostKind` throws,
+  naming the platform and pointing at `RIS_E2E_GIT_REMOTE_PROVIDER=native`)
+  — no backend exists, no silent fallback.
+
+#### Deferred follow-up — Linux container-provider real-host acceptance
+
+Not part of beta.4. Not required for the Windows-only release. No date or
+completion claim is made here — this is a checklist for whoever picks up
+this follow-up, not a commitment.
+
+1. Run on a normal, non-nested Linux Docker host.
+2. Confirm Docker-published loopback ports are host-reachable.
+3. Confirm `tauri-driver` creates a WebDriver session.
+4. Run with `RIS_E2E_GIT_REMOTE_PROVIDER=container`.
+5. Pass: `git-remote-workflows`, `git-clone-workflows`,
+   `git-diverged-pull`.
+6. Pass a representative explicit-native control.
+7. Confirm authoritative cleanup.
+8. Confirm zero container/process/file/port residue.
+9. Only then reconsider: Linux unset default → `container`; Linux CI use
+   of the container backend.
+
+No new Docker host or CI architecture is created in this stage.
+
+#### Release workflow bootstrap gap
+
+`.github/workflows/wdio-e2e.yml` does not currently exist on `master`.
+GitHub only permits `workflow_dispatch` when the workflow exists on the
+target repository's default branch, so the documented beta release
+process (`docs/BETA_RELEASE_PROCESS_EN.md`'s "WDIO release gate") cannot
+actually dispatch the Linux WDIO workflow against a release branch until
+after the first merge that introduces the workflow to `master`.
+
+- Not solved in Stage 3F.5.9.
+- Beta.4 preparation must define a one-time bootstrap procedure for this
+  (e.g., an initial `master` merge that carries the workflow before any
+  release-branch dispatch is attempted against it).
+- No release tag or GitHub Release may be created until the exact
+  `master`/release commit has actually passed the required gate.
+- Future releases, once the workflow exists on `master`, can use the
+  normal pre-merge branch-dispatch flow described in
+  `docs/BETA_RELEASE_PROCESS_EN.md`.
+- `master` and the release workflow are not modified in this stage.
+
+#### Branch audit (against `development`, merge base `ee1cf23`)
+
+28 commits ahead of `origin/development`, 0 behind, no unrelated
+working-tree changes. 18 files changed, classified:
+
+| Category | Files |
+|---|---|
+| Container fixture implementation | `fixtures/git-ssh-server/{Dockerfile,entrypoint.sh,sshd_config}`, `support/container-git-remote.ts` |
+| Native fallback hardening | `support/git-remote.ts` |
+| Git workflow spec migration / shared provider adapter | `specs/git-{remote-workflows,clone-workflows,diverged-pull}.e2e.ts`, `support/git-remote-fixture.ts` |
+| Clone command responsiveness fix | `src-tauri/src/commands/repository.rs` |
+| Tests | `support/container-git-remote.test.ts`, `support/git-remote-fixture.test.ts`, `support/git-remote.test.ts` |
+| Documentation | `docs/BETA3_ROADMAP.md`, `docs/E2E_WDIO_PLAN.md`, `docs/releases/v0.1.0-beta.3.md`, `.ai/cc-report.md` |
+| Repository hygiene / line endings | `.gitattributes` (forces LF on `entrypoint.sh`, which runs as a container `ENTRYPOINT` via its shebang and would fail with a CRLF-corrupted interpreter line) |
+
+No file fell outside these categories.
+
+#### Runtime application change
+
+The branch contains exactly one application-runtime change,
+`apps/desktop/src-tauri/src/commands/repository.rs` (the entire diff to
+that file, no other functions touched):
+
+- `clone_repository_cmd` became `async` (`state: State<AppState>` →
+  `state: State<'_, AppState>`, a lifetime adjustment required by the
+  Tauri async-command macro, not a behavior change).
+- The blocking `ris_git::clone(&url, &destination)` call now runs through
+  `tauri::async_runtime::spawn_blocking`, exactly as before otherwise —
+  same function, same arguments.
+- The subsequent `open_repository` call (reads the cloned repo's YAML from
+  disk) also now runs through `spawn_blocking`.
+- This mirrors the existing `push_git_current_branch`/`pull_git_ff_only`
+  pattern already in this codebase.
+- **Why:** on Windows/WebView2, a synchronous `#[tauri::command]` handler
+  runs on the UI/event-loop thread; a slow git subprocess there blocked
+  the entire message loop (the app stopped responding to *any* input,
+  including the WDIO driver's own health-check IPC), not just the clone
+  request — this is the real hang Stage 3F.5.6 diagnosed and this fix
+  resolves.
+- No Git semantics changed: `ris_git::clone` is called with the same
+  arguments and still calls `validate_remote_url(url)` before spawning any
+  process (`crates/ris-git/src/lib.rs`), unchanged by this diff.
+- No clone authentication behavior changed.
+- No persistence format changed.
+
+#### Test infrastructure summary
+
+At a level useful for the PR, full detail in this file's Stage 3F.5.4
+through 3F.5.8A-R2 sections above:
+
+- A disposable Linux OpenSSH+git container (`fixtures/git-ssh-server/`),
+  reached over a Docker-published `127.0.0.1`-only port — sidesteps the
+  Windows `cmd.exe` remote-path-quoting defect entirely by never routing
+  through Win32-OpenSSH's remote shell.
+- A `ContainerHostBackend` abstraction with a Windows/WSL2 Docker backend
+  and a Linux-native Docker backend, selected deterministically by
+  platform (`resolveContainerHostKind`), sharing 100% of lifecycle
+  orchestration (no per-platform duplication).
+- The provider resolver (`resolveGitRemoteProvider`) and its explicit
+  `RIS_E2E_GIT_REMOTE_PROVIDER` override, platform-aware default, fail-
+  loud on invalid values, no automatic fallback.
+- A provider-neutral shared adapter (`git-remote-fixture.ts`) unifying the
+  container and native fixtures behind one shape for the specs.
+- Migration of all three Git-over-SSH WDIO specs onto the shared adapter.
+- Transactional fixture startup with rollback, and authoritative,
+  verified cleanup (container removal, work-dir removal, SSH config
+  clearing — tri-state presence checks throughout, never conflating
+  "couldn't check" with "confirmed gone").
+- Content-addressed fixture image caching (Dockerfile/entrypoint/
+  sshd_config hash → image tag).
+- Structured process errors (`DockerCommandError`, errno/exit-code
+  normalization) and bounded stderr diagnostics, closed out in Stage
+  3F.5.8A-R1/R2.
+- No-automatic-fallback policy (container failure fails the run, never
+  silently retries under native).
+- Residue checks (container/process/port/file) built into cleanup
+  validation and exercised throughout.
+- The native Windows OpenSSH fallback (`git-remote.ts`) preserved and
+  hardened, not removed.
+
+See `docs/E2E_WDIO_PLAN.md`'s Stage 3F.5.4–3F.5.8A-R2 sections for the
+complete history; not reproduced in the PR body.
+
+#### Final Windows validation — not re-run in this stage
+
+**This could not be executed as part of Stage 3F.5.9.** The session
+performing this closure stage runs in a Linux-only sandbox with no
+Windows/WSL2/Docker host access — there is no "existing validated Windows
++ WSL2 + Docker host" reachable from here to run
+`git-remote-workflows`/`git-clone-workflows`/`git-diverged-pull` (unset
+provider), the explicit-native control, or `app-smoke` against.
+
+This is reported honestly rather than fabricated. The real evidence this
+stage relies on is what Stage 3F.5.7 already recorded above in this same
+document, on an actual Windows + WSL2 + Docker host: real preflight
+(`wsl.exe --status`, `docker info`, a throwaway published-port
+reachability check), all three specs passing individually with the
+resolver logging `container` and the WSL2 backend selected, and a
+5-iteration × 3-spec (15/15) matrix, all passing, with conclusive cleanup
+and no residue reported. Nothing in Stage 3F.5.8A/R1/R2/3F.5.9 touched the
+Windows backend's runtime behavior (3F.5.8A only *added* a Linux backend
+behind a shared interface; the Windows backend's own functions were moved,
+not changed — see 3F.5.8A's "Windows WSL2 Backend" section) or the
+`repository.rs` clone path in a way that changes Git/SSH semantics (see
+Runtime Application Change above).
+
+That said, **a fresh confirmation run on a real Windows host — the exact
+three unset-provider specs, the explicit-native control, and
+`app-smoke` — is a genuine, outstanding precondition for marking the
+development PR ready for review**, per this stage's own gate. It is not
+satisfied by this document. See the PR's own status and the final report
+for how this is tracked.
+
+#### Optional Linux regression (attempted, informational only)
+
+`RIS_E2E_GIT_REMOTE_PROVIDER=native pnpm test:e2e:wdio --spec
+git-clone-workflows` was attempted from this sandbox. It failed at
+WebDriver session establishment (`tauri-driver`'s `POST /session` timeout)
+before reaching any fixture code — the same pre-existing, sandbox-specific
+limitation documented in Stage 3F.5.8A-R1/R2, reproduced identically here.
+Per this stage's own scope, this is optional, not required to pass, and
+explicitly must not block the integration PR. Explicit container was not
+attempted on this sandbox as acceptance evidence, per this stage's own
+restriction.
+
+#### Static validation (pnpm 10.33.4 via Corepack)
+
+`git diff --check`, `pnpm install --frozen-lockfile` (lockfile already up
+to date), `pnpm check:version`, `pnpm check:hygiene` (8/8), `pnpm
+test:scripts` (237/237), desktop `typecheck`, desktop `test`
+(1313/1313), desktop `build`, `cargo fmt --check`, `cargo clippy -D
+warnings`, `cargo test --workspace`, `pnpm build:e2e:wdio-plugin`,
+`actionlint` (all workflow files) — all green, each run and reported
+individually; see `.ai/cc-report.md` for the full table.
+
+#### Security review
+
+- Docker port publish: `-p 127.0.0.1::22` only (verified in
+  `buildDockerRunArgs`); `parsePublishedPort` additionally refuses to
+  recognize any binding other than a literal `127.0.0.1:<port>` (never
+  `0.0.0.0`/`::`), defense in depth even if Docker's own output changed.
+- No `--privileged`, no `--network`/host networking, no Docker socket bind
+  mount, no `sudo` invocation anywhere in the fixture code (confirmed by
+  direct search — the only matches are doc comments stating these are
+  never used).
+- Generated SSH key: fresh `ssh-keygen -t ed25519` per run, written inside
+  the run's own temp work directory, removed by authoritative cleanup —
+  ephemeral, not reused across runs.
+- Private key permissions secured via the existing, previously-reviewed
+  `securePrivateKeyFile` (native fixture, reused as-is; `icacls` on
+  Windows); key contents are never logged.
+- `ssh-wrapper.sh` uses `UserKnownHostsFile=/dev/null` — the user's real
+  `~/.ssh/known_hosts` is never read or written. No code path in this
+  program touches the user's real `~/.ssh/config`.
+- Cleanup failures remain visible: `assertCleanupSucceeded`/
+  `assertFixtureCleanupSucceeded` throw (never swallow) on an
+  unsuccessful or ambiguous cleanup result.
+- Application clone still validates transport through existing Git safety
+  code: `ris_git::clone` calls `validate_remote_url(url)` before spawning
+  any process, unchanged by the `repository.rs` diff.
+
+**STAGE 3F.5.9 status:** see the final report delivered alongside this
+stage's PR for the chosen outcome (draft PR opened, CI status, and
+whether the ready-for-review gate — which requires a real Windows
+re-validation this sandbox cannot perform — has been met).
 
 ---
 
