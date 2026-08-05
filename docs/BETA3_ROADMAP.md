@@ -4,17 +4,24 @@
 > release. `release/v0.1.0-beta.3` (PR #168) has been integrated back into
 > `development` instead of being forced through to `master` — see
 > `docs/releases/v0.1.0-beta.3.md` for the decision record. The next public
-> release is planned as **`v0.1.0-beta.4`**, shipping Windows-complete: the
-> WDIO release gate's remote-SSH specs (`git-remote-workflows`,
-> `git-clone-workflows`, `git-diverged-pull`) have never actually passed on
-> Windows, blocked first by a fixture identity-serialization bug (fixed
-> 2026-08-04) and now by a Windows-only remote-shell compatibility defect
-> (audited, repair planned — see `docs/E2E_WDIO_PLAN.md`'s Stage 3F.5).
-> Remaining Windows SSH fixture work continues on `development` via
-> `feature/windows-ssh-fixture`, not on the release branch. Everything else
-> in this document (the completed PR sequence, remaining beta.3 QA/release
-> steps) still describes real, still-relevant work — it now lands as part
-> of beta.4 rather than a beta.3 tag.
+> release is planned as **`v0.1.0-beta.4`**, shipping Windows-complete.
+>
+> **Update (2026-08-05).** The Windows-only remote-shell compatibility
+> defect referenced below is fixed: the containerized Git-over-SSH fixture
+> (Stage 3F.5.4–3F.5.7) sidesteps the `cmd.exe`-quoting defect entirely by
+> routing through a Linux OpenSSH container, and all three WDIO remote-SSH
+> specs (`git-remote-workflows`, `git-clone-workflows`, `git-diverged-pull`)
+> have passed against a real Windows + WSL2 + Docker host with the
+> container provider as the Windows default (Stage 3F.5.7, 15/15-iteration
+> matrix). Stage 3F.5.9 closes this program and opens the integration PR
+> from `feature/windows-ssh-fixture` to `development` — see
+> `docs/E2E_WDIO_PLAN.md`'s Stage 3F.5.9 for the closure report and final
+> platform contract. A Linux-native backend implementation also exists but
+> its real-host WDIO acceptance is explicitly deferred and is not part of
+> beta.4 — see the same section. Everything else in this document (the
+> completed PR sequence, remaining beta.3 QA/release steps) still describes
+> real, still-relevant work — it now lands as part of beta.4 rather than a
+> beta.3 tag.
 
 ## Purpose
 
