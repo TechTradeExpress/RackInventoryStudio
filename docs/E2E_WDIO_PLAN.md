@@ -4281,15 +4281,25 @@ non-objective.
 3F.5.6's root-cause fix for the native clone hang. `native` stays fully
 supported as an explicit, genuinely usable fallback — it is not removed.
 
-**Resolver change.** `resolveGitRemoteProvider()` in
-`apps/desktop/e2e-wdio/support/container-git-remote.ts` now returns
-`"container"` when `RIS_E2E_GIT_REMOTE_PROVIDER` is unset or an empty
-string (previously `"native"`). Every other branch is unchanged: an
-explicit `"native"` or `"container"` value resolves exactly as named
-(comparison stays case-sensitive, non-trimmed — the repository's existing
-normalization rules were preserved rather than rewritten), and any other
-value still throws `invalid RIS_E2E_GIT_REMOTE_PROVIDER="<value>" —
-expected "native" or "container"` before any fixture is created. All
+**Resolver change (superseded — see Stage 3F.5.7-R1 below).** As
+originally implemented in this stage, `resolveGitRemoteProvider()` in
+`apps/desktop/e2e-wdio/support/container-git-remote.ts` returned
+`"container"` when `RIS_E2E_GIT_REMOTE_PROVIDER` was unset or an empty
+string on *every* platform (previously `"native"` on every platform).
+This was a scope defect caught in review (Stage 3F.5.7-R1): the container
+backend is Windows-specific (invokes `wsl.exe`, discovers WSL
+distributions, runs Docker through WSL2, translates paths to
+`/mnt/<drive>`) and cannot run natively on Linux/macOS, so an unqualified
+global default would have selected a non-functional backend by default on
+non-Windows hosts. Stage 3F.5.7-R1 made the unset/empty default
+platform-aware (`container` on `win32` only, `native` everywhere else) —
+see that section for the corrected behavior actually shipped. Every other
+branch was and remains unchanged: an explicit `"native"` or `"container"`
+value resolves exactly as named (comparison stays case-sensitive,
+non-trimmed — the repository's existing normalization rules were
+preserved rather than rewritten), and any other value still throws
+`invalid RIS_E2E_GIT_REMOTE_PROVIDER="<value>" — expected "native" or
+"container"` before any fixture is created. All
 three Git-over-SSH specs (`git-remote-workflows.e2e.ts`,
 `git-clone-workflows.e2e.ts`, `git-diverged-pull.e2e.ts`) resolve the
 provider through this one function — the first two directly, the latter
@@ -4444,17 +4454,25 @@ Post-run residue check: no fixture container, no stale
 app/driver process, ports 4444/4445 both clear.
 
 **Fixture teardown vs. runner forced cleanup (distinguished, not
-conflated).** Every one of the 23 real-host runs in this stage (19
-container-provider passes, 3 native-provider passes, 1 invalid-provider
-failure) reported the fixture's own teardown as successful
-(`containerVerifiedAbsent`/native cleanup with no errors) *and* the
-canonical runner's own `PASS_WITH_FORCED_CLEANUP` benchmark
-categorization — the same pre-existing `tauri-driver.exe`/
-`msedgedriver.exe` teardown-timing quirk already documented in Stage
-3F.5.6 (unrelated to the Git-remote provider, identical regardless of
-provider or spec). None of these runs are described as a fully clean
-driver teardown; `PASS_WITH_FORCED_CLEANUP` is reported for every one, as
-required.
+conflated).** This stage ran 23 real-host executions in total, which
+split into two distinct classes — conflating them into "23 runs passed"
+would overstate what the invalid-provider check actually validated:
+
+- **22 passing WDIO executions** (19 container-provider, 3
+  native-provider) each had conclusive fixture teardown
+  (`containerVerifiedAbsent`/native cleanup with no errors) *and* the
+  canonical runner's own `PASS_WITH_FORCED_CLEANUP` benchmark
+  categorization — the same pre-existing `tauri-driver.exe`/
+  `msedgedriver.exe` teardown-timing quirk already documented in Stage
+  3F.5.6 (unrelated to the Git-remote provider, identical regardless of
+  provider or spec). None of these 22 are described as a fully clean
+  driver teardown; `PASS_WITH_FORCED_CLEANUP` is reported for every one,
+  as required.
+- **1 invalid-provider execution** failed before fixture creation (see
+  above) and therefore has no fixture teardown and no
+  `PASS_WITH_FORCED_CLEANUP` classification to report — it left no
+  fixture residue by construction (nothing was ever created), verified
+  directly (no fixture container, no stale process, ports clear).
 
 **Resource residue verification.** After the full matrix, `docker ps -a
 --filter label=ris.e2e.fixture=git-ssh` returned nothing, and ports
@@ -4513,6 +4531,247 @@ deferred to Stage 3F.5.8 — none of that was attempted or assumed here.
   the matrix) and worked around by re-running it in isolation afterward.
   Not a defect in the change under review — a process-discipline note for
   whoever runs this matrix again.
+
+**STAGE 3F.5.7 COMPLETE — READY FOR LINUX PORTABILITY VALIDATION.** ⚠️
+Superseded immediately by strict review — see Stage 3F.5.7-R1 directly
+below: the unset/empty default this stage shipped was global, not
+Windows-scoped, which would have selected the Windows-only container
+backend by default on Linux/macOS too. Stage 3F.5.7-R1's corrected status
+is authoritative.
+
+### Stage 3F.5.7-R1 — Restrict the container default to Windows (2026-08-05)
+
+**Root issue.** Strict review of Stage 3F.5.7 found that
+`resolveGitRemoteProvider()`'s unset/empty branch returned `"container"`
+unconditionally, on every platform:
+
+```ts
+if (value === undefined || value === "") return "container";
+```
+
+The container backend, however, is Windows-specific top to bottom: it
+invokes `wsl.exe`, discovers WSL distributions, runs Docker through WSL2,
+and translates paths to `/mnt/<drive>`. Linux-native Docker execution is
+explicitly deferred to Stage 3F.5.8 and was never implemented. So the
+unqualified global default meant an unset provider on Linux (or any other
+non-Windows platform) would select a backend that cannot run there —
+outside Stage 3F.5.7's own approved Windows-only scope.
+
+**Platform-aware provider resolution.** `resolveGitRemoteProvider()` now
+takes an injectable `platform: NodeJS.Platform = process.platform`
+parameter alongside the existing `env` parameter:
+
+```ts
+export function resolveGitRemoteProvider(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): GitRemoteProvider {
+  const value = env["RIS_E2E_GIT_REMOTE_PROVIDER"];
+  if (value === undefined || value === "") return platform === "win32" ? "container" : "native";
+  if (value === "native" || value === "container") return value;
+  throw new Error(
+    `[container-git-remote] invalid RIS_E2E_GIT_REMOTE_PROVIDER="${value}" — expected "native" or "container".`,
+  );
+}
+```
+
+Production zero-argument calls (`resolveGitRemoteProvider()`, both in this
+module and via `git-remote-fixture.ts`'s
+`defaultCreateGitRemoteFixtureDeps.resolveProvider`, still the identical
+function by reference) use the real `process.env` and the real
+`process.platform` — platform is never inferred from an environment
+variable.
+
+**Windows default behavior.** `RIS_E2E_GIT_REMOTE_PROVIDER` unset or
+empty on `win32` → `container`, unchanged from Stage 3F.5.7's intent.
+
+**Linux/macOS temporary default behavior.** `RIS_E2E_GIT_REMOTE_PROVIDER`
+unset or empty on any platform other than `win32` → `native`. This is
+unchanged from *before* Stage 3F.5.7 — the Linux/macOS default was never
+actually flipped to container by this program; Stage 3F.5.7-R1 corrects
+the code back to that intended, always-approved behavior. Stage 3F.5.8
+will implement direct Linux Docker execution and only then separately
+reconsider the Linux default — this stage does not do that.
+
+**Explicit override behavior (all platforms).** `RIS_E2E_GIT_REMOTE_PROVIDER=native`
+and `RIS_E2E_GIT_REMOTE_PROVIDER=container` both resolve exactly as named
+on every platform — the explicit-value branch never consulted platform
+before and still doesn't. Explicit `container` on Linux/macOS resolves to
+`"container"` as a *value*, but is not expected to actually work as a
+running fixture until Stage 3F.5.8 ships direct Linux Docker execution:
+the current container backend still invokes `wsl.exe`/WSL-specific
+infrastructure regardless of which platform requested it. The current
+container backend is not cross-platform — only its *resolution* is
+now platform-correct by default; explicit override on an unsupported
+platform is a deliberate opt-in into a fixture that will fail its own
+Windows-specific prerequisite checks (e.g. `wsl.exe` not found), not a
+new supported configuration.
+
+**Fallback-hint classification.** Reviewed every `withNativeFallbackHint()`
+call site. Kept on all prerequisite/configuration failures (`wsl.exe`
+unavailable, no WSL distribution installed, only WSL1 found, WSL
+distribution override invalid/wrong-version/no-Docker, no WSL2
+distribution with working Docker, image build failure including the
+`/mnt/c` automount case). Removed from `startContainerRemote`'s
+published-port parse failure: by that point `docker run` already
+succeeded (the container exists and is running) — an unparseable
+`docker port` output is an internal fixture invariant failure (a defect
+in this module or an unanticipated Docker output format), not a missing
+Windows/WSL2/Docker prerequisite, and suggesting the native fallback
+there would read as "here's how to work around this bug" rather than
+surface it.
+
+**Resolver tests
+(`container-git-remote.test.ts`).** Rewrote the `resolveGitRemoteProvider`
+suite with an explicit, injected `platform` argument on every case (never
+left to the real `process.platform`, so every case is deterministic on
+any CI/dev host): unset/empty on `win32` → `container` (cases 1-2);
+unset/empty on `linux` → `native` (cases 3-4); unset on `darwin` →
+`native` (case 5); explicit `container`/`native` on `win32`/`linux` (cases
+6-9); invalid value on `win32` and `linux`, same error both times (cases
+10-11); existing case-sensitivity (`"Container"`) and non-trim (`"
+native"`) behavior preserved on `win32` (cases 12-13). A separate
+`production zero-argument call` sub-suite (env save/restore, no
+`process.platform` mutation) asserts the real call resolves to
+`process.platform === "win32" ? "container" : "native"` when the env var
+is deleted, and to the named explicit value when set — meaningful and
+deterministic on both Windows and Linux hosts.
+
+**Shared adapter tests
+(`git-remote-fixture.test.ts`).** The identity proof
+(`defaultCreateGitRemoteFixtureDeps.resolveProvider === resolveGitRemoteProvider`)
+is retained. Added platform-injected cases via the
+`CreateGitRemoteFixtureDeps.resolveProvider` seam (never a
+`process.platform` monkey-patch, never real WSL/Docker/sshd): injected
+`win32` + unset selects the container branch; injected `linux` + unset
+selects the native branch; explicit `native` on `win32` selects native;
+explicit `container` on `linux` selects the container branch (as a
+resolution decision only — no real container is started in this unit
+test).
+
+**Fallback hint tests.** Added representative coverage (not every call
+site): "no WSL distributions installed" and "selected WSL distribution
+without Docker" (both prerequisite failures) each assert the original
+diagnostic text is retained *and* the hint (`default provider on
+Windows`, `RIS_E2E_GIT_REMOTE_PROVIDER=native`) is present; the
+`ensureImageBuilt` build-failure case gets the same two-part assertion.
+The published-port parse failure case (extending the existing
+`startContainerRemote` "scenario 1" fault-injection test) asserts the
+diagnostic is retained but the hint text is *absent*.
+
+**Windows regression (real host).** With `RIS_E2E_GIT_REMOTE_PROVIDER`
+genuinely unset, all three specs re-run fresh:
+
+| Spec | Provider resolved | Result | Duration |
+|------|--------------------|--------|----------|
+| `git-remote-workflows` | container | PASS | 29s |
+| `git-clone-workflows` | container | PASS | 23s |
+| `git-diverged-pull` | container | PASS | 20s |
+
+Each log confirmed the resolver logging `git remote provider: container`,
+the container fixture's own startup sequence, no native-sshd fixture log
+line, and conclusive teardown. A full 5×3 stability matrix was not
+re-run — this repair changes only platform-default *selection* logic, the
+Windows branch continues returning `container` exactly as Stage 3F.5.7's
+already-passed 15/15 matrix validated, and no lifecycle code changed.
+
+**Explicit Windows native regression.** `RIS_E2E_GIT_REMOTE_PROVIDER=native`
+against `git-clone-workflows`: resolved `native`, native fixture started
+(`starting the local sshd remote-Git fixture`), no `container-git-remote`
+log line, PASS, no native residue after teardown.
+
+**Linux boundary validation.** No Linux host is available in this
+environment (this repair was implemented and validated entirely from the
+existing Windows + WSL2 + Docker host used throughout Stage 3F.5.7). The
+required unit/static proof was still obtained without one: the resolver
+test suite above exercises `platform: "linux"` directly (cases 3, 4, 7,
+9, 11) through the real production `resolveGitRemoteProvider()` logic —
+this proves the `linux + unset → native` decision on the actual
+production code path, not a reimplementation, without requiring a Linux
+process. The one item that is host-dependent by construction — "the
+production zero-argument resolver test passes on the actual Linux
+host" — could only be exercised on `win32` here (where it correctly
+asserts `container`); it was not independently run on a Linux machine.
+The recommended lightweight real-host check (one Git-over-SSH spec with
+the provider unset, only if native Linux prerequisites are already
+present) was not attempted — no Linux host was available to check
+prerequisites on, so nothing was installed and nothing was silently
+skipped-as-if-passing. This gap does not block this stage's own
+completion criteria, which only require the platform-boundary decision
+to be proven at the unit level (satisfied) plus a real Windows
+regression (satisfied) — a genuine Linux host run remains appropriately
+deferred to whoever validates Stage 3F.5.8 on Linux.
+
+**Invalid provider behavior.** Unchanged branch, not re-run against a
+full WDIO spec (per this stage's own scope note — Stage 3F.5.7 already
+verified it in isolation). Re-verified at the unit level with both
+`platform: "win32"` and `platform: "linux"` (cases 10-11 above): both
+throw the identical `invalid RIS_E2E_GIT_REMOTE_PROVIDER="..."` error.
+
+**Fixture teardown / runner forced cleanup.** Both Windows regression runs
+(3 unset-provider + 1 explicit-native, 4 total) reported conclusive
+fixture teardown and the pre-existing `PASS_WITH_FORCED_CLEANUP` runner
+classification — same distinction maintained as Stage 3F.5.7, not
+conflated.
+
+**Resource residue verification.** After the 4 regression runs: no
+`ris.e2e.fixture=git-ssh`-labeled container, no keep-alive process, no
+container work directory, no SSH config file, no fixture-started `sshd`,
+no `rack-inventory-studio-desktop.exe`/`tauri-driver.exe`/
+`msedgedriver.exe`, ports 4444/4445 both clear.
+
+**Validation count correction (Stage 3F.5.7).** Corrected the parent
+Stage 3F.5.7 section's "fixture teardown vs. runner forced cleanup"
+paragraph in place: it previously stated all 23 real-host runs received
+`PASS_WITH_FORCED_CLEANUP` and conclusive fixture teardown, which
+mischaracterized the invalid-provider execution (1 of the 23), which
+failed *before* fixture creation and has neither. The corrected wording
+distinguishes 22 passing WDIO executions (with teardown +
+`PASS_WITH_FORCED_CLEANUP`) from the 1 expected invalid-provider failure
+(no fixture ever created, so no teardown classification applies, and no
+residue by construction).
+
+**Static validation.** `git diff --check`, `pnpm install --frozen-lockfile`,
+`check:version`, `check:hygiene` (8/8), `test:scripts` (237/237),
+`pnpm --filter @rack-inventory-studio/desktop typecheck`,
+`pnpm --filter @rack-inventory-studio/desktop test` (1262/1262, 60
+files), `cargo fmt --all -- --check`, `cargo clippy --workspace -- -D
+warnings`, `cargo test --workspace` (104 tests) — all clean. No
+application or Rust source file changed; only
+`apps/desktop/e2e-wdio/support/container-git-remote.ts`,
+`apps/desktop/e2e-wdio/support/container-git-remote.test.ts`,
+`apps/desktop/e2e-wdio/support/git-remote-fixture.test.ts`,
+`apps/desktop/e2e-wdio/specs/git-remote-workflows.e2e.ts` (doc comments
+only), and documentation.
+
+**Concurrency discipline.** All regression runs in this stage were
+executed one at a time; no `run-wdio-e2e.mjs` invocation overlapped
+another (the concurrency hazard Stage 3F.5.7 hit once and documented was
+not repeated here).
+
+**Remaining risks.**
+- The Linux production zero-argument resolver call was not independently
+  exercised on an actual Linux host (see "Linux boundary validation"
+  above) — logically proven via injected-platform unit tests against the
+  real resolution function, but not host-verified. Whoever validates
+  Stage 3F.5.8 on Linux should include this as a sanity check.
+- `scripts/run-wdio-performance-benchmark.mjs`'s port-ownership-based
+  forced-cleanup gap (documented in Stage 3F.5.7) remains unfixed —
+  unchanged by this repair, still out of scope.
+- Explicit `RIS_E2E_GIT_REMOTE_PROVIDER=container` on Linux/macOS resolves
+  to a value that will not currently produce a working fixture (see
+  "Explicit override behavior" above) — this is pre-existing (Stage
+  3F.5.7 already exposed the container backend as WSL-specific) and
+  unchanged by this repair, not a new risk it introduces.
+
+**STAGE 3F.5.7-R1 COMPLETE — READY FOR LINUX PORTABILITY VALIDATION.**
+
+Per this section's own completion criteria being met (win32+unset →
+container, linux+unset → native, explicit overrides unchanged, Windows
+regression passed, platform-matrix unit tests pass, documentation no
+longer claims a global container default, the 22-pass + 1-expected-
+failure classification is corrected, static validation is green, commits
+pushed), parent Stage 3F.5.7 returns to:
 
 **STAGE 3F.5.7 COMPLETE — READY FOR LINUX PORTABILITY VALIDATION.**
 
