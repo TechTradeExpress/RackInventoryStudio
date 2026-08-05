@@ -9,13 +9,17 @@
  * incoming git command through Win32 OpenSSH's `cmd.exe`/Git-Bash ForceCommand
  * chain — a real, ongoing source of intermittent hangs), this module drives a
  * disposable Linux container (apps/desktop/e2e-wdio/fixtures/git-ssh-server)
- * running plain OpenSSH + git, reached from Windows over a Docker-published
- * 127.0.0.1 port. The container is managed through `wsl.exe` invoking Docker
- * Engine inside a WSL2 distribution — no Docker Desktop, no elevated
- * privileges, no host filesystem mounts into the container.
+ * running plain OpenSSH + git, reached over a Docker-published 127.0.0.1
+ * port. On Windows the container is managed through `wsl.exe` invoking
+ * Docker Engine inside a WSL2 distribution — no Docker Desktop, no elevated
+ * privileges, no host filesystem mounts into the container. On Linux
+ * (Stage 3F.5.8A) the same container is managed through direct, native
+ * Docker CLI execution — no `wsl.exe`, no distro concept, no path
+ * translation. See "Host backend abstraction" below for how the two are
+ * unified behind one shared lifecycle.
  *
- * What still runs natively on Windows, unchanged: the application itself,
- * Git for Windows' `git.exe`, its `ssh.exe`, askpass, and every WDIO
+ * What still runs natively on the host, unchanged: the application itself,
+ * its `git`/`ssh` client tooling (askpass included), and every WDIO
  * interaction. Only the *server* side of the SSH conversation moves into the
  * container — see docs/E2E_WDIO_PLAN.md's Stage 3F.5.4 section for the full
  * architecture writeup.
@@ -41,9 +45,43 @@
  * startContainerRemote()/configureContainerSsh() called separately — for the
  * atomic-initialization guarantee described below.
  *
- * ── The WSL2 VM idle-shutdown finding (critical to this module's design) ───
+ * Stage 3F.5.8A: on Linux, unset/empty still resolves to "native" (see
+ * resolveGitRemoteProvider's own doc comment) — this stage makes
+ * `RIS_E2E_GIT_REMOTE_PROVIDER=container` *work* on Linux, it does not make
+ * it the Linux default. That is a separate, deliberately deferred decision
+ * (Stage 3F.5.8B).
  *
- * Empirically confirmed during this stage's Phase 1/2 environment audit: on
+ * ── Host backend abstraction (Stage 3F.5.8A) ────────────────────────────────
+ *
+ * Everything above the "Host backend abstraction" section below is a
+ * platform-neutral fixture lifecycle: image identity/caching, container
+ * naming, run/cleanup orchestration, rollback, bare-remote administration.
+ * None of it knows or cares whether Docker is reached through WSL2 or
+ * natively. The only two things that differ by host platform are (a) how a
+ * `docker <args>` invocation actually runs, and (b) how a host filesystem
+ * path is presented to that invocation (a Windows drive path needs
+ * `/mnt/<drive>/...` translation for WSL2's automounter; a Linux path is
+ * already what Docker expects). Both are captured by `ContainerHostBackend`
+ * — implemented once for `"windows-wsl2"` (wrapping the pre-3F.5.8A
+ * `wsl.exe`-invoking logic verbatim, unchanged in behavior) and once for
+ * `"linux-native"` (new: direct `execFile("docker", ...)`, no distro, no
+ * path translation). `resolveContainerHostKind`/`createContainerHostBackend`
+ * choose between them from `process.platform` alone — never from an
+ * environment variable, and never by probing for `wsl.exe`/`docker` first
+ * and guessing (Stage F's own requirement). `darwin` and any other platform
+ * throw immediately, before invoking either WSL or Docker.
+ *
+ * A resolved backend never carries a fake or placeholder identity: the
+ * Windows backend's WSL2 distribution is resolved once, during
+ * `preflight()`, and cached privately inside the backend instance for the
+ * rest of its lifetime — nothing outside this module (or even outside the
+ * Windows backend's own closure) ever sees a distribution name again. The
+ * Linux backend has no equivalent concept at all.
+ *
+ * ── The WSL2 VM idle-shutdown finding (Windows-only; critical to that
+ * backend's design) ──────────────────────────────────────────────────────
+ *
+ * Empirically confirmed during Stage 3F.5.4's Phase 1/2 environment audit: on
  * a default WSL2 install, the lightweight utility VM backing a distro can be
  * torn down — along with every container running inside it — after as
  * little as ~10-30 seconds with no `wsl.exe` client process attached, even
@@ -56,25 +94,28 @@
  * suite), so relying on the VM staying up between our own `wsl.exe` calls is
  * not safe.
  *
- * The fix (validated empirically, see this stage's report) needs no global
+ * The fix (validated empirically, see Stage 3F.5.4's report) needs no global
  * WSL configuration change: holding one extra `wsl.exe -d <distro> --
  * sleep <n>` child process open for the fixture's entire lifetime keeps the
- * distro "attached" and prevents the teardown. `startContainerRemote` starts
- * this keep-alive session before doing anything else and
- * `cleanupContainerRemote` is responsible for killing it — last, in a
- * `finally`, so it stays available for every Docker command cleanup itself
- * still needs to run (see cleanupContainerRemote's own doc comment).
+ * distro "attached" and prevents the teardown. The Windows backend's
+ * `startKeepAlive()` starts this session before any Docker command runs, and
+ * `stopKeepAlive()` kills it — callers invoke it last, in a `finally`, so it
+ * stays available for every Docker command cleanup itself still needs to run
+ * (see cleanupContainerRemote's own doc comment). Linux has no equivalent
+ * VM-teardown behavior — the Linux backend's `startKeepAlive()`/
+ * `stopKeepAlive()` are no-ops, present only so shared lifecycle code never
+ * needs to branch on backend kind to know whether to call them.
  *
  * ── Transactional startup (Stage 3F.5.4-R1) ─────────────────────────────────
  *
  * `startContainerRemote()` never returns a partially-built server object,
  * and never leaves resources it acquired dangling on failure: every
- * resource it acquires (keep-alive session, container, Windows work
- * directory) is tracked in a `PartialContainerFixtureState` as it goes, and
- * any failure — at any step, including ones after the container already
- * exists — triggers `rollbackPartialContainerFixture()` before the original
- * error is rethrown. `cleanupContainerRemote()` is deliberately *not* reused
- * for this: it expects a complete `ContainerSshRemoteServer`, which may not
+ * resource it acquires (backend/keep-alive, container, host work directory)
+ * is tracked in a `PartialContainerFixtureState` as it goes, and any
+ * failure — at any step, including ones after the container already exists
+ * — triggers `rollbackPartialContainerFixture()` before the original error
+ * is rethrown. `cleanupContainerRemote()` is deliberately *not* reused for
+ * this: it expects a complete `ContainerSshRemoteServer`, which may not
  * exist yet during a partial startup failure.
  *
  * `createContainerRemoteFixture()` is the atomic boundary one layer up: it
@@ -89,7 +130,7 @@ import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { lstat, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { shQuote, securePrivateKeyFile as securePrivateKeyFileImpl } from "./git-remote";
 import { runGit } from "./local-git";
 import { isStrictChildPath } from "./test-environment";
@@ -190,6 +231,11 @@ const FIXTURE_SOURCE_FILENAMES = ["Dockerfile", "entrypoint.sh", "sshd_config"] 
  *
  * Truncated to 12 hex chars: plenty of collision resistance for a
  * dev-machine build cache key, short enough to stay a comfortable image tag.
+ *
+ * Deliberately independent of host platform (Stage 3F.5.8A): no absolute
+ * host path is ever fed into this hash, only the fixture's own source file
+ * names/contents, so the same fixture source produces the same image tag on
+ * Windows and Linux — see Stage I of that stage's NSP.
  */
 export function computeFixtureContentHash(files: readonly FixtureSourceFile[]): string {
   const hash = createHash("sha256");
@@ -221,13 +267,14 @@ export function computeCurrentFixtureImageTag(sourceFiles: FixtureSourceFile[] =
 
 /**
  * Converts an absolute Windows drive path to its default WSL2 automount
- * path (`C:\foo\bar` -> `/mnt/c/foo/bar`). This is the one Windows-only
- * assumption in this module's Docker build step — WSL2's default automount
- * convention, not something the fixture image/entrypoint/sshd_config
- * themselves depend on (see this module's own doc comment). If a host has
- * automount disabled or remapped, `ensureImageBuilt`'s docker build call
+ * path (`C:\foo\bar` -> `/mnt/c/foo/bar`). Windows-backend-only — WSL2's
+ * default automount convention, not something the fixture image/entrypoint/
+ * sshd_config themselves depend on (see this module's own doc comment). If a
+ * host has automount disabled or remapped, the Windows backend's
+ * `resolveBuildContext` (used by `ensureImageBuilt`'s docker build call)
  * fails with a clear "path not found inside WSL" error rather than a
- * confusing Docker context error — see its own doc comment.
+ * confusing Docker context error — see `windowsWsl2Backend`'s own doc
+ * comment.
  */
 export function windowsPathToWslMountPath(windowsPath: string): string {
   const match = /^([A-Za-z]):[\\/](.*)$/.exec(windowsPath);
@@ -240,31 +287,55 @@ export function windowsPathToWslMountPath(windowsPath: string): string {
   return `/mnt/${drive.toLowerCase()}/${rest.replace(/\\/g, "/")}`;
 }
 
-// ── wsl.exe invocation ────────────────────────────────────────────────────────
+/**
+ * Validates and returns a Linux-native absolute path unchanged — the
+ * Linux backend's counterpart to `windowsPathToWslMountPath`: Docker on
+ * Linux is handed the exact same absolute path the host filesystem uses, no
+ * translation needed. Rejects a relative path outright (Stage 3F.5.8A's own
+ * "reject relative paths where an authoritative absolute path is required"
+ * requirement) rather than silently resolving it against `process.cwd()`,
+ * which would make the fixture's behavior depend on the caller's working
+ * directory. Uses `node:path`'s platform-dependent `isAbsolute` — correct
+ * here because this function is only ever reached from the Linux backend,
+ * itself only ever constructed when `process.platform === "linux"`.
+ */
+export function assertLinuxAbsolutePath(hostPath: string): string {
+  if (!isAbsolute(hostPath)) {
+    throw new Error(
+      `[container-git-remote] expected an absolute Linux path, got: "${hostPath}"`,
+    );
+  }
+  return hostPath;
+}
+
+// ── Command execution primitives ─────────────────────────────────────────────
 //
 // Every Docker call goes through argument arrays (execFile/spawn), never a
-// concatenated shell string — see this stage's "Command execution contract".
-// The one place a shell runs at all is *inside* the container for a handful
-// of chained repository-administration commands (createContainerBareRemote,
-// pushSimulatedContainerRemoteCommit), and even there every interpolated
-// value is centrally quoted through shQuote (imported from git-remote.ts,
-// already exercised by its own round-trip tests through a real `bash
-// source`).
+// concatenated shell string — see this module's "Command execution
+// contract". The one place a shell runs at all is *inside* the container for
+// a handful of chained repository-administration commands
+// (createContainerBareRemote, pushSimulatedContainerRemoteCommit), and even
+// there every interpolated value is centrally quoted through shQuote
+// (imported from git-remote.ts, already exercised by its own round-trip
+// tests through a real `bash -c`).
 
-interface ExecResult {
+export interface ExecResult {
   stdout: string;
   stderr: string;
 }
 
 /** A failed `docker <args>` invocation, with the raw stderr/exit code
- * preserved rather than only a flattened message string — see this stage's
- * Docker not-found classification, which needs the exact stderr text, not
- * `error.message` (which also carries this module's own
- * `[container-git-remote] docker ... failed in WSL distribution "..."`
- * prefix and the generic `execFile` error text). */
+ * preserved rather than only a flattened message string — see this
+ * module's Docker not-found classification, which needs the exact stderr
+ * text, not `error.message` (which also carries this module's own
+ * `[container-git-remote] docker ... failed via <backend> ...` prefix and
+ * the generic `execFile` error text). `hostDescription` is whatever the
+ * originating backend's `describe()` returned at the time — a WSL2
+ * distribution name on Windows, a fixed "native Linux Docker" string on
+ * Linux — informational only; nothing in this module classifies on it. */
 export interface DockerCommandError extends Error {
   dockerArgs: string[];
-  distro: string;
+  hostDescription: string;
   stderr: string;
   exitCode: number | null;
 }
@@ -292,20 +363,176 @@ function execFileP(cmd: string, args: string[]): Promise<ExecResult> {
   });
 }
 
+/** Wraps a raw exec failure into a `DockerCommandError` — shared by both
+ * backends so `isDockerCommandError`/`isDockerNotFoundError`-based
+ * classification downstream never needs to know which backend produced the
+ * error. */
+function wrapDockerError(hostDescription: string, dockerArgs: string[], error: unknown): DockerCommandError {
+  const stderr = error instanceof Error && "stderr" in error ? String((error as { stderr: unknown }).stderr) : "";
+  const exitCode = error instanceof Error && "exitCode" in error ? ((error as { exitCode: number | null }).exitCode) : null;
+  const wrapped = new Error(
+    `[container-git-remote] docker ${dockerArgs.join(" ")} failed via ${hostDescription}: ${errMsg(error)}`,
+    { cause: error },
+  ) as DockerCommandError;
+  wrapped.dockerArgs = dockerArgs;
+  wrapped.hostDescription = hostDescription;
+  wrapped.stderr = stderr;
+  wrapped.exitCode = exitCode;
+  return wrapped;
+}
+
+/**
+ * Appended to every container-prerequisite failure message (WSL/distro
+ * discovery, distribution selection, Docker availability, image build) so
+ * the first actionable error a user sees explains *why* a container fixture
+ * was even being attempted and how to opt out temporarily — rather than a
+ * bare Docker/WSL error with no mention that container is now the default
+ * on Windows. Never wraps or replaces the underlying diagnostic text; only
+ * appends this fixed hint after it.
+ *
+ * Stage 3F.5.8A wording: platform-neutral ("supported on Windows through
+ * WSL2 Docker and on Linux through native Docker") rather than naming only
+ * Windows — this hint is now reachable from Linux-backend failures too (see
+ * `linuxNativeBackend.buildFailureHint`), and the previous Windows-only
+ * wording would have been actively misleading there.
+ */
+const NATIVE_FALLBACK_HINT =
+  "The containerized Git-over-SSH fixture is supported on Windows through WSL2 Docker and on Linux through " +
+  "native Docker. Set RIS_E2E_GIT_REMOTE_PROVIDER=native to use the local-sshd fixture temporarily instead, " +
+  "provided its native prerequisites are installed.";
+
+function withNativeFallbackHint(message: string): string {
+  return `${message} ${NATIVE_FALLBACK_HINT}`;
+}
+
+/** Classifies a docker CLI/daemon error's stderr into a short, precise
+ * diagnostic string — shared by both backends' prerequisite-failure
+ * messages (Windows' "no WSL2 distribution has a working Docker Engine",
+ * Linux's own preflight failure). Pure — takes already-captured stderr
+ * text, no process access. */
+export function classifyDockerError(stderr: string): string {
+  if (/cannot connect to the docker daemon/i.test(stderr)) return "Docker daemon is not running";
+  if (/permission denied/i.test(stderr)) return "current user lacks Docker permissions (not in the docker group)";
+  if (/command not found|not recognized as an internal|no such file or directory/i.test(stderr)) {
+    return "Docker CLI is not installed";
+  }
+  return "unknown Docker error";
+}
+
+/**
+ * Linux-specific wrapper around `classifyDockerError`: a genuinely missing
+ * `docker` executable on Linux surfaces as a structured Node `ENOENT` on the
+ * spawn itself (`isNodeErrorWithCode`, never a message-text match — see this
+ * module's "do not classify errors by message text" rule, already applied
+ * to `isDockerNotFoundError`/`isNodeErrorWithCode` elsewhere), not as stderr
+ * text `classifyDockerError` would recognize — checked first, before
+ * falling back to the same stderr-text classification the Windows backend
+ * uses for daemon-unavailable/permission-denied cases (Docker prints the
+ * same "Cannot connect to the Docker daemon"/"permission denied" text on
+ * every platform).
+ */
+export function classifyLinuxExecError(error: unknown): string {
+  if (isNodeErrorWithCode(error, "ENOENT")) {
+    return "Docker CLI is not installed (docker executable not found on PATH)";
+  }
+  const stderr = error instanceof Error && "stderr" in error ? String((error as { stderr: unknown }).stderr) : "";
+  return classifyDockerError(stderr || errMsg(error));
+}
+
+// ── Host backend abstraction (Stage 3F.5.8A) ─────────────────────────────────
+
+export type ContainerHostKind = "windows-wsl2" | "linux-native";
+
+export interface ContainerHostPreflight {
+  ok: true;
+  detail: string;
+}
+
+/**
+ * The one seam every platform-specific piece of the container fixture goes
+ * through — see this module's "Host backend abstraction" doc comment above
+ * for the full design rationale. `preflight()` must be called (and must
+ * succeed) exactly once, before any other method — it is where the Windows
+ * backend resolves and caches its WSL2 distribution, and where the Linux
+ * backend proves Docker is reachable; every other method may assume it
+ * already ran.
+ */
+export interface ContainerHostBackend {
+  readonly kind: ContainerHostKind;
+  readonly platform: NodeJS.Platform;
+  /** Short, human-readable identity for logs and error messages — e.g.
+   * `WSL2 distribution "Ubuntu"` or `native Linux Docker`. Never throws. */
+  describe(): string;
+  /** Resolves/validates whatever this backend needs before any Docker
+   * command can run (Windows: pick a working WSL2 distribution; Linux:
+   * confirm the Docker CLI/daemon are reachable without sudo). Throws with a
+   * classified, actionable message on failure — never returns a
+   * `{ ok: false }` shape, so callers cannot forget to check it. */
+  preflight(): Promise<ContainerHostPreflight>;
+  /** Runs `docker <args>`, never through a shell. Throws a
+   * `DockerCommandError` on failure. */
+  execDocker(args: string[]): Promise<ExecResult>;
+  /** Runs `docker <args>`, piping `stdinData` to the child's stdin — the
+   * only shape `installPublicKey` needs, kept separate from `execDocker`
+   * because piped stdin isn't expressible through the simple
+   * capture-and-resolve shape `execDocker`/`execFileP` use. */
+  execDockerWithStdin(args: string[], stdinData: string): Promise<void>;
+  /** Resolves a host filesystem path to whatever Docker's `build` context
+   * argument needs on this backend (a WSL `/mnt/<drive>/...` path on
+   * Windows, the same absolute path unchanged on Linux). */
+  resolveBuildContext(hostPath: string): Promise<string>;
+  /** Resolves a host filesystem path to whatever a Docker bind-mount source
+   * needs on this backend. Not exercised by any current fixture operation
+   * (the fixture image is fully self-contained — no bind mounts), kept for
+   * parity with `resolveBuildContext` and Stage 3F.5.8A's own "mounted
+   * fixture/configuration paths" coverage requirement, and because a bind
+   * mount is the obvious next thing a future stage would add. */
+  resolveBindSource(hostPath: string): Promise<string>;
+  /** Windows: starts the WSL2-VM-idle-shutdown keep-alive session (see this
+   * module's own doc comment). Linux: no-op. Idempotent — safe to call
+   * without checking whether a session is already running. */
+  startKeepAlive(): void;
+  /** Idempotent counterpart to `startKeepAlive` — safe to call even if no
+   * session was ever started. */
+  stopKeepAlive(): void;
+  /** Platform-specific troubleshooting sentence appended to an image-build
+   * failure — Windows' WSL2-automount hint, Linux's Docker-permission hint.
+   * Never mentions WSL on the Linux backend. */
+  buildFailureHint(): string;
+}
+
+// ── Windows / WSL2 backend ───────────────────────────────────────────────────
+//
+// Every function in this section is the pre-3F.5.8A `wsl.exe`-invoking
+// implementation, unchanged in behavior — only reshaped from free functions
+// taking an explicit `distro: string` into a backend instance that resolves
+// and caches its own distro once, in `preflight()`. Windows regression
+// coverage (Stage 3F.5.7-R1 and earlier) exercised the *behavior* here, not
+// this exact function shape, so re-validating that behavior (Stage N) is
+// what actually matters, not a line-for-line diff against the pre-refactor
+// module.
+
+export interface WslDistribution {
+  name: string;
+  state: string;
+  version: number;
+  isDefault: boolean;
+}
+
 /**
  * wsl.exe's own meta-commands (`--status`, `--list`) emit UTF-16LE whenever
  * stdout is not a real console — which is always true when invoked via
- * child_process — confirmed empirically in this stage's Phase 1 environment
- * audit. Detection is content-based rather than assumed unconditionally
- * (Stage 3F.5.4-R1 hardening): a UTF-16LE BOM, if present, is authoritative;
- * otherwise NUL-byte density is used as a heuristic (UTF-16LE encoding of
- * ASCII/Latin-1-range text puts a 0x00 byte in every other position, ~50%
- * density, vs. ~0% for ordinary UTF-8 text) — anything not clearly UTF-16LE
- * by either signal is decoded as UTF-8. Output from a program run *inside*
- * a distro (`wsl -d <distro> -- <cmd>`) is that program's own native UTF-8
- * and is unaffected — decodeWslMetaOutput is only ever applied to
- * `wsl.exe`'s own list/status output, never to anything docker/git prints
- * from inside the container.
+ * child_process — confirmed empirically in Stage 3F.5.4's Phase 1
+ * environment audit. Detection is content-based rather than assumed
+ * unconditionally (Stage 3F.5.4-R1 hardening): a UTF-16LE BOM, if present,
+ * is authoritative; otherwise NUL-byte density is used as a heuristic
+ * (UTF-16LE encoding of ASCII/Latin-1-range text puts a 0x00 byte in every
+ * other position, ~50% density, vs. ~0% for ordinary UTF-8 text) — anything
+ * not clearly UTF-16LE by either signal is decoded as UTF-8. Output from a
+ * program run *inside* a distro (`wsl -d <distro> -- <cmd>`) is that
+ * program's own native UTF-8 and is unaffected — decodeWslMetaOutput is
+ * only ever applied to `wsl.exe`'s own list/status output, never to
+ * anything docker/git prints from inside the container.
  */
 const UTF16LE_BOM_BYTES: readonly [number, number] = [0xff, 0xfe];
 const UTF16LE_NUL_DENSITY_THRESHOLD = 0.3;
@@ -349,52 +576,14 @@ async function execWslMeta(args: string[]): Promise<string> {
 }
 
 /** Runs `docker <dockerArgs>` inside `distro` via `wsl.exe -d <distro> --
- * docker ...` — always an argument array, never a shell string (see this
- * module's own "wsl.exe invocation" section doc comment). */
-async function execDocker(distro: string, dockerArgs: string[]): Promise<ExecResult> {
+ * docker ...` — always an argument array, never a shell string. */
+async function execDockerViaWsl(distro: string, dockerArgs: string[]): Promise<ExecResult> {
   assertSafeIdentifier(distro, "WSL distribution name");
   try {
     return await execFileP("wsl.exe", ["-d", distro, "--", "docker", ...dockerArgs]);
   } catch (error) {
-    const stderr = error instanceof Error && "stderr" in error ? String((error as { stderr: unknown }).stderr) : "";
-    const exitCode =
-      error instanceof Error && "exitCode" in error ? ((error as { exitCode: number | null }).exitCode) : null;
-    const wrapped = new Error(
-      `[container-git-remote] docker ${dockerArgs.join(" ")} failed in WSL distribution "${distro}": ${errMsg(error)}`,
-      { cause: error },
-    ) as DockerCommandError;
-    wrapped.dockerArgs = dockerArgs;
-    wrapped.distro = distro;
-    wrapped.stderr = stderr;
-    wrapped.exitCode = exitCode;
-    throw wrapped;
+    throw wrapDockerError(`WSL2 distribution "${distro}"`, dockerArgs, error);
   }
-}
-
-/**
- * Appended to every container-prerequisite failure message (WSL discovery,
- * distribution selection, Docker availability, image build) so the first
- * actionable error a Stage 3F.5.7 user sees explains *why* a container
- * fixture was even being attempted and how to opt out temporarily — rather
- * than a bare Docker/WSL error with no mention that container is now the
- * default. Never wraps or replaces the underlying diagnostic text; only
- * appends this fixed hint after it.
- */
-const NATIVE_FALLBACK_HINT =
-  "The containerized Git-over-SSH fixture is the default provider on Windows (Stage 3F.5.7). " +
-  "Set RIS_E2E_GIT_REMOTE_PROVIDER=native to use the native local-sshd fixture temporarily instead.";
-
-function withNativeFallbackHint(message: string): string {
-  return `${message} ${NATIVE_FALLBACK_HINT}`;
-}
-
-// ── WSL distribution discovery ───────────────────────────────────────────────
-
-export interface WslDistribution {
-  name: string;
-  state: string;
-  version: number;
-  isDefault: boolean;
 }
 
 /**
@@ -429,30 +618,18 @@ export async function discoverWslDistributions(): Promise<WslDistribution[]> {
   return parseWslList(output);
 }
 
-/** Classifies a docker CLI/daemon error's stderr into a short, precise
- * diagnostic string for the "no WSL2 distribution has a working Docker
- * Engine" error message — see selectDistribution. Pure — takes already-
- * captured stderr text, no process access. */
-export function classifyDockerError(stderr: string): string {
-  if (/cannot connect to the docker daemon/i.test(stderr)) return "Docker daemon is not running";
-  if (/permission denied/i.test(stderr)) return "current user lacks Docker permissions (not in the docker group)";
-  if (/command not found|not recognized as an internal|no such file or directory/i.test(stderr)) {
-    return "Docker CLI is not installed";
-  }
-  return "unknown Docker error";
-}
-
 interface DockerAvailability {
   available: boolean;
   diagnostic?: string;
 }
 
-async function checkDockerAvailability(distro: string): Promise<DockerAvailability> {
+async function checkDockerAvailabilityViaWsl(distro: string): Promise<DockerAvailability> {
   try {
-    await execDocker(distro, ["info"]);
+    await execDockerViaWsl(distro, ["info"]);
     return { available: true };
   } catch (error) {
-    return { available: false, diagnostic: classifyDockerError(errMsg(error)) };
+    const stderr = isDockerCommandError(error) ? error.stderr : "";
+    return { available: false, diagnostic: classifyDockerError(stderr || errMsg(error)) };
   }
 }
 
@@ -465,8 +642,7 @@ export interface DistroDockerCheck extends DockerAvailability {
  * already-parsed `wsl.exe --list --verbose` rows and an injected Docker
  * availability checker (dependency-injected so this whole selection policy
  * — override handling, WSL1 filtering, first-match-wins iteration order —
- * is unit-testable with a fake checker and zero real WSL/Docker access; see
- * this stage's own "mock process execution" unit-test requirement).
+ * is unit-testable with a fake checker and zero real WSL/Docker access).
  *
  * `override`, when given (RIS_E2E_WSL_DISTRO), is validated and used
  * directly — no automatic distribution is substituted for an explicit,
@@ -551,8 +727,219 @@ export function resolveWslDistroOverride(env: NodeJS.ProcessEnv = process.env): 
 export async function resolveDistribution(): Promise<string> {
   const override = resolveWslDistroOverride();
   const distros = await discoverWslDistributions();
-  const { distro } = await selectDistribution(distros, checkDockerAvailability, override);
+  const { distro } = await selectDistribution(distros, checkDockerAvailabilityViaWsl, override);
   return distro;
+}
+
+function startKeepAliveSessionViaWsl(distro: string): ChildProcess {
+  // 86400s (24h) is just "far longer than any single WDIO spec run could
+  // take" — the process is always explicitly killed by cleanup, never left
+  // to time out on its own.
+  const child = spawn("wsl.exe", ["-d", distro, "--", "sleep", "86400"], { stdio: "ignore" });
+  child.unref();
+  return child;
+}
+
+function stopKeepAliveSessionViaWsl(child: ChildProcess): void {
+  if (!child.killed && child.exitCode === null) {
+    child.kill();
+  }
+}
+
+/**
+ * Installs `publicKey` into the container's authorized_keys via
+ * `docker exec -i ... tee -a`, piping the key over stdin rather than as a
+ * command-line argument (see this module's "do not pass secrets through
+ * command-line arguments when avoidable" rule — a public key isn't secret,
+ * but this also keeps arbitrarily-shaped key comments out of argv/process
+ * listings for free, and avoids ever needing to shell-escape it).
+ */
+function execDockerWithStdinViaWsl(distro: string, args: string[], stdinData: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("wsl.exe", ["-d", distro, "--", "docker", ...args], { stdio: ["pipe", "ignore", "pipe"] });
+    let stderr = "";
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", (error) => reject(new Error(`[container-git-remote] docker ${args.join(" ")} failed to start: ${error.message}`, { cause: error })));
+    child.on("exit", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`[container-git-remote] docker ${args.join(" ")} exited with code ${code}: ${stderr.trim()}`));
+    });
+    child.stdin?.end(stdinData);
+  });
+}
+
+/**
+ * The Windows backend. Every method's behavior is exactly what the
+ * pre-3F.5.8A module-level functions did — this stage reshapes the call
+ * shape (an object instead of free functions threading a `distro: string`
+ * parameter), it does not change what actually runs on Windows. `preflight`
+ * resolves and privately caches the distro; every other method assumes it
+ * already ran (asserted defensively — a programming error, not a runtime
+ * condition a real caller can hit, since `startContainerRemote` always
+ * calls `preflight()` before anything else).
+ */
+function createWindowsWsl2Backend(): ContainerHostBackend {
+  let resolvedDistro: string | null = null;
+  let keepAlive: ChildProcess | null = null;
+
+  function requireDistro(): string {
+    if (resolvedDistro === null) {
+      throw new Error("[container-git-remote] internal error: Windows backend used before preflight() succeeded.");
+    }
+    return resolvedDistro;
+  }
+
+  return {
+    kind: "windows-wsl2",
+    platform: "win32",
+    describe: () => (resolvedDistro ? `WSL2 distribution "${resolvedDistro}"` : "WSL2 (distribution not yet resolved)"),
+    preflight: async () => {
+      const distro = await resolveDistribution();
+      resolvedDistro = distro;
+      log(`selected WSL2 distribution: ${distro}`);
+      return { ok: true, detail: `WSL2 distribution "${distro}"` };
+    },
+    execDocker: async (args) => execDockerViaWsl(requireDistro(), args),
+    execDockerWithStdin: async (args, stdinData) => execDockerWithStdinViaWsl(requireDistro(), args, stdinData),
+    resolveBuildContext: async (hostPath) => windowsPathToWslMountPath(hostPath),
+    resolveBindSource: async (hostPath) => windowsPathToWslMountPath(hostPath),
+    startKeepAlive: () => {
+      if (keepAlive) return;
+      keepAlive = startKeepAliveSessionViaWsl(requireDistro());
+    },
+    stopKeepAlive: () => {
+      if (!keepAlive) return;
+      stopKeepAliveSessionViaWsl(keepAlive);
+      keepAlive = null;
+    },
+    buildFailureHint: () =>
+      "If Windows drives are not auto-mounted under /mnt in this distribution (automount disabled or " +
+      "remapped), set RIS_E2E_WSL_DISTRO to one where they are.",
+  };
+}
+
+// ── Linux native backend (Stage 3F.5.8A) ─────────────────────────────────────
+//
+// No distro concept, no wsl.exe, no path translation — `docker` is invoked
+// directly, and host paths are used exactly as given (after validating they
+// are absolute — see assertLinuxAbsolutePath). Keep-alive is a no-op: the
+// WSL2-VM-idle-shutdown problem this module's keep-alive session exists to
+// work around has no Linux equivalent (there is no lightweight utility VM
+// between this process and the Docker daemon).
+
+async function execDockerNative(args: string[]): Promise<ExecResult> {
+  try {
+    return await execFileP("docker", args);
+  } catch (error) {
+    throw wrapDockerError("native Linux Docker", args, error);
+  }
+}
+
+function execDockerWithStdinNative(args: string[], stdinData: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("docker", args, { stdio: ["pipe", "ignore", "pipe"] });
+    let stderr = "";
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", (error) => reject(new Error(`[container-git-remote] docker ${args.join(" ")} failed to start: ${error.message}`, { cause: error })));
+    child.on("exit", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`[container-git-remote] docker ${args.join(" ")} exited with code ${code}: ${stderr.trim()}`));
+    });
+    child.stdin?.end(stdinData);
+  });
+}
+
+/**
+ * The Linux backend (Stage 3F.5.8A). `preflight()` proves Docker is
+ * reachable without sudo (`docker info` — fails clearly for a missing
+ * executable, a down daemon, or a permission-denied socket, classified via
+ * `classifyLinuxExecError`) rather than assuming; every subsequent
+ * `execDocker` call is a direct `execFile("docker", args)`, never a shell,
+ * never through `sudo`. No distro is ever resolved, cached, or referenced —
+ * there is nothing here for `describe()`/error messages to name beyond
+ * "native Linux Docker".
+ */
+function createLinuxNativeBackend(): ContainerHostBackend {
+  let preflighted = false;
+
+  return {
+    kind: "linux-native",
+    platform: "linux",
+    describe: () => "native Linux Docker",
+    preflight: async () => {
+      try {
+        await execFileP("docker", ["info"]);
+      } catch (error) {
+        throw new Error(
+          withNativeFallbackHint(
+            `[container-git-remote] Docker is not usable on this Linux host: ${classifyLinuxExecError(error)}.`,
+          ),
+          { cause: error },
+        );
+      }
+      preflighted = true;
+      log("native Linux Docker preflight OK (docker info succeeded)");
+      return { ok: true, detail: "native Linux Docker" };
+    },
+    execDocker: async (args) => {
+      if (!preflighted) {
+        throw new Error("[container-git-remote] internal error: Linux backend used before preflight() succeeded.");
+      }
+      return execDockerNative(args);
+    },
+    execDockerWithStdin: async (args, stdinData) => {
+      if (!preflighted) {
+        throw new Error("[container-git-remote] internal error: Linux backend used before preflight() succeeded.");
+      }
+      return execDockerWithStdinNative(args, stdinData);
+    },
+    resolveBuildContext: async (hostPath) => assertLinuxAbsolutePath(hostPath),
+    resolveBindSource: async (hostPath) => assertLinuxAbsolutePath(hostPath),
+    startKeepAlive: () => {
+      // No WSL2-style VM idle-shutdown on native Linux — nothing to keep alive.
+    },
+    stopKeepAlive: () => {
+      // Mirrors startKeepAlive: intentionally a no-op.
+    },
+    buildFailureHint: () =>
+      "Confirm the Docker daemon is running and the current user has permission to use it " +
+      "(a member of the docker group, or an equivalent rootless-Docker setup) — this fixture never runs Docker through sudo.",
+  };
+}
+
+/**
+ * Deterministic platform -> backend-kind selection (Stage 3F.5.8A Stage F).
+ * Never infers from an environment variable, and never probes for
+ * `wsl.exe`/`docker` first and guesses — `platform` alone decides. `darwin`
+ * and any other platform throw immediately, before this function (or its
+ * caller) has invoked WSL or Docker in any way.
+ */
+export function resolveContainerHostKind(platform: NodeJS.Platform = process.platform): ContainerHostKind {
+  if (platform === "win32") return "windows-wsl2";
+  if (platform === "linux") return "linux-native";
+  throw new Error(
+    `[container-git-remote] the container Git-remote provider has no backend for platform "${platform}" ` +
+      '(supported: "win32" via WSL2, "linux" natively). Set RIS_E2E_GIT_REMOTE_PROVIDER=native to use the ' +
+      "local-sshd fixture instead.",
+  );
+}
+
+/**
+ * Backend factory — the only place `resolveContainerHostKind`'s result is
+ * turned into a real backend instance. Kept separate from
+ * `resolveContainerHostKind` so backend-selection *policy* (Stage N's "win32
+ * selects windows-wsl2 / linux selects linux-native / darwin fails clearly"
+ * requirement) stays unit-testable independently of actually constructing
+ * (and therefore closing over mutable keep-alive/distro state for) a real
+ * backend object.
+ */
+export function createContainerHostBackend(platform: NodeJS.Platform = process.platform): ContainerHostBackend {
+  const kind = resolveContainerHostKind(platform);
+  return kind === "windows-wsl2" ? createWindowsWsl2Backend() : createLinuxNativeBackend();
 }
 
 // ── Provider selection (RIS_E2E_GIT_REMOTE_PROVIDER) ─────────────────────────
@@ -572,23 +959,27 @@ export type GitRemoteProvider = "native" | "container";
  * not being removed, only demoted from default on Windows.
  *
  * Stage 3F.5.7-R1: the unset/empty default is platform-aware, not global.
- * This module's container backend is still Windows-specific top to bottom
- * (invokes `wsl.exe`, discovers WSL distributions, runs Docker through
- * WSL2, translates paths to `/mnt/<drive>`) — it cannot run natively on
- * Linux or macOS. So the unset/empty default is "container" only when
- * `platform === "win32"`; every other platform still defaults to "native"
- * until Stage 3F.5.8 implements direct Linux Docker execution and
- * separately revisits the Linux default. Platform is taken as an injected
- * parameter (defaulting to the real `process.platform`) rather than read
- * internally, so this decision is unit-testable for every platform without
- * mutating global Node state.
+ * At that stage the container backend was still Windows-specific top to
+ * bottom, so the unset/empty default was "container" only on `win32`.
+ *
+ * Stage 3F.5.8A: the container backend now also runs natively on Linux (see
+ * "Host backend abstraction" above) — but the *default* is deliberately
+ * unchanged by this stage: unset/empty still resolves to "native" on Linux.
+ * Whether to switch that default is Stage 3F.5.8B's decision, made only
+ * after the explicit-container path has been proven on a real Linux host
+ * (which this stage does, but a proof-of-capability is not the same
+ * decision as a default-behavior change — see this stage's own NSP,
+ * "Non-objectives"). Platform is taken as an injected parameter (defaulting
+ * to the real `process.platform`) rather than read internally, so this
+ * decision stays unit-testable for every platform without mutating global
+ * Node state.
  *
  * There is deliberately no automatic fallback from container to native: a
- * container startup failure (missing WSL2, no Docker Engine, daemon down,
+ * container startup failure (missing WSL2/Docker prerequisite, daemon down,
  * ...) fails the run rather than silently retrying under a different
- * provider — see the diagnostics this module's WSL/Docker discovery
- * functions throw, each naming the container-is-default policy and the
- * native override.
+ * provider — see the diagnostics this module's backend `preflight()`
+ * implementations throw, each naming the container-is-default-on-Windows
+ * policy and the native override.
  *
  * Throws on any value other than "native"/"container"/unset, rather than
  * silently falling back, so a typo'd env var fails loudly instead of
@@ -625,7 +1016,9 @@ export interface DockerRunOptions {
  *
  * `-p 127.0.0.1::22` is Docker's own syntax for "publish to a random host
  * port, bound only to 127.0.0.1" (empty host-port segment) — never a fixed
- * port, per this stage's own security requirements.
+ * port, per this module's own security requirements. Identical on both
+ * backends — Docker's own port-publish syntax has nothing WSL/Windows- or
+ * Linux-specific about it.
  */
 export function buildDockerRunArgs(options: DockerRunOptions): string[] {
   const containerName = assertSafeIdentifier(options.containerName, "container name");
@@ -660,7 +1053,11 @@ export function buildCleanupArgs(runId?: string): string[] {
 
 /** Parses `docker port <container>` output (`22/tcp -> 127.0.0.1:PORT`) into
  * the published host port, or null if no 127.0.0.1 mapping is present.
- * Pure string parsing — unit-testable without a real container. */
+ * Pure string parsing — unit-testable without a real container. Identical
+ * on both backends: Docker's own `port` output format does not depend on
+ * how the daemon was reached. Must never accept `0.0.0.0` or `::` — see
+ * this module's security requirements; only a literal `127.0.0.1:<port>`
+ * match is recognized at all. */
 export function parsePublishedPort(dockerPortOutput: string): number | null {
   const match = /127\.0\.0\.1:(\d+)/.exec(dockerPortOutput);
   return match ? Number.parseInt(match[1]!, 10) : null;
@@ -670,7 +1067,7 @@ export function parsePublishedPort(dockerPortOutput: string): number | null {
  * shape as git-remote.ts's buildSshRemoteUrl, but the container fixture's
  * username is always the fixed `git` (see the Dockerfile), never the host
  * OS user, and `bareRepoPath` is a path inside the *container's* filesystem
- * (e.g. `/home/git/repos/scenario1-abc123.git`), not the Windows host's. */
+ * (e.g. `/home/git/repos/scenario1-abc123.git`), not the host's own. */
 export function buildContainerSshRemoteUrl(bareRepoPath: string): string {
   return `${CONTAINER_USERNAME}@127.0.0.1:${bareRepoPath}`;
 }
@@ -680,12 +1077,13 @@ export function buildContainerSshRemoteUrl(bareRepoPath: string): string {
 // Stage 3F.5.4-R1's `checkContainerExists` collapsed every `docker inspect`
 // failure to "absent" — indistinguishable from a genuine "no such
 // container" result. That's wrong: a Docker daemon outage, a WSL2 VM
-// hiccup, a permission error, or `wsl.exe` itself failing all throw too,
-// and none of them prove the container is gone. Teardown built on that
-// boolean could report success while a real container (and its published
-// port) was still sitting there — the exact defect this stage's RP exists
-// to close. `ContainerPresence` makes the third case explicit so no caller
-// can accidentally treat "I couldn't check" as "it's gone".
+// hiccup, a permission error, or the backend's own execution path itself
+// failing all throw too, and none of them prove the container is gone.
+// Teardown built on that boolean could report success while a real
+// container (and its published port) was still sitting there — the exact
+// defect Stage 3F.5.4-R2 exists to close. `ContainerPresence` makes the
+// third case explicit so no caller can accidentally treat "I couldn't
+// check" as "it's gone".
 
 export type ContainerPresence = { status: "present" } | { status: "absent" } | { status: "unknown"; error: string };
 
@@ -693,14 +1091,15 @@ export type ContainerPresence = { status: "present" } | { status: "absent" } | {
  * Recognizes only Docker's own "the exact named object does not exist"
  * result — never a generic "not found" (missing binary, missing file
  * inside a container, an unrelated ENOENT). Confirmed against this
- * project's real Docker Engine (29.4.3 under WSL2): `docker inspect` on a
- * missing name prints `error: no such object: <name>` (lowercase, no
- * daemon-response prefix); `docker rm`/`docker port` print
- * `Error response from daemon: No such container: <name>`. Both are
- * covered by the same case-insensitive "no such object|container:" match;
- * neither "command not found" nor "permission denied" nor a connection
- * failure matches it, so those correctly fall through to "unknown" in
- * `inspectContainerPresence` rather than being misread as absence.
+ * project's real Docker Engine (validated on both WSL2-hosted and native
+ * Linux Docker): `docker inspect` on a missing name prints `error: no such
+ * object: <name>` (lowercase, no daemon-response prefix); `docker
+ * rm`/`docker port` print `Error response from daemon: No such container:
+ * <name>`. Both are covered by the same case-insensitive "no such
+ * object|container:" match; neither "command not found" nor "permission
+ * denied" nor a connection failure matches it, so those correctly fall
+ * through to "unknown" in `inspectContainerPresence` rather than being
+ * misread as absence.
  */
 const DOCKER_NOT_FOUND_RE = /no such (?:object|container):/i;
 
@@ -708,13 +1107,13 @@ export function isDockerNotFoundError(stderr: string): boolean {
   return DOCKER_NOT_FOUND_RE.test(stderr);
 }
 
-/** Injectable seam for `inspectContainerPresence` — mirrors `selectDistribution`'s
- * injected `checkDocker` dependency, so the tri-state classification below
- * is unit-testable with a fake `dockerInspect` that throws fabricated
- * `DockerCommandError`-shaped stderr, with no real WSL/Docker access. */
-export type DockerInspectFn = (distro: string, containerName: string) => Promise<ExecResult>;
+/** Injectable seam for `inspectContainerPresence` — so the tri-state
+ * classification below is unit-testable with a fake `dockerInspect` that
+ * throws fabricated `DockerCommandError`-shaped stderr, with no real
+ * WSL/Docker access. */
+export type DockerInspectFn = (backend: ContainerHostBackend, containerName: string) => Promise<ExecResult>;
 
-const defaultDockerInspect: DockerInspectFn = (distro, containerName) => execDocker(distro, ["inspect", containerName]);
+const defaultDockerInspect: DockerInspectFn = (backend, containerName) => backend.execDocker(["inspect", containerName]);
 
 /**
  * The single source of truth for "does this exact container currently
@@ -723,19 +1122,19 @@ const defaultDockerInspect: DockerInspectFn = (distro, containerName) => execDoc
  * succeeding is `"present"`; failing with Docker's own not-found message
  * (`isDockerNotFoundError`, checked against the preserved `DockerCommandError.
  * stderr`, not the flattened `error.message`) is `"absent"`; any other
- * failure — daemon down, WSL unavailable, permission denied, `wsl.exe`
- * itself erroring, a malformed/unexpected stderr shape — is `"unknown"`,
- * carrying the underlying diagnostic. Only `"absent"` may ever set
- * `containerVerifiedAbsent = true` downstream (see `CleanupResult` and
+ * failure — daemon down, WSL unavailable, permission denied, the backend's
+ * own execution path erroring, a malformed/unexpected stderr shape — is
+ * `"unknown"`, carrying the underlying diagnostic. Only `"absent"` may ever
+ * set `containerVerifiedAbsent = true` downstream (see `CleanupResult` and
  * `rollbackPartialContainerFixture`).
  */
 export async function inspectContainerPresence(
-  distro: string,
+  backend: ContainerHostBackend,
   containerName: string,
   dockerInspect: DockerInspectFn = defaultDockerInspect,
 ): Promise<ContainerPresence> {
   try {
-    await dockerInspect(distro, containerName);
+    await dockerInspect(backend, containerName);
     return { status: "present" };
   } catch (error) {
     const stderr = isDockerCommandError(error) ? error.stderr : "";
@@ -749,29 +1148,30 @@ export async function inspectContainerPresence(
 /** Injectable seam for `removeContainerViaDocker`, mirroring `DockerInspectFn` —
  * lets the not-found-during-removal classification below be unit-tested
  * with a fake `dockerRemove` and no real WSL/Docker access. */
-export type DockerRemoveFn = (distro: string, containerName: string) => Promise<ExecResult>;
+export type DockerRemoveFn = (backend: ContainerHostBackend, containerName: string) => Promise<ExecResult>;
 
-const defaultDockerRemove: DockerRemoveFn = (distro, containerName) => execDocker(distro, ["rm", "-f", containerName]);
+const defaultDockerRemove: DockerRemoveFn = (backend, containerName) => backend.execDocker(["rm", "-f", containerName]);
 
 /**
- * `docker rm -f <name>` against an already-absent container was observed
- * to exit 0 on this project's validated host (Docker Engine 29.4.3) — but
- * that specific behavior is a Docker Engine version detail, not a
- * documented cross-version guarantee (Stage 3F.5.4-R3). On a Docker Engine
- * that instead exits non-zero for that case, this function still treats it
- * as idempotent success: it reuses `isDockerNotFoundError` (never a
- * broadened or duplicated pattern) against the thrown `DockerCommandError`'s
- * preserved stderr, exactly like `inspectContainerPresence` does. Any other
- * failure — daemon down, WSL unavailable, permission denied, a generic
- * unrelated "not found" — is rethrown, never classified as absence.
+ * `docker rm -f <name>` against an already-absent container was observed to
+ * exit 0 on this project's validated hosts (Docker Engine, both WSL2-hosted
+ * and native Linux) — but that specific behavior is a Docker Engine version
+ * detail, not a documented cross-version guarantee (Stage 3F.5.4-R3). On a
+ * Docker Engine that instead exits non-zero for that case, this function
+ * still treats it as idempotent success: it reuses `isDockerNotFoundError`
+ * (never a broadened or duplicated pattern) against the thrown
+ * `DockerCommandError`'s preserved stderr, exactly like
+ * `inspectContainerPresence` does. Any other failure — daemon down, WSL
+ * unavailable, permission denied, a generic unrelated "not found" — is
+ * rethrown, never classified as absence.
  */
 export async function removeContainerViaDocker(
-  distro: string,
+  backend: ContainerHostBackend,
   containerName: string,
   dockerRemove: DockerRemoveFn = defaultDockerRemove,
 ): Promise<ContainerRemovalResult> {
   try {
-    await dockerRemove(distro, containerName);
+    await dockerRemove(backend, containerName);
     return "removed";
   } catch (error) {
     const stderr = isDockerCommandError(error) ? error.stderr : "";
@@ -784,12 +1184,12 @@ export async function removeContainerViaDocker(
 
 // ── Readiness ─────────────────────────────────────────────────────────────────
 
-async function waitForContainerHealthy(distro: string, containerName: string, timeoutMs: number): Promise<void> {
+async function waitForContainerHealthy(backend: ContainerHostBackend, containerName: string, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let lastStatus = "";
   while (Date.now() < deadline) {
     try {
-      const { stdout } = await execDocker(distro, [
+      const { stdout } = await backend.execDocker([
         "inspect",
         "--format",
         "{{.State.Health.Status}}",
@@ -812,17 +1212,17 @@ async function waitForContainerHealthy(distro: string, containerName: string, ti
 // ── Diagnostics ───────────────────────────────────────────────────────────────
 
 /**
- * Collects the failure diagnostics this stage's NSP requires: container
- * inspect, recent logs, and port mapping. Never touches key material — the
- * only secret-shaped thing in this module (the ephemeral private key) is
- * referenced only by filesystem path everywhere else, never read into a
- * diagnostic string.
+ * Collects the failure diagnostics this module's transactional-startup
+ * design requires: container inspect, recent logs, and port mapping. Never
+ * touches key material — the only secret-shaped thing in this module (the
+ * ephemeral private key) is referenced only by filesystem path everywhere
+ * else, never read into a diagnostic string.
  */
-export async function collectDiagnostics(distro: string, containerName: string): Promise<string> {
-  const sections: string[] = [`distro: ${distro}`, `container: ${containerName}`];
+export async function collectDiagnostics(backend: ContainerHostBackend, containerName: string): Promise<string> {
+  const sections: string[] = [`host backend: ${backend.describe()}`, `container: ${containerName}`];
   const tryRun = async (label: string, args: string[]): Promise<void> => {
     try {
-      const { stdout } = await execDocker(distro, args);
+      const { stdout } = await backend.execDocker(args);
       sections.push(`--- ${label} ---\n${stdout.trim()}`);
     } catch (error) {
       sections.push(`--- ${label} (failed) ---\n${errMsg(error)}`);
@@ -837,24 +1237,25 @@ export async function collectDiagnostics(distro: string, containerName: string):
 // ── Image lifecycle (content-addressed — Stage 3F.5.4-R1) ───────────────────
 
 interface EnsureImageBuiltDeps {
-  imageExists: (distro: string, tag: string) => Promise<boolean>;
-  buildImage: (distro: string, tag: string, mountPath: string, hash: string) => Promise<void>;
+  imageExists: (backend: ContainerHostBackend, tag: string) => Promise<boolean>;
+  buildImage: (backend: ContainerHostBackend, tag: string, buildContext: string, hash: string) => Promise<void>;
   /** Separated from `buildImage` so the hash/cache-reuse decision logic
    * this function exists to test is unit-testable without depending on
-   * FIXTURE_DIR actually being a Windows path — true only incidentally,
-   * because this whole module happens to run on a Windows host in
-   * production, not something the cache-invalidation logic itself should
-   * ever need to know about. */
-  resolveMountPath: () => string;
+   * FIXTURE_DIR actually being a real host path — true only incidentally,
+   * because this whole module happens to run on a real host in production,
+   * not something the cache-invalidation logic itself should ever need to
+   * know about. */
+  resolveBuildContext: (backend: ContainerHostBackend) => Promise<string>;
 }
 
 const defaultEnsureImageBuiltDeps: EnsureImageBuiltDeps = {
-  imageExists: (distro, tag) =>
-    execDocker(distro, ["image", "inspect", tag])
+  imageExists: (backend, tag) =>
+    backend
+      .execDocker(["image", "inspect", tag])
       .then(() => true)
       .catch(() => false),
-  buildImage: async (distro, tag, mountPath, hash) => {
-    await execDocker(distro, [
+  buildImage: async (backend, tag, buildContext, hash) => {
+    await backend.execDocker([
       "build",
       "--label",
       FIXTURE_LABEL,
@@ -862,17 +1263,21 @@ const defaultEnsureImageBuiltDeps: EnsureImageBuiltDeps = {
       `${FIXTURE_HASH_LABEL_PREFIX}${hash}`,
       "-t",
       tag,
-      mountPath,
+      buildContext,
     ]);
   },
-  resolveMountPath: () => windowsPathToWslMountPath(FIXTURE_DIR),
+  resolveBuildContext: (backend) => backend.resolveBuildContext(FIXTURE_DIR),
 };
 
 /**
  * Builds (or reuses) the fixture image, keyed by a content-addressed tag
  * (`ris-e2e-git-ssh-server:<12-char-hash>` — see computeFixtureContentHash)
  * derived from the Dockerfile/entrypoint.sh/sshd_config actually on disk
- * right now, not a fixed `:dev` tag.
+ * right now, not a fixed `:dev` tag. Identical on both backends — the same
+ * Dockerfile, the same hash, the same tag policy; only how the build
+ * context path is resolved (`backend.resolveBuildContext`) and how `docker
+ * build` is actually invoked (`backend.execDocker`) differ (Stage 3F.5.8A
+ * Stage I's "one Dockerfile, one content hash" requirement).
  *
  * Stage 3F.5.4-R1 hardening: the original `:dev`-tag design reused
  * whatever image happened to already carry that tag, with no check that it
@@ -886,14 +1291,15 @@ const defaultEnsureImageBuiltDeps: EnsureImageBuiltDeps = {
  * `forceRebuild` (RIS_E2E_CONTAINER_REBUILD=1) always rebuilds the exact
  * same content-addressed tag, even if it already exists — useful for
  * diagnostics (e.g. suspecting a corrupted local image) without needing to
- * touch the fixture source just to change its hash.
+ * touch the fixture source just to change its hash. Works identically on
+ * both backends.
  *
  * The returned tag is the source of truth `startContainerRemote` runs —
  * never call `buildImageTag("dev")` (or any other tag) independently after
  * this returns.
  */
 export async function ensureImageBuilt(
-  distro: string,
+  backend: ContainerHostBackend,
   forceRebuild = false,
   sourceFiles: FixtureSourceFile[] = readFixtureSourceFiles(),
   deps: EnsureImageBuiltDeps = defaultEnsureImageBuiltDeps,
@@ -902,23 +1308,22 @@ export async function ensureImageBuilt(
   const tag = buildImageTag(hash);
 
   if (!forceRebuild) {
-    const exists = await deps.imageExists(distro, tag);
+    const exists = await deps.imageExists(backend, tag);
     if (exists) {
       log(`reusing existing content-addressed image ${tag} (fixture source unchanged; set RIS_E2E_CONTAINER_REBUILD=1 to force a rebuild)`);
       return tag;
     }
   }
 
-  const mountPath = deps.resolveMountPath();
-  log(`building fixture image ${tag} from ${mountPath}${forceRebuild ? " (forced rebuild)" : ""}`);
+  const buildContext = await deps.resolveBuildContext(backend);
+  log(`building fixture image ${tag} from ${buildContext}${forceRebuild ? " (forced rebuild)" : ""}`);
   try {
-    await deps.buildImage(distro, tag, mountPath, hash);
+    await deps.buildImage(backend, tag, buildContext, hash);
   } catch (error) {
     throw new Error(
       withNativeFallbackHint(
-        `[container-git-remote] failed to build ${tag} from ${mountPath} inside WSL distribution "${distro}". ` +
-          "If Windows drives are not auto-mounted under /mnt in this distribution (automount disabled or " +
-          `remapped), set RIS_E2E_WSL_DISTRO to one where they are. Underlying error: ${errMsg(error)}`,
+        `[container-git-remote] failed to build ${tag} from ${buildContext} via ${backend.describe()}. ` +
+          `${backend.buildFailureHint()} Underlying error: ${errMsg(error)}`,
       ),
       { cause: error },
     );
@@ -930,68 +1335,18 @@ export function shouldForceRebuild(env: NodeJS.ProcessEnv = process.env): boolea
   return env["RIS_E2E_CONTAINER_REBUILD"] === "1";
 }
 
-// ── Keep-alive session (WSL2 VM idle-shutdown workaround) ────────────────────
-//
-// See this module's own doc comment for the empirical finding this exists
-// to work around. 86400s (24h) is just "far longer than any single WDIO
-// spec run could take" — the process is always explicitly killed by
-// cleanup, never left to time out on its own.
-
-function startKeepAliveSession(distro: string): ChildProcess {
-  const child = spawn("wsl.exe", ["-d", distro, "--", "sleep", "86400"], { stdio: "ignore" });
-  child.unref();
-  return child;
-}
-
-function stopKeepAliveSession(child: ChildProcess): void {
-  if (!child.killed && child.exitCode === null) {
-    child.kill();
-  }
-}
-
-// ── Public key installation ──────────────────────────────────────────────────
-
-/**
- * Installs `publicKey` into the container's authorized_keys via
- * `docker exec -i ... tee -a`, piping the key over stdin rather than as a
- * command-line argument (see this stage's "do not pass secrets through
- * command-line arguments when avoidable" rule — a public key isn't secret,
- * but this also keeps arbitrarily-shaped key comments out of argv/process
- * listings for free, and avoids ever needing to shell-escape it).
- */
-function installPublicKey(distro: string, containerName: string, publicKey: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(
-      "wsl.exe",
-      ["-d", distro, "--", "docker", "exec", "-i", containerName, "tee", "-a", CONTAINER_AUTHORIZED_KEYS],
-      { stdio: ["pipe", "ignore", "pipe"] },
-    );
-    let stderr = "";
-    child.stderr?.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
-    child.on("error", (error) => reject(new Error(`[container-git-remote] failed to install public key: ${error.message}`, { cause: error })));
-    child.on("exit", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`[container-git-remote] installing public key exited with code ${code}: ${stderr.trim()}`));
-    });
-    child.stdin?.end(publicKey);
-  });
-}
-
 // ── Container SSH remote server ───────────────────────────────────────────────
 
 export interface ContainerSshRemoteServer {
-  distro: string;
+  backend: ContainerHostBackend;
   containerName: string;
   runId: string;
   port: number;
   username: string;
-  /** Absolute Windows path to the ephemeral client private key (no passphrase). */
+  /** Absolute host path to the ephemeral client private key (no passphrase). */
   identityPath: string;
-  /** Windows-side directory holding this run's key material — removed by cleanup. */
+  /** Host-side directory holding this run's key material — removed by cleanup. */
   workDir: string;
-  keepAlive: ChildProcess;
 }
 
 function resolveRunRoot(): string {
@@ -1010,11 +1365,11 @@ function resolveRunRoot(): string {
 // Every side-effecting step startContainerRemote/cleanupContainerRemote/
 // cleanupOrphanedContainers performs is exposed here as a narrow, injectable
 // function — production code always uses defaultContainerOpsDeps (real
-// wsl.exe/docker/fs calls); tests inject fakes for deterministic
+// backend/fs calls); tests inject fakes (including a fake `createBackend`
+// returning a fully-stubbed `ContainerHostBackend`) for deterministic
 // fault-injection coverage with no real WSL/Docker required (Stage
-// 3F.5.4-R1's "lifecycle fault-injection tests" requirement). Mirrors the
-// dependency-injection style selectDistribution/securePrivateKeyFile/
-// buildSshdConfig already use elsewhere in this program.
+// 3F.5.4-R1's "lifecycle fault-injection tests" requirement, extended in
+// Stage 3F.5.8A to cover backend selection too).
 
 /**
  * Distinguishes "there was nothing to remove" from "removal was refused" —
@@ -1028,24 +1383,23 @@ export type WorkDirRemovalResult = "removed" | "already-absent" | "refused";
 
 /**
  * Stage 3F.5.4-R3: `docker rm -f <already-absent-name>` was observed to
- * exit 0 on this project's validated host (Docker Engine 29.4.3) — but
- * that specific idempotent-exit-code behavior is a Docker Engine version
- * detail, not a documented cross-version guarantee. On a Docker Engine
- * that instead exits non-zero for `rm -f` against a missing container
- * (Docker's own not-found stderr, e.g. `Error response from daemon: No
- * such container: <name>`), the removal call must still be treated as
- * idempotent success rather than a genuine failure — see
- * `defaultContainerOpsDeps.removeContainer`, which classifies that exact
- * stderr via `isDockerNotFoundError` (never a broadened/duplicated
- * pattern) instead of relying solely on the exit code.
+ * exit 0 on this project's validated hosts — but that specific idempotent-
+ * exit-code behavior is a Docker Engine version detail, not a documented
+ * cross-version guarantee. On a Docker Engine that instead exits non-zero
+ * for `rm -f` against a missing container (Docker's own not-found stderr,
+ * e.g. `Error response from daemon: No such container: <name>`), the
+ * removal call must still be treated as idempotent success rather than a
+ * genuine failure — see `defaultContainerOpsDeps.removeContainer`, which
+ * classifies that exact stderr via `isDockerNotFoundError` (never a
+ * broadened/duplicated pattern) instead of relying solely on the exit code.
  */
 export type ContainerRemovalResult = "removed" | "already-absent";
 
 /**
  * Stage 3F.5.4-R3: distinguishes "the config file was actually removed",
  * "there was nothing to remove", and "cleanup could not even determine
- * where to look" — the last of which was previously indistinguishable
- * from success (a silent `return` on a missing `RIS_E2E_RUN_ROOT` reported
+ * where to look" — the last of which was previously indistinguishable from
+ * success (a silent `return` on a missing `RIS_E2E_RUN_ROOT` reported
  * `sshConfigCleared = true` purely because nothing threw). Mirrors
  * `WorkDirRemovalResult`'s own rationale: an inability to safely locate or
  * act on the target is a refusal, not a success.
@@ -1053,29 +1407,31 @@ export type ContainerRemovalResult = "removed" | "already-absent";
 export type SshConfigRemovalResult = "removed" | "already-absent" | "refused";
 
 export interface ContainerOpsDeps {
-  resolveDistribution: () => Promise<string>;
-  startKeepAlive: (distro: string) => ChildProcess;
-  stopKeepAlive: (child: ChildProcess) => void;
-  ensureImageBuilt: (distro: string, forceRebuild: boolean) => Promise<string>;
-  dockerRun: (distro: string, args: string[]) => Promise<void>;
-  dockerPort: (distro: string, containerName: string) => Promise<string>;
-  waitForHealthy: (distro: string, containerName: string, timeoutMs: number) => Promise<void>;
-  collectDiagnostics: (distro: string, containerName: string) => Promise<string>;
+  /** Constructs (but does not preflight) a backend for the current
+   * platform. Production always uses `createContainerHostBackend` with no
+   * argument (real `process.platform`); tests inject a factory returning a
+   * fully-stubbed `ContainerHostBackend`. */
+  createBackend: () => ContainerHostBackend;
+  ensureImageBuilt: (backend: ContainerHostBackend, forceRebuild: boolean) => Promise<string>;
+  dockerRun: (backend: ContainerHostBackend, args: string[]) => Promise<void>;
+  dockerPort: (backend: ContainerHostBackend, containerName: string) => Promise<string>;
+  waitForHealthy: (backend: ContainerHostBackend, containerName: string, timeoutMs: number) => Promise<void>;
+  collectDiagnostics: (backend: ContainerHostBackend, containerName: string) => Promise<string>;
   /** Idempotent by contract (Stage 3F.5.4-R3): resolves `"already-absent"`
    * rather than throwing when the container was already gone, on any
    * Docker Engine version's exact not-found result — never merely on a
    * non-throwing `rm -f` exit. Only a non-not-found failure ever throws. */
-  removeContainer: (distro: string, containerName: string) => Promise<ContainerRemovalResult>;
+  removeContainer: (backend: ContainerHostBackend, containerName: string) => Promise<ContainerRemovalResult>;
   /** Exact-identity, tri-state presence check (never a substring/name-filter
    * match, and never collapses "couldn't tell" into "absent" — see
    * `ContainerPresence`/`inspectContainerPresence`, Stage 3F.5.4-R2). */
-  inspectContainerPresence: (distro: string, containerName: string) => Promise<ContainerPresence>;
-  listFixtureContainers: (distro: string, runId?: string) => Promise<string[]>;
-  removeContainersByIds: (distro: string, ids: string[]) => Promise<void>;
+  inspectContainerPresence: (backend: ContainerHostBackend, containerName: string) => Promise<ContainerPresence>;
+  listFixtureContainers: (backend: ContainerHostBackend, runId?: string) => Promise<string[]>;
+  removeContainersByIds: (backend: ContainerHostBackend, ids: string[]) => Promise<void>;
   generateKeypair: (identityPath: string) => Promise<void>;
   securePrivateKeyFile: (identityPath: string) => void;
   readPublicKey: (identityPath: string) => string;
-  installPublicKey: (distro: string, containerName: string, publicKey: string) => Promise<void>;
+  installPublicKey: (backend: ContainerHostBackend, containerName: string, publicKey: string) => Promise<void>;
   removeWorkDir: (workDir: string) => Promise<WorkDirRemovalResult>;
   clearSshConfig: () => SshConfigRemovalResult;
 }
@@ -1086,7 +1442,7 @@ export interface ContainerOpsDeps {
  * unrelated error that merely mentions "not found" in its text with a
  * genuine `ENOENT`, exactly the kind of ambiguity `isDockerNotFoundError`
  * already avoids for Docker errors by checking a specific field rather
- * than free text — see this stage's own "do not classify errors by
+ * than free text — see this module's own "do not classify errors by
  * message text" rule).
  */
 export function isNodeErrorWithCode(error: unknown, code: NodeJS.ErrnoException["code"]): boolean {
@@ -1129,7 +1485,12 @@ const defaultSshConfigFsDeps: SshConfigFsDeps = {
  * Exported (Stage 3F.5.4-R3) so its tri-state result can be exercised
  * directly against injected filesystem operations, without needing to go
  * through `cleanupContainerRemote`/`ContainerOpsDeps` — pure logic, same
- * testing rationale as `isStrictChildPath` itself.
+ * testing rationale as `isStrictChildPath` itself. This logic has always
+ * been platform-neutral — it operates on whatever `RIS_E2E_RUN_ROOT` and
+ * `configPath` actually are on the host running it (a Windows path on
+ * Windows, a Linux path on Linux); see Stage 3F.5.8A Stage N's Linux-path
+ * test additions alongside the pre-existing Windows-path ones, neither
+ * weakened by the other.
  *
  * Stage 3F.5.4-R5: the removal step is now also wrapped — a valid
  * time-of-check/time-of-use race exists between the `lstat` above
@@ -1202,6 +1563,7 @@ const defaultWorkDirFsDeps: WorkDirFsDeps = {
  * error with no recognized code at all are all rethrown unchanged. Path
  * safety (`RIS_E2E_RUN_ROOT` required, `isStrictChildPath`) and the
  * existing recursive-removal retry behavior are both preserved exactly.
+ * Platform-neutral, same note as `clearContainerSshConfig` above.
  *
  * Exported directly (not a separately-named wrapper) for the same reason
  * `clearContainerSshConfig` is: the test must exercise the real production
@@ -1236,35 +1598,34 @@ export async function removeContainerWorkDir(
 }
 
 export const defaultContainerOpsDeps: ContainerOpsDeps = {
-  resolveDistribution,
-  startKeepAlive: startKeepAliveSession,
-  stopKeepAlive: stopKeepAliveSession,
-  ensureImageBuilt: (distro, forceRebuild) => ensureImageBuilt(distro, forceRebuild),
-  dockerRun: async (distro, args) => {
-    await execDocker(distro, args);
+  createBackend: () => createContainerHostBackend(),
+  ensureImageBuilt: (backend, forceRebuild) => ensureImageBuilt(backend, forceRebuild),
+  dockerRun: async (backend, args) => {
+    await backend.execDocker(args);
   },
-  dockerPort: async (distro, containerName) => (await execDocker(distro, ["port", containerName])).stdout,
+  dockerPort: async (backend, containerName) => (await backend.execDocker(["port", containerName])).stdout,
   waitForHealthy: waitForContainerHealthy,
   collectDiagnostics,
   removeContainer: removeContainerViaDocker,
   inspectContainerPresence,
-  listFixtureContainers: async (distro, runId) => {
-    const { stdout } = await execDocker(distro, buildCleanupArgs(runId));
+  listFixtureContainers: async (backend, runId) => {
+    const { stdout } = await backend.execDocker(buildCleanupArgs(runId));
     return stdout
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean);
   },
-  removeContainersByIds: async (distro, ids) => {
+  removeContainersByIds: async (backend, ids) => {
     if (ids.length === 0) return;
-    await execDocker(distro, ["rm", "-f", ...ids]);
+    await backend.execDocker(["rm", "-f", ...ids]);
   },
   generateKeypair: async (identityPath) => {
     await execFileP("ssh-keygen", ["-t", "ed25519", "-f", identityPath, "-N", "", "-q"]);
   },
   securePrivateKeyFile: (identityPath) => securePrivateKeyFileImpl(identityPath),
   readPublicKey: (identityPath) => readFileSync(`${identityPath}.pub`, "utf8"),
-  installPublicKey,
+  installPublicKey: (backend, containerName, publicKey) =>
+    backend.execDockerWithStdin(["exec", "-i", containerName, "tee", "-a", CONTAINER_AUTHORIZED_KEYS], publicKey),
   removeWorkDir: removeContainerWorkDir,
   clearSshConfig: clearContainerSshConfig,
 };
@@ -1275,10 +1636,10 @@ export const defaultContainerOpsDeps: ContainerOpsDeps = {
  * of failure — every field is optional because failure can happen before
  * any given resource was ever created. */
 export interface PartialContainerFixtureState {
-  distro?: string;
+  backend?: ContainerHostBackend;
+  keepAliveStarted?: boolean;
   containerName?: string;
   workDir?: string;
-  keepAlive?: ChildProcess;
   /** True only once configureContainerSsh (a layer above startContainerRemote
    * — see createContainerRemoteFixture) has successfully written the
    * wrapper's env file for this run. Always false for a state built purely
@@ -1288,16 +1649,16 @@ export interface PartialContainerFixtureState {
 
 type RollbackDeps = Pick<
   ContainerOpsDeps,
-  "collectDiagnostics" | "removeContainer" | "inspectContainerPresence" | "removeWorkDir" | "clearSshConfig" | "stopKeepAlive"
+  "collectDiagnostics" | "removeContainer" | "inspectContainerPresence" | "removeWorkDir" | "clearSshConfig"
 >;
 
 /**
- * Rolls back the one container `distro`/`containerName` names, tri-state
+ * Rolls back the one container `backend`/`containerName` names, tri-state
  * aware (Stage 3F.5.4-R2's defect-1 fix applied to rollback, not just
  * `cleanupContainerRemote`): inspects presence first — confirmed absent
  * needs no removal attempt at all; confirmed present or unknown (a failed
  * inspection proves nothing, so it still gets a safe removal attempt — the
- * name is unique to this run, per this stage's "track the name before
+ * name is unique to this run, per this module's "track the name before
  * `docker run`" fix, so an idempotent `docker rm -f` is always safe to try)
  * both trigger `removeContainer`. A final presence check (skipped only when
  * the initial check already proved absence) is what actually sets
@@ -1305,20 +1666,20 @@ type RollbackDeps = Pick<
  * than being assumed away.
  */
 async function rollbackContainerByName(
-  distro: string,
+  backend: ContainerHostBackend,
   containerName: string,
   deps: RollbackDeps,
 ): Promise<{ diagnostics: string[]; containerVerifiedAbsent: boolean }> {
   const diagnostics: string[] = [];
 
   try {
-    const diag = await deps.collectDiagnostics(distro, containerName);
+    const diag = await deps.collectDiagnostics(backend, containerName);
     diagnostics.push(`diagnostics for ${containerName} before rollback:\n${diag}`);
   } catch (error) {
     diagnostics.push(`collecting diagnostics for ${containerName} failed: ${errMsg(error)}`);
   }
 
-  const initialPresence = await deps.inspectContainerPresence(distro, containerName);
+  const initialPresence = await deps.inspectContainerPresence(backend, containerName);
   if (initialPresence.status === "unknown") {
     diagnostics.push(`presence of "${containerName}" could not be determined before rollback: ${initialPresence.error}`);
   }
@@ -1329,14 +1690,14 @@ async function rollbackContainerByName(
       // is idempotent by contract (Stage 3F.5.4-R3), so an already-gone
       // container is a successful outcome here, not a failure to remove
       // something that was never there.
-      await deps.removeContainer(distro, containerName);
+      await deps.removeContainer(backend, containerName);
     } catch (error) {
       diagnostics.push(`removing container "${containerName}" failed: ${errMsg(error)}`);
     }
   }
 
   const finalPresence =
-    initialPresence.status === "absent" ? initialPresence : await deps.inspectContainerPresence(distro, containerName);
+    initialPresence.status === "absent" ? initialPresence : await deps.inspectContainerPresence(backend, containerName);
   if (finalPresence.status === "unknown") {
     diagnostics.push(`presence of "${containerName}" could not be verified after rollback: ${finalPresence.error}`);
   } else if (finalPresence.status === "present") {
@@ -1348,17 +1709,18 @@ async function rollbackContainerByName(
 
 /**
  * Rolls back whatever subset of a container fixture's resources partial
- * `state` describes, in the order this stage's NSP specifies: diagnostics +
- * tri-state presence-aware container removal (`rollbackContainerByName`,
- * Stage 3F.5.4-R2) → remove work directory → clear SSH wrapper config →
- * stop keep-alive last (so it stays available for the Docker commands the
- * earlier steps still need). Every step is independently guarded — a
- * missing field is skipped entirely (safe with no container, no work
- * directory, etc.), and a failure in one step never prevents the next from
- * being attempted. Returns the list of diagnostic strings produced
- * (collected container diagnostics plus any step failures) — never throws
- * itself, so a caller's own error handling is never masked by a rollback
- * failure.
+ * `state` describes, in the order this module's transactional-startup
+ * design specifies: diagnostics + tri-state presence-aware container
+ * removal (`rollbackContainerByName`, Stage 3F.5.4-R2) → remove work
+ * directory → clear SSH wrapper config → stop keep-alive last (so it stays
+ * available for the Docker commands the earlier steps still need — a no-op
+ * on the Linux backend, harmless to call unconditionally). Every step is
+ * independently guarded — a missing field is skipped entirely (safe with no
+ * container, no work directory, etc.), and a failure in one step never
+ * prevents the next from being attempted. Returns the list of diagnostic
+ * strings produced (collected container diagnostics plus any step
+ * failures) — never throws itself, so a caller's own error handling is
+ * never masked by a rollback failure.
  */
 export async function rollbackPartialContainerFixture(
   state: PartialContainerFixtureState,
@@ -1366,8 +1728,8 @@ export async function rollbackPartialContainerFixture(
 ): Promise<string[]> {
   const diagnostics: string[] = [];
 
-  if (state.distro && state.containerName) {
-    const containerResult = await rollbackContainerByName(state.distro, state.containerName, deps);
+  if (state.backend && state.containerName) {
+    const containerResult = await rollbackContainerByName(state.backend, state.containerName, deps);
     diagnostics.push(...containerResult.diagnostics);
   }
 
@@ -1395,9 +1757,9 @@ export async function rollbackPartialContainerFixture(
     }
   }
 
-  if (state.keepAlive) {
+  if (state.keepAliveStarted && state.backend) {
     try {
-      deps.stopKeepAlive(state.keepAlive);
+      state.backend.stopKeepAlive();
     } catch (error) {
       diagnostics.push(`stopping keep-alive failed: ${errMsg(error)}`);
     }
@@ -1407,11 +1769,13 @@ export async function rollbackPartialContainerFixture(
 }
 
 /**
- * Starts the containerized Git-over-SSH fixture: resolves a working WSL2
- * distribution, keeps a session attached to it for the fixture's lifetime,
- * ensures the fixture image is built, starts a uniquely-named/labeled
- * container publishing SSH on a random 127.0.0.1 port, waits for its
- * healthcheck, generates an ephemeral client keypair, and installs the
+ * Starts the containerized Git-over-SSH fixture: resolves a working host
+ * backend (Windows: a WSL2 distribution with Docker; Linux: confirms native
+ * Docker is reachable — see `ContainerHostBackend.preflight`), keeps a
+ * keep-alive session attached for the fixture's lifetime (a no-op on
+ * Linux), ensures the fixture image is built, starts a uniquely-named/
+ * labeled container publishing SSH on a random 127.0.0.1 port, waits for
+ * its healthcheck, generates an ephemeral client keypair, and installs the
  * public half into the container.
  *
  * Transactional (Stage 3F.5.4-R1): every resource acquired along the way is
@@ -1438,14 +1802,15 @@ export async function startContainerRemote(
   const state: PartialContainerFixtureState = {};
 
   try {
-    const distro = await deps.resolveDistribution();
-    state.distro = distro;
-    log(`selected WSL2 distribution: ${distro}`);
+    const backend = deps.createBackend();
+    state.backend = backend;
+    await backend.preflight();
+    log(`using container host backend: ${backend.describe()}`);
 
-    const keepAlive = deps.startKeepAlive(distro);
-    state.keepAlive = keepAlive;
+    backend.startKeepAlive();
+    state.keepAliveStarted = true;
 
-    const imageTag = await deps.ensureImageBuilt(distro, options.forceRebuild ?? shouldForceRebuild());
+    const imageTag = await deps.ensureImageBuilt(backend, options.forceRebuild ?? shouldForceRebuild());
 
     const runId = generateRunId();
     const containerName = buildContainerName(runId);
@@ -1459,23 +1824,23 @@ export async function startContainerRemote(
     state.containerName = containerName;
 
     log(`starting container ${containerName} from ${imageTag}`);
-    await deps.dockerRun(distro, buildDockerRunArgs({ containerName, imageTag, runId }));
+    await deps.dockerRun(backend, buildDockerRunArgs({ containerName, imageTag, runId }));
 
-    const portOutput = await deps.dockerPort(distro, containerName);
+    const portOutput = await deps.dockerPort(backend, containerName);
     const parsedPort = parsePublishedPort(portOutput);
     if (parsedPort === null) {
       // Stage 3F.5.7-R1: deliberately no withNativeFallbackHint() here. Docker
       // already reported the container running by this point (docker run
       // succeeded) — an unparseable `docker port` output is an internal
       // fixture invariant failure (a defect in this module or an
-      // unanticipated Docker output format), not a missing Windows/WSL2/
-      // Docker prerequisite. Suggesting the native fallback here would read
-      // as "here's how to work around this bug" rather than surface it.
+      // unanticipated Docker output format), not a missing prerequisite.
+      // Suggesting the native fallback here would read as "here's how to
+      // work around this bug" rather than surface it.
       throw new Error(
         `[container-git-remote] could not parse a 127.0.0.1 published port for "${containerName}" from: "${portOutput.trim()}"`,
       );
     }
-    await deps.waitForHealthy(distro, containerName, 20_000);
+    await deps.waitForHealthy(backend, containerName, 20_000);
     log(`container healthy: 127.0.0.1:${parsedPort}`);
 
     const gitDir = join(runRoot, "git");
@@ -1490,18 +1855,17 @@ export async function startContainerRemote(
     deps.securePrivateKeyFile(identityPath);
 
     const publicKey = deps.readPublicKey(identityPath);
-    await deps.installPublicKey(distro, containerName, publicKey);
+    await deps.installPublicKey(backend, containerName, publicKey);
     log("public key installed in container");
 
     return {
-      distro,
+      backend,
       containerName,
       runId,
       port: parsedPort,
       username: CONTAINER_USERNAME,
       identityPath,
       workDir,
-      keepAlive,
     };
   } catch (error) {
     const rollbackDiagnostics = await rollbackPartialContainerFixture(state, deps).catch((rollbackError) => [
@@ -1521,7 +1885,7 @@ export async function startContainerRemote(
  * registration (pointing at the static ssh-wrapper.sh) serves either
  * provider with zero changes. Duplicated here rather than imported: it's a
  * few lines of generic env-file writing, not sshd-specific behavior, and
- * this stage's NSP asks this module not to reach into git-remote.ts's
+ * this module's own design asks it not to reach into git-remote.ts's
  * private implementation details.
  */
 export function configureContainerSsh(server: ContainerSshRemoteServer): void {
@@ -1564,7 +1928,7 @@ export interface CleanupResult {
   keepAliveStopRequested: boolean;
   keepAliveStopped: boolean;
   /** Non-fatal problems encountered during cleanup — cleanup never throws;
-   * a failed step is recorded here instead (see this stage's "do not
+   * a failed step is recorded here instead (see this module's "do not
    * silently treat a failed container removal as success" requirement). */
   errors: string[];
 }
@@ -1574,15 +1938,15 @@ export interface CleanupResult {
  * Order matters (Stage 3F.5.4-R1, unchanged by R2): clear SSH wrapper
  * config → remove container → verify removal (exact-identity, tri-state
  * presence check — see `ContainerPresence`/`inspectContainerPresence`,
- * Stage 3F.5.4-R2) → remove Windows work directory → stop the WSL
- * keep-alive **last, in a `finally`**, so it stays available for every
- * Docker command the earlier steps still need, even if one of them fails.
- * A failed container removal is recorded in `errors`/logged as a warning,
- * never silently treated as success. Safe to call twice on the same server
- * — each step tolerates its target already being gone, and an
- * already-absent target is reported as success, not as a failure to remove
- * something that was never there (Stage 3F.5.4-R2's idempotency
- * requirement).
+ * Stage 3F.5.4-R2) → remove host work directory → stop the keep-alive
+ * **last, in a `finally`** (a no-op on Linux, harmless to call
+ * unconditionally), so it stays available for every Docker command the
+ * earlier steps still need, even if one of them fails. A failed container
+ * removal is recorded in `errors`/logged as a warning, never silently
+ * treated as success. Safe to call twice on the same server — each step
+ * tolerates its target already being gone, and an already-absent target is
+ * reported as success, not as a failure to remove something that was never
+ * there (Stage 3F.5.4-R2's idempotency requirement).
  */
 export async function cleanupContainerRemote(
   server: ContainerSshRemoteServer,
@@ -1620,7 +1984,7 @@ export async function cleanupContainerRemote(
       // "already-absent" is idempotent success, not a failure to remove
       // something that was never there (Stage 3F.5.4-R3's defect-1 fix) —
       // only a genuine removal failure ever reaches the catch below.
-      const removalResult = await deps.removeContainer(server.distro, server.containerName);
+      const removalResult = await deps.removeContainer(server.backend, server.containerName);
       containerRemoved = removalResult === "removed";
     } catch (error) {
       errors.push(`removing container "${server.containerName}" failed: ${errMsg(error)}`);
@@ -1632,7 +1996,7 @@ export async function cleanupContainerRemote(
     // work-directory removal and keep-alive shutdown ever run.
     let presence: ContainerPresence;
     try {
-      presence = await deps.inspectContainerPresence(server.distro, server.containerName);
+      presence = await deps.inspectContainerPresence(server.backend, server.containerName);
     } catch (error) {
       presence = { status: "unknown", error: errMsg(error) };
     }
@@ -1661,7 +2025,7 @@ export async function cleanupContainerRemote(
   } finally {
     keepAliveStopRequested = true;
     try {
-      deps.stopKeepAlive(server.keepAlive);
+      server.backend.stopKeepAlive();
       keepAliveStopped = true;
     } catch (error) {
       errors.push(`stopping keep-alive failed: ${errMsg(error)}`);
@@ -1708,12 +2072,12 @@ function collectCleanupIssues(result: CleanupResult): string[] {
 }
 
 /**
- * The clear success predicate this stage's RP requires: a container
- * cleanup is only successful when SSH config was cleared, the container is
- * *conclusively* verified absent (never merely "removal didn't throw" —
- * see `CleanupResult.containerVerifiedAbsent`), the work directory was
- * removed or was already absent, the keep-alive was confirmed stopped, and
- * no other error was recorded.
+ * The clear success predicate this module's teardown design requires: a
+ * container cleanup is only successful when SSH config was cleared, the
+ * container is *conclusively* verified absent (never merely "removal
+ * didn't throw" — see `CleanupResult.containerVerifiedAbsent`), the work
+ * directory was removed or was already absent, the keep-alive was
+ * confirmed stopped, and no other error was recorded.
  */
 export function isCleanupSuccessful(result: CleanupResult): boolean {
   return collectCleanupIssues(result).length === 0;
@@ -1797,7 +2161,7 @@ export function assertFixtureCleanupSucceeded(result: FixtureCleanupResult): voi
 
 /**
  * Safe, label-scoped sweep for containers left behind by a forcibly-killed
- * test process (see this stage's cleanup contract). Only ever removes the
+ * test process (see this module's cleanup contract). Only ever removes the
  * exact container IDs `listFixtureContainers` returns — which is itself
  * always filtered to FIXTURE_LABEL (optionally further scoped to one run
  * id) — never anything else on the host; this function has no path that
@@ -1805,13 +2169,13 @@ export function assertFixtureCleanupSucceeded(result: FixtureCleanupResult): voi
  * or malformed.
  */
 export async function cleanupOrphanedContainers(
-  distro: string,
+  backend: ContainerHostBackend,
   runId?: string,
   deps: Pick<ContainerOpsDeps, "listFixtureContainers" | "removeContainersByIds"> = defaultContainerOpsDeps,
 ): Promise<string[]> {
-  const ids = await deps.listFixtureContainers(distro, runId);
+  const ids = await deps.listFixtureContainers(backend, runId);
   if (ids.length === 0) return [];
-  await deps.removeContainersByIds(distro, ids);
+  await deps.removeContainersByIds(backend, ids);
   return ids;
 }
 
@@ -1922,11 +2286,12 @@ export async function createContainerRemoteFixture(
 
 // ── Bare remote repositories (administered via `docker exec`, as root) ──────
 //
-// Per this stage's NSP: "Repository administration may use docker exec.
-// Application Git operations must use SSH from Windows." Every function
-// below runs inside the container as root over `docker exec`; the
-// application under test never talks to the container any way other than
-// the SSH port these functions never touch.
+// Per this module's own security design: "Repository administration may use
+// docker exec. Application Git operations must use SSH from the host."
+// Every function below runs inside the container as root over `docker
+// exec`, via `server.backend.execDocker(...)`; the application under test
+// never talks to the container any way other than the SSH port these
+// functions never touch.
 
 export async function createContainerBareRemote(
   server: ContainerSshRemoteServer,
@@ -1937,7 +2302,7 @@ export async function createContainerBareRemote(
   const bareDir = `${CONTAINER_REPOS_DIR}/${label}-${suffix}.git`;
   const bareDirQ = shQuote(bareDir);
   const script = `mkdir -p ${bareDirQ} && git init --bare -q ${bareDirQ} && chown -R git:git ${bareDirQ}`;
-  await execDocker(server.distro, ["exec", server.containerName, "sh", "-c", script]);
+  await server.backend.execDocker(["exec", server.containerName, "sh", "-c", script]);
   return bareDir;
 }
 
@@ -1946,12 +2311,12 @@ export async function createContainerBareRemote(
  * current branch — the container counterpart to git-remote.ts's
  * `seedBareRemoteFromLocalRepo` (Stage 3F.5.5). That function pushes
  * directly to the bare repo's filesystem path because the native fixture's
- * remote is Windows-local; this container's bare remote is only reachable
- * over SSH, so seeding here uses the exact same real SSH transport the
- * application itself uses (`GIT_SSH_COMMAND` -> `ssh-wrapper.sh` -> this
- * run's ephemeral identity/port, already wired up by `configureContainerSsh`
- * by the time a spec calls this) — test-side only, a real `git push`, never
- * a call into the application.
+ * remote is local to the host; this container's bare remote is only
+ * reachable over SSH, so seeding here uses the exact same real SSH
+ * transport the application itself uses (`GIT_SSH_COMMAND` -> `ssh-wrapper.sh`
+ * -> this run's ephemeral identity/port, already wired up by
+ * `configureContainerSsh` by the time a spec calls this) — test-side only,
+ * a real `git push`, never a call into the application.
  *
  * Mirrors `seedBareRemoteFromLocalRepo`'s own HEAD-fix rationale exactly:
  * `git init --bare` (`createContainerBareRemote`) sets the bare repo's
@@ -1973,7 +2338,7 @@ export async function seedContainerBareRemoteFromLocalRepo(
   // short-ref resolution and makes the source/destination namespaces
   // unambiguous, rather than relying on git's own short-name inference.
   await runGit(localRepoPath, ["push", "-q", remoteUrl, `refs/heads/${branch}:refs/heads/${branch}`]);
-  await execDocker(server.distro, [
+  await server.backend.execDocker([
     "exec",
     server.containerName,
     "git",
@@ -1990,7 +2355,7 @@ export async function getContainerRemoteHeadCommit(
   bareRepoPath: string,
   ref = "HEAD",
 ): Promise<string> {
-  const { stdout } = await execDocker(server.distro, [
+  const { stdout } = await server.backend.execDocker([
     "exec",
     server.containerName,
     "git",
@@ -2007,7 +2372,7 @@ export async function getContainerRemoteCommitCount(
   bareRepoPath: string,
   ref = "HEAD",
 ): Promise<number> {
-  const { stdout } = await execDocker(server.distro, [
+  const { stdout } = await server.backend.execDocker([
     "exec",
     server.containerName,
     "git",
@@ -2023,10 +2388,10 @@ export async function getContainerRemoteCommitCount(
 /**
  * Simulates a teammate's commit landing on the remote — mirrors
  * git-remote.ts's pushSimulatedRemoteCommit, but since the bare repo lives
- * inside the container's filesystem (not reachable from the Windows test
- * runner directly), the whole clone/commit/push/cleanup sequence runs
- * inside the container over a single `docker exec ... sh -c` script, with
- * every interpolated value centrally quoted through shQuote.
+ * inside the container's filesystem (not reachable from the test runner
+ * directly), the whole clone/commit/push/cleanup sequence runs inside the
+ * container over a single `docker exec ... sh -c` script, with every
+ * interpolated value centrally quoted through shQuote.
  */
 export async function pushSimulatedContainerRemoteCommit(
   server: ContainerSshRemoteServer,
@@ -2050,7 +2415,7 @@ export async function pushSimulatedContainerRemoteCommit(
     `git -C ${scratchQ} rev-parse HEAD`,
     `rm -rf ${scratchQ}`,
   ].join(" && ");
-  const { stdout } = await execDocker(server.distro, ["exec", server.containerName, "sh", "-c", script]);
+  const { stdout } = await server.backend.execDocker(["exec", server.containerName, "sh", "-c", script]);
   const lines = stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const sha = lines[lines.length - 1];
   if (!sha) {
