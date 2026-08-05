@@ -4236,12 +4236,13 @@ run — no leftover app/driver process, ports 4444/4445 clear).**
 | `git-remote-workflows` | container | PASS | 26s |
 | `git-diverged-pull` | container | PASS | 21s |
 
-All seven runs reported `ports_free=true` with no residual app/driver/
-`sshd` process afterward. Every run also reported the runner's own
-`PASS_WITH_FORCED_CLEANUP` benchmark categorization (a driver-process
+All eight runs (3 native clone runs + 2 other native runs + 3 container
+runs = 8/8 real-host runs) reported `ports_free=true` with no residual
+app/driver/`sshd` process afterward. Every run also reported the runner's
+own `PASS_WITH_FORCED_CLEANUP` benchmark categorization (a driver-process
 teardown-timing quirk in `scripts/run-wdio-performance-benchmark.mjs`,
 invoked internally by `scripts/run-wdio-e2e.mjs` for every spec run) —
-identical across all seven runs regardless of spec or provider, confirming
+identical across all eight runs regardless of spec or provider, confirming
 it is pre-existing infrastructure behavior unrelated to this fix, not a
 new regression. The command-level timing collapsed from the pre-fix
 worst case (p99=181113ms, max=181117ms, ~12.5 minutes to the eventual
@@ -4271,6 +4272,249 @@ This does not itself flip `resolveGitRemoteProvider()`'s default —
 that remains a deliberately separate future stage (CI validation of the
 container path is still outstanding), per this stage's own explicit
 non-objective.
+
+### Stage 3F.5.7 — Default container provider on Windows (2026-08-05)
+
+**Goal.** Flip `resolveGitRemoteProvider()`'s default from `native` to
+`container` for all three Git-over-SSH specs on Windows, per Stage
+3F.5.5's own "ready for default-provider decision" status and Stage
+3F.5.6's root-cause fix for the native clone hang. `native` stays fully
+supported as an explicit, genuinely usable fallback — it is not removed.
+
+**Resolver change.** `resolveGitRemoteProvider()` in
+`apps/desktop/e2e-wdio/support/container-git-remote.ts` now returns
+`"container"` when `RIS_E2E_GIT_REMOTE_PROVIDER` is unset or an empty
+string (previously `"native"`). Every other branch is unchanged: an
+explicit `"native"` or `"container"` value resolves exactly as named
+(comparison stays case-sensitive, non-trimmed — the repository's existing
+normalization rules were preserved rather than rewritten), and any other
+value still throws `invalid RIS_E2E_GIT_REMOTE_PROVIDER="<value>" —
+expected "native" or "container"` before any fixture is created. All
+three Git-over-SSH specs (`git-remote-workflows.e2e.ts`,
+`git-clone-workflows.e2e.ts`, `git-diverged-pull.e2e.ts`) resolve the
+provider through this one function — the first two directly, the latter
+two via `git-remote-fixture.ts`'s shared `createGitRemoteFixture()`
+adapter, whose `defaultCreateGitRemoteFixtureDeps.resolveProvider` is the
+same `resolveGitRemoteProvider` (asserted by identity in
+`git-remote-fixture.test.ts`), not a reimplementation.
+`git-remote-workflows.e2e.ts` keeps its own local adapter rather than
+being retrofitted onto the shared one — both delegate to the identical
+resolver, so there is nothing to migrate for this stage's purpose (per
+this stage's own explicit non-objective).
+
+**No-automatic-fallback policy.** A container startup failure (missing
+WSL2, no Docker Engine, daemon down, image build failure, port
+publication failure, ...) fails the run. There is no
+`try container / catch / start native` anywhere in the fixture code —
+confirmed by inspection of `createContainerRemoteFixture()` and
+`createGitRemoteFixture()`, neither of which has a code path from a
+container failure into the native branch. Falling back silently would
+hide broken WSL2/Docker prerequisites and make results provider-dependent
+in a way that isn't visible from a green run.
+
+**Windows prerequisite diagnostics.** Every container-prerequisite
+failure path (`wsl.exe` unavailable, no WSL distribution installed, only
+WSL1 found, `RIS_E2E_WSL_DISTRO` override invalid/wrong version/no
+Docker, no WSL2 distribution with working Docker, image build failure —
+including the `/mnt/c` automount case, and SSH port-publication parse
+failure) now appends a fixed hint via `withNativeFallbackHint()`: that
+container is the Stage 3F.5.7 default and
+`RIS_E2E_GIT_REMOTE_PROVIDER=native` selects the fallback. The
+underlying diagnostic text (WSL/Docker error classification via
+`classifyDockerError`, the specific prerequisite that failed) is never
+wrapped or replaced — only this hint is appended after it, per this
+stage's "avoid wrapping detailed lower-level diagnostics in a generic
+error" requirement.
+
+**Windows prerequisites for the container provider:**
+- Windows host with WSL2 installed and a Linux distribution available
+- Docker Engine available and running inside the selected WSL2
+  distribution (Docker Desktop is not required)
+- the current user able to run `docker` commands inside that distribution
+- Windows Git and the Windows OpenSSH client (`ssh.exe`) available, as
+  already required by the native fixture
+- the standard `/mnt/c` WSL2 drive-mount convention, unless
+  `RIS_E2E_WSL_DISTRO` selects a distribution where it differs
+- `native` remains available as a diagnostic/fallback provider via
+  `RIS_E2E_GIT_REMOTE_PROVIDER=native`
+
+Existing environment-variable overrides, unchanged by this stage:
+`RIS_E2E_GIT_REMOTE_PROVIDER` (provider selection — this stage's own
+default flip), `RIS_E2E_WSL_DISTRO` (WSL2 distribution override),
+`RIS_E2E_CONTAINER_REBUILD=1` (forces an image rebuild), `RIS_E2E_RUN_ROOT`
+(internal run-root path, set by the WDIO launcher).
+
+The application and WDIO themselves still run natively on Windows in
+either provider — only the Git/SSH *server* moves into the Linux
+container. Linux-native execution (running the application/WDIO
+themselves on Linux, removing the `/mnt/c` assumption, a default
+container provider on Linux) is explicitly deferred to Stage 3F.5.8 and
+not attempted here.
+
+**Resolver unit tests
+(`container-git-remote.test.ts`).** `resolveGitRemoteProvider` is now
+covered for: unset -> `container`, empty string -> `container`, explicit
+`"container"` -> `container`, explicit `"native"` -> `native`, an invalid
+value throwing with the invalid value and both accepted values named in
+the message, case-sensitivity/no-trim preserved (`"Container"` and
+`" native"` both still throw), and — against the real `process.env`,
+with a `beforeEach`/`afterEach` save-restore so no test leaks the
+variable into later tests — unset resolves to `container` and an
+explicit `native` resolves to `native` through the production
+zero-argument call path.
+
+**Shared-adapter tests (`git-remote-fixture.test.ts`).** A new
+`Stage 3F.5.7 default-provider wiring` suite asserts
+`defaultCreateGitRemoteFixtureDeps.resolveProvider` is the real
+`resolveGitRemoteProvider` by reference (not a reimplementation), then
+exercises `createGitRemoteFixture()` with that real resolver against the
+real (save-restored) `process.env`: unset selects the container branch
+(`createContainerFixture` called, `startNativeRemote` never called) and
+`RIS_E2E_GIT_REMOTE_PROVIDER=native` selects the native branch
+(`startNativeRemote` called, `createContainerFixture` never called).
+
+**Windows preflight (real host, before the validation matrix).** From
+the same Windows shell used for the runs below: `wsl.exe --status` and
+`wsl.exe --list --verbose` both resolved the `Ubuntu` WSL2 distribution;
+`docker info` inside it reported Docker Engine 29.4.3 running; a
+throwaway `docker run -p 127.0.0.1::PORT` container was created, its
+published port was reachable from the Windows host, and it was removed
+cleanly; `/mnt/c` was mounted and the repository's fixture directory
+(`apps/desktop/e2e-wdio/fixtures/git-ssh-server`) was reachable through
+it; no `ris.e2e.fixture=git-ssh`-labeled container, no stale
+`rack-inventory-studio-desktop.exe`/`tauri-driver.exe`/`msedgedriver.exe`
+process, and ports 4444/4445 were all clear before the first run.
+
+**Individual default-provider runs (provider unset, fresh process
+each).** All three specs passed with the resolver logging
+`git remote provider: container`, the container fixture's own startup
+log line (`selected WSL2 distribution`, `container healthy`,
+`public key installed`) present, application Git operations using the
+`git@127.0.0.1:...` SSH URL, no native-sshd fixture log line present, and
+`[container-git-remote] cleaned up container ...` present at teardown:
+
+| Spec | Provider resolved | Result | Duration |
+|------|--------------------|--------|----------|
+| `git-remote-workflows` | container | PASS | 27s |
+| `git-clone-workflows` | container | PASS | 24s |
+| `git-diverged-pull` | container | PASS | 16s |
+
+**Five-iteration default-provider matrix (provider unset, fresh process
+per spec).** 5 iterations × 3 specs = 15/15 spec executions passed, every
+one resolving `container` and reporting `ports_free=true`:
+
+| Iteration | git-remote-workflows | git-clone-workflows | git-diverged-pull |
+|-----------|----------------------|----------------------|--------------------|
+| 1 | PASS, 25s | PASS, 23s | PASS, 20s |
+| 2 | PASS, 24s | PASS, 23s | PASS, 20s |
+| 3 | PASS, 24s | PASS, 23s | PASS, 20s |
+| 4 | PASS, 25s | PASS, 23s | PASS, 20s |
+| 5 | PASS, 25s | PASS, 23s | PASS, 20s |
+
+Combined with the 3 individual runs above and the explicit-container run
+below, 19/19 real-host container-provider spec executions passed across
+this stage's validation.
+
+**Explicit container override.** `RIS_E2E_GIT_REMOTE_PROVIDER=container`
+against `git-clone-workflows`: resolved `container`, PASS, 23s —
+confirming the explicit override still behaves identically to the new
+default (the fallback-value change did not disturb the override path).
+
+**Explicit native fallback.** `RIS_E2E_GIT_REMOTE_PROVIDER=native`
+against all three specs, each resolving `native` and each log confirming
+`starting the local sshd remote-Git fixture` with no
+`container-git-remote` log line at all:
+
+| Spec | Provider resolved | Result | Duration |
+|------|--------------------|--------|----------|
+| `git-remote-workflows` | native | PASS | 14s |
+| `git-clone-workflows` | native | PASS | 11s |
+| `git-diverged-pull` | native | PASS | 9s |
+
+**Invalid-provider validation.** `RIS_E2E_GIT_REMOTE_PROVIDER=invalid`
+against `git-clone-workflows`, run in isolation (no other WDIO run
+active, to avoid the port contention a first attempt hit when
+accidentally run concurrently with the matrix above — see "Remaining
+risks" below): failed with
+`[container-git-remote] invalid RIS_E2E_GIT_REMOTE_PROVIDER="invalid" —
+expected "native" or "container"`, thrown from
+`resolveGitRemoteProvider` before either fixture was created (no
+`container-git-remote` or `starting the local sshd` log line present).
+Post-run residue check: no fixture container, no stale
+app/driver process, ports 4444/4445 both clear.
+
+**Fixture teardown vs. runner forced cleanup (distinguished, not
+conflated).** Every one of the 23 real-host runs in this stage (19
+container-provider passes, 3 native-provider passes, 1 invalid-provider
+failure) reported the fixture's own teardown as successful
+(`containerVerifiedAbsent`/native cleanup with no errors) *and* the
+canonical runner's own `PASS_WITH_FORCED_CLEANUP` benchmark
+categorization — the same pre-existing `tauri-driver.exe`/
+`msedgedriver.exe` teardown-timing quirk already documented in Stage
+3F.5.6 (unrelated to the Git-remote provider, identical regardless of
+provider or spec). None of these runs are described as a fully clean
+driver teardown; `PASS_WITH_FORCED_CLEANUP` is reported for every one, as
+required.
+
+**Resource residue verification.** After the full matrix, `docker ps -a
+--filter label=ris.e2e.fixture=git-ssh` returned nothing, and ports
+4444/4445 were both clear. Two `tauri-driver.exe`/`msedgedriver.exe`
+processes were found still present in the Windows process table (PIDs
+first observed mid-matrix, not holding either port by the time of the
+post-matrix check) — a real residue finding, not a hypothetical one: the
+canonical runner's forced cleanup identifies the process to kill by
+*current port ownership*, so an early orphaned driver pair that is no
+longer the port holder by the time a later run's cleanup check runs is
+never targeted. This is a pre-existing gap in
+`scripts/run-wdio-performance-benchmark.mjs`'s cleanup logic, not
+introduced by this stage's provider-default change (the same class of
+issue as the already-documented `PASS_WITH_FORCED_CLEANUP` quirk), and
+redesigning that cleanup logic is outside this stage's scope. The two
+orphaned processes were terminated manually and the host reverified
+residue-free (no container, no stale process, ports clear) before this
+stage's static validation.
+
+**Static validation.** `git diff --check`, `pnpm install --frozen-lockfile`,
+`check:version`, `check:hygiene` (8/8), `test:scripts` (237/237),
+`pnpm --filter @rack-inventory-studio/desktop typecheck`,
+`pnpm --filter @rack-inventory-studio/desktop test` (1249/1249, 60
+files), `cargo fmt --all -- --check`, `cargo clippy --workspace -- -D
+warnings`, `cargo test --workspace` (104 tests across `ris_core`/
+`ris_git`/`ris_import`/`ris_repository`/`ris_validation`) — all clean.
+No application or Rust source file changed in this stage; only
+`apps/desktop/e2e-wdio/support/container-git-remote.ts`,
+`apps/desktop/e2e-wdio/support/container-git-remote.test.ts`,
+`apps/desktop/e2e-wdio/support/git-remote-fixture.test.ts`,
+`apps/desktop/e2e-wdio/specs/git-remote-workflows.e2e.ts` (doc comments
+only), and this documentation file.
+
+**Documentation corrections.** Stage 3F.5.6's real-host validation table
+is corrected from "seven runs"/7/7 to eight runs / 8/8 (3 native clone +
+2 other native + 3 container = 8 rows, matching the table that was
+already there — only the prose undercounted it).
+
+**Linux boundary.** This stage validates Windows native application ->
+Windows Git/OpenSSH -> WSL2 Docker Engine -> Linux Git/SSH container
+only. Direct Linux Docker CLI execution, Linux host path mounts, removal
+of the `/mnt/c` assumption, `xvfb`/WebKitWebDriver validation, Linux CI
+validation, and a default container provider on Linux all remain
+deferred to Stage 3F.5.8 — none of that was attempted or assumed here.
+
+**Remaining risks.**
+- The `scripts/run-wdio-performance-benchmark.mjs` forced-cleanup gap
+  found above (port-ownership-based targeting can miss an orphaned
+  driver pair from an earlier run) is real and reproducible; it is not
+  new in this stage, but this stage is the first to document it
+  explicitly with reproduction evidence. Left for a future
+  infrastructure stage, per this stage's scope limits.
+- Running two `run-wdio-e2e.mjs` invocations concurrently is unsafe (both
+  bind fixed ports 4444/4445); this was hit once during this stage's own
+  validation (an initial invalid-provider attempt run concurrently with
+  the matrix) and worked around by re-running it in isolation afterward.
+  Not a defect in the change under review — a process-discipline note for
+  whoever runs this matrix again.
+
+**STAGE 3F.5.7 COMPLETE — READY FOR LINUX PORTABILITY VALIDATION.**
 
 ### Not proposed as a numbered coverage stage
 
