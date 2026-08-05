@@ -53,17 +53,39 @@ reset/rebase/force-push used). All five required runs (`app-smoke`,
 `git-remote-workflows`, `git-clone-workflows`, `git-diverged-pull` with
 the provider genuinely unset, and `git-clone-workflows` with
 `RIS_E2E_GIT_REMOTE_PROVIDER=native` explicitly set) **passed**, with
-container/`windows-wsl2` backend resolution confirmed for the four
-unset-provider-path runs and `native` backend confirmed for the fifth.
-Fixture cleanup was conclusive on every run and independently verified
-residue-free (no fixture container, no port-4444/4445 listener, no
-lingering driver/application process) after each run. See
-`docs/E2E_WDIO_PLAN.md`'s new Stage 3F.5.10-WIN section for full
-per-run evidence. This resolves the "No Windows host access" risk below
-for the initial-acceptance pass; a mandatory final rerun against the
-exact HEAD produced by this stage's own documentation-only closure
-commit is still outstanding and gates PR #171 moving from draft to
-ready (see Risks/Not done, updated below).
+container/`windows-wsl2` backend resolution confirmed for the three
+Git-over-SSH unset-provider-path runs (`git-remote-workflows`,
+`git-clone-workflows`, `git-diverged-pull`), `native` backend confirmed
+for the explicit-native run, and `app-smoke` passing as an
+application-launch/WebView2 check that does not invoke the Git remote
+provider at all (N/A, not container/windows-wsl2 — see Stage
+3F.5.10-WIN-R1 below, which corrects an earlier misclassification of this
+run). Fixture cleanup was conclusive on every run and independently
+verified residue-free (no fixture container, no port-4444/4445 listener,
+no lingering driver/application process) after each run. See
+`docs/E2E_WDIO_PLAN.md`'s Stage 3F.5.10-WIN section for full per-run
+evidence. This resolves the "No Windows host access" risk below for the
+initial-acceptance pass. A mandatory final rerun against the exact HEAD
+produced by this stage's own documentation-only closure commit
+(`a10378c`) was subsequently performed and passed — see Stage
+3F.5.10-WIN-R1 below for the durable evidence model this report now
+follows for recording that kind of post-commit result.
+
+**Stage 3F.5.10-WIN-R1 update (2026-08-05):** repair stage, no code
+change. Corrected two evidence-record defects: (1) `app-smoke` was
+incorrectly grouped with the container/windows-wsl2 backend-resolution
+runs above even though that spec never invokes the Git remote provider;
+(2) this report kept asserting the final exact-HEAD rerun was
+"outstanding" after it had, in fact, already passed against `a10378c` —
+stale because a tracked-document commit necessarily predates the rerun
+against the exact HEAD it produces. Going forward, this report records
+history and defines the readiness gate, but the authoritative, current
+acceptance evidence for the PR's *current* HEAD lives in PR #171's
+"Final Windows acceptance — current PR HEAD" comment, updated after each
+exact-HEAD rerun; readiness holds only when that comment's SHA equals
+the current `headRefOid`. PR #171 was returned to draft before this
+repair's own documentation-only commit and remains in draft pending one
+further exact-HEAD Windows reconfirmation.
 
 ## Files changed
 
@@ -123,13 +145,17 @@ Windows host was reachable from that sandbox. See the Summary's honesty
 note and `docs/E2E_WDIO_PLAN.md`'s Stage 3F.5.9 "Final Windows
 validation" section.
 
-**Stage 3F.5.10-WIN update:** the above gap is now closed for an
-initial-acceptance pass. All five required Windows runs (three
-unset-provider Git-over-SSH specs, explicit-native control, `app-smoke`)
-were executed on a real Windows 11 + WSL2 + Docker host against
-`bc524a6` and passed — see `docs/E2E_WDIO_PLAN.md`'s Stage 3F.5.10-WIN
-section. A second, mandatory exact-HEAD rerun against the post-doc-commit
-SHA is still outstanding.
+**Stage 3F.5.10-WIN update:** the above gap is now closed. All five
+required Windows runs (three unset-provider Git-over-SSH specs,
+explicit-native control, and `app-smoke` as an application-launch check
+not itself exercising the Git provider) were executed on a real Windows
+11 + WSL2 + Docker host against `bc524a6` and passed, and again against
+the post-doc-commit exact HEAD `a10378c` — see `docs/E2E_WDIO_PLAN.md`'s
+Stage 3F.5.10-WIN and 3F.5.10-WIN-R1 sections. Per Stage 3F.5.10-WIN-R1's
+durable evidence model, the current authoritative result for whichever
+SHA is the PR's *current* HEAD lives in PR #171's "Final Windows
+acceptance — current PR HEAD" comment, not restated here as a point-in-time
+claim.
 
 Optional Linux regression (`RIS_E2E_GIT_REMOTE_PROVIDER=native`,
 `git-clone-workflows`) was attempted and failed at WebDriver session
@@ -167,11 +193,12 @@ used):
   `bc524a6`, confirming `ContainerHostBackend`/`spawnWithStdin`'s R1/R2
   changes did not regress real Windows behavior. See
   `docs/E2E_WDIO_PLAN.md`'s Stage 3F.5.10-WIN section.
-- **Mandatory final exact-HEAD rerun still outstanding.** Stage
-  3F.5.10-WIN's NSP requires a documentation-only closure commit followed
-  by a second complete five-run rerun against that new exact HEAD before
-  PR #171 may move from draft to ready. That commit and rerun have not
-  happened as of this update.
+- **This repair (Stage 3F.5.10-WIN-R1) itself requires one further
+  exact-HEAD rerun.** Its own documentation-only commit changes the PR's
+  HEAD SHA again, so — per the durable evidence model it introduces — PR
+  #171 stays in draft and the existing acceptance comment stays
+  unauthoritative for the new SHA until that one rerun passes and the
+  comment is updated in place.
 - **`.github/workflows/wdio-e2e.yml` does not exist on `master`.** GitHub
   requires a workflow to exist on the default branch before
   `workflow_dispatch` can target it, so the documented release process
@@ -189,24 +216,25 @@ used):
 
 ## Not done
 
-- Fresh Windows E2E validation — **now done** as of Stage 3F.5.10-WIN's
-  initial-acceptance pass (see above); the mandatory final exact-HEAD
-  rerun after this stage's documentation-only closure commit is not yet
-  done.
+- Fresh Windows E2E validation — **done**, twice (initial pass against
+  `bc524a6`, final pass against `a10378c`), both passing. This repair's
+  own one required exact-HEAD rerun (against the SHA this repair commit
+  produces) is not yet done as of this update.
 - Real-host Linux container-provider acceptance (explicitly deferred by
   project decision, not this stage's scope).
 - Any application/fixture/provider code change — this and Stage
-  3F.5.10-WIN remain documentation/acceptance stages only.
+  3F.5.10-WIN/3F.5.10-WIN-R1 remain documentation/acceptance stages only.
 - Merging the PR, creating `release/v0.1.0-beta.4`, bumping the version,
   modifying `master`, or building/tagging a release — all explicitly out
   of scope per this stage's NSP.
 
 ## Suggested next step
 
-Create the Stage 3F.5.10-WIN documentation-only closure commit, push it,
-then rerun the full five-spec acceptance against that exact new HEAD;
-once green, wait for PR CI, update the PR body/comment, and mark PR #171
-ready for review. Separately, resolve the
+Push this repair's documentation-only commit, run the one required
+five-spec exact-HEAD acceptance pass against it, update PR #171's
+existing "Final Windows acceptance — current PR HEAD" comment and body
+with that SHA's results once green, wait for PR CI, and mark PR #171
+ready for review again. Separately, resolve the
 `.github/workflows/wdio-e2e.yml`/`master` bootstrap gap as part of
 `v0.1.0-beta.4` preparation, before marking this PR ready for
 review or beginning release-branch work.

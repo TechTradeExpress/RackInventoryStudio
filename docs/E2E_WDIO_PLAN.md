@@ -5525,7 +5525,7 @@ Engine reachable from WSL2"). Node v24.18.1, pnpm 10.33.4 (via Corepack), Git
 
 | Spec | Provider → backend | Result | Notes |
 |---|---|---|---|
-| `app-smoke` | container → windows-wsl2 | PASSED | `PASS_WITH_FORCED_CLEANUP` (pre-existing runner quirk, see below) |
+| `app-smoke` | N/A — Git remote provider not invoked | PASSED | application-launch/WebView2 smoke check only; `PASS_WITH_FORCED_CLEANUP` (pre-existing runner quirk, see below) |
 | `git-remote-workflows` | container → windows-wsl2 (WSL2 "Ubuntu") | PASSED | fixture container created and conclusively cleaned up |
 | `git-clone-workflows` | container → windows-wsl2 (WSL2 "Ubuntu") | PASSED | fixture container created and conclusively cleaned up |
 | `git-diverged-pull` | container → windows-wsl2 (WSL2 "Ubuntu") | PASSED | fixture container created and conclusively cleaned up |
@@ -5556,20 +5556,89 @@ runs.
 evidence captured for each; fixture cleanup conclusive; zero residue after
 every run.
 
-Per Stage 3F.5.10-WIN's NSP, this initial pass validates the exact PR #171
-HEAD as fetched from `origin`, but a mandatory final rerun against the exact
-HEAD produced by this stage's documentation-only closure commit is still
-required before PR #171 can be marked ready for review — that rerun has not
-yet happened as of this section.
+Per Stage 3F.5.10-WIN's NSP, this initial pass validated the exact PR #171
+HEAD as fetched from `origin` (`bc524a6`). The subsequent documentation-only
+closure commit produced `a10378c`; the mandatory final rerun against that
+exact HEAD was then performed (same five runs, same provider/backend
+evidence, conclusive fixture cleanup, zero residue) and passed. See Stage
+3F.5.10-WIN-R1 immediately below for why that result's presentation required
+a correction, and for the durable model this doc now follows for recording
+post-commit exact-HEAD evidence.
 
 **STAGE 3F.5 WINDOWS CONTAINER FIXTURE PROGRAM COMPLETE — READY FOR
 DEVELOPMENT INTEGRATION.**
 
 **STAGE 3F.5.9 COMPLETE — DEVELOPMENT PR READY FOR REVIEW.**
 
-(Both statuses above reflect the initial-acceptance pass on `bc524a6`. The
-final exact-HEAD rerun mandated by Stage 3F.5.10-WIN remains outstanding and
-gates changing PR #171 from draft to ready.)
+(Superseded by Stage 3F.5.10-WIN-R1's status below.)
+
+---
+
+### Stage 3F.5.10-WIN-R1 — Correct the acceptance evidence record (2026-08-05)
+
+Repair stage, triggered by review, correcting two evidence-classification
+defects in how Stage 3F.5.10-WIN recorded its results. No application code,
+fixture code, provider-resolution logic, or test code changed. The
+already-established functional result is **not** invalidated: both the
+initial five-run pass (against `bc524a6`) and the final five-run pass
+(against `a10378c`) genuinely passed, with conclusive fixture teardown and
+independently verified zero residue every time.
+
+**Finding 1 — `app-smoke` misclassified as exercising the Git remote
+provider.** The table above (and the equivalent passage in `.ai/cc-report.md`)
+listed `app-smoke` alongside `git-remote-workflows`/`git-clone-workflows`/
+`git-diverged-pull` under "container → windows-wsl2" backend resolution.
+`app-smoke.e2e.ts` only verifies Tauri application launch, the
+tauri-driver/WebView2 session, and the repository landing screen — it never
+calls `startRemote()`, never creates a Git-over-SSH fixture, and never
+resolves a Git remote provider, regardless of whether
+`RIS_E2E_GIT_REMOTE_PROVIDER` happens to be set or unset during the run.
+Corrected above to `N/A — Git remote provider not invoked`. This does not
+change the pass/fail result — `app-smoke` genuinely passed as an
+application-launch check both times it ran — only the provider/backend
+classification was wrong.
+
+**Finding 2 — tracked documentation could not durably state rerun status.**
+Stage 3F.5.10-WIN's tracked section was committed *before* the final
+exact-HEAD rerun (by construction: the commit that carries the tracked
+record is itself what produces the exact HEAD the rerun must target). At
+commit time it truthfully said the rerun was outstanding. That rerun
+subsequently passed against `a10378c`, but the tracked document was never
+updated afterward, so it kept asserting the rerun was "still outstanding"
+long after PR #171 had already been marked ready — a stale, inaccurate
+active-status claim.
+
+**Durable evidence model adopted going forward.** Committing a tracked-doc
+update to record a post-commit rerun result would itself produce a new SHA,
+requiring another rerun, in an unbounded loop. Instead:
+
+- Tracked documentation (this file and `.ai/cc-report.md`) records the
+  initial pass, the fact that a documentation commit changes the exact HEAD,
+  and the historical fact of what the last known post-commit rerun found —
+  but does not claim to be the current source of truth for whether the
+  *current* PR HEAD is accepted.
+- The authoritative, current exact-HEAD acceptance evidence lives in PR
+  #171's **"Final Windows acceptance — current PR HEAD"** comment, which is
+  updated (not replaced) after every exact-HEAD rerun.
+- Readiness holds only when that comment's recorded SHA equals the PR's
+  current `headRefOid`. Any commit after the comment's SHA invalidates
+  acceptance until the rerun is repeated and the same comment updated again.
+
+This stage's own documentation-only commit follows that model: it does not
+claim the rerun it will itself require has already happened. PR #171 was
+returned to draft before this commit and remains in draft pending exactly
+one further exact-HEAD Windows reconfirmation, whose result will be recorded
+by updating the existing PR comment in place.
+
+**No implementation defect.** This repair corrects evidence classification
+and documentation currency only. The Windows container-provider
+implementation, the fixture, and the provider-resolution logic are unchanged
+and remain validated by the (correctly reclassified) prior runs.
+
+**STAGE 3F.5.10-WIN IMPLEMENTATION ACCEPTANCE PASSED — EVIDENCE RECORD
+CORRECTION IN PROGRESS.**
+
+**PR #171 — DRAFT PENDING EXACT-HEAD RECONFIRMATION.**
 
 ---
 
