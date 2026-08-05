@@ -62,18 +62,18 @@
  *
  * ── Stage 3F.5.4: containerized fixture (opt-in) ─────────────────────────────
  *
- * This spec is also the sole proof-of-concept target for Stage 3F.5.4's
- * containerized Git-over-SSH fixture (support/container-git-remote.ts) — a
- * Linux container (OpenSSH + git) managed through Docker Engine inside
+ * This spec was also the original proof-of-concept target for Stage
+ * 3F.5.4's containerized Git-over-SSH fixture (support/container-git-remote.ts)
+ * — a Linux container (OpenSSH + git) managed through Docker Engine inside
  * WSL2, reached from the Windows application over a published 127.0.0.1
  * port, replacing only the *server* side of the native fixture above (the
  * Windows application, git.exe, ssh.exe, and every WDIO interaction stay
- * native throughout either way). Selected via
- * `RIS_E2E_GIT_REMOTE_PROVIDER=container`; defaults to the native fixture
- * described above when unset, so this is strictly opt-in for now —
- * git-clone-workflows and git-diverged-pull are not migrated. See the
- * `RemoteFixture` interface right below for how the three scenarios stay
- * provider-agnostic.
+ * native throughout either way). As of Stage 3F.5.7, `container` is the
+ * default provider on Windows for all three Git-over-SSH specs (this one,
+ * git-clone-workflows, and git-diverged-pull); set
+ * `RIS_E2E_GIT_REMOTE_PROVIDER=native` to use the native fixture described
+ * above instead. See the `RemoteFixture` interface right below for how the
+ * three scenarios stay provider-agnostic.
  */
 import { browser, expect } from "@wdio/globals";
 import { reactSetValue, clickWhenEnabled, expectActiveRepositoryPath } from "../support/repository-ui";
@@ -111,9 +111,8 @@ import {
  * spec's three scenarios actually need, so the scenario bodies below don't
  * fork on provider at all. Selected once in before() via
  * RIS_E2E_GIT_REMOTE_PROVIDER (resolveGitRemoteProvider) — defaults to
- * "native", so this stage's proof of concept is strictly opt-in and every
- * existing CI/local run of this spec is unaffected unless that env var is
- * explicitly set.
+ * "container" as of Stage 3F.5.7; set RIS_E2E_GIT_REMOTE_PROVIDER=native to
+ * run this spec against the native fixture instead.
  */
 interface RemoteFixture {
   createBareRemote(label: string): Promise<string>;

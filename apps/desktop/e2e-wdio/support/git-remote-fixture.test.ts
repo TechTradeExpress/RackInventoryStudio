@@ -12,8 +12,9 @@
  * and does not test scenario assertions (those belong to each spec's own
  * `it()` bodies, unaffected by this module).
  */
-import { describe, expect, it, vi } from "vitest";
-import { createGitRemoteFixture, type CreateGitRemoteFixtureDeps } from "./git-remote-fixture";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createGitRemoteFixture, defaultCreateGitRemoteFixtureDeps, type CreateGitRemoteFixtureDeps } from "./git-remote-fixture";
+import { resolveGitRemoteProvider } from "./container-git-remote";
 import type {
   ContainerRemoteFixtureHandle,
   ErrorWithCleanupDiagnostics,
@@ -264,6 +265,56 @@ describe("createGitRemoteFixture — no partial fixture on setup failure", () =>
     await expect(createGitRemoteFixture(deps)).rejects.toBe(startError);
     expect(deps.configureNativeSsh).not.toHaveBeenCalled();
     expect(deps.cleanupNativeRemote).not.toHaveBeenCalled();
+  });
+});
+
+// ── Stage 3F.5.7: real resolver wiring (unset -> container, native override) ──
+
+describe("createGitRemoteFixture — Stage 3F.5.7 default-provider wiring", () => {
+  const ENV_KEY = "RIS_E2E_GIT_REMOTE_PROVIDER";
+  let previousValue: string | undefined;
+
+  beforeEach(() => {
+    previousValue = process.env[ENV_KEY];
+  });
+
+  afterEach(() => {
+    if (previousValue === undefined) {
+      delete process.env[ENV_KEY];
+    } else {
+      process.env[ENV_KEY] = previousValue;
+    }
+  });
+
+  it("defaultCreateGitRemoteFixtureDeps.resolveProvider is the real resolveGitRemoteProvider (no reimplementation)", () => {
+    expect(defaultCreateGitRemoteFixtureDeps.resolveProvider).toBe(resolveGitRemoteProvider);
+  });
+
+  it("chooses the container branch through the real resolver when the env var is unset", async () => {
+    delete process.env[ENV_KEY];
+    const handle = fakeContainerHandle();
+    const deps = fakeDeps({
+      resolveProvider: resolveGitRemoteProvider,
+      createContainerFixture: vi.fn(async () => handle),
+    });
+    const fixture = await createGitRemoteFixture(deps);
+    expect(deps.createContainerFixture).toHaveBeenCalledTimes(1);
+    expect(deps.startNativeRemote).not.toHaveBeenCalled();
+    expect(fixture).toBe(handle);
+  });
+
+  it("chooses the native branch through the real resolver when RIS_E2E_GIT_REMOTE_PROVIDER=native", async () => {
+    process.env[ENV_KEY] = "native";
+    const server = fakeServer();
+    const deps = fakeDeps({
+      resolveProvider: resolveGitRemoteProvider,
+      startNativeRemote: vi.fn(async () => server),
+    });
+    const fixture = await createGitRemoteFixture(deps);
+    expect(deps.startNativeRemote).toHaveBeenCalledTimes(1);
+    expect(deps.createContainerFixture).not.toHaveBeenCalled();
+    await fixture.createBareRemote("scenario1");
+    expect(deps.createNativeBareRemote).toHaveBeenCalledWith(server.remotesParent, "scenario1");
   });
 });
 

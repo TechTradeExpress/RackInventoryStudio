@@ -24,7 +24,7 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   FIXTURE_LABEL,
   assertCleanupSucceeded,
@@ -709,26 +709,68 @@ describe("resolveWslDistroOverride", () => {
 });
 
 describe("resolveGitRemoteProvider", () => {
-  it("defaults to native when unset", () => {
-    expect(resolveGitRemoteProvider({})).toBe("native");
+  it("Stage 3F.5.7: defaults to container when unset", () => {
+    expect(resolveGitRemoteProvider({})).toBe("container");
   });
 
-  it("defaults to native for an empty string", () => {
-    expect(resolveGitRemoteProvider({ RIS_E2E_GIT_REMOTE_PROVIDER: "" })).toBe("native");
+  it("Stage 3F.5.7: defaults to container for an empty string", () => {
+    expect(resolveGitRemoteProvider({ RIS_E2E_GIT_REMOTE_PROVIDER: "" })).toBe("container");
+  });
+
+  it("accepts an explicit container", () => {
+    expect(resolveGitRemoteProvider({ RIS_E2E_GIT_REMOTE_PROVIDER: "container" })).toBe("container");
   });
 
   it("accepts an explicit native", () => {
     expect(resolveGitRemoteProvider({ RIS_E2E_GIT_REMOTE_PROVIDER: "native" })).toBe("native");
   });
 
-  it("accepts container", () => {
-    expect(resolveGitRemoteProvider({ RIS_E2E_GIT_REMOTE_PROVIDER: "container" })).toBe("container");
-  });
-
   it("throws loudly on an unrecognized value rather than silently defaulting", () => {
     expect(() => resolveGitRemoteProvider({ RIS_E2E_GIT_REMOTE_PROVIDER: "docker" })).toThrow(
       /invalid RIS_E2E_GIT_REMOTE_PROVIDER="docker"/,
     );
+  });
+
+  it("throws an error naming both accepted values", () => {
+    expect(() => resolveGitRemoteProvider({ RIS_E2E_GIT_REMOTE_PROVIDER: "docker" })).toThrow(
+      /expected "native" or "container"/,
+    );
+  });
+
+  it("is case-sensitive and does not trim whitespace (existing normalization rules preserved)", () => {
+    expect(() => resolveGitRemoteProvider({ RIS_E2E_GIT_REMOTE_PROVIDER: "Container" })).toThrow(
+      /invalid RIS_E2E_GIT_REMOTE_PROVIDER="Container"/,
+    );
+    expect(() => resolveGitRemoteProvider({ RIS_E2E_GIT_REMOTE_PROVIDER: " native" })).toThrow(
+      /invalid RIS_E2E_GIT_REMOTE_PROVIDER=" native"/,
+    );
+  });
+
+  describe("against the real process environment (no leakage)", () => {
+    const ENV_KEY = "RIS_E2E_GIT_REMOTE_PROVIDER";
+    let previousValue: string | undefined;
+
+    beforeEach(() => {
+      previousValue = process.env[ENV_KEY];
+    });
+
+    afterEach(() => {
+      if (previousValue === undefined) {
+        delete process.env[ENV_KEY];
+      } else {
+        process.env[ENV_KEY] = previousValue;
+      }
+    });
+
+    it("resolves to container when the real env var is deleted", () => {
+      delete process.env[ENV_KEY];
+      expect(resolveGitRemoteProvider()).toBe("container");
+    });
+
+    it("resolves to native when the real env var is explicitly set", () => {
+      process.env[ENV_KEY] = "native";
+      expect(resolveGitRemoteProvider()).toBe("native");
+    });
   });
 });
 

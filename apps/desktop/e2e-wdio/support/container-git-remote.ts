@@ -32,11 +32,12 @@
  *
  * ── Selecting this provider ───────────────────────────────────────────────
  *
- * `RIS_E2E_GIT_REMOTE_PROVIDER=container` (default: `native`, i.e. unchanged
- * behavior — see resolveGitRemoteProvider). Only git-remote-workflows.e2e.ts
- * wires this up for this proof-of-concept stage; git-clone-workflows and
- * git-diverged-pull stay on the native fixture until a full migration is
- * separately approved. Use createContainerRemoteFixture() — not
+ * `container` is the default provider on Windows as of Stage 3F.5.7 — see
+ * resolveGitRemoteProvider. Set `RIS_E2E_GIT_REMOTE_PROVIDER=native` to use
+ * the native local-sshd fixture instead. All three Git-over-SSH specs
+ * (git-remote-workflows.e2e.ts, git-clone-workflows.e2e.ts,
+ * git-diverged-pull.e2e.ts) resolve the provider through this same function.
+ * Use createContainerRemoteFixture() — not
  * startContainerRemote()/configureContainerSsh() called separately — for the
  * atomic-initialization guarantee described below.
  *
@@ -334,7 +335,12 @@ async function execWslMeta(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile("wsl.exe", args, { encoding: "buffer", maxBuffer: 4 * 1024 * 1024 }, (error, stdoutBuf) => {
       if (error) {
-        reject(new Error(`[container-git-remote] wsl.exe ${args.join(" ")} failed: ${error.message}`, { cause: error }));
+        reject(
+          new Error(
+            withNativeFallbackHint(`[container-git-remote] wsl.exe ${args.join(" ")} failed: ${error.message}`),
+            { cause: error },
+          ),
+        );
         return;
       }
       resolve(decodeWslMetaOutput(stdoutBuf));
@@ -363,6 +369,23 @@ async function execDocker(distro: string, dockerArgs: string[]): Promise<ExecRes
     wrapped.exitCode = exitCode;
     throw wrapped;
   }
+}
+
+/**
+ * Appended to every container-prerequisite failure message (WSL discovery,
+ * distribution selection, Docker availability, image build) so the first
+ * actionable error a Stage 3F.5.7 user sees explains *why* a container
+ * fixture was even being attempted and how to opt out temporarily — rather
+ * than a bare Docker/WSL error with no mention that container is now the
+ * default. Never wraps or replaces the underlying diagnostic text; only
+ * appends this fixed hint after it.
+ */
+const NATIVE_FALLBACK_HINT =
+  "The containerized Git-over-SSH fixture is the default provider on Windows (Stage 3F.5.7). " +
+  "Set RIS_E2E_GIT_REMOTE_PROVIDER=native to use the native local-sshd fixture temporarily instead.";
+
+function withNativeFallbackHint(message: string): string {
+  return `${message} ${NATIVE_FALLBACK_HINT}`;
 }
 
 // ── WSL distribution discovery ───────────────────────────────────────────────
@@ -461,20 +484,26 @@ export async function selectDistribution(
     const match = distros.find((d) => d.name === override);
     if (!match) {
       throw new Error(
-        `[container-git-remote] RIS_E2E_WSL_DISTRO="${override}" is not an installed WSL distribution ` +
-          `(found: ${distros.map((d) => d.name).join(", ") || "none"}).`,
+        withNativeFallbackHint(
+          `[container-git-remote] RIS_E2E_WSL_DISTRO="${override}" is not an installed WSL distribution ` +
+            `(found: ${distros.map((d) => d.name).join(", ") || "none"}).`,
+        ),
       );
     }
     if (match.version !== 2) {
       throw new Error(
-        `[container-git-remote] RIS_E2E_WSL_DISTRO="${override}" is WSL${match.version}, not WSL2 — ` +
-          `the container fixture requires WSL2. Run: wsl --set-version ${override} 2`,
+        withNativeFallbackHint(
+          `[container-git-remote] RIS_E2E_WSL_DISTRO="${override}" is WSL${match.version}, not WSL2 — ` +
+            `the container fixture requires WSL2. Run: wsl --set-version ${override} 2`,
+        ),
       );
     }
     const check = await checkDocker(override);
     if (!check.available) {
       throw new Error(
-        `[container-git-remote] Docker is not available in WSL distribution "${override}": ${check.diagnostic}.`,
+        withNativeFallbackHint(
+          `[container-git-remote] Docker is not available in WSL distribution "${override}": ${check.diagnostic}.`,
+        ),
       );
     }
     return { distro: override, diagnostics: [{ distro: override, ...check }] };
@@ -482,16 +511,20 @@ export async function selectDistribution(
 
   if (distros.length === 0) {
     throw new Error(
-      "[container-git-remote] no WSL distributions are installed. Install a WSL2 distribution " +
-        "(e.g. `wsl --install -d Ubuntu`) with Docker Engine before running the container fixture.",
+      withNativeFallbackHint(
+        "[container-git-remote] no WSL distributions are installed. Install a WSL2 distribution " +
+          "(e.g. `wsl --install -d Ubuntu`) with Docker Engine before running the container fixture.",
+      ),
     );
   }
 
   const wsl2 = distros.filter((d) => d.version === 2);
   if (wsl2.length === 0) {
     throw new Error(
-      `[container-git-remote] only WSL1 distribution(s) found (${distros.map((d) => d.name).join(", ")}) — ` +
-        "the container fixture requires WSL2. Run: wsl --set-version <distro> 2",
+      withNativeFallbackHint(
+        `[container-git-remote] only WSL1 distribution(s) found (${distros.map((d) => d.name).join(", ")}) — ` +
+          "the container fixture requires WSL2. Run: wsl --set-version <distro> 2",
+      ),
     );
   }
 
@@ -502,8 +535,10 @@ export async function selectDistribution(
     if (check.available) return { distro: d.name, diagnostics };
   }
   throw new Error(
-    "[container-git-remote] no WSL2 distribution has a working Docker Engine. Checked: " +
-      diagnostics.map((d) => `${d.distro} (${d.diagnostic ?? "unavailable"})`).join(", "),
+    withNativeFallbackHint(
+      "[container-git-remote] no WSL2 distribution has a working Docker Engine. Checked: " +
+        diagnostics.map((d) => `${d.distro} (${d.diagnostic ?? "unavailable"})`).join(", "),
+    ),
   );
 }
 
@@ -525,16 +560,31 @@ export async function resolveDistribution(): Promise<string> {
 export type GitRemoteProvider = "native" | "container";
 
 /**
- * Resolves which Git-remote fixture provider a spec should use. Defaults to
- * "native" (git-remote.ts's existing local-sshd fixture) so this stage's
- * proof of concept is strictly opt-in — see this module's own doc comment.
+ * Resolves which Git-remote fixture provider a spec should use.
+ *
+ * Stage 3F.5.7: defaults to "container" (this module's containerized
+ * Git-over-SSH fixture) — the container provider passed its full proof-of-
+ * concept and stability validation (Stage 3F.5.4-3F.5.6) and native's
+ * Win32 OpenSSH `cmd.exe`/Git-Bash ForceCommand chain remains a real,
+ * ongoing hang source (see this module's own doc comment). `native`
+ * (git-remote.ts's local-sshd fixture) stays fully supported as an explicit,
+ * genuinely usable fallback via `RIS_E2E_GIT_REMOTE_PROVIDER=native` — it is
+ * not being removed, only demoted from default.
+ *
+ * There is deliberately no automatic fallback from container to native: a
+ * container startup failure (missing WSL2, no Docker Engine, daemon down,
+ * ...) fails the run rather than silently retrying under a different
+ * provider — see the diagnostics this module's WSL/Docker discovery
+ * functions throw, each naming the container-is-default policy and the
+ * native override.
+ *
  * Throws on any value other than "native"/"container"/unset, rather than
  * silently falling back, so a typo'd env var fails loudly instead of
  * quietly running the wrong fixture.
  */
 export function resolveGitRemoteProvider(env: NodeJS.ProcessEnv = process.env): GitRemoteProvider {
   const value = env["RIS_E2E_GIT_REMOTE_PROVIDER"];
-  if (value === undefined || value === "") return "native";
+  if (value === undefined || value === "") return "container";
   if (value === "native" || value === "container") return value;
   throw new Error(
     `[container-git-remote] invalid RIS_E2E_GIT_REMOTE_PROVIDER="${value}" — expected "native" or "container".`,
@@ -849,9 +899,11 @@ export async function ensureImageBuilt(
     await deps.buildImage(distro, tag, mountPath, hash);
   } catch (error) {
     throw new Error(
-      `[container-git-remote] failed to build ${tag} from ${mountPath} inside WSL distribution "${distro}". ` +
-        "If Windows drives are not auto-mounted under /mnt in this distribution (automount disabled or " +
-        `remapped), set RIS_E2E_WSL_DISTRO to one where they are. Underlying error: ${errMsg(error)}`,
+      withNativeFallbackHint(
+        `[container-git-remote] failed to build ${tag} from ${mountPath} inside WSL distribution "${distro}". ` +
+          "If Windows drives are not auto-mounted under /mnt in this distribution (automount disabled or " +
+          `remapped), set RIS_E2E_WSL_DISTRO to one where they are. Underlying error: ${errMsg(error)}`,
+      ),
       { cause: error },
     );
   }
@@ -1397,7 +1449,9 @@ export async function startContainerRemote(
     const parsedPort = parsePublishedPort(portOutput);
     if (parsedPort === null) {
       throw new Error(
-        `[container-git-remote] could not parse a 127.0.0.1 published port for "${containerName}" from: "${portOutput.trim()}"`,
+        withNativeFallbackHint(
+          `[container-git-remote] could not parse a 127.0.0.1 published port for "${containerName}" from: "${portOutput.trim()}"`,
+        ),
       );
     }
     await deps.waitForHealthy(distro, containerName, 20_000);
