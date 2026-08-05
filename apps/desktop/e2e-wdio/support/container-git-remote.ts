@@ -376,6 +376,20 @@ export function isDockerCommandError(value: unknown): value is DockerCommandErro
  * nonexistent executable — rather than only asserting against a
  * hand-constructed error shape that could drift from what this function
  * actually produces. */
+/** Splits Node's overloaded `error.code` into a structured errno string
+ * (`code`, e.g. `"ENOENT"` — only ever present when the executable itself
+ * failed to spawn) and a numeric process exit status (`exitCode` — only
+ * ever present when the process actually started and exited unsuccessfully).
+ * Node reuses the same `.code` field for both cases, so a naive copy
+ * conflates them: a `docker` invocation that exits with status 7 must never
+ * be misread as an errno `7` by `isNodeErrorWithCode`-based classification. */
+function splitNodeErrorCode(rawCode: unknown): { code: NodeJS.ErrnoException["code"]; exitCode: number | null } {
+  return {
+    code: typeof rawCode === "string" ? rawCode : undefined,
+    exitCode: typeof rawCode === "number" ? rawCode : null,
+  };
+}
+
 export function execFileP(cmd: string, args: string[]): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
     execFile(cmd, args, { encoding: "buffer", maxBuffer: 16 * 1024 * 1024 }, (error, stdoutBuf, stderrBuf) => {
@@ -383,10 +397,10 @@ export function execFileP(cmd: string, args: string[]): Promise<ExecResult> {
       const stderr = stderrBuf.toString("utf8");
       if (error) {
         const nodeError = error as NodeJS.ErrnoException;
-        const exitCode = typeof nodeError.code === "number" ? nodeError.code : null;
+        const { code, exitCode } = splitNodeErrorCode(nodeError.code);
         reject(
           Object.assign(new Error(`${error.message}\n${stderr}`.trim(), { cause: error }), {
-            code: nodeError.code,
+            code,
             stdout,
             stderr,
             exitCode,
@@ -784,27 +798,80 @@ function stopKeepAliveSessionViaWsl(child: ChildProcess): void {
   }
 }
 
-/** Upper bound on accumulated stderr for `spawnWithStdin` — a runaway or
+/** Upper bound on accumulated stderr for `spawnWithStdin`, enforced in
+ * actual bytes (not JS string length/UTF-16 code units) — a runaway or
  * malicious child process must not be able to grow unbounded diagnostic
  * text in memory just because nothing ever reads its stderr except this
  * accumulator (`stdio: ["pipe", "ignore", "pipe"]` never lets a consumer
  * drain it another way). Comfortably larger than any real Docker/git
  * diagnostic output while still being a hard, explicit limit. */
-const MAX_STDIN_EXEC_STDERR_BYTES = 64 * 1024;
-const STDERR_TRUNCATION_MARKER = "\n...[stderr truncated]";
+export const MAX_STDIN_EXEC_STDERR_BYTES = 64 * 1024;
+export const STDERR_TRUNCATION_MARKER = "\n...[stderr truncated]";
 
-/** Appends `chunk` to `current` up to `MAX_STDIN_EXEC_STDERR_BYTES`, marking
- * truncation exactly once. Checks for the marker itself (not merely
- * `current.length >= MAX`) before deciding whether to stop accumulating —
- * a length-only guard can land exactly on `MAX` after one chunk with no
- * chunks left to trigger the `> MAX` truncation branch at all, silently
- * dropping every subsequent chunk without ever appending the marker. */
-function appendBoundedStderr(current: string, chunk: Buffer): string {
-  if (current.endsWith(STDERR_TRUNCATION_MARKER)) return current;
-  const next = current + chunk.toString("utf8");
-  return next.length > MAX_STDIN_EXEC_STDERR_BYTES
-    ? next.slice(0, MAX_STDIN_EXEC_STDERR_BYTES) + STDERR_TRUNCATION_MARKER
-    : next;
+/** Accumulates raw stderr `Buffer` chunks up to `MAX_STDIN_EXEC_STDERR_BYTES`
+ * actual bytes, decoding to UTF-8 only once at the end (`read()`) rather
+ * than on every chunk — comparing/truncating on the decoded string would
+ * silently enforce a *character* limit instead of the byte limit the
+ * constant name promises. A chunk landing exactly on the boundary, or a
+ * multi-byte UTF-8 character split across the truncation point, is
+ * accepted as an unavoidable edge case of a hard byte cutoff (Node's own
+ * `Buffer#toString("utf8")` replaces an incomplete trailing sequence with
+ * U+FFFD rather than throwing). */
+class BoundedStderrCollector {
+  private readonly chunks: Buffer[] = [];
+  private byteLength = 0;
+  private truncated = false;
+
+  append(chunk: Buffer): void {
+    if (this.truncated) return;
+    const remaining = MAX_STDIN_EXEC_STDERR_BYTES - this.byteLength;
+    if (remaining <= 0) {
+      this.truncated = true;
+      return;
+    }
+    if (chunk.length > remaining) {
+      this.chunks.push(chunk.subarray(0, remaining));
+      this.byteLength += remaining;
+      this.truncated = true;
+    } else {
+      this.chunks.push(chunk);
+      this.byteLength += chunk.length;
+    }
+  }
+
+  read(): string {
+    const decoded = Buffer.concat(this.chunks).toString("utf8");
+    return this.truncated ? decoded + STDERR_TRUNCATION_MARKER : decoded;
+  }
+}
+
+/** Injectable `spawn` seam for `spawnWithStdin` — production code always
+ * uses the real `node:child_process.spawn` (`defaultSpawnWithStdinDeps`);
+ * tests inject an `EventEmitter`-based fake child to exercise EPIPE/spawn-
+ * failure/close-ordering combinations deterministically, without relying on
+ * real OS pipe-buffer timing and without globally monkey-patching
+ * `child_process.spawn`. */
+export interface SpawnWithStdinDeps {
+  spawn: typeof spawn;
+}
+
+const defaultSpawnWithStdinDeps: SpawnWithStdinDeps = { spawn };
+
+function buildDockerCommandError(
+  message: string,
+  hostDescription: string,
+  dockerArgs: string[],
+  fields: { stderr: string; exitCode: number | null; code?: NodeJS.ErrnoException["code"]; cause?: unknown },
+): DockerCommandError {
+  const wrapped = (
+    fields.cause !== undefined ? new Error(message, { cause: fields.cause }) : new Error(message)
+  ) as DockerCommandError;
+  wrapped.dockerArgs = dockerArgs;
+  wrapped.hostDescription = hostDescription;
+  wrapped.stderr = fields.stderr;
+  wrapped.exitCode = fields.exitCode;
+  wrapped.code = fields.code;
+  return wrapped;
 }
 
 /**
@@ -821,17 +888,44 @@ function appendBoundedStderr(current: string, chunk: Buffer): string {
  * resulting error, matching what `wrapDockerError` records for the
  * non-stdin path. Never a shell, never `sudo`.
  *
+ * Settles from the child's `"close"` event, never `"exit"` (Stage
+ * 3F.5.8A-R2): `"exit"` fires once the process has ended but its stdio
+ * streams may still be open or have buffered data in flight (e.g. a
+ * grandchild inheriting this child's stderr descriptor can keep writing
+ * after this child itself has exited); `"close"` fires only once every
+ * stdio stream has actually closed, so it is the only point at which
+ * accumulated stderr is guaranteed complete.
+ *
+ * Settles exactly once via a `settled` guard plus `once()` on every
+ * terminal-adjacent event. `"error"` (spawn failure) and the child's own
+ * `stdin` `"error"` (e.g. `EPIPE` from writing after the child has already
+ * exited) are captured as state, never rejected from directly — only
+ * `"close"` decides the outcome, applying this precedence: a spawn failure
+ * is always primary (the process never ran, so nothing else about it is
+ * meaningful); otherwise a non-zero exit is primary (a stdin `EPIPE` is a
+ * near-inevitable side effect of a `docker exec` that exits early/fails
+ * and stops reading stdin — it must never mask the real failure) and any
+ * captured stdin error is folded in only as secondary context; otherwise,
+ * if the process exited 0 but writing stdin still failed, that stdin
+ * failure is itself the (only) reason to reject; otherwise resolve.
+ * Registering the `stdin` `"error"` listener unconditionally also means an
+ * `EPIPE` never becomes an unhandled `"error"` event on that stream.
+ *
  * Always rejects with a `DockerCommandError` (dockerArgs/hostDescription/
- * stderr/exitCode, plus `code` when the executable itself failed to spawn)
- * rather than a bare `Error`, so `isDockerCommandError` and
+ * stderr/exitCode, plus `code` when the executable itself failed to spawn
+ * or, for the stdin-only-failure case, when writing stdin failed) rather
+ * than a bare `Error`, so `isDockerCommandError` and
  * `isNodeErrorWithCode`-based classification behave identically for
  * stdin-based execution as they do for `execFileP`-based execution.
+ * `code` and `exitCode` are always kept disjoint — see `splitNodeErrorCode`
+ * — never a number in `code`, never an errno string in `exitCode`.
  *
- * Exported narrowly (Stage 3F.5.8A-R1), same rationale as `execFileP`: lets
- * unit tests exercise this exact production spawn/error-wrapping path (a
- * real child process, real stdin/stderr/exit-code plumbing) with a
- * deterministic local executable, rather than only asserting against a
- * hand-constructed error shape.
+ * Exported narrowly (Stage 3F.5.8A-R1/R2), same rationale as `execFileP`:
+ * lets unit tests exercise this exact production spawn/error-wrapping path
+ * (a real child process, real stdin/stderr/close-ordering) with a
+ * deterministic local executable, plus (via the injectable `deps.spawn`)
+ * deterministic coverage of EPIPE/spawn-failure/close-ordering combinations
+ * that real OS pipe timing cannot reliably reproduce in a test.
  */
 export function spawnWithStdin(
   cmd: string,
@@ -839,40 +933,74 @@ export function spawnWithStdin(
   stdinData: string,
   hostDescription: string,
   dockerArgs: string[],
+  deps: SpawnWithStdinDeps = defaultSpawnWithStdinDeps,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, cmdArgs, { stdio: ["pipe", "ignore", "pipe"] });
-    let stderr = "";
+    const child = deps.spawn(cmd, cmdArgs, { stdio: ["pipe", "ignore", "pipe"] });
+    const stderrCollector = new BoundedStderrCollector();
+    let settled = false;
+    let spawnError: NodeJS.ErrnoException | null = null;
+    let stdinError: NodeJS.ErrnoException | null = null;
+
     child.stderr?.on("data", (chunk: Buffer) => {
-      stderr = appendBoundedStderr(stderr, chunk);
+      stderrCollector.append(chunk);
     });
-    child.on("error", (error) => {
-      const nodeError = error as NodeJS.ErrnoException;
-      const wrapped = new Error(
-        `[container-git-remote] docker ${dockerArgs.join(" ")} failed via ${hostDescription}: ${error.message}`,
-        { cause: error },
-      ) as DockerCommandError;
-      wrapped.dockerArgs = dockerArgs;
-      wrapped.hostDescription = hostDescription;
-      wrapped.stderr = stderr;
-      wrapped.exitCode = null;
-      wrapped.code = nodeError.code;
-      reject(wrapped);
+
+    child.once("error", (error) => {
+      spawnError = error as NodeJS.ErrnoException;
     });
-    child.on("exit", (code) => {
-      if (code === 0) {
-        resolve();
+
+    child.stdin?.once("error", (error) => {
+      stdinError = error as NodeJS.ErrnoException;
+    });
+
+    child.once("close", (rawCode) => {
+      if (settled) return;
+      settled = true;
+      const stderr = stderrCollector.read();
+
+      if (spawnError) {
+        const { code } = splitNodeErrorCode(spawnError.code);
+        reject(
+          buildDockerCommandError(
+            `[container-git-remote] docker ${dockerArgs.join(" ")} failed via ${hostDescription}: ${spawnError.message}`,
+            hostDescription,
+            dockerArgs,
+            { stderr, exitCode: null, code, cause: spawnError },
+          ),
+        );
         return;
       }
-      const wrapped = new Error(
-        `[container-git-remote] docker ${dockerArgs.join(" ")} exited with code ${code} via ${hostDescription}: ${stderr.trim()}`,
-      ) as DockerCommandError;
-      wrapped.dockerArgs = dockerArgs;
-      wrapped.hostDescription = hostDescription;
-      wrapped.stderr = stderr;
-      wrapped.exitCode = code;
-      reject(wrapped);
+
+      if (rawCode !== 0) {
+        const stdinNote = stdinError ? ` (writing stdin also failed: ${stdinError.message})` : "";
+        reject(
+          buildDockerCommandError(
+            `[container-git-remote] docker ${dockerArgs.join(" ")} exited with code ${rawCode} via ${hostDescription}: ${stderr.trim()}${stdinNote}`,
+            hostDescription,
+            dockerArgs,
+            { stderr, exitCode: rawCode, cause: stdinError ?? undefined },
+          ),
+        );
+        return;
+      }
+
+      if (stdinError) {
+        const { code } = splitNodeErrorCode(stdinError.code);
+        reject(
+          buildDockerCommandError(
+            `[container-git-remote] docker ${dockerArgs.join(" ")} exited successfully via ${hostDescription}, but writing stdin failed: ${stdinError.message}`,
+            hostDescription,
+            dockerArgs,
+            { stderr, exitCode: 0, code, cause: stdinError },
+          ),
+        );
+        return;
+      }
+
+      resolve();
     });
+
     child.stdin?.end(stdinData);
   });
 }

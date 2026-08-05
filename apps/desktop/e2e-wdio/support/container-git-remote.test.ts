@@ -21,7 +21,8 @@
  * Windows+WSL2+Docker host, as this stage's own "Real Windows Validation"
  * report section, not here.
  */
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -58,6 +59,8 @@ import {
   isDockerNotFoundError,
   isNodeErrorWithCode,
   isSafeIdentifier,
+  MAX_STDIN_EXEC_STDERR_BYTES,
+  STDERR_TRUNCATION_MARKER,
   parsePublishedPort,
   parseWslList,
   removeContainerViaDocker,
@@ -82,6 +85,7 @@ import {
   type FixtureCleanupResult,
   type FixtureSourceFile,
   type PartialContainerFixtureState,
+  type SpawnWithStdinDeps,
   type SshConfigRemovalResult,
   type WorkDirRemovalResult,
   type WslDistribution,
@@ -2973,6 +2977,19 @@ describe("execFileP real execution-chain (Stage 3F.5.8A-R1)", () => {
     expect((wrapped.cause as NodeJS.ErrnoException).code).toBe("ENOENT");
     expect(classifyLinuxExecError(wrapped)).toMatch(/Docker CLI is not installed/);
   });
+
+  it("separates a numeric process exit code from the errno `code` field (Stage 3F.5.8A-R2)", async () => {
+    const error = await execFileP(process.execPath, [
+      "-e",
+      "process.stderr.write('exit-seven'); process.exit(7)",
+    ]).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    const wrapped = error as NodeJS.ErrnoException & { exitCode: number | null; stderr: string; cause?: unknown };
+    expect(wrapped.code).toBeUndefined();
+    expect(wrapped.exitCode).toBe(7);
+    expect(wrapped.stderr).toContain("exit-seven");
+    expect(wrapped.cause).toBeInstanceOf(Error);
+  });
 });
 
 // ── Stage 3F.5.8A-R1: spawnWithStdin structured process helper ──────────────
@@ -3017,6 +3034,30 @@ describe("spawnWithStdin (Stage 3F.5.8A-R1)", () => {
     expect(wrapped.code).toBeUndefined();
   });
 
+  it("finalizes on the child's \"close\" event, not \"exit\" — waits for a grandchild's delayed write on an inherited stderr descriptor (Stage 3F.5.8A-R2)", async () => {
+    // The direct child exits almost immediately, but spawns a grandchild
+    // that inherits its stderr file descriptor (fd 2 — which is itself
+    // spawnWithStdin's own piped stderr) and keeps that descriptor open for
+    // a further ~50ms before writing a unique marker and exiting. "exit"
+    // fires for the direct child right away, well before the marker is
+    // written; "close" only fires once the piped stderr stream itself has
+    // actually closed, which cannot happen until the grandchild releases
+    // its inherited reference to it. If spawnWithStdin settled on "exit",
+    // this marker would never appear in the captured stderr.
+    const marker = `delayed-grandchild-stderr-${process.pid}-${Date.now()}`;
+    const grandchildScript = `setTimeout(() => { process.stderr.write(${JSON.stringify(marker)}); process.exit(0); }, 50);`;
+    const parentScript = `
+      const { spawn } = require("node:child_process");
+      spawn(process.execPath, ["-e", ${JSON.stringify(grandchildScript)}], { stdio: ["ignore", "ignore", 2] });
+      process.exit(3);
+    `;
+    const error = await captureRejection(spawnWithStdin("node", ["-e", parentScript], "", "test host", []));
+    expect(isDockerCommandError(error)).toBe(true);
+    const wrapped = error as { exitCode: number | null; stderr: string };
+    expect(wrapped.exitCode).toBe(3);
+    expect(wrapped.stderr).toContain(marker);
+  });
+
   it("delivers the expected stdin data to the child and resolves on success", async () => {
     const expected = "expected-stdin-payload";
     const script = `
@@ -3047,7 +3088,7 @@ describe("spawnWithStdin (Stage 3F.5.8A-R1)", () => {
     const script = "process.stderr.write('a'.repeat(500000)); process.exit(1);";
     const error = await captureRejection(spawnWithStdin("node", ["-e", script], "", "test host", []));
     const wrapped = error as { stderr: string };
-    expect(wrapped.stderr.length).toBeLessThan(500000);
+    expect(wrapped.stderr.length).toBeLessThanOrEqual(MAX_STDIN_EXEC_STDERR_BYTES + STDERR_TRUNCATION_MARKER.length);
     expect(wrapped.stderr).toContain("truncated");
   });
 
@@ -3058,6 +3099,182 @@ describe("spawnWithStdin (Stage 3F.5.8A-R1)", () => {
     const wrapped = error as { stderr: string };
     const receivedArgv = JSON.parse(wrapped.stderr) as string[];
     expect(receivedArgv).toEqual([trickyArg]);
+  });
+});
+
+// ── Stage 3F.5.8A-R2: deterministic spawn/stdin-error ordering ──────────────
+//
+// Real OS pipe/process timing cannot reliably reproduce specific event
+// orderings like "stdin EPIPE, then close" or "spawn error, then close" on
+// demand. This block (and the truncation block below it) injects a fake,
+// EventEmitter-based child through spawnWithStdin's SpawnWithStdinDeps seam
+// instead — no real process, no global monkey-patching of node:child_process
+// — so these exact combinations can be triggered and asserted
+// deterministically.
+interface FakeSpawnWithStdinChild extends EventEmitter {
+  stdin: EventEmitter & { end: (data: string) => void };
+  stderr: EventEmitter;
+}
+
+function createFakeSpawnWithStdinChild(): {
+  deps: SpawnWithStdinDeps;
+  fake: FakeSpawnWithStdinChild;
+  endCalls: string[];
+} {
+  const endCalls: string[] = [];
+  const stdin = Object.assign(new EventEmitter(), {
+    end: (data: string) => {
+      endCalls.push(data);
+    },
+  }) as FakeSpawnWithStdinChild["stdin"];
+  const stderr = new EventEmitter();
+  const fake = Object.assign(new EventEmitter(), { stdin, stderr }) as FakeSpawnWithStdinChild;
+  const deps: SpawnWithStdinDeps = {
+    spawn: (() => fake as unknown as ChildProcess) as unknown as SpawnWithStdinDeps["spawn"],
+  };
+  return { deps, fake, endCalls };
+}
+
+async function captureSpawnWithStdinRejection(promise: Promise<void>): Promise<unknown> {
+  try {
+    await promise;
+    return undefined;
+  } catch (error) {
+    return error;
+  }
+}
+
+describe("spawnWithStdin deterministic error-ordering (Stage 3F.5.8A-R2)", () => {
+  const createFakeChild = createFakeSpawnWithStdinChild;
+  const captureRejection = captureSpawnWithStdinRejection;
+
+  it("case 1: stdin EPIPE then close(0) — rejects, identifies stdin delivery, preserves EPIPE errno", async () => {
+    const { deps, fake } = createFakeChild();
+    const promise = spawnWithStdin("docker", ["exec", "-i", "c1"], "payload", "test host", ["exec", "-i", "c1"], deps);
+    const epipe = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+    fake.stdin.emit("error", epipe);
+    fake.emit("close", 0, null);
+    const error = await captureRejection(promise);
+    expect(isDockerCommandError(error)).toBe(true);
+    const wrapped = error as { code?: string; exitCode: number | null; message: string; cause?: unknown };
+    expect(wrapped.code).toBe("EPIPE");
+    expect(wrapped.exitCode).toBe(0);
+    expect(wrapped.message).toMatch(/writing stdin failed/);
+    expect(wrapped.cause).toBe(epipe);
+  });
+
+  it("case 2: stdin EPIPE then close(3) — non-zero exit stays primary, EPIPE only secondary context", async () => {
+    const { deps, fake } = createFakeChild();
+    const promise = spawnWithStdin("docker", ["exec", "-i", "c1"], "payload", "test host", ["exec", "-i", "c1"], deps);
+    fake.stderr.emit("data", Buffer.from("docker-level failure"));
+    const epipe = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+    fake.stdin.emit("error", epipe);
+    fake.emit("close", 3, null);
+    const error = await captureRejection(promise);
+    expect(isDockerCommandError(error)).toBe(true);
+    const wrapped = error as { exitCode: number | null; stderr: string; code?: string };
+    expect(wrapped.exitCode).toBe(3);
+    expect(wrapped.stderr).toBe("docker-level failure");
+    expect(wrapped.code).toBeUndefined();
+  });
+
+  it("case 3: spawn ENOENT then close — spawn failure stays primary, settles exactly once", async () => {
+    const { deps, fake } = createFakeChild();
+    const promise = spawnWithStdin("does-not-exist", [], "payload", "test host", [], deps);
+    const enoent = Object.assign(new Error("spawn does-not-exist ENOENT"), { code: "ENOENT" });
+    fake.emit("error", enoent);
+    fake.emit("close", null, null);
+    // A second, later close must not cause a duplicate settlement/unhandled-rejection.
+    fake.emit("close", null, null);
+    const error = await captureRejection(promise);
+    expect(isDockerCommandError(error)).toBe(true);
+    const wrapped = error as { code?: string; exitCode: number | null; cause?: unknown };
+    expect(wrapped.code).toBe("ENOENT");
+    expect(wrapped.exitCode).toBeNull();
+    expect(wrapped.cause).toBe(enoent);
+  });
+
+  it("case 4: normal success — stdin receives the requested data, closes 0, resolves once", async () => {
+    const { deps, fake, endCalls } = createFakeChild();
+    const promise = spawnWithStdin("docker", ["exec", "-i", "c1"], "the-payload", "test host", ["exec", "-i", "c1"], deps);
+    fake.emit("close", 0, null);
+    await expect(promise).resolves.toBeUndefined();
+    expect(endCalls).toEqual(["the-payload"]);
+  });
+});
+
+// ── Stage 3F.5.8A-R2: bounded stderr truncation semantics ───────────────────
+//
+// Uses the same fake-child seam as the error-ordering block above for exact
+// control over chunk sizes/boundaries — real OS pipe chunking cannot
+// reliably reproduce "a chunk landing exactly on the byte limit" on demand,
+// and that exact scenario is what caused the Stage 3F.5.8A-R1 truncation bug
+// (see appendBoundedStderr's/BoundedStderrCollector's doc comment).
+describe("spawnWithStdin bounded stderr truncation (Stage 3F.5.8A-R2)", () => {
+  const createFakeChild = createFakeSpawnWithStdinChild;
+  const captureRejection = captureSpawnWithStdinRejection;
+
+  async function runWithStderr(chunks: Buffer[]): Promise<{ stderr: string }> {
+    const { deps, fake } = createFakeChild();
+    const promise = spawnWithStdin("docker", [], "", "test host", [], deps);
+    for (const chunk of chunks) {
+      fake.stderr.emit("data", chunk);
+    }
+    fake.emit("close", 1, null);
+    const error = await captureRejection(promise);
+    return error as { stderr: string };
+  }
+
+  it("output strictly below the limit carries no truncation marker", async () => {
+    const { stderr } = await runWithStderr([Buffer.alloc(MAX_STDIN_EXEC_STDERR_BYTES - 10, "a")]);
+    expect(stderr).not.toContain("truncated");
+    expect(Buffer.byteLength(stderr, "utf8")).toBe(MAX_STDIN_EXEC_STDERR_BYTES - 10);
+  });
+
+  it("output exactly at the limit (single chunk) carries no truncation marker", async () => {
+    const { stderr } = await runWithStderr([Buffer.alloc(MAX_STDIN_EXEC_STDERR_BYTES, "a")]);
+    expect(stderr).not.toContain("truncated");
+    expect(Buffer.byteLength(stderr, "utf8")).toBe(MAX_STDIN_EXEC_STDERR_BYTES);
+  });
+
+  it("output exceeding the limit in a single chunk contains exactly one marker, within the documented bound", async () => {
+    const { stderr } = await runWithStderr([Buffer.alloc(MAX_STDIN_EXEC_STDERR_BYTES + 5000, "a")]);
+    const occurrences = stderr.split(STDERR_TRUNCATION_MARKER).length - 1;
+    expect(occurrences).toBe(1);
+    expect(Buffer.byteLength(stderr, "utf8")).toBeLessThanOrEqual(MAX_STDIN_EXEC_STDERR_BYTES + Buffer.byteLength(STDERR_TRUNCATION_MARKER, "utf8"));
+  });
+
+  it("a chunk landing exactly on the byte boundary, followed by more data, still truncates with exactly one marker (regression: Stage 3F.5.8A-R1 boundary bug)", async () => {
+    const { stderr } = await runWithStderr([
+      Buffer.alloc(MAX_STDIN_EXEC_STDERR_BYTES, "a"), // lands exactly at the limit
+      Buffer.from("more-data-that-must-not-appear"), // arrives after the limit was already reached
+    ]);
+    const occurrences = stderr.split(STDERR_TRUNCATION_MARKER).length - 1;
+    expect(occurrences).toBe(1);
+    expect(stderr).not.toContain("more-data-that-must-not-appear");
+  });
+
+  it("later chunks after truncation do not grow the stored diagnostic", async () => {
+    const withoutExtra = await runWithStderr([Buffer.alloc(MAX_STDIN_EXEC_STDERR_BYTES + 100, "a")]);
+    const withExtra = await runWithStderr([
+      Buffer.alloc(MAX_STDIN_EXEC_STDERR_BYTES + 100, "a"),
+      Buffer.alloc(50000, "b"),
+      Buffer.alloc(50000, "c"),
+    ]);
+    expect(withExtra.stderr).toBe(withoutExtra.stderr);
+  });
+
+  it("delayed stderr received before close (but after the process's own exit) is still included or correctly triggers truncation", async () => {
+    const { deps, fake } = createFakeChild();
+    const promise = spawnWithStdin("docker", [], "", "test host", [], deps);
+    fake.stderr.emit("data", Buffer.from("first-chunk-"));
+    // Simulate data arriving after the process itself would have "exit"ed
+    // but before "close" — spawnWithStdin only settles on "close", so this
+    // must still be captured.
+    fake.stderr.emit("data", Buffer.from("delayed-chunk"));
+    fake.emit("close", 1, null);
+    const error = (await captureRejection(promise)) as { stderr: string };
+    expect(error.stderr).toBe("first-chunk-delayed-chunk");
   });
 });
 
