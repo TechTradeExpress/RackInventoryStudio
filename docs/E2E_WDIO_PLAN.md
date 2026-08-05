@@ -2769,10 +2769,14 @@ before this stage.
 ### Stage 3F.5 — Windows remote-shell compatibility (audit complete, 2026-08-04; implementation pending)
 
 > **Status update (2026-08-05).** This heading's "implementation pending"
-> is historical — left as written. The program it opens is now closed: see
-> Stage 3F.5.9 below (**STAGE 3F.5 WINDOWS CONTAINER FIXTURE PROGRAM
-> COMPLETE — READY FOR DEVELOPMENT INTEGRATION**) for the final platform
-> contract, closure decision, and integration PR.
+> is historical — left as written. Implementation of the program it opens
+> is now complete and an integration PR is open: see Stage 3F.5.9 below
+> (**STAGE 3F.5 WINDOWS CONTAINER FIXTURE IMPLEMENTATION COMPLETE —
+> WINDOWS CONFIRMATION PENDING**) for the final platform contract, closure
+> decision, and integration PR. Full "PROGRAM COMPLETE — READY FOR
+> DEVELOPMENT INTEGRATION" status is not yet claimed — it requires a fresh
+> Windows validation run against the current PR HEAD, not yet performed
+> (see Stage 3F.5.9-R1).
 
 **Why reopened.** Stage 3F.2–3F.4 were marked functionally complete without
 ever having run against a real, authenticating Windows SSH connection — the
@@ -5140,9 +5144,15 @@ test results: the normal-host Linux container-provider acceptance and the
 Linux default-provider switch are deferred to a later program and are not
 release blockers for the Windows-only beta.4. This does not make the
 missing Linux E2E acceptance pass — it converts an open blocker into an
-explicitly scoped-out follow-up so the (fully validated, Windows-default)
-container fixture program can integrate into `development` without waiting
-on work nobody has committed a normal Linux host to complete.
+explicitly scoped-out follow-up so the Windows-default container fixture
+program's *implementation* can move toward `development` integration
+without waiting on work nobody has committed a normal Linux host to
+complete. It does not, by itself, make the Windows side "fully validated"
+either — see "Historical evidence vs. current acceptance" under Final
+Windows validation below: Stage 3F.5.8A's shared-backend refactor changed
+runtime code the Windows backend itself executes through, after Stage
+3F.5.7's real-host validation was recorded, and that refactor has not yet
+been reconfirmed on Windows.
 
 Final statuses, superseding the working `BLOCKED` framing for planning
 purposes while leaving every historical section above unchanged:
@@ -5150,8 +5160,10 @@ purposes while leaving every historical section above unchanged:
 **STAGE 3F.5.8A IMPLEMENTATION COMPLETE — REAL-HOST LINUX ACCEPTANCE
 DEFERRED.**
 
-**STAGE 3F.5 WINDOWS CONTAINER FIXTURE PROGRAM COMPLETE — READY FOR
-DEVELOPMENT INTEGRATION.**
+**STAGE 3F.5 WINDOWS CONTAINER FIXTURE IMPLEMENTATION COMPLETE — WINDOWS
+CONFIRMATION PENDING.** (Not yet "PROGRAM COMPLETE — READY FOR DEVELOPMENT
+INTEGRATION" — that status requires a fresh Windows validation run against
+the current PR HEAD, which has not happened; see below.)
 
 #### Final platform contract
 
@@ -5328,33 +5340,50 @@ complete history; not reproduced in the PR body.
 
 #### Final Windows validation — not re-run in this stage
 
-**This could not be executed as part of Stage 3F.5.9.** The session
-performing this closure stage runs in a Linux-only sandbox with no
-Windows/WSL2/Docker host access — there is no "existing validated Windows
-+ WSL2 + Docker host" reachable from here to run
+**This could not be executed as part of Stage 3F.5.9 (or 3F.5.9-R1).**
+The session performing this closure/repair work runs in a Linux-only
+sandbox with no Windows/WSL2/Docker host access — there is no "existing
+validated Windows + WSL2 + Docker host" reachable from here to run
 `git-remote-workflows`/`git-clone-workflows`/`git-diverged-pull` (unset
 provider), the explicit-native control, or `app-smoke` against.
 
-This is reported honestly rather than fabricated. The real evidence this
-stage relies on is what Stage 3F.5.7 already recorded above in this same
-document, on an actual Windows + WSL2 + Docker host: real preflight
-(`wsl.exe --status`, `docker info`, a throwaway published-port
-reachability check), all three specs passing individually with the
-resolver logging `container` and the WSL2 backend selected, and a
-5-iteration × 3-spec (15/15) matrix, all passing, with conclusive cleanup
-and no residue reported. Nothing in Stage 3F.5.8A/R1/R2/3F.5.9 touched the
-Windows backend's runtime behavior (3F.5.8A only *added* a Linux backend
-behind a shared interface; the Windows backend's own functions were moved,
-not changed — see 3F.5.8A's "Windows WSL2 Backend" section) or the
-`repository.rs` clone path in a way that changes Git/SSH semantics (see
-Runtime Application Change above).
+**Historical evidence.** Stage 3F.5.7 recorded, on an actual Windows +
+WSL2 + Docker host: real preflight (`wsl.exe --status`, `docker info`, a
+throwaway published-port reachability check), all three specs passing
+individually with the resolver logging `container` and the WSL2 backend
+selected, and a 5-iteration × 3-spec (15/15) matrix, all passing, with
+conclusive cleanup and no residue reported. This remains valuable,
+genuine evidence for the implementation as it existed at that point.
 
-That said, **a fresh confirmation run on a real Windows host — the exact
-three unset-provider specs, the explicit-native control, and
+**Changes after that evidence.** Stage 3F.5.8A and its repair stages
+(R1/R2) refactored shared container-host execution and process-handling
+code that the Windows backend itself runs through — not just added a
+separate Linux-only path alongside it. Concretely: introducing
+`ContainerHostBackend` and moving WSL2 Docker execution behind the
+Windows backend object; moving distribution-resolution and keep-alive
+state into backend methods; changing cleanup to go through backend
+methods; routing Windows `docker exec -i` (public-key installation) through
+the shared `spawnWithStdin` helper; and then changing that helper twice
+more (R1: structured `DockerCommandError`s, errno/exit-code
+normalization, bounded stderr; R2: `"close"`-event finalization instead
+of `"exit"`, single-settlement discipline, EPIPE handling, byte-accurate
+stderr bounding). Every one of these changes is covered by deterministic
+unit tests and was intended to preserve Windows behavior exactly — but a
+refactor preserving intended semantics is a design intent, not a
+substitute for rerunning the real command against a real host. It is
+**not accurate** to describe this as "moved, not changed": the shared
+code's actual runtime implementation changed materially, even where its
+observable contract was intentionally kept stable.
+
+**Current acceptance gap.** The current PR HEAD has not been rerun on
+Windows since any of the 3F.5.8A/R1/R2 changes landed. Stage 3F.5.7's
+15/15 matrix is not final acceptance evidence for this HEAD — it is
+historical evidence for a HEAD several refactors earlier. **A fresh
+confirmation run on a real Windows host, against the exact current PR
+HEAD — the three unset-provider specs, the explicit-native control, and
 `app-smoke` — is a genuine, outstanding precondition for marking the
-development PR ready for review**, per this stage's own gate. It is not
-satisfied by this document. See the PR's own status and the final report
-for how this is tracked.
+development PR ready for review.** It is not satisfied by this document.
+See the PR's own status and the final report for how this is tracked.
 
 #### Optional Linux regression (attempted, informational only)
 
@@ -5408,6 +5437,64 @@ individually; see `.ai/cc-report.md` for the full table.
 stage's PR for the chosen outcome (draft PR opened, CI status, and
 whether the ready-for-review gate — which requires a real Windows
 re-validation this sandbox cannot perform — has been met).
+
+#### Stage 3F.5.9-R1 — Correct readiness claims before final Windows validation (2026-08-05)
+
+Repair substage, triggered by review, correcting three inaccuracies in how
+Stage 3F.5.9 communicated Windows-acceptance status — no code change, no
+Windows validation performed here.
+
+**Finding 1 — false no-runtime-change claim.** Stage 3F.5.9's original
+"Final Windows validation" section said "Nothing in Stage
+3F.5.8A/R1/R2/3F.5.9 touched the Windows backend's runtime behavior... the
+Windows backend's own functions were moved, not changed." This was false:
+Stage 3F.5.8A's `ContainerHostBackend` refactor moved WSL2 Docker
+execution, distro-resolution, and keep-alive state into backend methods
+and routed Windows key-installation through the shared `spawnWithStdin`
+helper, which R1/R2 then materially changed (structured errors,
+errno/exit-code normalization, close-event finalization, EPIPE handling,
+bounded stderr). Corrected above, in "Final Windows validation," to
+distinguish historical evidence (Stage 3F.5.7, real but pre-refactor) from
+the current, unvalidated-on-Windows PR HEAD.
+
+**Finding 2 — premature program-complete status.** `STAGE 3F.5 WINDOWS
+CONTAINER FIXTURE PROGRAM COMPLETE — READY FOR DEVELOPMENT INTEGRATION`
+contradicted Stage 3F.5.9's own stated gate (a fresh Windows confirmation
+run must pass before the PR is ready for review). Corrected to `STAGE
+3F.5 WINDOWS CONTAINER FIXTURE IMPLEMENTATION COMPLETE — WINDOWS
+CONFIRMATION PENDING` above; `STAGE 3F.5.8A IMPLEMENTATION COMPLETE —
+REAL-HOST LINUX ACCEPTANCE DEFERRED` is unchanged (that status never
+claimed Windows acceptance). The full "PROGRAM COMPLETE" status is
+reserved for a later stage, after a fresh Windows run against the final
+PR HEAD passes.
+
+**Finding 3 — dependency-audit classification.** PR #171's dependency-
+audit comment described all remaining Rust findings collectively as
+"maintenance-status warnings, not exploitable vulnerabilities," which
+incorrectly folded "unsound" advisories (e.g. `anyhow`, `glib`) into the
+same non-exploitable characterization as "unmaintained" ones. Reachability
+and exploitability of the unsound advisories through this application's
+actual execution paths was never analyzed in Stage 3F.5.9. The PR comment
+was corrected in place to distinguish: resolved (`quick-xml`, patched
+version already in the current lockfile), unmaintained/deprecated
+transitive dependencies (GTK3 bindings etc.), unsoundness advisories
+(reachability/exploitability not established, no claim either way), and
+the frontend `undici` findings (WDIO dev-tooling chain only). See PR #171
+for the corrected comment.
+
+No production code, fixture code, or provider-resolution logic changed in
+this repair. The Linux default remains `native`. This repair does not
+perform, and does not claim to satisfy, the outstanding Windows
+validation.
+
+**STAGE 3F.5.9-R1 COMPLETE — READINESS CLAIMS CORRECTED.**
+
+Parent status:
+
+**STAGE 3F.5 WINDOWS CONTAINER FIXTURE IMPLEMENTATION COMPLETE — WINDOWS
+CONFIRMATION PENDING.**
+
+**STAGE 3F.5.9 INCOMPLETE — PR OPEN, WINDOWS VALIDATION PENDING.**
 
 ---
 

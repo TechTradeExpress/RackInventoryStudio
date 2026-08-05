@@ -25,12 +25,25 @@ unvalidated and it is not part of beta.4.
 validation run (three unset-provider specs, explicit-native control,
 `app-smoke`) on "the existing validated Windows + WSL2 + Docker host."
 This session has no Windows host access — it runs in a Linux-only
-sandbox. That validation was **not** re-executed here; this report relies
-on Stage 3F.5.7's already-recorded real-host evidence (15/15-matrix,
-documented in `docs/E2E_WDIO_PLAN.md`) plus the fact that nothing in
-3F.5.8A/R1/R2/3F.5.9 touched Windows backend runtime behavior or Git/SSH
-semantics. A fresh confirmation run remains an outstanding precondition
-for marking the PR ready for review.
+sandbox. That validation was **not** re-executed here.
+
+Stage 3F.5.7's 15/15-matrix (documented in `docs/E2E_WDIO_PLAN.md`)
+remains valuable historical evidence for the pre-refactor implementation,
+but it is **not** final acceptance evidence for the current PR HEAD:
+Stage 3F.5.8A and its repair stages (R1/R2) refactored shared
+container-host execution and process-handling code the Windows backend
+itself runs through — introducing `ContainerHostBackend`, moving WSL2
+Docker execution and distro/keep-alive state behind that object, routing
+Windows `docker exec -i` through the shared `spawnWithStdin` helper, and
+then changing that helper's structured errors, errno/exit-code
+normalization, close-event finalization, EPIPE handling, and bounded
+stderr accumulation. The Windows command contract is protected by
+deterministic unit tests, and this refactor was intended to preserve
+Windows behavior, but a refactor preserving intended semantics is not the
+same claim as "runtime behavior unchanged" — the current PR HEAD has not
+been rerun on a real Windows + WSL2 + Docker host. A fresh confirmation
+run against this exact HEAD remains an outstanding precondition for
+marking the PR ready for review.
 
 ## Files changed
 
@@ -56,8 +69,20 @@ for marking the PR ready for review.
   detailed Stage 3F.5.8A-R1/R2 narrative is preserved in git history and
   `docs/E2E_WDIO_PLAN.md`, not reproduced here).
 
+**Stage 3F.5.9-R1 update:** corrected three inaccuracies review found in
+the above — a false claim that no Windows runtime code changed after
+Stage 3F.5.7 (Stage 3F.5.8A's shared-backend refactor did change code the
+Windows backend runs through, even though it was designed to preserve
+behavior), a premature `PROGRAM COMPLETE — READY FOR DEVELOPMENT
+INTEGRATION` status (corrected to `IMPLEMENTATION COMPLETE — WINDOWS
+CONFIRMATION PENDING`), and PR #171's dependency-audit comment
+incorrectly folding "unsound" advisories into a blanket "not exploitable"
+characterization alongside "unmaintained" ones. See
+`docs/E2E_WDIO_PLAN.md`'s Stage 3F.5.9-R1 section and PR #171 for the
+corrected text. No code changed in this repair either.
+
 No application code, test-infrastructure code, or CI workflow files
-changed in this stage.
+changed in this stage or its R1 repair.
 
 ## Tests
 
@@ -103,11 +128,15 @@ used):
 - **No Windows host access in this sandbox.** This is the primary open
   risk for this stage. The PR's ready-for-review gate requires a fresh
   Windows regression (three unset-provider specs + explicit-native
-  control + `app-smoke`) that this session cannot perform. Mitigated by
-  citing Stage 3F.5.7's real, already-recorded 15/15-matrix evidence and
-  confirming (by diff review) that nothing since then touched Windows
-  runtime behavior — but this is not a substitute for actually re-running
-  it before merge.
+  control + `app-smoke`) that this session cannot perform. Stage 3F.5.7's
+  real, already-recorded 15/15-matrix evidence remains valuable, but it
+  predates Stage 3F.5.8A's shared-backend/process-handling refactor
+  (`ContainerHostBackend`, `spawnWithStdin`'s R1/R2 changes) — code the
+  Windows backend itself runs through. That refactor is unit-tested and
+  intended to preserve Windows behavior, but is not itself a substitute
+  for re-running the real command against a real host; see
+  `docs/E2E_WDIO_PLAN.md`'s "Final Windows validation" section (corrected
+  in Stage 3F.5.9-R1).
 - **`.github/workflows/wdio-e2e.yml` does not exist on `master`.** GitHub
   requires a workflow to exist on the default branch before
   `workflow_dispatch` can target it, so the documented release process
