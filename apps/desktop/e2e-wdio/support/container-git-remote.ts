@@ -562,14 +562,26 @@ export type GitRemoteProvider = "native" | "container";
 /**
  * Resolves which Git-remote fixture provider a spec should use.
  *
- * Stage 3F.5.7: defaults to "container" (this module's containerized
- * Git-over-SSH fixture) — the container provider passed its full proof-of-
- * concept and stability validation (Stage 3F.5.4-3F.5.6) and native's
- * Win32 OpenSSH `cmd.exe`/Git-Bash ForceCommand chain remains a real,
- * ongoing hang source (see this module's own doc comment). `native`
+ * Stage 3F.5.7: defaults to "container" on Windows (this module's
+ * containerized Git-over-SSH fixture) — the container provider passed its
+ * full proof-of-concept and stability validation (Stage 3F.5.4-3F.5.6) and
+ * native's Win32 OpenSSH `cmd.exe`/Git-Bash ForceCommand chain remains a
+ * real, ongoing hang source (see this module's own doc comment). `native`
  * (git-remote.ts's local-sshd fixture) stays fully supported as an explicit,
  * genuinely usable fallback via `RIS_E2E_GIT_REMOTE_PROVIDER=native` — it is
- * not being removed, only demoted from default.
+ * not being removed, only demoted from default on Windows.
+ *
+ * Stage 3F.5.7-R1: the unset/empty default is platform-aware, not global.
+ * This module's container backend is still Windows-specific top to bottom
+ * (invokes `wsl.exe`, discovers WSL distributions, runs Docker through
+ * WSL2, translates paths to `/mnt/<drive>`) — it cannot run natively on
+ * Linux or macOS. So the unset/empty default is "container" only when
+ * `platform === "win32"`; every other platform still defaults to "native"
+ * until Stage 3F.5.8 implements direct Linux Docker execution and
+ * separately revisits the Linux default. Platform is taken as an injected
+ * parameter (defaulting to the real `process.platform`) rather than read
+ * internally, so this decision is unit-testable for every platform without
+ * mutating global Node state.
  *
  * There is deliberately no automatic fallback from container to native: a
  * container startup failure (missing WSL2, no Docker Engine, daemon down,
@@ -580,11 +592,15 @@ export type GitRemoteProvider = "native" | "container";
  *
  * Throws on any value other than "native"/"container"/unset, rather than
  * silently falling back, so a typo'd env var fails loudly instead of
- * quietly running the wrong fixture.
+ * quietly running the wrong fixture. This part of the contract is
+ * platform-independent: an invalid value is invalid on every platform.
  */
-export function resolveGitRemoteProvider(env: NodeJS.ProcessEnv = process.env): GitRemoteProvider {
+export function resolveGitRemoteProvider(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): GitRemoteProvider {
   const value = env["RIS_E2E_GIT_REMOTE_PROVIDER"];
-  if (value === undefined || value === "") return "container";
+  if (value === undefined || value === "") return platform === "win32" ? "container" : "native";
   if (value === "native" || value === "container") return value;
   throw new Error(
     `[container-git-remote] invalid RIS_E2E_GIT_REMOTE_PROVIDER="${value}" — expected "native" or "container".`,
@@ -1448,10 +1464,15 @@ export async function startContainerRemote(
     const portOutput = await deps.dockerPort(distro, containerName);
     const parsedPort = parsePublishedPort(portOutput);
     if (parsedPort === null) {
+      // Stage 3F.5.7-R1: deliberately no withNativeFallbackHint() here. Docker
+      // already reported the container running by this point (docker run
+      // succeeded) — an unparseable `docker port` output is an internal
+      // fixture invariant failure (a defect in this module or an
+      // unanticipated Docker output format), not a missing Windows/WSL2/
+      // Docker prerequisite. Suggesting the native fallback here would read
+      // as "here's how to work around this bug" rather than surface it.
       throw new Error(
-        withNativeFallbackHint(
-          `[container-git-remote] could not parse a 127.0.0.1 published port for "${containerName}" from: "${portOutput.trim()}"`,
-        ),
+        `[container-git-remote] could not parse a 127.0.0.1 published port for "${containerName}" from: "${portOutput.trim()}"`,
       );
     }
     await deps.waitForHealthy(distro, containerName, 20_000);

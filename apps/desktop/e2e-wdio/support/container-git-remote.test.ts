@@ -328,6 +328,59 @@ describe("ensureImageBuilt", () => {
       cause: underlying,
     });
   });
+
+  it("Stage 3F.5.7-R1: a build failure (prerequisite/config class) retains the original diagnostic and includes the native-fallback hint", async () => {
+    const underlying = new Error("docker build exploded");
+    const imageExists = vi.fn(async () => false);
+    const buildImage = vi.fn(async () => {
+      throw underlying;
+    });
+    await expect(
+      ensureImageBuilt("Ubuntu", false, sampleFiles, { imageExists, buildImage, resolveMountPath: () => fakeMountPath }),
+    ).rejects.toMatchObject({
+      message: expect.stringMatching(/docker build exploded/),
+    });
+    await expect(
+      ensureImageBuilt("Ubuntu", false, sampleFiles, { imageExists, buildImage, resolveMountPath: () => fakeMountPath }),
+    ).rejects.toMatchObject({
+      message: expect.stringMatching(/default provider on Windows.*RIS_E2E_GIT_REMOTE_PROVIDER=native/s),
+    });
+  });
+});
+
+// ── Stage 3F.5.7-R1: withNativeFallbackHint classification ──────────────────
+//
+// Representative coverage across the shared helper's classification
+// decision, not every call site (per this stage's own scope note):
+// prerequisite/configuration failures get the hint, an internal fixture
+// invariant failure (published-port parsing) deliberately does not.
+
+describe("withNativeFallbackHint classification", () => {
+  it("no WSL distributions installed (prerequisite): retains original diagnostic and includes the hint", async () => {
+    await expect(selectDistribution([], async () => ({ available: true }))).rejects.toThrow(
+      /no WSL distributions are installed/,
+    );
+    await expect(selectDistribution([], async () => ({ available: true }))).rejects.toThrow(
+      /default provider on Windows.*RIS_E2E_GIT_REMOTE_PROVIDER=native/s,
+    );
+  });
+
+  it("selected WSL distribution without Docker (prerequisite, explicit override): retains original diagnostic and includes the hint", async () => {
+    const wsl2Ubuntu: WslDistribution = { name: "Ubuntu", state: "Running", version: 2, isDefault: true };
+    const checkDocker = async () => ({ available: false, diagnostic: "Docker daemon is not running" });
+    await expect(selectDistribution([wsl2Ubuntu], checkDocker, "Ubuntu")).rejects.toThrow(
+      /Docker is not available in WSL distribution "Ubuntu": Docker daemon is not running/,
+    );
+    await expect(selectDistribution([wsl2Ubuntu], checkDocker, "Ubuntu")).rejects.toThrow(
+      /default provider on Windows.*RIS_E2E_GIT_REMOTE_PROVIDER=native/s,
+    );
+  });
+
+  // The published-port-parse-failure (internal fixture invariant) case is
+  // covered in the "startContainerRemote (fault injection, no real
+  // WSL/Docker)" describe block below, reusing its own fakeDeps/withRunRoot
+  // helpers rather than re-injecting ContainerOpsDeps here — see "scenario
+  // 1" there for the hint-absence assertions.
 });
 
 // ── Windows path -> WSL mount path ────────────────────────────────────────────
@@ -709,44 +762,76 @@ describe("resolveWslDistroOverride", () => {
 });
 
 describe("resolveGitRemoteProvider", () => {
-  it("Stage 3F.5.7: defaults to container when unset", () => {
-    expect(resolveGitRemoteProvider({})).toBe("container");
+  // ── Stage 3F.5.7-R1: platform-aware unset/empty default ────────────────────
+  // The container backend is Windows-specific (wsl.exe, WSL distribution
+  // discovery, Docker-through-WSL2, /mnt/<drive> path translation) — it
+  // cannot run natively on Linux/macOS. So the unset/empty default is
+  // "container" only on win32; every other platform still defaults to
+  // "native" until Stage 3F.5.8 implements direct Linux Docker execution.
+  // Platform is always passed explicitly here (never left to the real
+  // process.platform) so these cases are deterministic on every CI/dev host.
+
+  it("1. unset + win32 -> container", () => {
+    expect(resolveGitRemoteProvider({}, "win32")).toBe("container");
   });
 
-  it("Stage 3F.5.7: defaults to container for an empty string", () => {
-    expect(resolveGitRemoteProvider({ RIS_E2E_GIT_REMOTE_PROVIDER: "" })).toBe("container");
+  it("2. empty string + win32 -> container", () => {
+    expect(resolveGitRemoteProvider({ RIS_E2E_GIT_REMOTE_PROVIDER: "" }, "win32")).toBe("container");
   });
 
-  it("accepts an explicit container", () => {
-    expect(resolveGitRemoteProvider({ RIS_E2E_GIT_REMOTE_PROVIDER: "container" })).toBe("container");
+  it("3. unset + linux -> native", () => {
+    expect(resolveGitRemoteProvider({}, "linux")).toBe("native");
   });
 
-  it("accepts an explicit native", () => {
-    expect(resolveGitRemoteProvider({ RIS_E2E_GIT_REMOTE_PROVIDER: "native" })).toBe("native");
+  it("4. empty string + linux -> native", () => {
+    expect(resolveGitRemoteProvider({ RIS_E2E_GIT_REMOTE_PROVIDER: "" }, "linux")).toBe("native");
   });
 
-  it("throws loudly on an unrecognized value rather than silently defaulting", () => {
-    expect(() => resolveGitRemoteProvider({ RIS_E2E_GIT_REMOTE_PROVIDER: "docker" })).toThrow(
-      /invalid RIS_E2E_GIT_REMOTE_PROVIDER="docker"/,
+  it("5. unset + darwin -> native", () => {
+    expect(resolveGitRemoteProvider({}, "darwin")).toBe("native");
+  });
+
+  it("6. explicit container + win32 -> container", () => {
+    expect(resolveGitRemoteProvider({ RIS_E2E_GIT_REMOTE_PROVIDER: "container" }, "win32")).toBe("container");
+  });
+
+  it("7. explicit container + linux -> container", () => {
+    expect(resolveGitRemoteProvider({ RIS_E2E_GIT_REMOTE_PROVIDER: "container" }, "linux")).toBe("container");
+  });
+
+  it("8. explicit native + win32 -> native", () => {
+    expect(resolveGitRemoteProvider({ RIS_E2E_GIT_REMOTE_PROVIDER: "native" }, "win32")).toBe("native");
+  });
+
+  it("9. explicit native + linux -> native", () => {
+    expect(resolveGitRemoteProvider({ RIS_E2E_GIT_REMOTE_PROVIDER: "native" }, "linux")).toBe("native");
+  });
+
+  it("10. invalid value + win32 -> throws the existing invalid-value error", () => {
+    expect(() => resolveGitRemoteProvider({ RIS_E2E_GIT_REMOTE_PROVIDER: "docker" }, "win32")).toThrow(
+      /invalid RIS_E2E_GIT_REMOTE_PROVIDER="docker" — expected "native" or "container"/,
     );
   });
 
-  it("throws an error naming both accepted values", () => {
-    expect(() => resolveGitRemoteProvider({ RIS_E2E_GIT_REMOTE_PROVIDER: "docker" })).toThrow(
-      /expected "native" or "container"/,
+  it("11. invalid value + linux -> throws the same error", () => {
+    expect(() => resolveGitRemoteProvider({ RIS_E2E_GIT_REMOTE_PROVIDER: "docker" }, "linux")).toThrow(
+      /invalid RIS_E2E_GIT_REMOTE_PROVIDER="docker" — expected "native" or "container"/,
     );
   });
 
-  it("is case-sensitive and does not trim whitespace (existing normalization rules preserved)", () => {
-    expect(() => resolveGitRemoteProvider({ RIS_E2E_GIT_REMOTE_PROVIDER: "Container" })).toThrow(
+  it("12. existing case-sensitive behavior is unchanged: 'Container' remains invalid", () => {
+    expect(() => resolveGitRemoteProvider({ RIS_E2E_GIT_REMOTE_PROVIDER: "Container" }, "win32")).toThrow(
       /invalid RIS_E2E_GIT_REMOTE_PROVIDER="Container"/,
     );
-    expect(() => resolveGitRemoteProvider({ RIS_E2E_GIT_REMOTE_PROVIDER: " native" })).toThrow(
+  });
+
+  it("13. existing non-trim behavior is unchanged: ' native' remains invalid", () => {
+    expect(() => resolveGitRemoteProvider({ RIS_E2E_GIT_REMOTE_PROVIDER: " native" }, "win32")).toThrow(
       /invalid RIS_E2E_GIT_REMOTE_PROVIDER=" native"/,
     );
   });
 
-  describe("against the real process environment (no leakage)", () => {
+  describe("production zero-argument call (real process.env and process.platform)", () => {
     const ENV_KEY = "RIS_E2E_GIT_REMOTE_PROVIDER";
     let previousValue: string | undefined;
 
@@ -762,14 +847,24 @@ describe("resolveGitRemoteProvider", () => {
       }
     });
 
-    it("resolves to container when the real env var is deleted", () => {
+    // Deliberately does not mock/mutate process.platform (per this stage's
+    // own requirement) — it asserts against whatever the actual host is,
+    // so this test is meaningful and deterministic on both Windows and
+    // Linux CI/dev hosts.
+    it("resolves against the real host platform when the env var is deleted", () => {
       delete process.env[ENV_KEY];
-      expect(resolveGitRemoteProvider()).toBe("container");
+      const expected = process.platform === "win32" ? "container" : "native";
+      expect(resolveGitRemoteProvider()).toBe(expected);
     });
 
-    it("resolves to native when the real env var is explicitly set", () => {
+    it("resolves to native when the real env var is explicitly set, on any platform", () => {
       process.env[ENV_KEY] = "native";
       expect(resolveGitRemoteProvider()).toBe("native");
+    });
+
+    it("resolves to container when the real env var is explicitly set, on any platform", () => {
+      process.env[ENV_KEY] = "container";
+      expect(resolveGitRemoteProvider()).toBe("container");
     });
   });
 });
@@ -2209,6 +2304,22 @@ describe("startContainerRemote (fault injection, no real WSL/Docker)", () => {
       expect(deps.removeContainer).toHaveBeenCalledTimes(1);
       expect(deps.stopKeepAlive).toHaveBeenCalledTimes(1);
       expect(deps.installPublicKey).not.toHaveBeenCalled();
+    }));
+
+  it("Stage 3F.5.7-R1: scenario 1's port-parse failure is an internal fixture invariant — no native-fallback hint appended", () =>
+    withRunRoot(async () => {
+      const { deps } = fakeDeps({
+        dockerPort: vi.fn(async () => "22/tcp -> 0.0.0.0:32768"),
+      });
+      let caught: Error | undefined;
+      try {
+        await startContainerRemote({}, deps);
+      } catch (error) {
+        caught = error as Error;
+      }
+      expect(caught?.message).toMatch(/could not parse a 127\.0\.0\.1 published port/);
+      expect(caught?.message).not.toMatch(/default provider on Windows/);
+      expect(caught?.message).not.toMatch(/RIS_E2E_GIT_REMOTE_PROVIDER=native/);
     }));
 
   it("scenario 2: container becomes healthy, ssh-keygen fails — container and work dir are rolled back", () =>

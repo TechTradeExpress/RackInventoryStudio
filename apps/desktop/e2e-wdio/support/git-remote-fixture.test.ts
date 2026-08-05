@@ -268,9 +268,17 @@ describe("createGitRemoteFixture — no partial fixture on setup failure", () =>
   });
 });
 
-// ── Stage 3F.5.7: real resolver wiring (unset -> container, native override) ──
+// ── Stage 3F.5.7 / 3F.5.7-R1: real resolver wiring, platform-aware ────────────
+//
+// The unset/empty default is platform-aware (win32 -> container, every
+// other platform -> native — see resolveGitRemoteProvider's own doc
+// comment). These tests inject an explicit platform into the *real*
+// resolveGitRemoteProvider (never a reimplementation, never a
+// process.platform monkey-patch — per this stage's own requirement) via
+// the CreateGitRemoteFixtureDeps.resolveProvider seam, so the
+// container-vs-native branch decision is deterministic on any CI/dev host.
 
-describe("createGitRemoteFixture — Stage 3F.5.7 default-provider wiring", () => {
+describe("createGitRemoteFixture — Stage 3F.5.7/R1 default-provider wiring", () => {
   const ENV_KEY = "RIS_E2E_GIT_REMOTE_PROVIDER";
   let previousValue: string | undefined;
 
@@ -286,15 +294,15 @@ describe("createGitRemoteFixture — Stage 3F.5.7 default-provider wiring", () =
     }
   });
 
-  it("defaultCreateGitRemoteFixtureDeps.resolveProvider is the real resolveGitRemoteProvider (no reimplementation)", () => {
+  it("1. defaultCreateGitRemoteFixtureDeps.resolveProvider is the real resolveGitRemoteProvider (no reimplementation)", () => {
     expect(defaultCreateGitRemoteFixtureDeps.resolveProvider).toBe(resolveGitRemoteProvider);
   });
 
-  it("chooses the container branch through the real resolver when the env var is unset", async () => {
+  it("2. injected win32 + unset resolution selects the container branch", async () => {
     delete process.env[ENV_KEY];
     const handle = fakeContainerHandle();
     const deps = fakeDeps({
-      resolveProvider: resolveGitRemoteProvider,
+      resolveProvider: () => resolveGitRemoteProvider(process.env, "win32"),
       createContainerFixture: vi.fn(async () => handle),
     });
     const fixture = await createGitRemoteFixture(deps);
@@ -303,11 +311,11 @@ describe("createGitRemoteFixture — Stage 3F.5.7 default-provider wiring", () =
     expect(fixture).toBe(handle);
   });
 
-  it("chooses the native branch through the real resolver when RIS_E2E_GIT_REMOTE_PROVIDER=native", async () => {
-    process.env[ENV_KEY] = "native";
+  it("3. injected linux + unset resolution selects the native branch", async () => {
+    delete process.env[ENV_KEY];
     const server = fakeServer();
     const deps = fakeDeps({
-      resolveProvider: resolveGitRemoteProvider,
+      resolveProvider: () => resolveGitRemoteProvider(process.env, "linux"),
       startNativeRemote: vi.fn(async () => server),
     });
     const fixture = await createGitRemoteFixture(deps);
@@ -315,6 +323,31 @@ describe("createGitRemoteFixture — Stage 3F.5.7 default-provider wiring", () =
     expect(deps.createContainerFixture).not.toHaveBeenCalled();
     await fixture.createBareRemote("scenario1");
     expect(deps.createNativeBareRemote).toHaveBeenCalledWith(server.remotesParent, "scenario1");
+  });
+
+  it("4. explicit native selects the native branch on win32", async () => {
+    process.env[ENV_KEY] = "native";
+    const server = fakeServer();
+    const deps = fakeDeps({
+      resolveProvider: () => resolveGitRemoteProvider(process.env, "win32"),
+      startNativeRemote: vi.fn(async () => server),
+    });
+    const fixture = await createGitRemoteFixture(deps);
+    expect(deps.startNativeRemote).toHaveBeenCalledTimes(1);
+    expect(deps.createContainerFixture).not.toHaveBeenCalled();
+  });
+
+  it("5. explicit container selects the container branch on linux", async () => {
+    process.env[ENV_KEY] = "container";
+    const handle = fakeContainerHandle();
+    const deps = fakeDeps({
+      resolveProvider: () => resolveGitRemoteProvider(process.env, "linux"),
+      createContainerFixture: vi.fn(async () => handle),
+    });
+    const fixture = await createGitRemoteFixture(deps);
+    expect(deps.createContainerFixture).toHaveBeenCalledTimes(1);
+    expect(deps.startNativeRemote).not.toHaveBeenCalled();
+    expect(fixture).toBe(handle);
   });
 });
 

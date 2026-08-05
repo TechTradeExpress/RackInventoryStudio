@@ -111,8 +111,10 @@ import {
  * spec's three scenarios actually need, so the scenario bodies below don't
  * fork on provider at all. Selected once in before() via
  * RIS_E2E_GIT_REMOTE_PROVIDER (resolveGitRemoteProvider) — defaults to
- * "container" as of Stage 3F.5.7; set RIS_E2E_GIT_REMOTE_PROVIDER=native to
- * run this spec against the native fixture instead.
+ * "container" on Windows as of Stage 3F.5.7 (still "native" on other
+ * platforms until Stage 3F.5.8 — see resolveGitRemoteProvider's own doc
+ * comment); set RIS_E2E_GIT_REMOTE_PROVIDER=native to run this spec
+ * against the native fixture instead on any platform.
  */
 interface RemoteFixture {
   createBareRemote(label: string): Promise<string>;
