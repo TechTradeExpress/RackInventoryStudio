@@ -4990,6 +4990,127 @@ blocker is environmental (this sandbox's Docker-in-Docker networking and
 objectively unmet regardless of cause, and this repair does not claim
 otherwise. See `.ai/cc-report.md` for the full report.
 
+#### Stage 3F.5.8A-R2 — Process execution contract closure (2026-08-05)
+
+Second repair substage, closing correctness gaps in R1's own new
+`spawnWithStdin`/`execFileP` code — again, all fixable without a normal
+(non-sandboxed) Linux host.
+
+**`close` vs `exit`.** `spawnWithStdin` previously settled from the
+child's `"exit"` event. `"exit"` fires once the process has ended, but its
+stdio streams may still be open or have buffered data in flight — e.g. a
+grandchild process that inherits this child's stderr file descriptor can
+keep writing to it after the direct child itself has already exited.
+`"close"` fires only once every stdio stream has actually closed, so it is
+the only point at which accumulated stderr is guaranteed complete. Fixed
+by settling exclusively from `"close"`. A new test proves this concretely:
+a child spawns a grandchild that inherits its stderr descriptor, exits
+immediately itself, and the grandchild writes a unique marker ~50ms later
+before exiting — the marker is present in the captured diagnostic, which
+is only possible if settlement waited for the descriptor to actually
+close.
+
+**Single-settlement discipline.** `"error"` (spawn failure) and the
+child's own `stdin` `"error"` (e.g. `EPIPE` from writing after the child
+has already exited or stopped reading) are now captured as state via
+`once()`, never rejected from directly — only the `once("close", ...)`
+handler decides the outcome, guarded by a `settled` flag so a
+late/duplicate `"close"` cannot cause a second settlement. Registering the
+`stdin` `"error"` listener unconditionally also means an `EPIPE` can never
+become an unhandled error event on that stream.
+
+**Error precedence.** Applied in this order inside the `"close"` handler:
+(1) a spawn failure is always primary — the process never ran, so nothing
+else about it is meaningful; (2) otherwise a non-zero exit is primary — a
+stdin `EPIPE` is a near-inevitable side effect of a `docker exec` that
+exits early and stops reading stdin, and must never mask the real
+failure; any captured stdin error is folded in only as secondary context
+in the message; (3) otherwise, if the process exited `0` but writing
+stdin still failed, that stdin failure is itself the (only) reason to
+reject — documented and tested as `exitCode: 0` with `code` carrying the
+stdin error's own errno (e.g. `"EPIPE"`) and `cause` set to the stdin
+error; (4) otherwise resolve.
+
+**Errno vs. exit-code normalization.** `execFileP` previously copied
+Node's raw `error.code` directly into the rejected error's own `code`
+field. Node overloads `.code` for two different shapes — a string errno
+(`"ENOENT"`) when the executable itself could not be spawned, or a
+*number* when the process started and exited non-zero — so a `docker`
+invocation that exited with status `7` was being exposed as `code: 7`,
+which `DockerCommandError.code?: NodeJS.ErrnoException["code"]`'s own
+contract only allows to be a string. Fixed via a new
+`splitNodeErrorCode` helper: `code` is the string when `rawCode` is a
+string (else `undefined`), `exitCode` is the number when `rawCode` is a
+number (else `null`) — always disjoint, never a number in `code`, never
+an errno string in `exitCode`. Applied identically in `spawnWithStdin`.
+`isNodeErrorWithCode` itself is unchanged (still string-only).
+
+**Bounded stderr, corrected to an actual byte limit.** The R1 truncation
+logic compared JavaScript string length against a constant literally named
+`MAX_STDIN_EXEC_STDERR_BYTES` — a mismatch, since JS string `.length` is
+UTF-16 code units, not bytes. Replaced with a `BoundedStderrCollector`
+that accumulates raw `Buffer` chunks up to the real byte limit and decodes
+to UTF-8 only once, at the end. New tests cover: output strictly below and
+exactly at the limit (no marker), output exceeding the limit in one chunk
+(exactly one marker, within the documented byte+marker bound), a chunk
+landing *exactly* on the byte boundary followed by more data (the precise
+scenario that caused R1's own truncation bug — regression-tested
+directly), later chunks after truncation not growing the stored
+diagnostic, and stderr arriving in multiple pieces before `"close"` still
+being captured in full.
+
+**Deterministic EPIPE/spawn-error tests.** Real OS pipe/process timing
+cannot reliably reproduce exact orderings like "stdin EPIPE, then close"
+on demand. Added an injectable `SpawnWithStdinDeps` seam (production
+default: the real `node:child_process.spawn`) and a fake,
+`EventEmitter`-based child for tests — no global monkey-patching of
+`child_process`. Four deterministic cases: stdin EPIPE then `close(0)`
+(rejects, identifies stdin delivery, preserves `EPIPE` errno); stdin EPIPE
+then `close(3)` (non-zero exit stays primary, stderr preserved, `code`
+absent — EPIPE is secondary context only); spawn ENOENT then `close`,
+including a second duplicate `close` (spawn failure stays primary,
+settles exactly once, no duplicate rejection); and normal success (stdin
+receives the exact requested payload, resolves once).
+
+**Real non-zero-exit test for `execFileP`.** Added alongside the existing
+real-ENOENT-chain test: `execFileP(process.execPath, ["-e", "...exit(7)"])`
+proves `code === undefined`, `exitCode === 7`, stderr preserved, and
+`cause` retained — the real-process counterpart to the ENOENT test, now
+covering both branches of the errno/exit-code split through the actual
+production wrapper.
+
+**Provider contract.** Unchanged: `win32`+unset→`container`,
+`linux`/`darwin`/other+unset→`native`, explicit values always honored,
+invalid values throw. No default-switch work begun.
+
+**Unit tests.** 278/278 pass in `container-git-remote.test.ts` (266
+pre-R2 + 12 new: 1 real exit-code test, 1 delayed-stderr/close test, 4
+deterministic EPIPE/spawn-error tests, 6 truncation-boundary tests).
+Desktop-wide: 1313/1313.
+
+**Package manager.** Same resolution as R1 — `corepack pnpm` (invoked by
+explicit path, since neither `corepack` nor the declared `pnpm@10.33.4`
+are on this sandbox's `PATH`) — used for all static validation below; the
+unrelated global `pnpm@9.15.9` was not used.
+
+**Static validation (pnpm 10.33.4 via Corepack).** `git diff --check`,
+`pnpm install --frozen-lockfile` (lockfile already up to date), `pnpm
+check:version`, `pnpm check:hygiene` (8/8), `pnpm test:scripts`
+(237/237), desktop `typecheck`, desktop `test` (1313/1313), `cargo fmt
+--check`, `cargo clippy -D warnings`, `cargo test --workspace`, `pnpm
+build:e2e:wdio-plugin` — all green.
+
+**STAGE 3F.5.8A-R2 COMPLETE — IMPLEMENTATION HARDENING CLOSED.**
+
+Parent status remains unchanged:
+
+**STAGE 3F.5.8A BLOCKED — REAL-HOST LINUX E2E VALIDATION DEFERRED.** This
+repair closes process-execution correctness gaps in the Linux backend's
+own code; it does not attempt and does not resolve the sandbox's Docker
+port-publishing or `tauri-driver` session-handshake limitations. The
+deferred real-host acceptance checklist (above, under R1) remains
+authoritative and unchanged.
+
 ---
 
 ## Integration criteria
