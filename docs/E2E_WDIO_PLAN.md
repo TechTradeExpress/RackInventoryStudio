@@ -4785,6 +4785,95 @@ pushed), parent Stage 3F.5.7 returns to:
   no repeatable CI/validation infrastructure exists. Same category as CI
   execution — infrastructure, not coverage.
 
+### Stage 3F.5.8A — Linux-native Docker backend bootstrap (2026-08-05)
+
+**Goal.** Stage 3F.5.7-R1 left the containerized Git-over-SSH fixture
+Windows-only in practice: the container backend invoked `wsl.exe` and
+translated Windows host paths to `/mnt/<drive>/...` mount paths, so
+`RIS_E2E_GIT_REMOTE_PROVIDER=container` had no working implementation on
+Linux even though the resolver already accepted the value there. This
+stage adds a native Linux Docker host backend so the explicit-container
+path actually works on Linux, as a precondition for a future decision on
+switching the Linux default (explicitly **not** this stage — the Linux
+unset/empty default remains `native` throughout, unchanged).
+
+**Host backend abstraction.** `container-git-remote.ts` now exposes a
+`ContainerHostBackend` interface (`kind`, `platform`, `describe()`,
+`preflight()`, `execDocker()`, `execDockerWithStdin()`,
+`resolveBuildContext()`, `resolveBindSource()`, `startKeepAlive()` /
+`stopKeepAlive()`, `buildFailureHint()`) with two implementations:
+
+- `createWindowsWsl2Backend()` — the pre-existing WSL2 behavior
+  (distribution discovery, `wsl.exe` invocation, Windows→`/mnt/` path
+  translation, the `wsl.exe -d <distro> -- sleep 86400` keep-alive
+  process), unchanged in behavior, just moved behind the interface.
+- `createLinuxNativeBackend()` — new. Calls the `docker` CLI directly via
+  `execFile`/`spawn` (never `shell: true`, never `sudo`), passes host
+  paths through unchanged (`assertLinuxAbsolutePath` rejects anything
+  non-absolute instead of attempting translation), and treats
+  `startKeepAlive`/`stopKeepAlive` as no-ops (the WSL2 keep-alive exists
+  to stop the WSL2 VM from idling out from under a long-running fixture;
+  there is no equivalent concept on native Linux).
+
+`resolveContainerHostKind(platform)` dispatches `win32` →
+`"windows-wsl2"`, `linux` → `"linux-native"`, anything else throws
+(pointing at `RIS_E2E_GIT_REMOTE_PROVIDER=native` as the fallback).
+`resolveGitRemoteProvider`'s own win32→container / else→native default
+logic is unchanged by this stage.
+
+All lifecycle orchestration (image content-hash caching, transactional
+startup with rollback, container health polling, authoritative cleanup,
+bare-remote administration) stays in shared, backend-agnostic functions
+that take a `ContainerHostBackend` parameter instead of a WSL distro
+string — none of it is duplicated per platform.
+
+**Security properties are inherited unchanged.** `buildDockerRunArgs`
+(loopback-only publish via `-p 127.0.0.1::22`, `--security-opt
+no-new-privileges`, no `--privileged`, no host networking, no socket
+mount, non-root `git-shell` user inside the container) is fully shared
+code, never touched by this stage — the Linux backend gets the same
+container security posture as the Windows backend for free.
+
+**Unit tests.** 259 tests pass (`container-git-remote.test.ts`),
+including new coverage for `resolveContainerHostKind`,
+`createContainerHostBackend`, `assertLinuxAbsolutePath`,
+`classifyLinuxExecError`, and a small, explicitly-documented exception to
+this file's "no real process access" norm: a `describe` block that probes
+a real local `docker info` and, only when Docker is actually available,
+exercises `preflight()`/`execDocker()` against it (skips gracefully
+otherwise, never fails the suite for lacking Docker).
+
+**Blocked: Stage O real-host validation.** The NSP for this stage
+required running all three Git SSH specs
+(`git-remote-workflows`, `git-clone-workflows`, `git-diverged-pull`) for
+real on a Linux host with `RIS_E2E_GIT_REMOTE_PROVIDER=container`. The
+Linux-native backend correctly builds the image, starts the container,
+passes its healthcheck, and installs the SSH key (all via `docker exec`,
+which goes through the Docker API/socket directly). But the actual SSH
+connection from the test — a real TCP connection to the container's
+*published* port on `127.0.0.1` — fails with "Connection refused" in
+this development sandbox. Diagnosis (see Errors/environment notes below)
+traced this to the sandbox itself: this Claude Code session runs inside
+its own Docker container (`ccw-ris`, confirmed via `/.dockerenv`), which
+lacks the privileges to program the NAT/forwarding rules Docker's
+port-publishing depends on — `iptables -t nat -L` fails with "Permission
+denied (you must be root)", no `docker-proxy` process exists for the
+mapped port, and even a direct connection to a test container's bridge IP
+(bypassing port-publishing entirely) times out. This was confirmed with
+a fixture-unrelated `nginx:alpine` container, ruling out a defect in this
+stage's own code. `--network host` would sidestep it but is explicitly
+forbidden by this stage's security requirements, so no workaround was
+attempted. This is an environment limitation of the current sandbox, not
+of the Linux-native backend implementation; validating Stage O for real
+requires running on a Linux host with normal (non-nested) Docker
+networking.
+
+**STAGE 3F.5.8A BLOCKED** on real-host Stage O validation for the reason
+above. Everything else in the stage's scope (host backend abstraction,
+Linux-native Docker execution, native path handling, unit test coverage,
+Windows backend regression, security posture, no Linux default change)
+is complete. See `.ai/cc-report.md` for the full report.
+
 ---
 
 ## Integration criteria
