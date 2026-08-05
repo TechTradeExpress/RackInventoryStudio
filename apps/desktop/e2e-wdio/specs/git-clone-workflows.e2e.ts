@@ -26,13 +26,18 @@
  * ── Audit findings (pre-implementation) ──────────────────────────────────────
  *
  * - `clone_repository_cmd` (apps/desktop/src-tauri/src/commands/repository.rs)
- *   is unchanged since the Stage 3F.0/3F.2 audits: a plain, synchronous
- *   command that validates `destination` is empty/absent, calls the plain
- *   `ris_git::clone()` (no askpass wiring — still a known, pre-existing gap
- *   for a passphrase-protected key, irrelevant here since this stage's key
- *   has none), then opens the cloned directory via the same `open_repository`
+ *   validates `destination` is empty/absent, calls `ris_git::clone()` (no
+ *   askpass wiring — still a known, pre-existing gap for a
+ *   passphrase-protected key, irrelevant here since this stage's key has
+ *   none), then opens the cloned directory via the same `open_repository`
  *   path `open_repository_cmd`/`create_repository_cmd` use, and returns the
- *   same `OpenRepositoryResultDto` create/open both return.
+ *   same `OpenRepositoryResultDto` create/open both return. As of Stage
+ *   3F.5.6 this is an **async** command: the clone and the post-clone
+ *   `open_repository` disk read both run in `spawn_blocking`, so a slow
+ *   or stalled git subprocess no longer blocks the WebView's UI/event-loop
+ *   thread (previously a plain synchronous command — see Stage 3F.5.6 in
+ *   docs/E2E_WDIO_PLAN.md for the root-cause investigation this native
+ *   `git-clone-workflows` run itself served as evidence for).
  * - `ris_git::clone()` (crates/ris-git/src/lib.rs) is unchanged: validates
  *   the URL via `validate_remote_url` (same SCP-like acceptance already
  *   proven for push/pull in Stage 3F.2), then runs `git clone` via
@@ -90,6 +95,19 @@
  * conflicts, branch switching, fetch, pull, push, tags, submodules,
  * multiple remotes, shallow clone, detached HEAD, clone cancellation,
  * clone progress, clone retries.
+ *
+ * ── Stage 3F.5.5: provider-neutral migration ─────────────────────────────────
+ *
+ * Migrated to the shared `createGitRemoteFixture()` adapter
+ * (support/git-remote-fixture.ts) so this spec runs against either the
+ * native local-sshd fixture (default, unless overridden) or the
+ * containerized Git-over-SSH fixture
+ * (`RIS_E2E_GIT_REMOTE_PROVIDER=container`) — see that module's own doc
+ * comment. Scenario meaning is unchanged from Stage 3F.3: the application
+ * still performs every clone itself; only remote *seeding* (via the new
+ * provider-neutral `fixture.seedBareRemote`, native: a local-filesystem
+ * push via `seedBareRemoteFromLocalRepo`; container: a real SSH push via
+ * `seedContainerBareRemoteFromLocalRepo`) is test-side, exactly as before.
  */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -105,18 +123,10 @@ import {
   readGitConfig,
 } from "../support/local-git";
 import {
-  buildSshRemoteUrl,
-  cleanup as cleanupRemoteServer,
-  configureSsh,
-  createBareRemote,
-  findSshd,
-  getRemoteCommitCount,
-  getRemoteHeadCommit,
-  pushSimulatedRemoteCommit,
-  seedBareRemoteFromLocalRepo,
-  startRemote,
-  type SshRemoteServer,
-} from "../support/git-remote";
+  assertFixtureCleanupSucceeded,
+  createGitRemoteFixture,
+  type GitRemoteFixture,
+} from "../support/git-remote-fixture";
 
 function log(msg: string) {
   const ts = new Date().toISOString().substring(11, 23);
@@ -188,7 +198,7 @@ async function getDisplayedUpstream(): Promise<string | null> {
 }
 
 describe("Rack Inventory Studio — Git clone workflows (SSH)", () => {
-  let server: SshRemoteServer;
+  let fixture: GitRemoteFixture;
 
   before(async () => {
     if (!process.env["RIS_E2E_REPOSITORY_PARENT"]) {
@@ -198,34 +208,20 @@ describe("Rack Inventory Studio — Git clone workflows (SSH)", () => {
       );
     }
 
-    const sshdPath = await findSshd();
-    if (!sshdPath) {
-      // Hard failure, not a skip — see this file's module doc comment
-      // (mirrors Stage 3F.2's RP for git-remote-workflows.e2e.ts).
-      throw new Error(
-        "sshd was not found (checked PATH and /usr/sbin, /sbin, /usr/local/sbin) — " +
-          "required to run git-clone-workflows. Install OpenSSH server " +
-          "(e.g. `sudo apt-get install -y openssh-server` on Linux) before running this spec.",
-      );
-    }
-
-    log("starting the local sshd remote-Git fixture (Stage 3F.2 infrastructure, unmodified)");
-    server = await startRemote();
-    configureSsh(server);
-    log(`fixture ready: 127.0.0.1:${server.port}, username=${server.username}`);
+    fixture = await createGitRemoteFixture();
   });
 
   after(async () => {
-    if (server) await cleanupRemoteServer(server);
+    if (fixture) assertFixtureCleanupSucceeded(await fixture.cleanup());
   });
 
   it("clones a repository containing only the RIS scaffold (no inventory data) over SSH", async () => {
     log("seeding a bare remote with a scaffold-only commit");
     const seedRepo = await createLocalGitRepository({ initialCommit: true, label: "clone-empty-seed" });
-    const bareDir = await createBareRemote(server.remotesParent, "scenario1");
+    const bareDir = await fixture.createBareRemote("scenario1");
     const branch = await getCurrentBranch(seedRepo.path);
-    await seedBareRemoteFromLocalRepo(seedRepo.path, bareDir, branch);
-    const remoteUrl = buildSshRemoteUrl(server, bareDir);
+    await fixture.seedBareRemote(seedRepo.path, bareDir, branch);
+    const remoteUrl = fixture.buildRemoteUrl(bareDir);
     log(`bare remote seeded at ${bareDir}, url=${remoteUrl}`);
 
     const parentPath = process.env["RIS_E2E_REPOSITORY_PARENT"] as string;
@@ -250,7 +246,7 @@ describe("Rack Inventory Studio — Git clone workflows (SSH)", () => {
 
       expect(await getCommitCount(destination)).toBe(1);
       expect(await getWorkingTreeStatus(destination)).toBe("clean");
-      expect(await getHeadCommit(destination)).toBe(await getRemoteHeadCommit(bareDir, branch));
+      expect(await getHeadCommit(destination)).toBe(await fixture.getRemoteHeadCommit(bareDir, branch));
       expect(await readGitConfig(destination, `branch.${branch}.remote`)).toBe("origin");
       expect(await readGitConfig(destination, `branch.${branch}.merge`)).toBe(`refs/heads/${branch}`);
       expect(await getRemoteUrl(destination, "origin")).toBe(remoteUrl);
@@ -269,21 +265,15 @@ describe("Rack Inventory Studio — Git clone workflows (SSH)", () => {
   it("clones a repository with multiple commits over SSH", async () => {
     log("seeding a bare remote with an initial commit, then simulating a second");
     const seedRepo = await createLocalGitRepository({ initialCommit: true, label: "clone-commits-seed" });
-    const bareDir = await createBareRemote(server.remotesParent, "scenario2");
+    const bareDir = await fixture.createBareRemote("scenario2");
     const branch = await getCurrentBranch(seedRepo.path);
-    await seedBareRemoteFromLocalRepo(seedRepo.path, bareDir, branch);
+    await fixture.seedBareRemote(seedRepo.path, bareDir, branch);
 
-    const secondSha = await pushSimulatedRemoteCommit(
-      bareDir,
-      server.remotesParent,
-      branch,
-      "second-commit.txt",
-      "Second commit",
-    );
-    expect(await getRemoteCommitCount(bareDir, branch)).toBe(2);
+    const secondSha = await fixture.pushSimulatedRemoteCommit(bareDir, branch, "second-commit.txt", "Second commit");
+    expect(await fixture.getRemoteCommitCount(bareDir, branch)).toBe(2);
     log(`remote now has 2 commits, HEAD=${secondSha}`);
 
-    const remoteUrl = buildSshRemoteUrl(server, bareDir);
+    const remoteUrl = fixture.buildRemoteUrl(bareDir);
     const parentPath = process.env["RIS_E2E_REPOSITORY_PARENT"] as string;
     const dirName = `clone-commits-${uniqueSuffix()}`;
     const destination = join(parentPath, dirName);
@@ -320,10 +310,10 @@ describe("Rack Inventory Studio — Git clone workflows (SSH)", () => {
   it("keeps detection, branch, upstream, and remote configuration after closing and reopening a cloned repository", async () => {
     log("seeding a bare remote with a scaffold-only commit");
     const seedRepo = await createLocalGitRepository({ initialCommit: true, label: "clone-reopen-seed" });
-    const bareDir = await createBareRemote(server.remotesParent, "scenario3");
+    const bareDir = await fixture.createBareRemote("scenario3");
     const branch = await getCurrentBranch(seedRepo.path);
-    await seedBareRemoteFromLocalRepo(seedRepo.path, bareDir, branch);
-    const remoteUrl = buildSshRemoteUrl(server, bareDir);
+    await fixture.seedBareRemote(seedRepo.path, bareDir, branch);
+    const remoteUrl = fixture.buildRemoteUrl(bareDir);
 
     const parentPath = process.env["RIS_E2E_REPOSITORY_PARENT"] as string;
     const dirName = `clone-reopen-${uniqueSuffix()}`;

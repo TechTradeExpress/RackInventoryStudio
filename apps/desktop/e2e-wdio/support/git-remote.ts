@@ -206,6 +206,142 @@ export async function findSshd(): Promise<string | null> {
   return process.platform === "win32" ? findSshdWindows() : findSshdPosix();
 }
 
+// ── Git Bash discovery (Windows ForceCommand target) ────────────────────────
+//
+// Win32 OpenSSH Server executes incoming exec requests (what `git push`/
+// `pull`/`clone` send) via `%ComSpec% /c` — `cmd.exe` — unless told
+// otherwise, and `cmd.exe` has no single-quote quoting construct, so Git's
+// POSIX-quoted remote command (`git-upload-pack '<path>'`) reaches
+// `git-upload-pack.exe` with the quote characters still attached (see
+// `buildSshdConfig`'s `ForceCommand` doc comment for the full mechanism and
+// how this was confirmed empirically). Stage 3F.5.1's fix routes every
+// exec through Git Bash instead — this section locates it.
+
+/**
+ * Derives Git for Windows' install root from a resolved `git.exe` path.
+ * Pure — no filesystem access. Handles both real-world layouts: the `cmd\`
+ * shim (`<root>\cmd\git.exe`, one level up) and the actual MSYS2 binary
+ * (`<root>\mingw64\bin\git.exe` or `\mingw32\bin\git.exe`, two levels up)
+ * — a flat "always two segments up" rule is wrong for the `cmd\` layout
+ * (over-shoots into the parent of `<root>`), which is why this is its own
+ * named, tested function rather than an inline `dirname(dirname(...))`.
+ * Falls back to one level up (the immediate parent directory) for any
+ * other/unrecognized layout — a reasonable best-effort guess, not
+ * expected to be hit for a real Git for Windows install.
+ */
+export function deriveGitRootFromExe(gitExePath: string): string {
+  const parent = win32.dirname(gitExePath);
+  const parentName = win32.basename(parent).toLowerCase();
+  if (parentName === "cmd") {
+    return win32.dirname(parent);
+  }
+  const grandparent = win32.dirname(parent);
+  const grandparentName = win32.basename(grandparent).toLowerCase();
+  if (parentName === "bin" && (grandparentName === "mingw64" || grandparentName === "mingw32")) {
+    return win32.dirname(grandparent);
+  }
+  return parent;
+}
+
+/**
+ * Builds the ordered list of Windows Git Bash candidates to check for
+ * existence, in priority order, from already-fetched raw inputs. Pure — no
+ * filesystem or process access — so the prioritization logic is fully
+ * unit-testable in isolation, mirroring `buildWindowsSshdCandidates`.
+ *
+ * Deliberately never trusts a bare `where.exe bash` / `which bash` result:
+ * on a machine with WSL installed, `C:\Windows\System32\bash.exe` and/or
+ * `%LOCALAPPDATA%\Microsoft\WindowsApps\bash.exe` are WSL *launcher stubs*
+ * (tiny ~86 KB PE binaries that hand off to a Linux subsystem), not Git
+ * Bash (Git for Windows' real `bash.exe` is a ~2.5 MB MSYS2 build) —
+ * confirmed present on the machine this stage's investigation ran on,
+ * ahead of Git's own `usr\bin\bash.exe` in a bare `where.exe bash` listing
+ * on at least one install ordering. Using the WSL stub here would silently
+ * run commands inside a different OS/filesystem namespace instead of Git
+ * Bash. Every candidate below is therefore derived from something that is
+ * *not* a bare "bash" lookup: `git.exe`'s own resolved location (via
+ * `deriveGitRootFromExe`), the Git for Windows installer's own registry
+ * key, and well-known default install paths (always included, appended
+ * last, regardless of whether the higher-priority sources resolved
+ * anything — same "redundant fallback candidates cost nothing" rationale
+ * `buildWindowsSshdCandidates` already uses) — `git.exe` itself has no WSL
+ * stub equivalent to confuse this with.
+ */
+export function buildWindowsGitBashCandidates(gitExePath: string | null, registryInstallPath: string | null): string[] {
+  const roots: string[] = [];
+  if (gitExePath) {
+    roots.push(deriveGitRootFromExe(gitExePath));
+  }
+  if (registryInstallPath) {
+    roots.push(registryInstallPath);
+  }
+  roots.push("C:\\Program Files\\Git", "C:\\Program Files (x86)\\Git");
+
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+  for (const root of roots) {
+    for (const rel of [
+      ["bin", "bash.exe"],
+      ["usr", "bin", "bash.exe"],
+    ]) {
+      const candidate = win32.join(root, ...rel);
+      if (!seen.has(candidate)) {
+        seen.add(candidate);
+        candidates.push(candidate);
+      }
+    }
+  }
+  return candidates;
+}
+
+/**
+ * Reads the Git for Windows installer's own registry key
+ * (`SOFTWARE\GitForWindows\InstallPath`, written by the official installer,
+ * readable without any elevated privilege), checking `HKLM` then `HKCU` so
+ * both machine-wide and per-user installs resolve. Returns null if neither
+ * hive has the key/value or `reg.exe` itself is unavailable.
+ */
+async function readGitForWindowsRegistryInstallPath(): Promise<string | null> {
+  for (const hive of ["HKLM", "HKCU"]) {
+    try {
+      const { stdout } = await execFileP("reg.exe", ["query", `${hive}\\SOFTWARE\\GitForWindows`, "/v", "InstallPath"]);
+      const match = /InstallPath\s+REG_SZ\s+(.+)/.exec(stdout);
+      const value = match?.[1]?.trim();
+      if (value) return value;
+    } catch {
+      // key/value absent under this hive, or reg.exe unavailable — try the
+      // next hive, or fall through to the caller's other candidate sources
+    }
+  }
+  return null;
+}
+
+async function findGitBashWindows(): Promise<string | null> {
+  let gitExePath: string | null = null;
+  try {
+    const { stdout } = await execFileP("where.exe", ["git"]);
+    gitExePath = parseCandidateLines(stdout)[0] ?? null;
+  } catch {
+    // where.exe found nothing (or isn't available) — fall through
+  }
+
+  const registryInstallPath = await readGitForWindowsRegistryInstallPath();
+
+  return selectFirstUsableCandidate(buildWindowsGitBashCandidates(gitExePath, registryInstallPath));
+}
+
+/**
+ * Locates Git Bash's `bash.exe` for use as the Windows `ForceCommand`
+ * target (see `buildSshdConfig`). Never needed on POSIX, where the remote
+ * login shell is already POSIX-compatible, so this is a no-op there.
+ * Returns null when not found — `startRemote()` must treat that as a hard
+ * failure on `win32`, mirroring `findSshd()`'s own "hard failure, not
+ * silent skip" policy (see its doc comment for the full reasoning).
+ */
+export async function findGitBash(): Promise<string | null> {
+  return process.platform === "win32" ? findGitBashWindows() : null;
+}
+
 // ── Private key permissions ───────────────────────────────────────────────────
 
 /**
@@ -267,6 +403,12 @@ export interface SshdConfigOptions {
   authorizedKeysPath: string;
   pidFilePath: string;
   platform?: NodeJS.Platform;
+  /**
+   * Absolute path to Git Bash's `bash.exe` (from `findGitBash()`). Required
+   * on `win32` to emit the `ForceCommand` directive below; ignored on
+   * POSIX, where the remote login shell is already POSIX-compatible.
+   */
+  gitBashPath?: string;
 }
 
 /**
@@ -292,6 +434,27 @@ export function buildSshdConfig(options: SshdConfigOptions): string {
   ];
   if (platform !== "win32") {
     lines.push("UsePAM no");
+  }
+  if (platform === "win32" && options.gitBashPath) {
+    // Win32 OpenSSH executes incoming exec requests (what `git push`/`pull`/
+    // `clone` send) via `%ComSpec% /c` — cmd.exe — by default, confirmed via
+    // this stage's own sshd debug-log capture:
+    // `spawn_argv[0]: "...\cmd.exe" /c "..."`. cmd.exe has no single-quote
+    // quoting construct, so Git's POSIX-quoted remote command
+    // (`git-upload-pack '<path>'`) reaches git-upload-pack.exe with the
+    // quote characters still attached, corrupting the path (the Stage 3F.5
+    // defect). Routing through Git Bash instead fixes that, but only with
+    // `eval`: cmd.exe doesn't understand `$VAR` syntax, so it passes the
+    // literal text `$SSH_ORIGINAL_COMMAND` straight through to bash's `-c`
+    // argument unexpanded; bash then expands it itself, but *ordinary*
+    // (non-eval) variable expansion performs word-splitting on the value
+    // without reinterpreting quote characters *within* it as syntax — so a
+    // bare `-c "$SSH_ORIGINAL_COMMAND"` reproduces the exact same
+    // `''<path>''` quote-corruption cmd.exe alone produces (confirmed
+    // empirically against a real fixture instance before landing this).
+    // `eval` forces a second parse of the already-expanded value as fresh
+    // shell syntax, which is what actually strips Git's own single quotes.
+    lines.push(`ForceCommand "${options.gitBashPath}" -c "eval \\"$SSH_ORIGINAL_COMMAND\\""`);
   }
   lines.push(
     "StrictModes no",
@@ -427,6 +590,26 @@ export async function startRemote(): Promise<SshRemoteServer> {
     );
   }
 
+  // Windows only: without this, Win32 OpenSSH's default remote shell
+  // (cmd.exe) corrupts every incoming git-over-ssh command — see
+  // buildSshdConfig's ForceCommand doc comment. A missing Git Bash is a
+  // hard failure here, not a silent fallback to the broken cmd.exe
+  // behavior, mirroring the sshd-not-found policy just above.
+  let gitBashPath: string | undefined;
+  if (process.platform === "win32") {
+    const found = await findGitBash();
+    if (!found) {
+      throw new Error(
+        "[git-remote] Git Bash was not found (checked git.exe's own install root via " +
+          "`where.exe git`, the Git for Windows registry key, and well-known Program Files " +
+          "locations). Required on Windows so the fixture's sshd executes incoming git " +
+          "commands through a POSIX-compatible shell instead of cmd.exe. Install Git for " +
+          "Windows to run the SSH-remote WDIO specs.",
+      );
+    }
+    gitBashPath = found;
+  }
+
   const runRoot = resolveRunRoot();
   const gitDir = join(runRoot, "git");
   mkdirSync(gitDir, { recursive: true });
@@ -461,7 +644,7 @@ export async function startRemote(): Promise<SshRemoteServer> {
   // reject depending on the host's umask — irrelevant here since this sshd
   // only ever accepts connections from the one ephemeral key generated
   // above.
-  const sshdConfig = buildSshdConfig({ port, hostKeyPath, authorizedKeysPath, pidFilePath });
+  const sshdConfig = buildSshdConfig({ port, hostKeyPath, authorizedKeysPath, pidFilePath, gitBashPath });
   writeFileSync(sshdConfigPath, sshdConfig);
 
   log(`starting sshd on 127.0.0.1:${port} (workDir=${workDir})`);

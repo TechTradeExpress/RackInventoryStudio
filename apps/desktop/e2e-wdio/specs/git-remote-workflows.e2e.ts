@@ -59,6 +59,21 @@
  * conflicts, rebase, stash, tags, multiple remotes, HTTPS credentials,
  * branch creation/switching, detached HEAD, force push, and the SSH
  * passphrase-prompt workflow.
+ *
+ * ── Stage 3F.5.4: containerized fixture (opt-in) ─────────────────────────────
+ *
+ * This spec was also the original proof-of-concept target for Stage
+ * 3F.5.4's containerized Git-over-SSH fixture (support/container-git-remote.ts)
+ * — a Linux container (OpenSSH + git) managed through Docker Engine inside
+ * WSL2, reached from the Windows application over a published 127.0.0.1
+ * port, replacing only the *server* side of the native fixture above (the
+ * Windows application, git.exe, ssh.exe, and every WDIO interaction stay
+ * native throughout either way). As of Stage 3F.5.7, `container` is the
+ * default provider on Windows for all three Git-over-SSH specs (this one,
+ * git-clone-workflows, and git-diverged-pull); set
+ * `RIS_E2E_GIT_REMOTE_PROVIDER=native` to use the native fixture described
+ * above instead. See the `RemoteFixture` interface right below for how the
+ * three scenarios stay provider-agnostic.
  */
 import { browser, expect } from "@wdio/globals";
 import { reactSetValue, clickWhenEnabled, expectActiveRepositoryPath } from "../support/repository-ui";
@@ -72,17 +87,53 @@ import {
   readGitConfig,
 } from "../support/local-git";
 import {
-  buildSshRemoteUrl,
-  cleanup as cleanupRemoteServer,
-  configureSsh,
-  createBareRemote,
+  buildSshRemoteUrl as buildNativeSshRemoteUrl,
+  cleanup as cleanupNativeRemoteServer,
+  configureSsh as configureNativeSsh,
+  createBareRemote as createNativeBareRemote,
   findSshd,
-  getRemoteCommitCount,
-  getRemoteHeadCommit,
-  pushSimulatedRemoteCommit,
+  getRemoteCommitCount as getNativeRemoteCommitCount,
+  getRemoteHeadCommit as getNativeRemoteHeadCommit,
+  pushSimulatedRemoteCommit as pushSimulatedNativeRemoteCommit,
   startRemote,
-  type SshRemoteServer,
 } from "../support/git-remote";
+import {
+  createContainerRemoteFixture,
+  resolveGitRemoteProvider,
+  assertFixtureCleanupSucceeded,
+  type FixtureCleanupResult,
+} from "../support/container-git-remote";
+
+/**
+ * Unifies the two Git-remote fixture providers (native local-sshd vs.
+ * containerized — see support/container-git-remote.ts's own doc comment for
+ * the Stage 3F.5.4 proof-of-concept rationale) behind the one shape this
+ * spec's three scenarios actually need, so the scenario bodies below don't
+ * fork on provider at all. Selected once in before() via
+ * RIS_E2E_GIT_REMOTE_PROVIDER (resolveGitRemoteProvider) — defaults to
+ * "container" on Windows as of Stage 3F.5.7 (still "native" on other
+ * platforms until Stage 3F.5.8 — see resolveGitRemoteProvider's own doc
+ * comment); set RIS_E2E_GIT_REMOTE_PROVIDER=native to run this spec
+ * against the native fixture instead on any platform.
+ */
+interface RemoteFixture {
+  createBareRemote(label: string): Promise<string>;
+  buildRemoteUrl(bareRepoPath: string): string;
+  getRemoteHeadCommit(bareRepoPath: string, ref?: string): Promise<string>;
+  getRemoteCommitCount(bareRepoPath: string, ref?: string): Promise<number>;
+  pushSimulatedRemoteCommit(
+    bareRepoPath: string,
+    branch: string,
+    fileName: string,
+    message: string,
+  ): Promise<string>;
+  /** Provider-neutral (Stage 3F.5.4-R2's defect-2/unified-contract fix):
+   * both providers now map onto the shared `FixtureCleanupResult` shape —
+   * `after()` below asserts against it via `assertFixtureCleanupSucceeded`,
+   * so an unremoved or unverified resource fails the suite instead of
+   * silently disappearing behind a discarded `Promise<unknown>`. */
+  cleanup(): Promise<FixtureCleanupResult>;
+}
 
 function log(msg: string) {
   const ts = new Date().toISOString().substring(11, 23);
@@ -144,7 +195,7 @@ async function addRemoteThroughUi(name: string, url: string): Promise<void> {
 }
 
 describe("Rack Inventory Studio — remote Git workflows (SSH)", () => {
-  let server: SshRemoteServer;
+  let fixture: RemoteFixture;
 
   before(async () => {
     if (!process.env["RIS_E2E_REPOSITORY_PARENT"]) {
@@ -152,6 +203,22 @@ describe("Rack Inventory Studio — remote Git workflows (SSH)", () => {
         "RIS_E2E_REPOSITORY_PARENT is not set. " +
           "Run via WDIO with the test-environment initialized in wdio.conf.ts.",
       );
+    }
+
+    const provider = resolveGitRemoteProvider();
+    log(`git remote provider: ${provider}`);
+
+    if (provider === "container") {
+      // Stage 3F.5.4 proof of concept — see support/container-git-remote.ts's
+      // module doc comment. Opt-in only (RIS_E2E_GIT_REMOTE_PROVIDER=container).
+      // createContainerRemoteFixture() is the atomic init boundary (Stage
+      // 3F.5.4-R1): it only returns once the container is fully started AND
+      // configured for SSH, and cleans up after itself if either step
+      // fails — `fixture` is never assigned a half-initialized provider.
+      log("starting the containerized Git-over-SSH fixture");
+      fixture = await createContainerRemoteFixture();
+      log("containerized fixture ready");
+      return;
     }
 
     const sshdPath = await findSshd();
@@ -170,20 +237,63 @@ describe("Rack Inventory Studio — remote Git workflows (SSH)", () => {
     }
 
     log("starting the local sshd remote-Git fixture");
-    server = await startRemote();
-    configureSsh(server);
+    const server = await startRemote();
+    try {
+      configureNativeSsh(server);
+    } catch (error) {
+      // Equivalent atomic-init safety to the container provider's
+      // createContainerRemoteFixture() (Stage 3F.5.4-R1): startRemote()
+      // already succeeded here (sshd running, keys on disk) — if
+      // configureNativeSsh() throws before `fixture` is assigned below,
+      // after() would otherwise have nothing to call cleanup on, leaking
+      // the sshd process and its key directory.
+      await cleanupNativeRemoteServer(server).catch(() => {});
+      throw error;
+    }
     log(`fixture ready: 127.0.0.1:${server.port}, username=${server.username}`);
+    fixture = {
+      createBareRemote: (label) => createNativeBareRemote(server.remotesParent, label),
+      buildRemoteUrl: (bareRepoPath) => buildNativeSshRemoteUrl(server, bareRepoPath),
+      getRemoteHeadCommit: (bareRepoPath, ref) => getNativeRemoteHeadCommit(bareRepoPath, ref),
+      getRemoteCommitCount: (bareRepoPath, ref) => getNativeRemoteCommitCount(bareRepoPath, ref),
+      pushSimulatedRemoteCommit: (bareRepoPath, branch, fileName, message) =>
+        pushSimulatedNativeRemoteCommit(bareRepoPath, server.remotesParent, branch, fileName, message),
+      // Maps the native fixture's own Promise<void>/throws-on-failure
+      // cleanup onto the shared FixtureCleanupResult shape (Stage
+      // 3F.5.4-R2's provider-neutral contract) rather than changing
+      // support/git-remote.ts itself — same "zero native-fixture footprint"
+      // approach Stage 3F.5.4-R1 used for atomic init. A thrown error is
+      // never silently swallowed: it's captured into `errors` so
+      // assertFixtureCleanupSucceeded's thrown message names it explicitly.
+      cleanup: async () => {
+        try {
+          await cleanupNativeRemoteServer(server);
+          return { ok: true, provider: "native", errors: [] };
+        } catch (error) {
+          return {
+            ok: false,
+            provider: "native",
+            errors: [error instanceof Error ? error.message : String(error)],
+          };
+        }
+      },
+    };
   });
 
   after(async () => {
-    if (server) await cleanupRemoteServer(server);
+    // Teardown is now part of the test result (Stage 3F.5.4-R2's defect-2
+    // fix): an unremoved container, an unverified presence check, a
+    // refused work-directory removal, or a still-running keep-alive all
+    // fail this hook — the suite cannot pass while fixture teardown is
+    // inconclusive, for either provider.
+    if (fixture) assertFixtureCleanupSucceeded(await fixture.cleanup());
   });
 
   it("pushes a new commit to a remote over SSH, configuring upstream tracking", async () => {
     log("creating a fixture with an initial commit");
     const repo = await createLocalGitRepository({ initialCommit: true, label: "remote-push" });
-    const bareDir = await createBareRemote(server.remotesParent, "scenario1");
-    const remoteUrl = buildSshRemoteUrl(server, bareDir);
+    const bareDir = await fixture.createBareRemote("scenario1");
+    const remoteUrl = fixture.buildRemoteUrl(bareDir);
     log(`bare remote at ${bareDir}, url=${remoteUrl}`);
 
     let opened = false;
@@ -203,7 +313,7 @@ describe("Rack Inventory Studio — remote Git workflows (SSH)", () => {
 
       log("waiting for the commit to land on the remote bare repository (helper-level, not a UI message)");
       await browser.waitUntil(
-        async () => (await getRemoteCommitCount(bareDir, branch).catch(() => 0)) === 1,
+        async () => (await fixture.getRemoteCommitCount(bareDir, branch).catch(() => 0)) === 1,
         {
           timeout: 20_000,
           interval: 200,
@@ -212,8 +322,8 @@ describe("Rack Inventory Studio — remote Git workflows (SSH)", () => {
       );
 
       expect(await browser.$('[data-testid="git-push-error"]').isExisting()).toBe(false);
-      expect(await getRemoteHeadCommit(bareDir, branch)).toBe(localHead);
-      expect(await getRemoteCommitCount(bareDir, branch)).toBe(1);
+      expect(await fixture.getRemoteHeadCommit(bareDir, branch)).toBe(localHead);
+      expect(await fixture.getRemoteCommitCount(bareDir, branch)).toBe(1);
       log("confirmed via helpers — remote HEAD and commit count match the pushed local commit");
 
       expect(await readGitConfig(repo.path, `branch.${branch}.remote`)).toBe("origin");
@@ -243,8 +353,8 @@ describe("Rack Inventory Studio — remote Git workflows (SSH)", () => {
   it("pulls a fast-forward commit simulated on the remote", async () => {
     log("creating a fixture with an initial commit");
     const repo = await createLocalGitRepository({ initialCommit: true, label: "remote-pull" });
-    const bareDir = await createBareRemote(server.remotesParent, "scenario2");
-    const remoteUrl = buildSshRemoteUrl(server, bareDir);
+    const bareDir = await fixture.createBareRemote("scenario2");
+    const remoteUrl = fixture.buildRemoteUrl(bareDir);
 
     let opened = false;
     try {
@@ -259,19 +369,18 @@ describe("Rack Inventory Studio — remote Git workflows (SSH)", () => {
       log("pushing once to establish upstream tracking before testing pull");
       await clickWhenEnabled("git-stepper-push-btn");
       await browser.waitUntil(
-        async () => (await getRemoteCommitCount(bareDir, branch).catch(() => 0)) === 1,
+        async () => (await fixture.getRemoteCommitCount(bareDir, branch).catch(() => 0)) === 1,
         { timeout: 20_000, interval: 200, timeoutMsg: "initial push never landed on the remote" },
       );
 
-      log("simulating a teammate's commit landing on the remote (local-filesystem clone, no SSH)");
-      const simulatedSha = await pushSimulatedRemoteCommit(
+      log("simulating a teammate's commit landing on the remote (test-side, no SSH)");
+      const simulatedSha = await fixture.pushSimulatedRemoteCommit(
         bareDir,
-        server.remotesParent,
         branch,
         "from-teammate.txt",
         "Simulated remote commit",
       );
-      expect(await getRemoteCommitCount(bareDir, branch)).toBe(2);
+      expect(await fixture.getRemoteCommitCount(bareDir, branch)).toBe(2);
       log(`remote now has 2 commits, HEAD=${simulatedSha}`);
 
       log("clicking git-stepper-pull-btn");
@@ -305,8 +414,8 @@ describe("Rack Inventory Studio — remote Git workflows (SSH)", () => {
   it("keeps upstream tracking and remote detection after closing and reopening the repository", async () => {
     log("creating a fixture with an initial commit");
     const repo = await createLocalGitRepository({ initialCommit: true, label: "remote-reopen" });
-    const bareDir = await createBareRemote(server.remotesParent, "scenario3");
-    const remoteUrl = buildSshRemoteUrl(server, bareDir);
+    const bareDir = await fixture.createBareRemote("scenario3");
+    const remoteUrl = fixture.buildRemoteUrl(bareDir);
 
     let opened = false;
     try {
@@ -321,7 +430,7 @@ describe("Rack Inventory Studio — remote Git workflows (SSH)", () => {
       log("pushing to establish upstream tracking");
       await clickWhenEnabled("git-stepper-push-btn");
       await browser.waitUntil(
-        async () => (await getRemoteCommitCount(bareDir, branch).catch(() => 0)) === 1,
+        async () => (await fixture.getRemoteCommitCount(bareDir, branch).catch(() => 0)) === 1,
         { timeout: 20_000, interval: 200, timeoutMsg: "push never landed on the remote" },
       );
       expect(await readGitConfig(repo.path, `branch.${branch}.remote`)).toBe("origin");

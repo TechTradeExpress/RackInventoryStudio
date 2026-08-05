@@ -2,9 +2,13 @@
 
 ## Unreleased
 
-Nothing yet — this section accumulates changes made after `v0.1.0-beta.3` is
-tagged. See "CHANGELOG workflow" in `docs/BETA_RELEASE_PROCESS_EN.md` for how
-this section is meant to be used and split going forward.
+Changes merged after the abandoned `v0.1.0-beta.3` release-candidate
+preparation (see `docs/BETA3_ROADMAP.md` and `docs/releases/v0.1.0-beta.3.md`
+for that decision record — `v0.1.0-beta.3` was prepared but never tagged or
+published). These changes, together with the prepared beta.3 content below,
+are expected to be included in `v0.1.0-beta.4`. See "CHANGELOG workflow" in
+`docs/BETA_RELEASE_PROCESS_EN.md` for how this section is meant to be used
+and split going forward.
 
 ---
 
