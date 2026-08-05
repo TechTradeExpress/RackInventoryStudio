@@ -46,10 +46,15 @@
  * atomic-initialization guarantee described below.
  *
  * Stage 3F.5.8A: on Linux, unset/empty still resolves to "native" (see
- * resolveGitRemoteProvider's own doc comment) — this stage makes
- * `RIS_E2E_GIT_REMOTE_PROVIDER=container` *work* on Linux, it does not make
- * it the Linux default. That is a separate, deliberately deferred decision
- * (Stage 3F.5.8B).
+ * resolveGitRemoteProvider's own doc comment) — this stage adds a
+ * Linux-native backend *implementation* for `RIS_E2E_GIT_REMOTE_PROVIDER=container`,
+ * exercised manually against a real Docker daemon (image build, container
+ * start, healthcheck, key install, cleanup); it does not claim the three
+ * WDIO Git-over-SSH specs pass end to end against it (see
+ * resolveGitRemoteProvider's doc comment and Stage 3F.5.8A-R1's "Deferred
+ * real-host acceptance checklist" in docs/E2E_WDIO_PLAN.md), and it does not
+ * make container the Linux default. Both are separate, deliberately
+ * deferred decisions (Stage 3F.5.8B, gated on that acceptance run passing).
  *
  * ── Host backend abstraction (Stage 3F.5.8A) ────────────────────────────────
  *
@@ -338,6 +343,13 @@ export interface DockerCommandError extends Error {
   hostDescription: string;
   stderr: string;
   exitCode: number | null;
+  /** Node's structured errno code (e.g. `"ENOENT"`) when the failure came
+   * from the executable itself failing to spawn, preserved from the
+   * original error so classification (`isNodeErrorWithCode`,
+   * `classifyLinuxExecError`) can run directly on a `DockerCommandError`
+   * without unwrapping `cause`. Absent for a plain non-zero exit, since
+   * Node never assigns an errno code to that case. */
+  code?: NodeJS.ErrnoException["code"];
 }
 
 export function isDockerCommandError(value: unknown): value is DockerCommandError {
@@ -348,14 +360,38 @@ export function isDockerCommandError(value: unknown): value is DockerCommandErro
   );
 }
 
-function execFileP(cmd: string, args: string[]): Promise<ExecResult> {
+/** Wraps `execFile` in a Promise while preserving Node's structured error
+ * `code` (either an errno string like `"ENOENT"` when the executable itself
+ * could not be spawned, or a number when it spawned but exited non-zero —
+ * Node overloads the same field for both cases) on the *rejected* error, not
+ * just on the original error stashed in `cause`. Callers like
+ * `classifyLinuxExecError` check `error.code` on whatever they catch
+ * directly; if `code` were dropped here, a real missing-`docker` ENOENT
+ * would silently misclassify as "unknown Docker error" instead of "Docker
+ * CLI is not installed".
+ *
+ * Exported (narrowly, alongside the rest of this module's already-exported
+ * internals used for testing) so unit tests can exercise this exact
+ * production wrapping path — real `execFile`, a real ENOENT from a genuinely
+ * nonexistent executable — rather than only asserting against a
+ * hand-constructed error shape that could drift from what this function
+ * actually produces. */
+export function execFileP(cmd: string, args: string[]): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
     execFile(cmd, args, { encoding: "buffer", maxBuffer: 16 * 1024 * 1024 }, (error, stdoutBuf, stderrBuf) => {
       const stdout = stdoutBuf.toString("utf8");
       const stderr = stderrBuf.toString("utf8");
       if (error) {
-        const exitCode = typeof (error as NodeJS.ErrnoException).code === "number" ? (error as unknown as { code: number }).code : null;
-        reject(Object.assign(new Error(`${error.message}\n${stderr}`.trim()), { stdout, stderr, exitCode, cause: error }));
+        const nodeError = error as NodeJS.ErrnoException;
+        const exitCode = typeof nodeError.code === "number" ? nodeError.code : null;
+        reject(
+          Object.assign(new Error(`${error.message}\n${stderr}`.trim(), { cause: error }), {
+            code: nodeError.code,
+            stdout,
+            stderr,
+            exitCode,
+          }),
+        );
       } else {
         resolve({ stdout, stderr });
       }
@@ -370,6 +406,7 @@ function execFileP(cmd: string, args: string[]): Promise<ExecResult> {
 function wrapDockerError(hostDescription: string, dockerArgs: string[], error: unknown): DockerCommandError {
   const stderr = error instanceof Error && "stderr" in error ? String((error as { stderr: unknown }).stderr) : "";
   const exitCode = error instanceof Error && "exitCode" in error ? ((error as { exitCode: number | null }).exitCode) : null;
+  const code = error instanceof Error && "code" in error ? (error as NodeJS.ErrnoException).code : undefined;
   const wrapped = new Error(
     `[container-git-remote] docker ${dockerArgs.join(" ")} failed via ${hostDescription}: ${errMsg(error)}`,
     { cause: error },
@@ -378,6 +415,7 @@ function wrapDockerError(hostDescription: string, dockerArgs: string[], error: u
   wrapped.hostDescription = hostDescription;
   wrapped.stderr = stderr;
   wrapped.exitCode = exitCode;
+  wrapped.code = code;
   return wrapped;
 }
 
@@ -746,28 +784,101 @@ function stopKeepAliveSessionViaWsl(child: ChildProcess): void {
   }
 }
 
+/** Upper bound on accumulated stderr for `spawnWithStdin` — a runaway or
+ * malicious child process must not be able to grow unbounded diagnostic
+ * text in memory just because nothing ever reads its stderr except this
+ * accumulator (`stdio: ["pipe", "ignore", "pipe"]` never lets a consumer
+ * drain it another way). Comfortably larger than any real Docker/git
+ * diagnostic output while still being a hard, explicit limit. */
+const MAX_STDIN_EXEC_STDERR_BYTES = 64 * 1024;
+const STDERR_TRUNCATION_MARKER = "\n...[stderr truncated]";
+
+/** Appends `chunk` to `current` up to `MAX_STDIN_EXEC_STDERR_BYTES`, marking
+ * truncation exactly once. Checks for the marker itself (not merely
+ * `current.length >= MAX`) before deciding whether to stop accumulating —
+ * a length-only guard can land exactly on `MAX` after one chunk with no
+ * chunks left to trigger the `> MAX` truncation branch at all, silently
+ * dropping every subsequent chunk without ever appending the marker. */
+function appendBoundedStderr(current: string, chunk: Buffer): string {
+  if (current.endsWith(STDERR_TRUNCATION_MARKER)) return current;
+  const next = current + chunk.toString("utf8");
+  return next.length > MAX_STDIN_EXEC_STDERR_BYTES
+    ? next.slice(0, MAX_STDIN_EXEC_STDERR_BYTES) + STDERR_TRUNCATION_MARKER
+    : next;
+}
+
 /**
- * Installs `publicKey` into the container's authorized_keys via
- * `docker exec -i ... tee -a`, piping the key over stdin rather than as a
- * command-line argument (see this module's "do not pass secrets through
- * command-line arguments when avoidable" rule — a public key isn't secret,
- * but this also keeps arbitrarily-shaped key comments out of argv/process
- * listings for free, and avoids ever needing to shell-escape it).
+ * Shared `spawn`-with-stdin execution, used by both backends'
+ * `execDockerWithStdin` (installing `publicKey` into the container's
+ * authorized_keys via `docker exec -i ... tee -a`, piping the key over
+ * stdin rather than as a command-line argument — see this module's "do not
+ * pass secrets through command-line arguments when avoidable" rule; a
+ * public key isn't secret, but this also keeps arbitrarily-shaped key
+ * comments out of argv/process listings for free, and avoids ever needing
+ * to shell-escape it). `cmd`/`cmdArgs` are the literal process to spawn
+ * (`docker ...` on Linux, `wsl.exe -d <distro> -- docker ...` on Windows);
+ * `dockerArgs` is the logical docker-only argument list recorded on the
+ * resulting error, matching what `wrapDockerError` records for the
+ * non-stdin path. Never a shell, never `sudo`.
+ *
+ * Always rejects with a `DockerCommandError` (dockerArgs/hostDescription/
+ * stderr/exitCode, plus `code` when the executable itself failed to spawn)
+ * rather than a bare `Error`, so `isDockerCommandError` and
+ * `isNodeErrorWithCode`-based classification behave identically for
+ * stdin-based execution as they do for `execFileP`-based execution.
+ *
+ * Exported narrowly (Stage 3F.5.8A-R1), same rationale as `execFileP`: lets
+ * unit tests exercise this exact production spawn/error-wrapping path (a
+ * real child process, real stdin/stderr/exit-code plumbing) with a
+ * deterministic local executable, rather than only asserting against a
+ * hand-constructed error shape.
  */
-function execDockerWithStdinViaWsl(distro: string, args: string[], stdinData: string): Promise<void> {
+export function spawnWithStdin(
+  cmd: string,
+  cmdArgs: string[],
+  stdinData: string,
+  hostDescription: string,
+  dockerArgs: string[],
+): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn("wsl.exe", ["-d", distro, "--", "docker", ...args], { stdio: ["pipe", "ignore", "pipe"] });
+    const child = spawn(cmd, cmdArgs, { stdio: ["pipe", "ignore", "pipe"] });
     let stderr = "";
     child.stderr?.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
+      stderr = appendBoundedStderr(stderr, chunk);
     });
-    child.on("error", (error) => reject(new Error(`[container-git-remote] docker ${args.join(" ")} failed to start: ${error.message}`, { cause: error })));
+    child.on("error", (error) => {
+      const nodeError = error as NodeJS.ErrnoException;
+      const wrapped = new Error(
+        `[container-git-remote] docker ${dockerArgs.join(" ")} failed via ${hostDescription}: ${error.message}`,
+        { cause: error },
+      ) as DockerCommandError;
+      wrapped.dockerArgs = dockerArgs;
+      wrapped.hostDescription = hostDescription;
+      wrapped.stderr = stderr;
+      wrapped.exitCode = null;
+      wrapped.code = nodeError.code;
+      reject(wrapped);
+    });
     child.on("exit", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`[container-git-remote] docker ${args.join(" ")} exited with code ${code}: ${stderr.trim()}`));
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      const wrapped = new Error(
+        `[container-git-remote] docker ${dockerArgs.join(" ")} exited with code ${code} via ${hostDescription}: ${stderr.trim()}`,
+      ) as DockerCommandError;
+      wrapped.dockerArgs = dockerArgs;
+      wrapped.hostDescription = hostDescription;
+      wrapped.stderr = stderr;
+      wrapped.exitCode = code;
+      reject(wrapped);
     });
     child.stdin?.end(stdinData);
   });
+}
+
+function execDockerWithStdinViaWsl(distro: string, args: string[], stdinData: string): Promise<void> {
+  return spawnWithStdin("wsl.exe", ["-d", distro, "--", "docker", ...args], stdinData, `WSL2 distribution "${distro}"`, args);
 }
 
 /**
@@ -838,19 +949,7 @@ async function execDockerNative(args: string[]): Promise<ExecResult> {
 }
 
 function execDockerWithStdinNative(args: string[], stdinData: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = spawn("docker", args, { stdio: ["pipe", "ignore", "pipe"] });
-    let stderr = "";
-    child.stderr?.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
-    child.on("error", (error) => reject(new Error(`[container-git-remote] docker ${args.join(" ")} failed to start: ${error.message}`, { cause: error })));
-    child.on("exit", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`[container-git-remote] docker ${args.join(" ")} exited with code ${code}: ${stderr.trim()}`));
-    });
-    child.stdin?.end(stdinData);
-  });
+  return spawnWithStdin("docker", args, stdinData, "native Linux Docker", args);
 }
 
 /**
@@ -962,14 +1061,20 @@ export type GitRemoteProvider = "native" | "container";
  * At that stage the container backend was still Windows-specific top to
  * bottom, so the unset/empty default was "container" only on `win32`.
  *
- * Stage 3F.5.8A: the container backend now also runs natively on Linux (see
- * "Host backend abstraction" above) — but the *default* is deliberately
- * unchanged by this stage: unset/empty still resolves to "native" on Linux.
- * Whether to switch that default is Stage 3F.5.8B's decision, made only
- * after the explicit-container path has been proven on a real Linux host
- * (which this stage does, but a proof-of-capability is not the same
- * decision as a default-behavior change — see this stage's own NSP,
- * "Non-objectives"). Platform is taken as an injected parameter (defaulting
+ * Stage 3F.5.8A: a Linux-native host backend now exists (see "Host backend
+ * abstraction" above) and its lifecycle was exercised manually against a
+ * real local Docker daemon — but the *default* is deliberately unchanged by
+ * this stage: unset/empty still resolves to "native" on Linux. Full
+ * application → Git → SSH → container acceptance (the three WDIO Git-remote
+ * specs actually passing against this backend on a normal Linux host)
+ * remains unvalidated as of Stage 3F.5.8A-R1 — real-host WDIO runs in the
+ * sandbox this stage was implemented in were blocked by that sandbox's own
+ * Docker-in-Docker networking and WebDriver-session limitations, not by a
+ * defect found in this backend. Switching the Linux default is Stage
+ * 3F.5.8B's decision, and may only be made after that acceptance run passes
+ * on a normal Linux host — see this stage's own NSP, "Non-objectives", and
+ * the "Deferred real-host acceptance checklist" in docs/E2E_WDIO_PLAN.md.
+ * Platform is taken as an injected parameter (defaulting
  * to the real `process.platform`) rather than read internally, so this
  * decision stays unit-testable for every platform without mutating global
  * Node state.

@@ -48,6 +48,7 @@ import {
   createContainerRemoteFixture,
   decodeWslMetaOutput,
   ensureImageBuilt,
+  execFileP,
   formatCleanupFailure,
   formatFixtureCleanupFailure,
   generateRunId,
@@ -67,6 +68,7 @@ import {
   rollbackPartialContainerFixture,
   selectDistribution,
   shouldForceRebuild,
+  spawnWithStdin,
   startContainerRemote,
   toFixtureCleanupResult,
   windowsPathToWslMountPath,
@@ -2938,6 +2940,124 @@ describe("classifyLinuxExecError", () => {
     for (const error of cases) {
       expect(classifyLinuxExecError(error)).not.toMatch(/wsl/i);
     }
+  });
+});
+
+// ── Stage 3F.5.8A-R1: real exec-wrapper → classifier chain ──────────────────
+//
+// The `classifyLinuxExecError` tests above only prove the classifier logic
+// given a hand-constructed error shape. That is insufficient on its own: it
+// never proves `execFileP` (the actual production wrapper every real Docker
+// call goes through) preserves `code` onto the *rejected* error in the first
+// place — which was, in fact, a real bug (the `code` field was silently
+// dropped before this repair, so a genuinely missing `docker` executable
+// misclassified as "unknown Docker error"). This test exercises the real
+// chain end to end: a real `execFile` call against a definitely-nonexistent
+// executable, a real Node ENOENT, through the real `execFileP` wrapper, into
+// the real `classifyLinuxExecError`. No real Docker required — the
+// executable name is generated to guarantee it is never on `PATH`, and
+// nothing here modifies `PATH` globally.
+describe("execFileP real execution-chain (Stage 3F.5.8A-R1)", () => {
+  it("preserves the structured ENOENT code and cause through the real wrapper, and classifies correctly", async () => {
+    const missingExecutable = `ris-e2e-definitely-nonexistent-${process.pid}-${Date.now()}`;
+    let caught: unknown;
+    try {
+      await execFileP(missingExecutable, ["--version"]);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    const wrapped = caught as NodeJS.ErrnoException & { cause?: unknown };
+    expect(wrapped.code).toBe("ENOENT");
+    expect(wrapped.cause).toBeInstanceOf(Error);
+    expect((wrapped.cause as NodeJS.ErrnoException).code).toBe("ENOENT");
+    expect(classifyLinuxExecError(wrapped)).toMatch(/Docker CLI is not installed/);
+  });
+});
+
+// ── Stage 3F.5.8A-R1: spawnWithStdin structured process helper ──────────────
+//
+// Exercises the real spawn/stdin/stderr/exit-code plumbing both backends'
+// execDockerWithStdin ultimately runs through, using `node` itself as a
+// deterministic local executable (already required to run this test suite)
+// rather than Docker — every test here must pass with no Docker installed.
+describe("spawnWithStdin (Stage 3F.5.8A-R1)", () => {
+  async function captureRejection(promise: Promise<void>): Promise<unknown> {
+    try {
+      await promise;
+      return undefined;
+    } catch (error) {
+      return error;
+    }
+  }
+
+  it("rejects with a structured DockerCommandError preserving ENOENT for a missing executable", async () => {
+    const missingExecutable = `ris-e2e-definitely-nonexistent-${process.pid}-${Date.now()}`;
+    const error = await captureRejection(
+      spawnWithStdin(missingExecutable, ["info"], "irrelevant", "test host", ["fake-docker-arg"]),
+    );
+    expect(error).toBeInstanceOf(Error);
+    expect(isDockerCommandError(error)).toBe(true);
+    const wrapped = error as NodeJS.ErrnoException & { dockerArgs: string[]; hostDescription: string };
+    expect(wrapped.code).toBe("ENOENT");
+    expect(wrapped.dockerArgs).toEqual(["fake-docker-arg"]);
+    expect(wrapped.hostDescription).toBe("test host");
+  });
+
+  it("preserves exit code, stderr, and dockerArgs when the process exits non-zero", async () => {
+    const script = "process.stderr.write('boom'); process.exit(3);";
+    const error = await captureRejection(
+      spawnWithStdin("node", ["-e", script], "unused-stdin", "test host", ["exec", "-i", "c1"]),
+    );
+    expect(isDockerCommandError(error)).toBe(true);
+    const wrapped = error as { exitCode: number | null; stderr: string; dockerArgs: string[]; code?: string };
+    expect(wrapped.exitCode).toBe(3);
+    expect(wrapped.stderr).toContain("boom");
+    expect(wrapped.dockerArgs).toEqual(["exec", "-i", "c1"]);
+    expect(wrapped.code).toBeUndefined();
+  });
+
+  it("delivers the expected stdin data to the child and resolves on success", async () => {
+    const expected = "expected-stdin-payload";
+    const script = `
+      let data = "";
+      process.stdin.on("data", (chunk) => { data += chunk; });
+      process.stdin.on("end", () => {
+        process.exitCode = data === ${JSON.stringify(expected)} ? 0 : 1;
+      });
+    `;
+    await expect(spawnWithStdin("node", ["-e", script], expected, "test host", [])).resolves.toBeUndefined();
+  });
+
+  it("rejects when the child receives different stdin data than expected (mismatch proves stdin actually plumbed through)", async () => {
+    const script = `
+      let data = "";
+      process.stdin.on("data", (chunk) => { data += chunk; });
+      process.stdin.on("end", () => {
+        process.stderr.write("received:" + data);
+        process.exitCode = data === "expected-value" ? 0 : 1;
+      });
+    `;
+    const error = await captureRejection(spawnWithStdin("node", ["-e", script], "wrong-value", "test host", []));
+    expect(isDockerCommandError(error)).toBe(true);
+    expect((error as { stderr: string }).stderr).toContain("received:wrong-value");
+  });
+
+  it("bounds accumulated stderr instead of growing it without limit", async () => {
+    const script = "process.stderr.write('a'.repeat(500000)); process.exit(1);";
+    const error = await captureRejection(spawnWithStdin("node", ["-e", script], "", "test host", []));
+    const wrapped = error as { stderr: string };
+    expect(wrapped.stderr.length).toBeLessThan(500000);
+    expect(wrapped.stderr).toContain("truncated");
+  });
+
+  it("never invokes a shell — arguments containing shell metacharacters reach the child as literal, unsplit argv entries", async () => {
+    const trickyArg = "hello; touch /tmp/ris-e2e-should-not-exist-$$; echo && rm -rf /";
+    const script = "process.stderr.write(JSON.stringify(process.argv.slice(1))); process.exit(1);";
+    const error = await captureRejection(spawnWithStdin("node", ["-e", script, trickyArg], "", "test host", []));
+    const wrapped = error as { stderr: string };
+    const receivedArgv = JSON.parse(wrapped.stderr) as string[];
+    expect(receivedArgv).toEqual([trickyArg]);
   });
 });
 
