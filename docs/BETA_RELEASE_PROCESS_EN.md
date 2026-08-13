@@ -137,13 +137,67 @@ git commit -m "chore(release): prepare v0.1.0-beta.4"
 
 **Do not assign the final calendar release date to the `CHANGELOG.md`
 heading at this step.** Leave the section as `## vX.Y.Z — Unreleased`
-through the entire preparation and validation process below — the date is
-only filled in immediately before tagging (step F), once the exact commit
-being tagged is already fixed. Filling in the date earlier and then having
-to touch the file again after RC validation would change the release SHA
-after it was already validated, forcing every exact-SHA gate (WDIO,
-installer, QA) to be re-run against the new SHA. See "CHANGELOG workflow"
-below for the full model.
+through this preparation phase — version bump, changelog composition,
+release-note drafting, QA runbook preparation, dependency review, ordinary
+static CI. No immutable release-candidate claim exists yet at this point,
+and this commit's SHA is expected to keep moving as preparation continues.
+
+### A.1 RC freeze — before any release-candidate artifact is built
+
+The release date, and any other release-facing tracked-documentation
+content that needs to be final before validation, is committed **once**,
+in its own step, immediately before the first release-candidate artifact
+(the Windows installer) is built — not "immediately before tagging."
+
+1. Choose the intended release date.
+2. Write that date into every release-facing tracked document that needs
+   it (the `CHANGELOG.md` heading, `docs/releases/vX.Y.Z.md`, and any other
+   file whose content is meant to ship with the release).
+3. Commit those changes.
+4. That resulting commit is the **RC freeze SHA**.
+
+```bash
+# Example — do not run until the release date is actually being chosen
+git add CHANGELOG.md docs/releases/v0.1.0-beta.4.md
+git commit -m "docs(release): freeze v0.1.0-beta.4 release date"
+git rev-parse HEAD   # this is the RC freeze SHA
+```
+
+**The release date is frozen before the release-candidate validation cycle
+begins.** The commit containing the final date and release documentation
+becomes the RC freeze SHA. The Windows installer and all subsequent
+exact-SHA release gates (step D onward, the WDIO release gate) must use
+that frozen commit. **Any tracked-file change after RC freeze creates a
+new candidate SHA and invalidates any exact-SHA validation that applied to
+the previous commit** — there is no way to add the date, or make any other
+tracked-content change, after installer/QA/WDIO validation without
+invalidating that validation. This includes seemingly cosmetic changes:
+release date, changelog punctuation, release-note wording, version
+metadata, or any other documentation attached to the tagged tree. If the
+release candidate needs to change after RC freeze, treat it as an
+intentional invalidation: make the change, and repeat every exact-SHA gate
+that depended on the old commit.
+
+**Three distinct SHAs matter across this process, and they are not
+interchangeable:**
+
+- **Preparation SHA** — the branch tip during step A, before RC freeze.
+  Expected to still move.
+- **RC freeze SHA** — the commit from step A.1. Final tracked release
+  content for every pre-merge, exact-SHA validation gate (installer build,
+  Windows QA, and any pre-merge WDIO dispatch once available).
+- **Merged `master` SHA** — the commit created by the bootstrap merge (or,
+  in the normal post-bootstrap flow, an ordinary merge) of the validated
+  release branch into `master`. This is a **new** commit — merging creates
+  a merge commit, so the merged `master` SHA differs from the RC freeze
+  SHA even when the release branch's tree content is unchanged by the
+  merge. **Do not require the merged `master` commit ID to equal the RC
+  freeze commit ID** — that can never hold once a merge commit exists.
+  Instead, verify that the **tree content** merged into `master` matches
+  what was validated on the release branch (e.g. `git diff RC_FREEZE_SHA
+  MERGED_MASTER_SHA` is empty) before treating pre-merge validation as
+  still applying. The exact-`master` WDIO gate and the eventual tag both
+  target this merged `master` SHA, not the RC freeze SHA.
 
 ### B. Validate (fast checks)
 
@@ -172,9 +226,15 @@ against the exact commit that will be tagged — see
 
 ### D. Build installer
 
+Run this against the **RC freeze SHA** (see "A.1 RC freeze" above), not
+just "the release branch" in general — if the branch has moved past the
+RC freeze commit for any reason, dispatch against that exact commit SHA
+(GitHub Actions' "Use workflow from" ref selector accepts a specific SHA,
+not only a branch name).
+
 1. Go to **GitHub Actions → Windows Installer → Run workflow**.
-2. Select the release branch (e.g. `release/v0.1.0-beta.4`) and click **Run
-   workflow**.
+2. Select the RC freeze commit (e.g. `release/v0.1.0-beta.4` at the RC
+   freeze SHA) and click **Run workflow**.
 3. Wait for completion (typically 15–25 minutes on a cold Rust cache; 5–10
    minutes warm).
 4. Open the completed run → **Artifacts** → download
@@ -255,15 +315,18 @@ Retained for **30 days** on the GitHub Actions run summary page
   that release should already be organized under their own
   `## vX.Y.Z — Unreleased` heading (prepared ahead of time as part of
   release preparation — do not wait until the release branch to write these).
-- **The heading keeps saying `— Unreleased` through the entire preparation
-  and validation process** (release branch cut, version bump, static
-  validation, PR opened, WDIO gate, installer build, Windows QA). Only fill
-  in the actual calendar date, and drop `Unreleased` from the title,
-  immediately before tagging (step F) — once the exact commit being tagged
-  is already fixed and will not change again. Filling in the date any
-  earlier and then having to edit the file again after RC validation would
-  change the release SHA after validation, forcing every exact-SHA gate to
-  be re-run against the new SHA.
+- **The heading keeps saying `— Unreleased` through the preparation phase
+  only** (release branch cut, version bump, ordinary static validation, PR
+  opened as draft). It is not left that way through validation — see "A.1
+  RC freeze" above. The date is filled in, and `Unreleased` dropped from
+  the title, exactly once, in its own dedicated RC-freeze commit, **before**
+  the installer is built and before any exact-SHA gate (Windows QA, WDIO)
+  runs against this release. That RC-freeze commit is what every exact-SHA
+  gate from then on validates. There is no way to add the date "without
+  changing the SHA" — adding it is itself the tracked-file change that
+  defines the RC freeze SHA; the model does not try to avoid creating a new
+  SHA, it just makes sure that SHA is created *before* the exact-SHA gates
+  run, not after, so nothing already-validated is invalidated by it.
 - Never mix two releases' worth of changes under one heading. If
   `## Unreleased` (the top, pre-release-branch section) has accumulated
   content spanning more than the upcoming release, split it before cutting
@@ -320,18 +383,21 @@ evidence (e.g. Stage 3F.5.7's real-Windows-host validation, recorded in
 **Required procedure, beta.4 only:**
 
 1. **Before merging the beta.4 release PR**, complete every other pre-merge
-   gate: release-version and documentation freeze, normal release PR CI,
-   the Windows installer build from the release branch, Windows 11 manual
-   QA using that installer (`BETA_WINDOWS_11_QA_EN.md` +
-   `BETA3_QA_RUNBOOK.md` + `BETA4_QA_RUNBOOK.md`), and any further local
-   Windows release-candidate checks defined by the next release stage. The
-   release PR remains **untagged** throughout.
+   gate against the RC freeze SHA (see "A.1 RC freeze" above): normal
+   release PR CI, the Windows installer build from that exact commit,
+   Windows 11 manual QA using that installer
+   (`BETA_WINDOWS_11_QA_EN.md` + `BETA3_QA_RUNBOOK.md` +
+   `BETA4_QA_RUNBOOK.md`), and any further local Windows release-candidate
+   checks defined by the next release stage. The release PR remains
+   **untagged** throughout.
 2. **Bootstrap merge.** Only once every pre-merge gate above except GitHub
    WDIO is green: merge the beta.4 release PR into `master`. Do not tag. Do
-   not publish. Verify the merged tree on `master` corresponds exactly to
-   the validated release-branch content (no last-minute drift). At this
-   point `master` gains `.github/workflows/wdio-e2e.yml` for the first
-   time.
+   not publish. This merge creates a new commit — do not expect the merged
+   `master` commit ID to equal the RC freeze SHA; instead verify the
+   **tree content** matches (`git diff <RC-freeze-SHA> <merged-master-SHA>`
+   should be empty, modulo the merge itself) before treating pre-merge
+   validation as still applying. At this point `master` gains
+   `.github/workflows/wdio-e2e.yml` for the first time.
 3. **Post-merge exact-master WDIO gate.** Immediately dispatch the full
    mandatory sequence from the "Procedure" section below (`app-smoke`,
    representative specs, full `all` matrix) against the **exact current
