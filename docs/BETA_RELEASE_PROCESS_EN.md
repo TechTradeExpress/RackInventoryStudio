@@ -189,15 +189,19 @@ interchangeable:**
 - **Merged `master` SHA** — the commit created by the bootstrap merge (or,
   in the normal post-bootstrap flow, an ordinary merge) of the validated
   release branch into `master`. This is a **new** commit — merging creates
-  a merge commit, so the merged `master` SHA differs from the RC freeze
-  SHA even when the release branch's tree content is unchanged by the
-  merge. **Do not require the merged `master` commit ID to equal the RC
-  freeze commit ID** — that can never hold once a merge commit exists.
-  Instead, verify that the **tree content** merged into `master` matches
-  what was validated on the release branch (e.g. `git diff RC_FREEZE_SHA
-  MERGED_MASTER_SHA` is empty) before treating pre-merge validation as
-  still applying. The exact-`master` WDIO gate and the eventual tag both
-  target this merged `master` SHA, not the RC freeze SHA.
+  a merge commit, so the merged `master` SHA **always** differs from the
+  RC freeze SHA as a commit ID, even when the release branch's tree
+  content is unchanged by the merge. **Do not require the merged `master`
+  commit ID to equal the RC freeze commit ID** — that can never hold once
+  a merge commit exists. Commit IDs differ; **tree content must be exactly
+  equal**:
+  ```bash
+  test "$(git rev-parse "${RC_FREEZE_SHA}^{tree}")" = "$(git rev-parse "${MERGED_MASTER_SHA}^{tree}")"
+  git diff --exit-code "$RC_FREEZE_SHA" "$MERGED_MASTER_SHA" -- .   # expect exit 0
+  ```
+  before treating pre-merge validation as still applying. The exact-`master`
+  WDIO gate and the eventual tag both target this merged `master` SHA, not
+  the RC freeze SHA.
 
 ### B. Validate (fast checks)
 
@@ -220,26 +224,73 @@ before proceeding to the WDIO gate.
 
 ### C. WDIO release gate (mandatory, see full section below)
 
-Do not proceed past this step until the WDIO release gate has fully passed
-against the exact commit that will be tagged — see
-["WDIO release gate"](#wdio-release-gate) below for the complete procedure.
+**This step's ordering depends on whether `wdio-e2e.yml` already exists on
+`master`.** Check which flow applies before proceeding — do not assume the
+"stop here" instruction below is executable; see
+["WDIO release gate"](#wdio-release-gate) below for the complete
+procedure either way.
+
+**Normal releases (once `master` already carries `wdio-e2e.yml`):** do not
+proceed past this step until the WDIO release gate has fully passed
+against the exact RC freeze commit that will be tagged. Installer build
+and Windows QA (steps D/E) follow only after WDIO is green.
+
+**Beta.4 — the one-time bootstrap exception:** `wdio-e2e.yml` is not yet
+present on `master`, so the GitHub-hosted WDIO gate **cannot** be
+dispatched pre-merge — there is nothing to wait for at this step. This is
+not a waived gate, it is a deferred one: for beta.4 only, skip straight
+from here to **step D (Build installer)** and **step E (Windows QA)**,
+then perform the documented untagged bootstrap merge, and only then run
+the full exact-`master` WDIO gate before any tag — see "One-time beta.4
+WDIO bootstrap exception" below for the complete beta.4 sequence. Do not
+stop at this step for beta.4.
 
 ### D. Build installer
 
-Run this against the **RC freeze SHA** (see "A.1 RC freeze" above), not
-just "the release branch" in general — if the branch has moved past the
-RC freeze commit for any reason, dispatch against that exact commit SHA
-(GitHub Actions' "Use workflow from" ref selector accepts a specific SHA,
-not only a branch name).
+Manual `workflow_dispatch` must be run against a **named ref (branch or
+tag)** — do not dispatch against a raw commit SHA; GitHub Actions'
+"Use workflow from" selector is documented and intended for branches and
+tags, not arbitrary commit SHAs. The exact-commit guarantee instead comes
+from **verifying the resulting run's `head_sha`** after the fact, not from
+what ref you selected to trigger it.
 
-1. Go to **GitHub Actions → Windows Installer → Run workflow**.
-2. Select the RC freeze commit (e.g. `release/v0.1.0-beta.4` at the RC
-   freeze SHA) and click **Run workflow**.
-3. Wait for completion (typically 15–25 minutes on a cold Rust cache; 5–10
+**Precondition: the release branch must not have moved past RC freeze.**
+After "A.1 RC freeze" above, do not push another commit to
+`release/v0.1.0-beta.4` unless intentionally invalidating the candidate —
+any post-freeze tracked-file change creates a new release SHA, which
+makes the old installer invalid for the current candidate and requires
+every affected exact-SHA gate to be repeated. This branch-immutability
+rule is what makes dispatching by branch name safe: as long as the branch
+hasn't moved, dispatching against it and dispatching against the RC
+freeze SHA are the same thing, and the run's own `head_sha` proves it
+after the fact.
+
+1. Record the RC freeze SHA once, right after creating it:
+   ```bash
+   RC_FREEZE_SHA=$(git rev-parse HEAD)
+   ```
+2. Confirm the release branch still resolves to it before dispatching:
+   ```bash
+   test "$(git rev-parse origin/release/v0.1.0-beta.4)" = "$RC_FREEZE_SHA"
+   ```
+3. Go to **GitHub Actions → Windows Installer → Run workflow**, select
+   **`release/v0.1.0-beta.4`** (the branch, not a SHA) as the ref, and
+   click **Run workflow**.
+4. Wait for completion (typically 15–25 minutes on a cold Rust cache; 5–10
    minutes warm).
-4. Open the completed run → **Artifacts** → download
-   `rack-inventory-studio-vX.Y.Z-windows-installer.zip`.
-5. Extract and confirm `Rack Inventory Studio_X.Y.Z_x64-setup.exe` is present.
+5. **Verify the run before trusting its artifact** — retrieve the
+   workflow run's metadata (e.g. `gh run view <run-id> --json
+   headBranch,headSha`) and require both:
+   ```text
+   workflow_run.head_branch = release/v0.1.0-beta.4
+   workflow_run.head_sha    = RC_FREEZE_SHA
+   ```
+   If either does not hold — the branch moved, or the wrong run was
+   selected — **reject the artifact**, determine why, and do not perform
+   QA against it.
+6. Only once step 5's verification passes: open the run → **Artifacts** →
+   download `rack-inventory-studio-vX.Y.Z-windows-installer.zip`.
+7. Extract and confirm `Rack Inventory Studio_X.Y.Z_x64-setup.exe` is present.
 
 Installer path enforced by the app: `C:\Program Files\TechTradeExpress\RackInventoryStudio\`,
 via the custom NSIS template at `apps/desktop/src-tauri/nsis/main.nsi`.
@@ -392,12 +443,17 @@ evidence (e.g. Stage 3F.5.7's real-Windows-host validation, recorded in
    **untagged** throughout.
 2. **Bootstrap merge.** Only once every pre-merge gate above except GitHub
    WDIO is green: merge the beta.4 release PR into `master`. Do not tag. Do
-   not publish. This merge creates a new commit — do not expect the merged
-   `master` commit ID to equal the RC freeze SHA; instead verify the
-   **tree content** matches (`git diff <RC-freeze-SHA> <merged-master-SHA>`
-   should be empty, modulo the merge itself) before treating pre-merge
-   validation as still applying. At this point `master` gains
-   `.github/workflows/wdio-e2e.yml` for the first time.
+   not publish. This merge creates a new commit — the merged `master`
+   commit ID will **not**, and is not expected to, equal the RC freeze
+   SHA. Commit IDs differ; **tree content must be exactly equal**:
+   ```bash
+   test "$(git rev-parse "${RC_FREEZE_SHA}^{tree}")" = "$(git rev-parse "${MERGED_MASTER_SHA}^{tree}")"
+   git diff --exit-code "$RC_FREEZE_SHA" "$MERGED_MASTER_SHA" -- .   # expect exit 0
+   ```
+   before treating pre-merge validation as still applying — no extra
+   master-side release-content change may appear during the merge. At this
+   point `master` gains `.github/workflows/wdio-e2e.yml` for the first
+   time.
 3. **Post-merge exact-master WDIO gate.** Immediately dispatch the full
    mandatory sequence from the "Procedure" section below (`app-smoke`,
    representative specs, full `all` matrix) against the **exact current
