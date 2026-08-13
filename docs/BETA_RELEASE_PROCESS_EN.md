@@ -72,7 +72,10 @@ across `.nvmrc`, `package.json engines.node`, and every workflow's
 ```
 v0.1.0-beta.1   ← first beta candidate (shipped 2026-05-27)
 v0.1.0-beta.2   ← second candidate (shipped 2026-06-12)
-v0.1.0-beta.3   ← next candidate (in preparation)
+v0.1.0-beta.3   ← prepared as a release candidate, never tagged or published
+                  (superseded — see docs/releases/v0.1.0-beta.3.md)
+v0.1.0-beta.4   ← current candidate (in preparation) — succeeds beta.3,
+                  contains the full beta.2..beta.4 delta
 v0.1.0          ← final (stable) release
 ```
 
@@ -86,13 +89,13 @@ broad distribution.
 A helper script updates all four canonical version sources atomically:
 
 ```bash
-node scripts/bump-version.mjs 0.1.0-beta.3
+node scripts/bump-version.mjs 0.1.0-beta.4
 ```
 
 Or via the package script:
 
 ```bash
-pnpm bump:version 0.1.0-beta.3
+pnpm bump:version 0.1.0-beta.4
 ```
 
 The script validates the version format, prints a before/after table, writes
@@ -118,24 +121,29 @@ git pull
 git log --oneline origin/master..origin/development | tail -5
 
 # 3. Cut release branch from development
-git checkout -b release/v0.1.0-beta.3
+git checkout -b release/v0.1.0-beta.4
 
 # 4. Bump version
-node scripts/bump-version.mjs 0.1.0-beta.3
+node scripts/bump-version.mjs 0.1.0-beta.4
 pnpm check:version
 
-# 5. Move the prepared CHANGELOG.md "v0.1.0-beta.3" section's date from
-#    "Unreleased" to the actual release date (edit CHANGELOG.md manually —
-#    the section content itself should already be prepared, see "CHANGELOG
-#    workflow" below)
-
-# 6. Commit version bump and changelog date
+# 5. Commit version bump and changelog reconciliation
 git add package.json apps/desktop/package.json \
   apps/desktop/src-tauri/Cargo.toml \
   apps/desktop/src-tauri/tauri.conf.json \
   CHANGELOG.md
-git commit -m "chore: bump version to 0.1.0-beta.3 and finalize changelog date"
+git commit -m "chore(release): prepare v0.1.0-beta.4"
 ```
+
+**Do not assign the final calendar release date to the `CHANGELOG.md`
+heading at this step.** Leave the section as `## vX.Y.Z — Unreleased`
+through the entire preparation and validation process below — the date is
+only filled in immediately before tagging (step F), once the exact commit
+being tagged is already fixed. Filling in the date earlier and then having
+to touch the file again after RC validation would change the release SHA
+after it was already validated, forcing every exact-SHA gate (WDIO,
+installer, QA) to be re-run against the new SHA. See "CHANGELOG workflow"
+below for the full model.
 
 ### B. Validate (fast checks)
 
@@ -165,7 +173,7 @@ against the exact commit that will be tagged — see
 ### D. Build installer
 
 1. Go to **GitHub Actions → Windows Installer → Run workflow**.
-2. Select the release branch (e.g. `release/v0.1.0-beta.3`) and click **Run
+2. Select the release branch (e.g. `release/v0.1.0-beta.4`) and click **Run
    workflow**.
 3. Wait for completion (typically 15–25 minutes on a cold Rust cache; 5–10
    minutes warm).
@@ -183,9 +191,12 @@ Install the unsigned NSIS installer on a clean Windows 11 machine:
 - Accept the SmartScreen warning: "More info → Run anyway" — **expected for
   unsigned builds**.
 - Verify the app installs to the path above.
-- Run the full checklist in [`BETA_WINDOWS_11_QA_EN.md`](BETA_WINDOWS_11_QA_EN.md)
-  and the beta.3-specific feature checklist in
-  [`BETA3_QA_RUNBOOK.md`](BETA3_QA_RUNBOOK.md).
+- Run the full checklist in [`BETA_WINDOWS_11_QA_EN.md`](BETA_WINDOWS_11_QA_EN.md),
+  the beta.3-scope feature checklist in
+  [`BETA3_QA_RUNBOOK.md`](BETA3_QA_RUNBOOK.md) (still the correct feature
+  checklist — beta.4 carries the full beta.3 scope), and the beta.4-specific
+  overlay in [`BETA4_QA_RUNBOOK.md`](BETA4_QA_RUNBOOK.md) (install/upgrade,
+  version string, and the clone-responsiveness regression check).
 
 Minimum smoke tests before publishing:
 
@@ -198,22 +209,29 @@ Minimum smoke tests before publishing:
 
 ### F. Merge, tag, and GitHub Release
 
-After Windows QA and the WDIO gate both pass:
+After Windows QA and the WDIO gate both pass — **for beta.4 specifically,
+see "One-time beta.4 WDIO bootstrap exception" below before merging**; the
+normal ordering (WDIO gate fully passes pre-merge, then merge, then tag) is
+not available for this one release because `wdio-e2e.yml` does not yet
+exist on `master`.
+
+For a normal release cycle (beta.5 and later, once the bootstrap exception
+below no longer applies):
 
 1. Merge the `release/*` PR into `master` (this is the only way `master`
    advances — see "Branch policy" above).
 2. Tag the merge commit on `master`:
    ```bash
    git checkout master && git pull
-   git tag -a v0.1.0-beta.3 -m "Beta 0.1.0 candidate 3 — QA passed"
-   git push origin v0.1.0-beta.3
+   git tag -a v0.1.0-beta.5 -m "Beta 0.1.0 candidate 5 — QA passed"
+   git push origin v0.1.0-beta.5
    ```
 3. Create a GitHub Release manually:
    1. Go to **GitHub → Releases → Draft a new release**.
-   2. Select the tag `v0.1.0-beta.3`.
-   3. Title: `Rack Inventory Studio v0.1.0-beta.3`.
-   4. Body: copy from [`docs/releases/v0.1.0-beta.3.md`](releases/v0.1.0-beta.3.md).
-   5. Attach the `rack-inventory-studio-v0.1.0-beta.3-windows-installer.zip`
+   2. Select the tag `v0.1.0-beta.5`.
+   3. Title: `Rack Inventory Studio v0.1.0-beta.5`.
+   4. Body: copy from `docs/releases/v0.1.0-beta.5.md`.
+   5. Attach the `rack-inventory-studio-v0.1.0-beta.5-windows-installer.zip`
       artifact.
    6. Check **Set as a pre-release**.
    7. Publish.
@@ -236,12 +254,24 @@ Retained for **30 days** on the GitHub Actions run summary page
 - When a release branch is cut (step A above), the entries that belong to
   that release should already be organized under their own
   `## vX.Y.Z — Unreleased` heading (prepared ahead of time as part of
-  release preparation — do not wait until the release branch to write these)
-  — at that point the heading's date is filled in and `Unreleased` is
-  dropped from the title.
+  release preparation — do not wait until the release branch to write these).
+- **The heading keeps saying `— Unreleased` through the entire preparation
+  and validation process** (release branch cut, version bump, static
+  validation, PR opened, WDIO gate, installer build, Windows QA). Only fill
+  in the actual calendar date, and drop `Unreleased` from the title,
+  immediately before tagging (step F) — once the exact commit being tagged
+  is already fixed and will not change again. Filling in the date any
+  earlier and then having to edit the file again after RC validation would
+  change the release SHA after validation, forcing every exact-SHA gate to
+  be re-run against the new SHA.
 - Never mix two releases' worth of changes under one heading. If
-  `## Unreleased` has accumulated content spanning more than the upcoming
-  release, split it before cutting the release branch, not after.
+  `## Unreleased` (the top, pre-release-branch section) has accumulated
+  content spanning more than the upcoming release, split it before cutting
+  the release branch, not after.
+- A release-candidate section may itself absorb an earlier abandoned
+  candidate's prepared content (as beta.4's did with beta.3's — see
+  `docs/releases/v0.1.0-beta.3.md`) rather than ever publishing that
+  earlier candidate as its own shipped-version heading.
 
 ---
 
@@ -267,6 +297,66 @@ requirement, not a choice. Until a `release/*` branch has been merged to
 `master` at least once, this gate cannot actually be executed; see
 `docs/CI.md` and `.ai/BRSP_B2_5_CI_VALIDATION_REPORT.md` for the full history
 of this constraint.
+
+### One-time beta.4 WDIO bootstrap exception
+
+**Current state, as of beta.4 preparation:** `.github/workflows/wdio-e2e.yml`
+exists on `development` and on `release/v0.1.0-beta.4`, but **not on
+`master`**. GitHub requires a `workflow_dispatch` workflow to exist on a
+repository's default branch before it can be manually dispatched at all —
+so the normal pre-merge flow ("dispatch WDIO against the release branch,
+confirm it passes, then merge, then tag") is not available for beta.4. No
+release branch has ever been merged to `master` with this workflow present
+before now.
+
+This is a **one-time bootstrap problem**, not a decision to skip the gate.
+It is not solved by pushing `wdio-e2e.yml` to `master` directly (that would
+be an untested, unreviewed change landing on the default branch outside the
+normal release flow), by a standalone bootstrap commit, by silently
+skipping WDIO for this release, or by treating earlier feature-branch WDIO
+evidence (e.g. Stage 3F.5.7's real-Windows-host validation, recorded in
+`docs/E2E_WDIO_PLAN.md`) as a substitute for this release's own gate.
+
+**Required procedure, beta.4 only:**
+
+1. **Before merging the beta.4 release PR**, complete every other pre-merge
+   gate: release-version and documentation freeze, normal release PR CI,
+   the Windows installer build from the release branch, Windows 11 manual
+   QA using that installer (`BETA_WINDOWS_11_QA_EN.md` +
+   `BETA3_QA_RUNBOOK.md` + `BETA4_QA_RUNBOOK.md`), and any further local
+   Windows release-candidate checks defined by the next release stage. The
+   release PR remains **untagged** throughout.
+2. **Bootstrap merge.** Only once every pre-merge gate above except GitHub
+   WDIO is green: merge the beta.4 release PR into `master`. Do not tag. Do
+   not publish. Verify the merged tree on `master` corresponds exactly to
+   the validated release-branch content (no last-minute drift). At this
+   point `master` gains `.github/workflows/wdio-e2e.yml` for the first
+   time.
+3. **Post-merge exact-master WDIO gate.** Immediately dispatch the full
+   mandatory sequence from the "Procedure" section below (`app-smoke`,
+   representative specs, full `all` matrix) against the **exact current
+   `master` commit** (the merge commit from step 2). Record the `master`
+   SHA, every workflow run ID, every result, and artifact references in the
+   release tracking documentation.
+4. **No tag until the full matrix succeeds** against that exact `master`
+   commit. This is the same pass criteria as any other release — nothing
+   about the bootstrap shortcuts it.
+5. **If WDIO fails after the bootstrap merge:** beta.4 remains unpublished
+   — no tag, no GitHub Release. Diagnose the failure, fix it through a new,
+   separate, reviewable release-repair PR (never a direct `master` push),
+   rerun any release gates the fix touches, and rerun the exact-`master`
+   WDIO sequence against the new merge commit. Never tag a failing
+   bootstrap merge, and never tag a commit whose WDIO run doesn't match the
+   commit being tagged.
+
+**This exception expires after beta.4.** Once `master` carries
+`wdio-e2e.yml` (from the bootstrap merge above), beta.5 and every
+subsequent release return to the normal flow described in this document:
+release branch → PR CI → `workflow_dispatch` WDIO against the exact release
+ref (pre-merge) → Windows installer/QA → merge to `master` → tag/release.
+Merging a beta.4-style bootstrap release PR does **not**, by itself,
+authorize tagging or publishing — only the exact-`master`-commit WDIO
+result does.
 
 ### Procedure (run against the exact commit to be tagged)
 
@@ -311,9 +401,12 @@ retention window expires, per `wdio-e2e.yml`'s `retention-days: 7`):
   full suite if the exact same commit SHA was already validated earlier in
   the same release cycle — reuse that result instead of re-running.
 
-**Not run as part of this stage (BRSP B5A):** this procedure has been
-prepared, not executed — no `wdio-e2e.yml` dispatch has occurred as part of
-this document's preparation, per BRSP Stage B5A's own rules.
+**Not run as part of beta.4 Stage R1 (release-branch preparation):** this
+procedure and the bootstrap exception above have been documented, not
+executed — no `wdio-e2e.yml` dispatch, installer build, Windows QA, merge,
+or tag has occurred as part of preparing and pushing the release branch
+and opening the draft release PR. Those all remain outstanding gates,
+tracked in the release PR itself.
 
 ---
 
@@ -454,8 +547,11 @@ If a released build has a critical regression:
 
 - [`CI.md`](CI.md) — CI workflow architecture, composite actions, and how to debug a failed run
 - [`E2E_WDIO_PLAN.md`](E2E_WDIO_PLAN.md) — Desktop E2E program scope, stage history, and the release-validation policy referenced above
-- [`BETA3_ROADMAP.md`](BETA3_ROADMAP.md) — beta.3 feature scope and completed PR sequence
-- [`BETA3_QA_RUNBOOK.md`](BETA3_QA_RUNBOOK.md) — beta.3 feature-specific manual QA checklist
+- [`BETA3_ROADMAP.md`](BETA3_ROADMAP.md) — beta.3 feature scope and completed PR sequence (superseded release, content now shipping as part of beta.4)
+- [`BETA3_QA_RUNBOOK.md`](BETA3_QA_RUNBOOK.md) — beta.3 feature-specific manual QA checklist (still required for beta.4 — see `BETA4_QA_RUNBOOK.md`)
+- [`BETA4_QA_RUNBOOK.md`](BETA4_QA_RUNBOOK.md) — beta.4-specific manual QA overlay (install/upgrade, version, clone-responsiveness regression)
+- [`releases/v0.1.0-beta.3.md`](releases/v0.1.0-beta.3.md) — beta.3 release notes (historical — never published)
+- [`releases/v0.1.0-beta.4.md`](releases/v0.1.0-beta.4.md) — current beta.4 release notes (draft)
 - [`BETA_WINDOWS_11_QA_EN.md`](BETA_WINDOWS_11_QA_EN.md) — Windows 11 manual QA runbook (required before distributing)
 - [`archive/release.md`](archive/release.md) — superseded beta.1-era quick-reference (historical/archived)
 - [`archive/BETA_HARDENING_PLAN_EN.md`](archive/BETA_HARDENING_PLAN_EN.md) — overall beta milestone plan (historical/archived)
