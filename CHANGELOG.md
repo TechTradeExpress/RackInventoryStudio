@@ -2,21 +2,23 @@
 
 ## Unreleased
 
-Changes merged after the abandoned `v0.1.0-beta.3` release-candidate
-preparation (see `docs/BETA3_ROADMAP.md` and `docs/releases/v0.1.0-beta.3.md`
-for that decision record — `v0.1.0-beta.3` was prepared but never tagged or
-published). These changes, together with the prepared beta.3 content below,
-are expected to be included in `v0.1.0-beta.4`. See "CHANGELOG workflow" in
-`docs/BETA_RELEASE_PROCESS_EN.md` for how this section is meant to be used
-and split going forward.
+Nothing yet — this section accumulates changes made after `v0.1.0-beta.4`
+is tagged. See "CHANGELOG workflow" in `docs/BETA_RELEASE_PROCESS_EN.md`
+for how this section is meant to be used and split going forward.
 
 ---
 
-## v0.1.0-beta.3 — 2026-08-01
+## v0.1.0-beta.4 — Unreleased
 
-_Scope reconstructed from the `roadmap/beta3` PR sequence
-(`v0.1.0-beta.2..roadmap/beta3`, 18 commits, PRs #119–#135) — see
-`docs/BETA3_ROADMAP.md` for the full PR-by-PR history and rationale._
+_Successor to the unshipped `v0.1.0-beta.3` release candidate — see
+`docs/BETA3_ROADMAP.md` and `docs/releases/v0.1.0-beta.3.md` for that
+decision record. `v0.1.0-beta.3` was prepared but never tagged or
+published; this section is the complete user-visible delta from
+`v0.1.0-beta.2`, covering everything originally scoped for beta.3
+(reconstructed from the `roadmap/beta3` PR sequence, 18 commits,
+PRs #119–#135) plus everything merged since. No calendar release date is
+assigned yet — see `docs/releases/v0.1.0-beta.4.md` for full release notes
+and current release-gate status._
 
 ### Added
 
@@ -86,6 +88,11 @@ _Scope reconstructed from the `roadmap/beta3` PR sequence
   (`"rack_object"`) that never actually occurs — `PlacementDto.target_kind` is
   only ever `"device"` or `"device_model"`. Corrected to match
   `EditPlacementModal.tsx`'s already-correct check.
+- **Clone repository no longer freezes the application window**: `clone_repository_cmd`
+  now runs the Git clone and the subsequent repository-open on a background
+  thread instead of the UI/event-loop thread, so the application stays
+  responsive for the duration of a clone instead of appearing hung. No change
+  to clone behavior, authentication, or the resulting repository.
 
 ### Security
 
@@ -102,14 +109,32 @@ _Scope reconstructed from the `roadmap/beta3` PR sequence
   file extension, preventing unsupported file types from being written through
   the export commands.
 
+### Testing and reliability
+
+- **Windows Git-over-SSH (push/pull/clone) end-to-end coverage**: remote Git
+  workflows are now exercised end-to-end against a real SSH server as part of
+  the desktop E2E suite, run on a real Windows + WSL2 + Docker host — a
+  containerized Linux OpenSSH+git remote by default, with the previous
+  native-Windows-OpenSSH fixture preserved as an explicit fallback. See
+  `docs/E2E_WDIO_PLAN.md` (Stage 3F.5) for the full program. This is test
+  infrastructure, not an application feature; application Git/SSH behavior
+  itself is unchanged.
+
 ### Known issues / beta scope limitations
 
-- Manual QA against `docs/BETA3_QA_RUNBOOK.md` had not been confirmed complete
-  as of this section being prepared (BRSP Stage B5A) — required before
-  tagging, see `docs/BETA3_ROADMAP.md`'s "Remaining before beta.3 release".
-- The WDIO E2E suite has not yet run on real CI infrastructure (see
-  `docs/BETA_RELEASE_PROCESS_EN.md`'s "WDIO release gate" section) —
+- Manual QA against `docs/BETA4_QA_RUNBOOK.md` had not been confirmed
+  complete as of this section being prepared — required before tagging.
+- The GitHub-hosted WDIO CI workflow (`wdio-e2e.yml`) does not yet exist on
+  `master`, so it cannot be dispatched against a release branch through the
+  normal pre-merge flow for this release; beta.4 uses a documented one-time
+  bootstrap procedure instead (see `docs/BETA_RELEASE_PROCESS_EN.md`). The
+  full WDIO release gate against the exact `master` release commit is
   required before tagging.
+- Linux and macOS: the containerized Git-over-SSH E2E fixture has a
+  Linux-native backend implementation, but its real-host end-to-end
+  acceptance is deferred and not part of this release; the Linux/macOS
+  default test provider remains the native fixture. This does not affect
+  application behavior on any platform.
 - SSH passphrase prompt Submit/Cancel buttons still lack a stable E2E
   selector (`docs/E2E_WDIO_COVERAGE_GAPS.md`); the prompt itself works, only
   its E2E coverage is incomplete.
