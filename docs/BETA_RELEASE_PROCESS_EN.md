@@ -232,8 +232,14 @@ procedure either way.
 
 **Normal releases (once `master` already carries `wdio-e2e.yml`):** do not
 proceed past this step until the WDIO release gate has fully passed
-against the exact RC freeze commit that will be tagged. Installer build
-and Windows QA (steps D/E) follow only after WDIO is green.
+against the exact **RC freeze SHA**, before merge. Installer build and
+Windows QA (steps D/E) follow only after WDIO is green. After the release
+branch is later merged to `master`, verify that the merged `master` tree
+is exactly equal to the validated RC freeze tree (see "Merge continuity"
+in the WDIO section below) — the release tag is created on that merged
+`master` commit, not on the pre-merge RC freeze commit itself; the two are
+different commit IDs by construction (merging creates a new commit) even
+though their tree content matches.
 
 **Beta.4 — the one-time bootstrap exception:** `wdio-e2e.yml` is not yet
 present on `master`, so the GitHub-hosted WDIO gate **cannot** be
@@ -480,7 +486,14 @@ Merging a beta.4-style bootstrap release PR does **not**, by itself,
 authorize tagging or publishing — only the exact-`master`-commit WDIO
 result does.
 
-### Procedure (run against the exact commit to be tagged)
+### Procedure — WDIO validation of the release candidate
+
+This heading intentionally avoids saying "the exact commit to be tagged":
+for a normal (post-bootstrap) release, WDIO runs pre-merge against the RC
+freeze SHA, which is **not** the commit that ends up tagged (the merge
+creates a new commit); for beta.4, WDIO runs post-merge, directly against
+the merge commit that *is* the one tagged. See "SHA taxonomy" below for
+the precise relationships in each case.
 
 1. **`app-smoke`** — fastest spec, confirms the binary launches and the
    landing screen renders. Run first; if this fails, stop — nothing else is
@@ -510,18 +523,81 @@ retention window expires, per `wdio-e2e.yml`'s `retention-days: 7`):
 - `wdio-tempdir-<spec>` for any spec that failed (uploaded only on failure).
 - The GitHub Actions run URL itself, referenced in the release PR.
 
+### SHA taxonomy
+
+Three distinct SHAs, not interchangeable (see also "A.1 RC freeze" above):
+
+- **`RC_FREEZE_SHA`** — the pre-merge, validated release-branch commit
+  (release date + final release-facing docs already committed).
+- **`MERGED_MASTER_SHA`** — the merge commit created when the validated
+  release branch lands on `master`. A genuinely new commit — always a
+  different commit ID from `RC_FREEZE_SHA`, even when nothing else
+  changed.
+- **`TAG_SHA`** — the commit the release tag actually points at.
+
+**Normal flow (beta.5+, once `wdio-e2e.yml` is already on `master`):**
+```
+PREMERGE_WDIO_SHA      == RC_FREEZE_SHA
+INSTALLER_RUN_HEAD_SHA == RC_FREEZE_SHA
+QA_ARTIFACT_SOURCE_SHA == RC_FREEZE_SHA
+MERGED_MASTER_SHA      != RC_FREEZE_SHA         (different commit ID — merge creates a new commit)
+tree(MERGED_MASTER_SHA) == tree(RC_FREEZE_SHA)  (required before treating pre-merge validation as still applying)
+TAG_SHA                == MERGED_MASTER_SHA     (never RC_FREEZE_SHA)
+```
+
+**Beta.4 (one-time bootstrap flow — stricter, unchanged by this section):**
+```
+INSTALLER_RUN_HEAD_SHA == RC_FREEZE_SHA
+QA_ARTIFACT_SOURCE_SHA == RC_FREEZE_SHA
+tree(MERGED_MASTER_SHA) == tree(RC_FREEZE_SHA)
+POSTMERGE_WDIO_SHA      == MERGED_MASTER_SHA
+TAG_SHA                 == MERGED_MASTER_SHA == POSTMERGE_WDIO_SHA
+```
+Beta.4 has no `PREMERGE_WDIO_SHA` at all — its WDIO gate is necessarily
+post-merge, which is *stricter* than the normal flow (WDIO there directly
+validates the exact commit that gets tagged, with no tree-equivalence
+step in between).
+
 ### Pass criteria
 
+**Pre-merge exact-SHA validation (normal flow):**
+
 - Every spec job in the full-matrix run must conclude `success`. A single
-  failing spec blocks the release — do not tag until it either passes on a
-  clean re-run or is triaged as a confirmed CI-infrastructure flake (not an
-  app regression) with the reasoning recorded in the release PR.
-- The exact commit tested must be the exact commit tagged. If any commit
-  lands on the release branch after the WDIO gate passes, the gate must be
-  re-run.
-- Per `docs/E2E_WDIO_PLAN.md`: for `release/*` → `master`, do not rerun the
-  full suite if the exact same commit SHA was already validated earlier in
-  the same release cycle — reuse that result instead of re-running.
+  failing spec blocks the release — do not proceed until it either passes
+  on a clean re-run or is triaged as a confirmed CI-infrastructure flake
+  (not an app regression) with the reasoning recorded in the release PR.
+- The workflow run's `head_sha` must equal `RC_FREEZE_SHA`. If any commit
+  lands on the release branch after this WDIO gate passes, RC freeze is
+  invalidated and every affected exact-SHA gate — including this one —
+  must be re-run against the new commit.
+
+**Merge continuity (required before treating pre-merge validation as
+still applying, both flows):**
+
+```bash
+test "$(git rev-parse "${RC_FREEZE_SHA}^{tree}")" = "$(git rev-parse "${MERGED_MASTER_SHA}^{tree}")"
+git diff --exit-code "$RC_FREEZE_SHA" "$MERGED_MASTER_SHA" -- .   # expect exit 0
+```
+
+**Tag continuity (normal flow):** `TAG_SHA == MERGED_MASTER_SHA`. Do not
+require `TAG_SHA == RC_FREEZE_SHA` once a merge commit exists — that
+equality can never hold.
+
+**Reuse policy (normal flow only — a tree-equivalence reuse, not a
+same-commit-ID reuse):** if the release branch's `RC_FREEZE_SHA` passed
+pre-merge WDIO, and the merged `master` commit has exactly the same tree
+as that `RC_FREEZE_SHA` (per "Merge continuity" above), the pre-merge WDIO
+result may be reused for release approval per this project's release
+policy — the full suite does not need to be re-run against
+`MERGED_MASTER_SHA` itself. The tag is then placed on the merged `master`
+commit. Do not describe the merge commit as "the exact same commit" as
+the validated one — it is a different commit ID with equivalent tree
+content; that distinction is what the reuse policy is actually built on.
+
+**Beta.4 has no equivalent pre-merge reuse step** — its WDIO gate runs
+once, post-merge, directly against `MERGED_MASTER_SHA` (see "SHA
+taxonomy" above); that result is what gates its tag, not a reused
+pre-merge result.
 
 **Not run as part of beta.4 Stage R1 (release-branch preparation):** this
 procedure and the bootstrap exception above have been documented, not

@@ -1,133 +1,103 @@
 ## Summary
 
-Beta 4 Stage R1-R2: documentation-only repair correcting two remaining
-release-process inconsistencies found in review, both in
-`docs/BETA_RELEASE_PROCESS_EN.md`.
+Beta 4 Stage R1-R3: documentation-only repair correcting the last
+remaining release-process inconsistency in `docs/BETA_RELEASE_PROCESS_EN.md`
+— the normal (beta.5+) release flow incorrectly implied that the pre-merge
+RC freeze commit is the same commit that ends up tagged.
 
-**Review finding 1 — top-level gate ordering contradicted the beta.4
-bootstrap exception.** Step "C. WDIO release gate (mandatory...)" said,
-unconditionally, "Do not proceed past this step until the WDIO release
-gate has fully passed." That instruction is correct for future releases
-once `master` already carries `wdio-e2e.yml`, but it is **not executable
-for beta.4**: `wdio-e2e.yml` doesn't exist on `master` yet, so GitHub
-manual `workflow_dispatch` is unavailable for it, and there is nothing to
-wait for at that step. A maintainer following the document top-to-bottom
-would have been stuck, only discovering later (in the separate bootstrap
-section further down) that the earlier "stop here" instruction never
-applied to this release. Corrected by branching step C explicitly: normal
-releases wait for pre-merge WDIO here; beta.4 skips straight to installer
-build and Windows QA, with an explicit forward pointer to the bootstrap
-sequence, and an explicit "do not stop at this step for beta.4."
+**The defect.** Several passages said, in substance, that WDIO "must run
+against the exact commit that will be tagged" and that "the exact commit
+tested must be the exact commit tagged." For a normal release that goes
+through a merge commit, this is impossible: if `RC_FREEZE_SHA` (`A`) is
+validated pre-merge, and the release branch is then merged into `master`
+producing a new commit `B`, then `A != B` as commit IDs by construction —
+merging always creates a new commit. The tag is placed on `B`, never on
+`A`. What the process actually relies on is `tree(A) == tree(B)` (the
+merge introduces no last-minute content drift), not `A == B`.
 
-**Review finding 2 — `workflow_dispatch` was documented as accepting an
-arbitrary commit SHA as its ref.** Step D said to "dispatch against that
-exact commit SHA (GitHub Actions' 'Use workflow from' ref selector
-accepts a specific SHA, not only a branch name)." Manual dispatch should
-be documented against a **named ref** (branch or tag) — not a raw commit
-SHA. Corrected model: dispatch using the release branch name
-(`release/v0.1.0-beta.4`); the exact-commit guarantee comes from
-**verifying the resulting workflow run's `head_sha`** afterward, not from
-what was selected to trigger it. This only works because the release
-branch is required to stay immutable after RC freeze — documented
-explicitly: no further commits to the release branch after RC freeze
-unless intentionally invalidating the candidate, in which case the
-affected exact-SHA gates must be repeated.
+**Corrected model**, made explicit throughout the WDIO release-gate
+section:
 
-**Also corrected (Finding 3): bootstrap tree-equality wording.** Two
-places said the tree comparison between the RC freeze SHA and the merged
-`master` SHA should be empty "modulo the merge itself" — ambiguous.
-Corrected to state plainly that commit IDs always differ (merging creates
-a new commit) while tree content must be **exactly** equal, with the
-concrete check: `git rev-parse "<SHA>^{tree}"` compared for both commits,
-plus `git diff --exit-code "$RC_FREEZE_SHA" "$MERGED_MASTER_SHA" -- .`
-expected to exit 0.
+```
+Normal flow (beta.5+, once wdio-e2e.yml is already on master):
+  RC_FREEZE_SHA (A) → pre-merge WDIO on A → installer/QA from A
+  → merge → MERGED_MASTER_SHA (B), B != A as a commit ID
+  → verify tree(A) == tree(B)
+  → TAG_SHA == B (never A)
 
-Audited `docs/E2E_WDIO_PLAN.md`, `docs/releases/v0.1.0-beta.4.md`, and
-`docs/BETA4_QA_RUNBOOK.md` for copied incorrect wording — none found; the
-only file containing the actual incorrect process semantics was
-`docs/BETA_RELEASE_PROCESS_EN.md` itself.
+Beta.4 (one-time bootstrap — unchanged, still stricter):
+  RC_FREEZE_SHA (A) → installer/QA from A
+  → bootstrap merge → MERGED_MASTER_SHA (B)
+  → verify tree(A) == tree(B)
+  → exact-master WDIO directly on B (no pre-merge WDIO exists for beta.4)
+  → TAG_SHA == B == POSTMERGE_WDIO_SHA
+```
 
-**No release gate was actually run in this stage.** No date was frozen,
-no RC freeze commit was created, no installer was built, no Windows QA
-was performed, no WDIO was dispatched, nothing was merged, tagged, or
+Also added: a "Reuse policy" paragraph stating explicitly that pre-merge
+WDIO results may be reused for release approval once `tree(A) == tree(B)`
+is confirmed — a **tree-equivalence** reuse, not a same-commit-ID reuse —
+and that the merge commit must never be described as "the exact same
+commit" as the one validated.
+
+The beta.4 bootstrap procedure itself (untouched, verified unchanged):
+still requires the post-merge exact-`master` WDIO run's result to gate the
+tag directly, with no pre-merge reuse step of its own — this is stricter
+than the corrected normal flow, and this repair did not weaken or
+generalize it.
+
+**No release gate was executed in this stage.** No date was chosen, no RC
+freeze commit was created, no installer was built, no Windows QA was
+performed, no WDIO was dispatched, nothing was merged, tagged, or
 published. No application, fixture, dependency, or workflow file changed.
 
-## Corrected beta.4 gate order
+## RC Freeze SHA semantics
 
-```
-Normal releases (beta.5+, once master carries wdio-e2e.yml):
-  release preparation → RC freeze → ordinary static/PR CI
-  → pre-merge WDIO against exact RC freeze SHA → installer build
-  → Windows QA → merge to master → tag → GitHub Release
+`RC_FREEZE_SHA` is the pre-merge, validated release-branch commit (release
+date + final release-facing docs already committed — see "A.1 RC freeze").
+For a normal release it is what pre-merge WDIO, the installer build, and
+Windows QA all validate. It is never the commit the tag points at once a
+merge commit is created.
 
-Beta.4 (one-time bootstrap exception):
-  release preparation → RC freeze → ordinary static/PR CI
-  → installer build → Windows QA
-  → bootstrap merge to master, untagged
-  → verify merged master tree == RC freeze tree (exact, not "modulo")
-  → exact-master WDIO (app-smoke, representative, full matrix)
-  → tag exact validated master SHA → GitHub prerelease
-```
+## Merged Master SHA semantics
 
-There is no pre-merge GitHub-hosted WDIO dispatch for beta.4. This is a
-deferred gate caused by the one-time default-branch bootstrap constraint,
-not a waived one.
+`MERGED_MASTER_SHA` is the merge commit created when the validated release
+branch lands on `master`. Always a different commit ID from
+`RC_FREEZE_SHA` — merging creates a new commit regardless of whether the
+tree content changed. Required to have identical tree content to
+`RC_FREEZE_SHA` before pre-merge validation is treated as still applying.
 
-## Corrected `workflow_dispatch` ref semantics
+## Tag SHA semantics
 
-- Dispatch the installer workflow using the **release branch name**
-  (`release/v0.1.0-beta.4`), never a raw commit SHA.
-- **Precondition:** the release branch must not have moved past RC freeze
-  — `origin/release/v0.1.0-beta.4` must still resolve to `RC_FREEZE_SHA`
-  at dispatch time.
-- **After the run completes, verify before trusting the artifact:**
-  `workflow_run.head_branch == release/v0.1.0-beta.4` **and**
-  `workflow_run.head_sha == RC_FREEZE_SHA`. If either fails, reject the
-  artifact, determine why, and do not perform QA against it.
-- This is the mechanism that makes branch-ref dispatch safe: the branch
-  name alone is not proof of the exact commit; the run's own `head_sha`
-  is the mandatory evidence.
-
-## Release branch immutability after RC freeze
-
-After the RC freeze commit, no further commits should land on
-`release/v0.1.0-beta.4` unless intentionally invalidating the candidate.
-Any post-freeze tracked-file change (including seemingly cosmetic ones)
-creates a new release SHA, invalidates the old installer for the current
-candidate, and requires every affected exact-SHA gate to be repeated.
-
-## Bootstrap tree-equality rule
-
-Commit IDs differ across the bootstrap merge by construction (a merge
-commit is a new commit). What must be exactly equal is tree content:
-
-```bash
-test "$(git rev-parse "${RC_FREEZE_SHA}^{tree}")" = "$(git rev-parse "${MERGED_MASTER_SHA}^{tree}")"
-git diff --exit-code "$RC_FREEZE_SHA" "$MERGED_MASTER_SHA" -- .   # expect exit 0
-```
-
-No extra master-side release-content change may appear during the merge.
+`TAG_SHA` is the commit the release tag actually references.
+Normal flow: `TAG_SHA == MERGED_MASTER_SHA`, never `RC_FREEZE_SHA`.
+Beta.4: `TAG_SHA == MERGED_MASTER_SHA == POSTMERGE_WDIO_SHA` (WDIO itself
+runs directly on the tagged commit, since beta.4 has no pre-merge WDIO
+step at all).
 
 ## Files changed
 
-- `docs/BETA_RELEASE_PROCESS_EN.md` — step C branched into normal-release
-  vs. beta.4-bootstrap flows with an explicit "do not stop here for
-  beta.4" forward pointer; step D rewritten to dispatch by branch name
-  with mandatory post-run `head_sha` verification and explicit branch-
-  immutability precondition; the "A.1 RC freeze" three-SHA explanation and
-  the bootstrap-merge step both corrected from ambiguous "modulo the
-  merge" wording to an exact tree-hash comparison.
+- `docs/BETA_RELEASE_PROCESS_EN.md` — corrected the top-level step-C
+  pre-merge WDIO description; replaced the "Procedure (run against the
+  exact commit to be tagged)" heading with a neutral one that explains why
+  the old phrasing doesn't hold for the normal flow; added an explicit SHA
+  taxonomy (`RC_FREEZE_SHA`/`MERGED_MASTER_SHA`/`TAG_SHA`, normal vs.
+  beta.4 relationships); split "Pass criteria" into pre-merge exact-SHA
+  validation, merge continuity (exact tree-hash check), tag continuity,
+  and an explicit tree-equivalence reuse policy (replacing the previous
+  same-commit-ID reuse wording). The beta.4 bootstrap section itself was
+  left untouched — verified it already correctly requires the stricter
+  post-merge exact-`master` WDIO result to gate the tag.
 - `.ai/cc-report.md` — this file.
 
-No other tracked file required a change — `docs/E2E_WDIO_PLAN.md`,
-`docs/releases/v0.1.0-beta.4.md`, and `docs/BETA4_QA_RUNBOOK.md` were
-audited and found not to contain the incorrect process semantics being
-corrected here. PR #172's body and remaining-gates checklist were updated
-on GitHub (not a tracked repository file).
+The direct quote of `docs/E2E_WDIO_PLAN.md`'s policy text ("Full WDIO must
+run against the exact release commit...") was reviewed and left
+unchanged — it is a generic mandate, not a specific claim equating the RC
+freeze commit ID with the later tagged merge commit ID.
 
 No application source file, fixture file, dependency file
-(`Cargo.lock`/`pnpm-lock.yaml`), or workflow file changed. `CHANGELOG.md`
-unchanged — no date assigned.
+(`Cargo.lock`/`pnpm-lock.yaml`), or workflow file changed. `CHANGELOG.md`,
+`docs/releases/v0.1.0-beta.4.md`, and `docs/BETA4_QA_RUNBOOK.md` were not
+touched — no incorrect wording of this kind was found in them.
 
 ## Tests
 
@@ -148,24 +118,21 @@ for a docs-only repair with no code, dependency, or workflow file changes.
 
 ## Risks
 
-- WDIO bootstrap gap remains structurally unresolved (unchanged) — a
-  documentation repair cannot close it; it is closed only by actually
-  performing the bootstrap merge and exact-`master` WDIO run in a later
-  stage.
-- Dependency-audit findings unchanged from Stage R1-R1 — not reviewed
-  again in this stage since no dependency file changed.
+- None newly introduced. The WDIO bootstrap gap itself remains structurally
+  unresolved (unchanged) — a documentation repair cannot close it.
+- Dependency-audit findings unchanged from prior review — not re-reviewed
+  in this stage since no dependency file changed.
 
 ## Not done
 
-- Release date not chosen or frozen.
-- No RC freeze commit created.
+- No release date chosen or frozen, no RC freeze commit created.
 - Installer not built, Windows QA not performed, WDIO not dispatched,
   nothing merged, tagged, or published — all explicitly out of scope for
   this repair.
 
 ## Suggested next step
 
-Beta 4 Stage R2: choose and freeze the release date (creating the RC
-freeze commit), confirm the release branch matches it, then dispatch the
+Beta 4 Stage R2: choose and freeze the release date (creating
+`RC_FREEZE_SHA`), confirm the release branch matches it, then dispatch the
 Windows installer workflow against the branch name and verify the run's
-`head_sha` before proceeding to Windows 11 manual QA.
+`head_sha` before Windows 11 manual QA.
