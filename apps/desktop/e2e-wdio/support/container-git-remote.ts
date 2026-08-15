@@ -135,7 +135,7 @@ import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { lstat, rm } from "node:fs/promises";
-import { isAbsolute, join } from "node:path";
+import { join, posix as posixPath } from "node:path";
 import { shQuote, securePrivateKeyFile as securePrivateKeyFileImpl } from "./git-remote";
 import { runGit } from "./local-git";
 import { isStrictChildPath } from "./test-environment";
@@ -300,12 +300,26 @@ export function windowsPathToWslMountPath(windowsPath: string): string {
  * "reject relative paths where an authoritative absolute path is required"
  * requirement) rather than silently resolving it against `process.cwd()`,
  * which would make the fixture's behavior depend on the caller's working
- * directory. Uses `node:path`'s platform-dependent `isAbsolute` — correct
- * here because this function is only ever reached from the Linux backend,
- * itself only ever constructed when `process.platform === "linux"`.
+ * directory.
+ *
+ * Deliberately uses `node:path`'s **`posix`** namespace (`posixPath.isAbsolute`),
+ * not the ambient, host-platform-dependent `isAbsolute` — this function
+ * validates Linux/POSIX path *syntax*, and that must not depend on which OS
+ * happens to be executing the code (or the unit test) at the time. The
+ * ambient import previously used here was reached in production only via
+ * the Linux backend (itself only ever constructed when `process.platform
+ * === "linux"`), so it happened to behave correctly at runtime — but this
+ * function is also called directly, unconditionally, from this module's own
+ * unit tests (Stage 3F.5.8A-R2-R1), and `node:path`'s ambient `isAbsolute`
+ * resolves against whatever platform is actually running the test process.
+ * On a Windows host, ambient `isAbsolute("C:\\Users\\dev\\project")`
+ * correctly returns `true` under *Windows* path semantics, which silently
+ * broke this function's Linux-path-rejection contract there. `posix.isAbsolute`
+ * has no such ambiguity: it always applies POSIX syntax rules, regardless of
+ * host OS.
  */
 export function assertLinuxAbsolutePath(hostPath: string): string {
-  if (!isAbsolute(hostPath)) {
+  if (!posixPath.isAbsolute(hostPath)) {
     throw new Error(
       `[container-git-remote] expected an absolute Linux path, got: "${hostPath}"`,
     );

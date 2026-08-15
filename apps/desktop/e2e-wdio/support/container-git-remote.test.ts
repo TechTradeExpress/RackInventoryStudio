@@ -3034,28 +3034,59 @@ describe("spawnWithStdin (Stage 3F.5.8A-R1)", () => {
     expect(wrapped.code).toBeUndefined();
   });
 
-  it("finalizes on the child's \"close\" event, not \"exit\" — waits for a grandchild's delayed write on an inherited stderr descriptor (Stage 3F.5.8A-R2)", async () => {
-    // The direct child exits almost immediately, but spawns a grandchild
-    // that inherits its stderr file descriptor (fd 2 — which is itself
-    // spawnWithStdin's own piped stderr) and keeps that descriptor open for
-    // a further ~50ms before writing a unique marker and exiting. "exit"
-    // fires for the direct child right away, well before the marker is
-    // written; "close" only fires once the piped stderr stream itself has
-    // actually closed, which cannot happen until the grandchild releases
-    // its inherited reference to it. If spawnWithStdin settled on "exit",
-    // this marker would never appear in the captured stderr.
-    const marker = `delayed-grandchild-stderr-${process.pid}-${Date.now()}`;
-    const grandchildScript = `setTimeout(() => { process.stderr.write(${JSON.stringify(marker)}); process.exit(0); }, 50);`;
-    const parentScript = `
-      const { spawn } = require("node:child_process");
-      spawn(process.execPath, ["-e", ${JSON.stringify(grandchildScript)}], { stdio: ["ignore", "ignore", 2] });
-      process.exit(3);
-    `;
-    const error = await captureRejection(spawnWithStdin("node", ["-e", parentScript], "", "test host", []));
+  it("finalizes only on the child's \"close\" event, never merely on \"exit\" (Stage 3F.5.8A-R2-R1)", async () => {
+    // Stage 3F.5.8A-R2-R1 note: this test previously proved the same
+    // contract with a real multi-process fixture — a direct child that
+    // spawned a grandchild inheriting the child's stderr file descriptor
+    // (`stdio: ["ignore", "ignore", 2]`) with a delayed write, relying on
+    // the grandchild's continued hold on that descriptor to delay the
+    // stderr pipe's OS-level "close" past the direct child's own "exit".
+    // That mechanism is POSIX-specific: numeric-fd stdio inheritance
+    // across a second level of `spawn()` does not reliably propagate a
+    // shared pipe reference on Windows the way it does under POSIX
+    // fd-duplication semantics, so the grandchild's write never reached
+    // spawnWithStdin's captured stderr there — confirmed on a real
+    // Windows CI runner (exit code correctly captured as 3, stderr
+    // consistently empty; see the beta.4 Windows Installer run this
+    // repair addresses). The production `spawnWithStdin` implementation
+    // itself was never at fault here: it has no `"exit"` listener at
+    // all, only `"error"`/`stdin`'s own `"error"`/`"close"` (see its own
+    // doc comment and implementation) — so it is structurally incapable
+    // of settling on "exit" regardless of host platform.
+    //
+    // Replaced with a deterministic version using the same injected
+    // fake-child seam the EPIPE/spawn-error-ordering tests above use —
+    // no real OS process or pipe involved, so no platform-specific
+    // process-tree/handle-inheritance behavior to depend on. This
+    // version is strictly stronger than the original: it can (and does)
+    // assert the promise has *not* settled after "exit" alone fires,
+    // which the original real-process test could never cleanly prove.
+    const { deps, fake } = createFakeSpawnWithStdinChild();
+    const marker = `delayed-marker-${Date.now()}`;
+    const promise = spawnWithStdin("docker", [], "", "test host", [], deps);
+    let settled = false;
+    promise.catch(() => {
+      settled = true;
+    });
+
+    // A real child_process ChildProcess emits "exit" once the process
+    // has ended, separately from (and before) "close". Emit it alone
+    // first and prove spawnWithStdin has *not* settled from it.
+    fake.emit("exit", 3, null);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(settled).toBe(false);
+
+    // Stderr arriving after "exit" but before "close" must still be
+    // captured — proving settlement genuinely waits for "close".
+    fake.stderr.emit("data", Buffer.from(marker));
+    fake.emit("close", 3, null);
+
+    const error = await captureSpawnWithStdinRejection(promise);
     expect(isDockerCommandError(error)).toBe(true);
     const wrapped = error as { exitCode: number | null; stderr: string };
     expect(wrapped.exitCode).toBe(3);
-    expect(wrapped.stderr).toContain(marker);
+    expect(wrapped.stderr).toBe(marker);
+    expect(settled).toBe(true);
   });
 
   it("delivers the expected stdin data to the child and resolves on success", async () => {
