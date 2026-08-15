@@ -118,4 +118,12 @@ describe("UnsavedChangesDialog", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onCancel).not.toHaveBeenCalled();
   });
+
+  it("'Save and continue' button carries data-testid='unsaved-changes-save'", () => {
+    render(
+      <UnsavedChangesDialog open onSave={vi.fn()} onDiscard={vi.fn()} onCancel={vi.fn()} />,
+    );
+    const btn = screen.getByTestId("unsaved-changes-save");
+    expect(btn.textContent?.trim()).toBe("Save and continue");
+  });
 });

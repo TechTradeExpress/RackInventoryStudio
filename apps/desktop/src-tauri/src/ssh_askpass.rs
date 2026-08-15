@@ -472,6 +472,9 @@ fn sanitize_prompt(prompt: &str) -> String {
 /// On Linux we also set DISPLAY=:0 as a fallback for older SSH that requires it.
 /// These vars do NOT contain the passphrase.
 pub fn build_askpass_env_pairs(env: &AskpassEnv) -> Vec<(String, String)> {
+    // `vars` is only mutated by the non-Windows DISPLAY fallback below; on
+    // Windows that block is compiled out, so `mut` is unused on that target.
+    #[cfg_attr(target_os = "windows", allow(unused_mut))]
     let mut vars = vec![
         ("SSH_ASKPASS".to_string(), env.binary_path.clone()),
         ("SSH_ASKPASS_REQUIRE".to_string(), "force".to_string()),

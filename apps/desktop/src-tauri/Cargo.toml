@@ -1,7 +1,21 @@
 [package]
 name = "rack-inventory-studio-desktop"
-version = "0.1.0-beta.2"
+version = "0.1.0-beta.4"
 edition = "2021"
+
+[features]
+# Registers tauri-plugin-wdio (execute API, window-focus tracking used by
+# @wdio/tauri-service's beforeCommand hook, log forwarding). Test-only —
+# never enabled in production/release builds. Without it,
+# @wdio/tauri-service's per-command plugin-availability probe exhausts a
+# 100-attempt retry loop (~7.7s) on every findElement/elementClick/$/$$/
+# getTitle command, since it only caches a *successful* probe. With the
+# plugin present the probe succeeds on attempt 1 and is cached for the rest
+# of the session. Build command:
+#   tauri build --no-bundle --features wdio-plugin --config '{"app":{"withGlobalTauri":true}}'
+# (also requires VITE_WDIO_PLUGIN=true so the frontend imports the
+# companion @wdio/tauri-plugin package — see src/main.tsx.)
+wdio-plugin = ["dep:tauri-plugin-wdio"]
 
 [lib]
 name = "rack_inventory_studio_desktop_lib"
@@ -18,6 +32,11 @@ log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 getrandom = "0.2"
+
+# Optional: execute API / window-focus tracking / log forwarding for WDIO
+# testing (feature wdio-plugin). Not included in production builds; zero
+# impact when the feature is inactive.
+tauri-plugin-wdio = { version = "1", optional = true }
 
 ris-core = { path = "../../../crates/ris-core" }
 ris-repository = { path = "../../../crates/ris-repository" }

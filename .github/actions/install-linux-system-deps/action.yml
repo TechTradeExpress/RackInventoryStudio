@@ -1,0 +1,33 @@
+name: Install Linux system dependencies
+description: >
+  Installs the apt packages required to compile and (optionally) run the
+  Tauri desktop app on Linux. The base set is always the Tauri/WebKitGTK
+  build dependencies; callers that also need to *execute* the compiled
+  binary (WDIO E2E) pass extra-packages for the WebDriver/display/SSH
+  tooling instead of duplicating the base list.
+
+inputs:
+  extra-packages:
+    description: >
+      Extra space-separated apt packages to install alongside the base
+      Tauri build dependencies (e.g. "webkit2gtk-driver xvfb openssh-server"
+      for WDIO E2E runners).
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Install system dependencies
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libwebkit2gtk-4.1-dev \
+          libgtk-3-dev \
+          libglib2.0-dev \
+          libdbus-1-dev \
+          libssl-dev \
+          libayatana-appindicator3-dev \
+          librsvg2-dev \
+          ${{ inputs.extra-packages }}

@@ -1,7 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_BRANCH="${1:-master}"
+if [[ -z "${1:-}" ]]; then
+  echo "Usage: build-review-context.sh <base-branch-or-sha> [output-file]" >&2
+  echo "" >&2
+  echo "  base-branch-or-sha  The direct PR base (e.g. development, roadmap/e2e-wdio," >&2
+  echo "                      master) or a commit SHA for no-PR direct maintenance." >&2
+  echo "  output-file         Defaults to .ai/review-context-YYYYMMDD-HHMM.md" >&2
+  echo "" >&2
+  echo "  Always use the immediate merge target of the current PR, not the eventual" >&2
+  echo "  integration destination. See CLAUDE.md for the full base-branch policy." >&2
+  exit 1
+fi
+BASE_BRANCH="$1"
 OUT="${2:-.ai/review-context-$(date +%Y%m%d-%H%M).md}"
 
 # Always run from the repo root so .ai/ paths resolve correctly regardless of CWD.
@@ -14,13 +25,23 @@ if [[ "$OUT" != /* ]]; then
 fi
 
 mkdir -p .ai
-git fetch origin "$BASE_BRANCH" --quiet
+
+# Try to fetch from origin (succeeds for branch names; silently fails for commit SHAs).
+git fetch origin "$BASE_BRANCH" --quiet 2>/dev/null || true
+
+# Determine the comparison ref: prefer origin/<branch> when it exists, else use the
+# value directly (allows commit SHAs and local refs as the base).
+if git rev-parse --verify "origin/${BASE_BRANCH}" >/dev/null 2>&1; then
+  BASE_REF="origin/${BASE_BRANCH}"
+else
+  BASE_REF="$BASE_BRANCH"
+fi
 
 CURRENT_BRANCH="$(git branch --show-current)"
 PR_NUMBER="$(gh pr view --json number --jq '.number' 2>/dev/null || true)"
 
 # Detect whether there are commits ahead of the base branch, or only working-tree changes.
-COMMITS_AHEAD="$(git rev-list --count "origin/${BASE_BRANCH}...HEAD" 2>/dev/null || echo 0)"
+COMMITS_AHEAD="$(git rev-list --count "${BASE_REF}...HEAD" 2>/dev/null || echo 0)"
 HAS_WORKING_CHANGES=false
 if git diff --quiet HEAD -- 2>/dev/null && git diff --cached --quiet HEAD -- 2>/dev/null; then
   HAS_WORKING_CHANGES=false
@@ -96,7 +117,7 @@ UNTRACKED_FILES="$(git ls-files --others --exclude-standard | grep -vF "$OUT" ||
 
   echo "## Changed files"
   if [[ "$COMMITS_AHEAD" -gt 0 ]]; then
-    git diff --name-status "origin/${BASE_BRANCH}...HEAD"
+    git diff --name-status "${BASE_REF}...HEAD"
   fi
   if [[ "$HAS_WORKING_CHANGES" == "true" ]]; then
     git diff --name-status HEAD --
@@ -110,7 +131,7 @@ UNTRACKED_FILES="$(git ls-files --others --exclude-standard | grep -vF "$OUT" ||
 
   echo "## Diff stat"
   if [[ "$COMMITS_AHEAD" -gt 0 ]]; then
-    git diff --stat "origin/${BASE_BRANCH}...HEAD"
+    git diff --stat "${BASE_REF}...HEAD"
   fi
   if [[ "$HAS_WORKING_CHANGES" == "true" ]]; then
     git diff --stat HEAD --
@@ -118,10 +139,14 @@ UNTRACKED_FILES="$(git ls-files --others --exclude-standard | grep -vF "$OUT" ||
   echo
 
   echo "## Diff"
-  if [[ -n "${PR_NUMBER}" ]]; then
+  # Use gh pr diff only when a PR was detected AND the base ref is an origin branch
+  # (i.e. BASE_REF starts with "origin/"). When the base is a commit SHA or local ref
+  # the PR number may belong to an unrelated or long-lived branch; in that case fall
+  # through to the plain git diff so the output is scoped to the exact commit range.
+  if [[ -n "${PR_NUMBER}" && "${BASE_REF}" == origin/* ]]; then
     gh pr diff "${PR_NUMBER}" --patch --color never
   elif [[ "$COMMITS_AHEAD" -gt 0 ]]; then
-    git diff --no-color "origin/${BASE_BRANCH}...HEAD"
+    git diff --no-color "${BASE_REF}...HEAD"
   fi
 
   # Working-tree changes (modified tracked files)

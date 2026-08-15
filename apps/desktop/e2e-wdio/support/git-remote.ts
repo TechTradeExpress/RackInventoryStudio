@@ -1,0 +1,867 @@
+/**
+ * Remote Git over SSH fixture infrastructure (Stage 3F.2).
+ *
+ * Provides a deterministic, CI-friendly stand-in for a real SSH-reachable
+ * Git remote: a local, unprivileged `sshd` instance (own ephemeral host key,
+ * random 127.0.0.1 port, a single ephemeral passphrase-less client keypair
+ * authorized to log in as the *current* OS user — no setuid/privilege drop
+ * needed since the login target is the same user sshd itself runs as) plus
+ * one or more local bare repositories it serves over that connection.
+ *
+ * See docs/E2E_WDIO_PLAN.md's Stage 3F.2 section for the architecture
+ * comparison (this local-sshd approach vs. a containerized git server vs.
+ * other alternatives) and the rationale for choosing this one.
+ *
+ * ── How the app's git subprocess finds this fixture ─────────────────────────
+ *
+ * `git push`/`git pull` inside the application shell out to the real `git`
+ * binary, which — for an SSH remote — shells out again to `ssh` via
+ * `$GIT_SSH_COMMAND` (highest precedence, and explicitly never stripped by
+ * the app's askpass hardening — see crates/ris-git/src/lib.rs's
+ * `ASKPASS_ENV_REMOVALS` doc comment). `GIT_SSH_COMMAND` has to be a single
+ * static value fixed at app-launch time (the app inherits process.env once,
+ * at spawn — see wdio.conf.ts), but the actual port/identity file for this
+ * fixture are only known once `startRemote()` runs, which is necessarily
+ * *after* the app is already running (WDIO specs can't hook earlier than
+ * their own `before()`). wdio.conf.ts resolves this by pointing
+ * `GIT_SSH_COMMAND` at the static `support/ssh-wrapper.sh`, which re-reads
+ * connection details from a small env file at *invocation* time —
+ * `configureSsh()` below is what writes that file.
+ *
+ * ── Product-side note ────────────────────────────────────────────────────────
+ *
+ * The remote URL added through the app's UI uses SCP-like syntax
+ * (`user@127.0.0.1:/abs/path/remote.git`, no port field — the port is
+ * supplied by the wrapper script instead), which
+ * `ris_git::validate_remote_url` already accepts (see
+ * `add_remote_accepts_scp_like_ssh` in crates/ris-git/tests/git_remote_tests.rs).
+ * `ris_git::is_ssh_url` classifies it as SSH, so the app's askpass session
+ * still starts — inert here since the key has no passphrase, matching this
+ * stage's explicit exclusion of the SSH-passphrase workflow.
+ */
+import { spawn, execFile, execFileSync, type ChildProcess } from "node:child_process";
+import {
+  existsSync,
+  mkdirSync,
+  chmodSync,
+  writeFileSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
+import { rm } from "node:fs/promises";
+import { createConnection, createServer } from "node:net";
+import { userInfo } from "node:os";
+import { join, win32 } from "node:path";
+import { randomBytes } from "node:crypto";
+import { runGit } from "./local-git";
+import { isStrictChildPath } from "./test-environment";
+
+function log(msg: string) {
+  const ts = new Date().toISOString().substring(11, 23);
+  console.log(`[git-remote ${ts}] ${msg}`);
+}
+
+// ── sshd binary resolution ───────────────────────────────────────────────────
+
+const SSHD_CANDIDATES = ["/usr/sbin/sshd", "/sbin/sshd", "/usr/local/sbin/sshd"];
+
+function execFileP(cmd: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    execFile(cmd, args, (error, stdout, stderr) => {
+      if (error) reject(error);
+      else resolve({ stdout: stdout.toString(), stderr: stderr.toString() });
+    });
+  });
+}
+
+/**
+ * Splits raw discovery-command stdout (from `which`/`where.exe`, possibly
+ * multiple newline-separated matches) into trimmed, non-blank candidate
+ * paths, in the order the command reported them. Pure — no filesystem or
+ * platform access — so it's unit-testable without a real sshd installation.
+ */
+export function parseCandidateLines(output: string): string[] {
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+/**
+ * Converts an MSYS/Git-Bash-style absolute path (`/c/Windows/...`, as
+ * reported by Git for Windows' `which`) to the native Windows form
+ * (`C:\Windows\...`) that Node's `spawn()` can execute directly on Windows.
+ * Only the drive letter is case-normalized (uppercased); the rest of the
+ * path's casing is preserved verbatim.
+ *
+ * Returns null for anything that isn't a single-drive-letter MSYS path —
+ * in particular, ordinary POSIX paths like `/usr/sbin/sshd` never match
+ * (their first segment is more than one character), so this never
+ * misinterprets a real POSIX path as a Windows drive path.
+ */
+export function convertMsysPathToNative(candidatePath: string): string | null {
+  const match = /^\/([A-Za-z])\/(.*)$/.exec(candidatePath);
+  if (!match) return null;
+  const [, drive, rest] = match;
+  return `${drive.toUpperCase()}:\\${rest.replace(/\//g, "\\")}`;
+}
+
+/**
+ * Returns the first candidate for which `exists` reports true, or null if
+ * none do. `exists` is dependency-injected (defaults to the real
+ * `existsSync`) so candidate prioritization stays unit-testable without
+ * touching the real filesystem.
+ */
+export function selectFirstUsableCandidate(
+  candidates: string[],
+  exists: (candidatePath: string) => boolean = existsSync,
+): string | null {
+  for (const candidate of candidates) {
+    if (exists(candidate)) return candidate;
+  }
+  return null;
+}
+
+/**
+ * Builds the ordered list of Windows sshd candidates to check for existence,
+ * in priority order, from already-fetched raw inputs. Pure — no filesystem
+ * or process access — so the full prioritization logic (not just individual
+ * parsing steps) is unit-testable in isolation:
+ *   1. The well-known native OpenSSH Server location under %WINDIR%/%SystemRoot%
+ *      (never a hardcoded "C:") — installed there by the Windows "OpenSSH Server"
+ *      optional feature.
+ *   2. Native PATH lookup results from `where.exe`, which (unlike Git Bash's
+ *      `which`) always reports native Windows paths — spawnable as-is.
+ *   3. Git Bash's `which` output, last resort, with its MSYS-style lines
+ *      (`/c/Windows/...`) normalized to native paths before use.
+ */
+export function buildWindowsSshdCandidates(
+  systemRoot: string | null,
+  whereOutput: string,
+  whichOutput: string,
+): string[] {
+  const candidates: string[] = [];
+  if (systemRoot) {
+    // Always path.win32.join, never the bare (host-bound) `join` — this
+    // builds a *Windows* path regardless of which host runs this function
+    // (it must also produce correct output under unit tests running on
+    // Linux CI, not just when actually running on Windows).
+    candidates.push(win32.join(systemRoot, "System32", "OpenSSH", "sshd.exe"));
+  }
+  candidates.push(...parseCandidateLines(whereOutput));
+  candidates.push(...parseCandidateLines(whichOutput).map((line) => convertMsysPathToNative(line) ?? line));
+  return candidates;
+}
+
+/**
+ * Windows sshd discovery: fetches the raw inputs (env var, `where.exe`,
+ * Git Bash's `which` — each tolerant of failing/being unavailable) and
+ * delegates prioritization to `buildWindowsSshdCandidates`, then returns the
+ * first candidate that actually exists on disk.
+ */
+async function findSshdWindows(): Promise<string | null> {
+  const systemRoot = process.env["WINDIR"] ?? process.env["SystemRoot"] ?? null;
+
+  let whereOutput = "";
+  try {
+    whereOutput = (await execFileP("where.exe", ["sshd"])).stdout;
+  } catch {
+    // where.exe found nothing (or isn't available) — fall through
+  }
+
+  let whichOutput = "";
+  try {
+    whichOutput = (await execFileP("which", ["sshd"])).stdout;
+  } catch {
+    // Git Bash's `which` found nothing (or isn't available) — fall through
+  }
+
+  return selectFirstUsableCandidate(buildWindowsSshdCandidates(systemRoot, whereOutput, whichOutput));
+}
+
+/** POSIX (Linux/macOS) sshd discovery — unchanged from the original, host-native behavior. */
+async function findSshdPosix(): Promise<string | null> {
+  try {
+    const { stdout } = await execFileP("which", ["sshd"]);
+    const path = stdout.trim();
+    if (path) return path;
+  } catch {
+    // fall through to candidate paths
+  }
+  for (const candidate of SSHD_CANDIDATES) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+/**
+ * Locates the `sshd` binary, returning a path directly usable by Node's
+ * `spawn()` on the current platform. Checked lazily (not at module load) so
+ * that importing this module never fails on a machine without sshd — only
+ * `startRemote()` (and thus any spec that actually needs SSH) does. Returns
+ * null when sshd cannot be found anywhere — callers must treat that as a
+ * hard failure, not a skip (see startRemote()'s doc comment).
+ */
+export async function findSshd(): Promise<string | null> {
+  return process.platform === "win32" ? findSshdWindows() : findSshdPosix();
+}
+
+// ── Git Bash discovery (Windows ForceCommand target) ────────────────────────
+//
+// Win32 OpenSSH Server executes incoming exec requests (what `git push`/
+// `pull`/`clone` send) via `%ComSpec% /c` — `cmd.exe` — unless told
+// otherwise, and `cmd.exe` has no single-quote quoting construct, so Git's
+// POSIX-quoted remote command (`git-upload-pack '<path>'`) reaches
+// `git-upload-pack.exe` with the quote characters still attached (see
+// `buildSshdConfig`'s `ForceCommand` doc comment for the full mechanism and
+// how this was confirmed empirically). Stage 3F.5.1's fix routes every
+// exec through Git Bash instead — this section locates it.
+
+/**
+ * Derives Git for Windows' install root from a resolved `git.exe` path.
+ * Pure — no filesystem access. Handles both real-world layouts: the `cmd\`
+ * shim (`<root>\cmd\git.exe`, one level up) and the actual MSYS2 binary
+ * (`<root>\mingw64\bin\git.exe` or `\mingw32\bin\git.exe`, two levels up)
+ * — a flat "always two segments up" rule is wrong for the `cmd\` layout
+ * (over-shoots into the parent of `<root>`), which is why this is its own
+ * named, tested function rather than an inline `dirname(dirname(...))`.
+ * Falls back to one level up (the immediate parent directory) for any
+ * other/unrecognized layout — a reasonable best-effort guess, not
+ * expected to be hit for a real Git for Windows install.
+ */
+export function deriveGitRootFromExe(gitExePath: string): string {
+  const parent = win32.dirname(gitExePath);
+  const parentName = win32.basename(parent).toLowerCase();
+  if (parentName === "cmd") {
+    return win32.dirname(parent);
+  }
+  const grandparent = win32.dirname(parent);
+  const grandparentName = win32.basename(grandparent).toLowerCase();
+  if (parentName === "bin" && (grandparentName === "mingw64" || grandparentName === "mingw32")) {
+    return win32.dirname(grandparent);
+  }
+  return parent;
+}
+
+/**
+ * Builds the ordered list of Windows Git Bash candidates to check for
+ * existence, in priority order, from already-fetched raw inputs. Pure — no
+ * filesystem or process access — so the prioritization logic is fully
+ * unit-testable in isolation, mirroring `buildWindowsSshdCandidates`.
+ *
+ * Deliberately never trusts a bare `where.exe bash` / `which bash` result:
+ * on a machine with WSL installed, `C:\Windows\System32\bash.exe` and/or
+ * `%LOCALAPPDATA%\Microsoft\WindowsApps\bash.exe` are WSL *launcher stubs*
+ * (tiny ~86 KB PE binaries that hand off to a Linux subsystem), not Git
+ * Bash (Git for Windows' real `bash.exe` is a ~2.5 MB MSYS2 build) —
+ * confirmed present on the machine this stage's investigation ran on,
+ * ahead of Git's own `usr\bin\bash.exe` in a bare `where.exe bash` listing
+ * on at least one install ordering. Using the WSL stub here would silently
+ * run commands inside a different OS/filesystem namespace instead of Git
+ * Bash. Every candidate below is therefore derived from something that is
+ * *not* a bare "bash" lookup: `git.exe`'s own resolved location (via
+ * `deriveGitRootFromExe`), the Git for Windows installer's own registry
+ * key, and well-known default install paths (always included, appended
+ * last, regardless of whether the higher-priority sources resolved
+ * anything — same "redundant fallback candidates cost nothing" rationale
+ * `buildWindowsSshdCandidates` already uses) — `git.exe` itself has no WSL
+ * stub equivalent to confuse this with.
+ */
+export function buildWindowsGitBashCandidates(gitExePath: string | null, registryInstallPath: string | null): string[] {
+  const roots: string[] = [];
+  if (gitExePath) {
+    roots.push(deriveGitRootFromExe(gitExePath));
+  }
+  if (registryInstallPath) {
+    roots.push(registryInstallPath);
+  }
+  roots.push("C:\\Program Files\\Git", "C:\\Program Files (x86)\\Git");
+
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+  for (const root of roots) {
+    for (const rel of [
+      ["bin", "bash.exe"],
+      ["usr", "bin", "bash.exe"],
+    ]) {
+      const candidate = win32.join(root, ...rel);
+      if (!seen.has(candidate)) {
+        seen.add(candidate);
+        candidates.push(candidate);
+      }
+    }
+  }
+  return candidates;
+}
+
+/**
+ * Reads the Git for Windows installer's own registry key
+ * (`SOFTWARE\GitForWindows\InstallPath`, written by the official installer,
+ * readable without any elevated privilege), checking `HKLM` then `HKCU` so
+ * both machine-wide and per-user installs resolve. Returns null if neither
+ * hive has the key/value or `reg.exe` itself is unavailable.
+ */
+async function readGitForWindowsRegistryInstallPath(): Promise<string | null> {
+  for (const hive of ["HKLM", "HKCU"]) {
+    try {
+      const { stdout } = await execFileP("reg.exe", ["query", `${hive}\\SOFTWARE\\GitForWindows`, "/v", "InstallPath"]);
+      const match = /InstallPath\s+REG_SZ\s+(.+)/.exec(stdout);
+      const value = match?.[1]?.trim();
+      if (value) return value;
+    } catch {
+      // key/value absent under this hive, or reg.exe unavailable — try the
+      // next hive, or fall through to the caller's other candidate sources
+    }
+  }
+  return null;
+}
+
+async function findGitBashWindows(): Promise<string | null> {
+  let gitExePath: string | null = null;
+  try {
+    const { stdout } = await execFileP("where.exe", ["git"]);
+    gitExePath = parseCandidateLines(stdout)[0] ?? null;
+  } catch {
+    // where.exe found nothing (or isn't available) — fall through
+  }
+
+  const registryInstallPath = await readGitForWindowsRegistryInstallPath();
+
+  return selectFirstUsableCandidate(buildWindowsGitBashCandidates(gitExePath, registryInstallPath));
+}
+
+/**
+ * Locates Git Bash's `bash.exe` for use as the Windows `ForceCommand`
+ * target (see `buildSshdConfig`). Never needed on POSIX, where the remote
+ * login shell is already POSIX-compatible, so this is a no-op there.
+ * Returns null when not found — `startRemote()` must treat that as a hard
+ * failure on `win32`, mirroring `findSshd()`'s own "hard failure, not
+ * silent skip" policy (see its doc comment for the full reasoning).
+ */
+export async function findGitBash(): Promise<string | null> {
+  return process.platform === "win32" ? findGitBashWindows() : null;
+}
+
+// ── Private key permissions ───────────────────────────────────────────────────
+
+/**
+ * Pure: builds the `icacls` argument list that strips inherited ACEs from
+ * `keyPath` and grants Full Control to exactly (and only) `username`. No
+ * Administrator privilege is required — a user can always re-ACL a file
+ * they own.
+ */
+export function buildWindowsAclArgs(keyPath: string, username: string): string[] {
+  return [keyPath, "/inheritance:r", "/grant:r", `${username}:F`];
+}
+
+/**
+ * Restricts a private key file (host key or client identity) to the current
+ * user only, so OpenSSH will load it instead of rejecting it as too
+ * permissive.
+ *
+ * `chmodSync`'s POSIX permission bits don't map onto NTFS ACLs — a freshly
+ * created file under a temp directory can inherit broader ACEs from its
+ * parent (observed in practice as an unresolvable `UNKNOWN\UNKNOWN` SID),
+ * and Win32 OpenSSH's own strict permission check rejects that outright
+ * ("Bad permissions" / "This private key will be ignored" / ultimately
+ * "no hostkeys available -- exiting" for the host key). `icacls` operates on
+ * the real ACL and is what actually satisfies that check; `chmod 600`
+ * remains exactly what POSIX sshd/ssh expect, unchanged from before.
+ *
+ * `platform`/`username`/`runIcacls`/`chmod` are all injectable so the
+ * platform branch and the exact command constructed are unit-testable
+ * without touching a real filesystem or requiring sshd/icacls to actually
+ * be present.
+ */
+export function securePrivateKeyFile(
+  keyPath: string,
+  options: {
+    platform?: NodeJS.Platform;
+    username?: string;
+    runIcacls?: (args: string[]) => void;
+    chmod?: (path: string, mode: number) => void;
+  } = {},
+): void {
+  const platform = options.platform ?? process.platform;
+  if (platform === "win32") {
+    const runIcacls =
+      options.runIcacls ??
+      ((args: string[]) => {
+        execFileSync("icacls", args, { stdio: "ignore" });
+      });
+    runIcacls(buildWindowsAclArgs(keyPath, options.username ?? userInfo().username));
+  } else {
+    (options.chmod ?? chmodSync)(keyPath, 0o600);
+  }
+}
+
+// ── sshd_config generation ───────────────────────────────────────────────────
+
+export interface SshdConfigOptions {
+  port: number;
+  hostKeyPath: string;
+  authorizedKeysPath: string;
+  pidFilePath: string;
+  platform?: NodeJS.Platform;
+  /**
+   * Absolute path to Git Bash's `bash.exe` (from `findGitBash()`). Required
+   * on `win32` to emit the `ForceCommand` directive below; ignored on
+   * POSIX, where the remote login shell is already POSIX-compatible.
+   */
+  gitBashPath?: string;
+}
+
+/**
+ * Builds the fixture's `sshd_config` contents. Pure — takes already-resolved
+ * paths/port, no filesystem or process access — so the platform-conditional
+ * directive logic is fully unit-testable.
+ *
+ * `UsePAM no` is POSIX/PAM-only: Win32 OpenSSH doesn't recognize the `UsePAM`
+ * directive at all and logs "Unsupported option UsePAM" if it's present, so
+ * it's omitted entirely on Windows rather than merely set to a no-op value.
+ * Every other directive is identical on both platforms.
+ */
+export function buildSshdConfig(options: SshdConfigOptions): string {
+  const platform = options.platform ?? process.platform;
+  const lines = [
+    `Port ${options.port}`,
+    "ListenAddress 127.0.0.1",
+    `HostKey ${options.hostKeyPath}`,
+    `AuthorizedKeysFile ${options.authorizedKeysPath}`,
+    "PubkeyAuthentication yes",
+    "PasswordAuthentication no",
+    "KbdInteractiveAuthentication no",
+  ];
+  if (platform !== "win32") {
+    lines.push("UsePAM no");
+  }
+  if (platform === "win32" && options.gitBashPath) {
+    // Win32 OpenSSH executes incoming exec requests (what `git push`/`pull`/
+    // `clone` send) via `%ComSpec% /c` — cmd.exe — by default, confirmed via
+    // this stage's own sshd debug-log capture:
+    // `spawn_argv[0]: "...\cmd.exe" /c "..."`. cmd.exe has no single-quote
+    // quoting construct, so Git's POSIX-quoted remote command
+    // (`git-upload-pack '<path>'`) reaches git-upload-pack.exe with the
+    // quote characters still attached, corrupting the path (the Stage 3F.5
+    // defect). Routing through Git Bash instead fixes that, but only with
+    // `eval`: cmd.exe doesn't understand `$VAR` syntax, so it passes the
+    // literal text `$SSH_ORIGINAL_COMMAND` straight through to bash's `-c`
+    // argument unexpanded; bash then expands it itself, but *ordinary*
+    // (non-eval) variable expansion performs word-splitting on the value
+    // without reinterpreting quote characters *within* it as syntax — so a
+    // bare `-c "$SSH_ORIGINAL_COMMAND"` reproduces the exact same
+    // `''<path>''` quote-corruption cmd.exe alone produces (confirmed
+    // empirically against a real fixture instance before landing this).
+    // `eval` forces a second parse of the already-expanded value as fresh
+    // shell syntax, which is what actually strips Git's own single quotes.
+    lines.push(`ForceCommand "${options.gitBashPath}" -c "eval \\"$SSH_ORIGINAL_COMMAND\\""`);
+  }
+  lines.push(
+    "StrictModes no",
+    `PidFile ${options.pidFilePath}`,
+    "AllowTcpForwarding no",
+    "X11Forwarding no",
+    "LogLevel ERROR",
+    "",
+  );
+  return lines.join("\n");
+}
+
+// ── Port + readiness ──────────────────────────────────────────────────────────
+
+function findFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    // Used only to ask the OS for an unused port; the socket is closed
+    // immediately (before sshd binds it) so this is a hint, not a
+    // reservation — sshd itself is the eventual real bind and its own
+    // readiness poll (waitForPortOpen) is the source of truth.
+    const server = createServer();
+    server.unref();
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (address === null || typeof address === "string") {
+        server.close();
+        reject(new Error("[git-remote] could not determine an ephemeral port"));
+        return;
+      }
+      const { port } = address;
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+function waitForPortOpen(port: number, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  return new Promise((resolve, reject) => {
+    const attempt = () => {
+      const socket = createConnection({ host: "127.0.0.1", port }, () => {
+        socket.end();
+        resolve();
+      });
+      socket.on("error", () => {
+        socket.destroy();
+        if (Date.now() >= deadline) {
+          reject(new Error(`[git-remote] sshd never became reachable on 127.0.0.1:${port} within ${timeoutMs}ms`));
+          return;
+        }
+        setTimeout(attempt, 100);
+      });
+    };
+    attempt();
+  });
+}
+
+/**
+ * Races a readiness promise (normally `waitForPortOpen`) against the child
+ * process's own `error` event, so a spawn failure — e.g. a discovered path
+ * that stopped existing or isn't executable between discovery and spawn —
+ * surfaces immediately with its original error preserved as `cause`, instead
+ * of silently waiting out the full readiness timeout and reporting a generic
+ * "never became reachable" message that would mask the real cause. Exported
+ * so this behavior is unit-testable with a deliberately-unspawnable path,
+ * without depending on a real sshd installation or waiting out a real
+ * timeout.
+ */
+export function raceSpawnAgainstReadiness(
+  child: ChildProcess,
+  spawnedPath: string,
+  readinessPromise: Promise<void>,
+): Promise<void> {
+  const spawnErrorPromise = new Promise<never>((_resolve, reject) => {
+    child.once("error", (error) => {
+      reject(new Error(`[git-remote] failed to spawn sshd at "${spawnedPath}": ${error.message}`, { cause: error }));
+    });
+  });
+  return Promise.race([readinessPromise, spawnErrorPromise]);
+}
+
+// ── SSH remote server ─────────────────────────────────────────────────────────
+
+export interface SshRemoteServer {
+  port: number;
+  username: string;
+  /** Absolute path to the ephemeral client private key (no passphrase). */
+  identityPath: string;
+  /** Directory holding keys, sshd_config, and the pidfile — removed by cleanup(). */
+  workDir: string;
+  /** Directory remote bare repositories should be created under
+   * (createBareRemote's default parent) — same run root, kept separate from
+   * sshd's own key/config material for readability. */
+  remotesParent: string;
+  process: ChildProcess;
+}
+
+function resolveRunRoot(): string {
+  const runRoot = process.env["RIS_E2E_RUN_ROOT"];
+  if (!runRoot) {
+    throw new Error(
+      "[git-remote] RIS_E2E_RUN_ROOT is not set. Run via WDIO with the test-environment " +
+        "initialized in wdio.conf.ts.",
+    );
+  }
+  return runRoot;
+}
+
+/**
+ * Starts a local, unprivileged sshd instance bound to 127.0.0.1 on a random
+ * port, with a single ephemeral ed25519 client key (no passphrase)
+ * authorized to log in as the current OS user.
+ *
+ * Throws if sshd cannot be found. Callers in specs should resolve
+ * `findSshd()` first, in their own `before()` hook, and throw a clearer
+ * spec-specific error when it returns null rather than relying on this
+ * generic one — every current caller (git-remote-workflows,
+ * git-clone-workflows, git-diverged-pull) treats a missing `sshd` as a
+ * hard failure, not a skip: each of those specs' entire purpose is SSH
+ * remote coverage, so a quiet skip would let a run report green while
+ * exercising none of it. See any of their module doc comments for the
+ * full reasoning.
+ */
+export async function startRemote(): Promise<SshRemoteServer> {
+  const sshdPath = await findSshd();
+  if (!sshdPath) {
+    const checked =
+      process.platform === "win32"
+        ? "checked %WINDIR%\\System32\\OpenSSH\\sshd.exe, `where.exe sshd`, and `which sshd`"
+        : "checked PATH and /usr/sbin, /sbin, /usr/local/sbin";
+    throw new Error(
+      `[git-remote] sshd was not found (${checked}). ` + "Install OpenSSH server to run the SSH-remote WDIO specs.",
+    );
+  }
+
+  // Windows only: without this, Win32 OpenSSH's default remote shell
+  // (cmd.exe) corrupts every incoming git-over-ssh command — see
+  // buildSshdConfig's ForceCommand doc comment. A missing Git Bash is a
+  // hard failure here, not a silent fallback to the broken cmd.exe
+  // behavior, mirroring the sshd-not-found policy just above.
+  let gitBashPath: string | undefined;
+  if (process.platform === "win32") {
+    const found = await findGitBash();
+    if (!found) {
+      throw new Error(
+        "[git-remote] Git Bash was not found (checked git.exe's own install root via " +
+          "`where.exe git`, the Git for Windows registry key, and well-known Program Files " +
+          "locations). Required on Windows so the fixture's sshd executes incoming git " +
+          "commands through a POSIX-compatible shell instead of cmd.exe. Install Git for " +
+          "Windows to run the SSH-remote WDIO specs.",
+      );
+    }
+    gitBashPath = found;
+  }
+
+  const runRoot = resolveRunRoot();
+  const gitDir = join(runRoot, "git");
+  mkdirSync(gitDir, { recursive: true });
+
+  const suffix = `${Date.now().toString(36)}${randomBytes(3).toString("hex")}`;
+  const workDir = join(gitDir, `sshd-${suffix}`);
+  const remotesParent = join(gitDir, `remotes-${suffix}`);
+  mkdirSync(workDir, { recursive: true });
+  mkdirSync(remotesParent, { recursive: true });
+
+  const hostKeyPath = join(workDir, "hostkey");
+  const clientKeyPath = join(workDir, "id_ed25519");
+  const authorizedKeysPath = join(workDir, "authorized_keys");
+  const sshdConfigPath = join(workDir, "sshd_config");
+  const pidFilePath = join(workDir, "sshd.pid");
+  const username = userInfo().username;
+
+  log("generating ephemeral host + client ed25519 keypairs (no passphrase)");
+  await execFileP("ssh-keygen", ["-t", "ed25519", "-f", hostKeyPath, "-N", "", "-q"]);
+  await execFileP("ssh-keygen", ["-t", "ed25519", "-f", clientKeyPath, "-N", "", "-q"]);
+  securePrivateKeyFile(clientKeyPath, { username });
+  securePrivateKeyFile(hostKeyPath, { username });
+
+  const publicKey = readFileSync(`${clientKeyPath}.pub`, "utf8");
+  writeFileSync(authorizedKeysPath, publicKey, { mode: 0o600 });
+
+  const port = await findFreePort();
+
+  // StrictModes off: this fixture's run-root directories are created with
+  // whatever permissive default mkdirSync/mkdtempSync produce, which
+  // StrictModes' home/authorized_keys ownership-and-permission checks can
+  // reject depending on the host's umask — irrelevant here since this sshd
+  // only ever accepts connections from the one ephemeral key generated
+  // above.
+  const sshdConfig = buildSshdConfig({ port, hostKeyPath, authorizedKeysPath, pidFilePath, gitBashPath });
+  writeFileSync(sshdConfigPath, sshdConfig);
+
+  log(`starting sshd on 127.0.0.1:${port} (workDir=${workDir})`);
+  const child = spawn(sshdPath, ["-f", sshdConfigPath, "-D", "-e"], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  child.stderr?.on("data", (chunk: Buffer) => {
+    const text = chunk.toString().trim();
+    if (text) log(`sshd: ${text}`);
+  });
+  child.on("exit", (code, signal) => {
+    log(`sshd exited (code=${code}, signal=${signal})`);
+  });
+
+  await raceSpawnAgainstReadiness(child, sshdPath, waitForPortOpen(port, 10_000));
+  log(`sshd ready on 127.0.0.1:${port}`);
+
+  return {
+    port,
+    username,
+    identityPath: clientKeyPath,
+    workDir,
+    remotesParent,
+    process: child,
+  };
+}
+
+// ── Shell-safe env file serialization ────────────────────────────────────────
+
+/**
+ * Quotes `value` as a single POSIX shell word that `source` (any POSIX-
+ * compliant shell, including Git-for-Windows' bash) will parse back to
+ * exactly `value`, byte-for-byte — backslashes, spaces, `$`, backticks, and
+ * double quotes all included. Single-quoting suppresses *all* expansion
+ * inside a shell word; the only character that cannot appear literally
+ * between single quotes is the single quote itself, handled with the
+ * standard POSIX idiom of closing the quote, emitting a backslash-escaped
+ * one, then reopening: `it's` -> `'it'\''s'`.
+ *
+ * Every value written into ssh-remote-command.env must go through this —
+ * `configureSsh()` is the only writer, and this is the only quoting logic,
+ * so no call site hand-rolls its own escaping.
+ */
+export function shQuote(value: string): string {
+  return "'" + value.replace(/'/g, "'\\''") + "'";
+}
+
+/**
+ * Writes the env file `support/ssh-wrapper.sh` reads at every ssh invocation
+ * so the already-running app's git subprocesses can reach this fixture's
+ * sshd — see this module's own doc comment for the full chain. Idempotent:
+ * safe to call again if a spec re-targets a new server.
+ *
+ * Values are `shQuote()`d before being written: `support/ssh-wrapper.sh`
+ * loads this file via `source`, i.e. as bash syntax, not as a plain
+ * key/value format — an unquoted Windows path like
+ * `C:\Users\Test\id_ed25519` would have its backslashes consumed as bash
+ * escape characters during that `source`, corrupting the path before `ssh`
+ * ever sees it.
+ */
+export function configureSsh(server: SshRemoteServer): void {
+  const runRoot = resolveRunRoot();
+  const gitDir = join(runRoot, "git");
+  mkdirSync(gitDir, { recursive: true });
+  const configPath = join(gitDir, "ssh-remote-command.env");
+  writeFileSync(
+    configPath,
+    `RIS_SSH_REMOTE_PORT=${shQuote(String(server.port))}\nRIS_SSH_REMOTE_IDENTITY=${shQuote(server.identityPath)}\n`,
+  );
+  log(`wrote ssh-wrapper config -> ${configPath} (port=${server.port})`);
+}
+
+/** Removes the ssh-wrapper config file so subsequent ssh invocations (if
+ * any, from a differently-scoped spec run later in the same process) fail
+ * closed rather than silently reusing a stopped server's stale port. */
+function clearSshConfig(): void {
+  const runRoot = process.env["RIS_E2E_RUN_ROOT"];
+  if (!runRoot) return;
+  const configPath = join(runRoot, "git", "ssh-remote-command.env");
+  if (existsSync(configPath)) rmSync(configPath, { force: true });
+}
+
+/** Stops sshd and removes its ephemeral key/config directory plus every
+ * bare remote created under `remotesParent` (createBareRemote's default
+ * parent). Safe to call even if the process already exited — leaves no
+ * remote state behind, per this stage's own "unlike 3F.1's fully local
+ * operations" cleanup concern. */
+export async function cleanup(server: SshRemoteServer): Promise<void> {
+  clearSshConfig();
+
+  if (!server.process.killed && server.process.exitCode === null) {
+    server.process.kill("SIGTERM");
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        server.process.kill("SIGKILL");
+        resolve();
+      }, 3_000);
+      server.process.once("exit", () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+  }
+
+  const runRoot = process.env["RIS_E2E_RUN_ROOT"];
+  if (runRoot && isStrictChildPath(runRoot, server.workDir) && existsSync(server.workDir)) {
+    await rm(server.workDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+  if (runRoot && isStrictChildPath(runRoot, server.remotesParent) && existsSync(server.remotesParent)) {
+    await rm(server.remotesParent, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+  log(`stopped sshd and removed ${server.workDir} and ${server.remotesParent}`);
+}
+
+// ── Bare remote repositories ──────────────────────────────────────────────────
+
+/**
+ * Creates a bare repository under `parent` (defaults to the server's
+ * `remotesParent`) and returns its absolute path — the path half of the
+ * `user@127.0.0.1:<path>` SCP-like URL the app's "Add remote" form expects.
+ */
+export async function createBareRemote(parent: string, label = "remote"): Promise<string> {
+  const suffix = `${Date.now().toString(36)}${randomBytes(3).toString("hex")}`;
+  const bareDir = join(parent, `${label}-${suffix}.git`);
+  mkdirSync(bareDir, { recursive: true });
+  await runGit(bareDir, ["init", "--bare", "-q"]);
+  return bareDir;
+}
+
+/** Builds the SCP-like SSH remote URL the app's "Add remote" form accepts
+ * (see this module's doc comment — the port lives in the wrapper's config
+ * file, not in the URL). */
+export function buildSshRemoteUrl(server: SshRemoteServer, bareRepoPath: string): string {
+  return `${server.username}@127.0.0.1:${bareRepoPath}`;
+}
+
+/**
+ * Seeds an otherwise-empty bare remote with `localRepoPath`'s current
+ * branch, by pushing directly to the bare repo's filesystem path — test-side
+ * only, no SSH (same rationale as `pushSimulatedRemoteCommit`: the fixture
+ * and the test runner share a machine, whereas the *application under test*
+ * always goes through the real SSH transport). Added for Stage 3F.3
+ * (git-clone-workflows.e2e.ts), which needs remote content to already exist
+ * before the app clones it — unlike Stage 3F.2's push/pull scenarios, which
+ * always started from an empty remote and populated it *through* the app.
+ *
+ * A `git push` creates `refs/heads/<branch>` but does **not** touch the
+ * bare repo's symbolic HEAD — `git init --bare` sets that once, up front,
+ * to whatever `init.defaultBranch` resolves to on the host running the
+ * test, independent of `branch`. Relying on those two happening to match
+ * is an environmental assumption, not deterministic fixture behaviour:
+ * confirmed with a standalone repro (mismatched local branch name pushed
+ * to a fresh bare repo, HEAD left unset) that `git clone` of such a repo
+ * exits 0 — no fatal error — but prints "warning: remote HEAD refers to
+ * nonexistent ref, unable to checkout" and leaves the destination
+ * directory completely empty (an unborn-HEAD working tree, zero files).
+ * Downstream, `clone_repository_cmd` would then fail
+ * `open_repository(dest_path)` on that empty directory with a confusing
+ * "not a valid RIS repository" error — exactly the environment-dependent
+ * failure this seeding helper must not risk. So HEAD is set explicitly
+ * here, after the push, rather than left to chance.
+ */
+export async function seedBareRemoteFromLocalRepo(
+  localRepoPath: string,
+  bareRepoPath: string,
+  branch: string,
+): Promise<void> {
+  await runGit(localRepoPath, ["push", "-q", bareRepoPath, `${branch}:${branch}`]);
+  await runGit(bareRepoPath, ["symbolic-ref", "HEAD", `refs/heads/${branch}`]);
+}
+
+// ── Bare-remote inspection helpers ────────────────────────────────────────────
+//
+// These operate on the bare repository directly via the local filesystem
+// (no SSH round trip) — legitimate for test-side verification/simulation:
+// the fixture and the test runner share the same machine, whereas the
+// *application under test* always goes through the real SSH transport
+// (enforced by validate_remote_url rejecting local-path remotes — see
+// crates/ris-git/src/lib.rs). Mirrors local-git.ts's inspection helpers.
+
+export async function getRemoteHeadCommit(bareRepoPath: string, ref = "HEAD"): Promise<string> {
+  const result = await runGit(bareRepoPath, ["rev-parse", ref]);
+  return result.stdout.trim();
+}
+
+export async function getRemoteCommitCount(bareRepoPath: string, ref = "HEAD"): Promise<number> {
+  const result = await runGit(bareRepoPath, ["rev-list", "--count", ref]);
+  return Number.parseInt(result.stdout.trim(), 10);
+}
+
+/**
+ * Simulates a commit landing on the remote from elsewhere (e.g. a
+ * teammate's push) — clones `bareRepoPath` into a scratch directory via a
+ * plain local-path clone (test-side only, see the section doc comment
+ * above), writes `fileName`, commits, and pushes back. Returns the new
+ * commit SHA.
+ */
+export async function pushSimulatedRemoteCommit(
+  bareRepoPath: string,
+  scratchParent: string,
+  branch: string,
+  fileName: string,
+  message: string,
+): Promise<string> {
+  const suffix = `${Date.now().toString(36)}${randomBytes(3).toString("hex")}`;
+  const scratchDir = join(scratchParent, `remote-sim-${suffix}`);
+  mkdirSync(scratchDir, { recursive: true });
+
+  await runGit(scratchParent, ["clone", "-q", bareRepoPath, scratchDir]);
+  await runGit(scratchDir, ["config", "user.name", "RIS WDIO Remote Simulator"]);
+  await runGit(scratchDir, ["config", "user.email", "wdio-remote-sim@localhost.invalid"]);
+  writeFileSync(join(scratchDir, fileName), `${message}\n`);
+  await runGit(scratchDir, ["add", "-A"]);
+  await runGit(scratchDir, ["commit", "-q", "-m", message]);
+  await runGit(scratchDir, ["push", "-q", "origin", `HEAD:${branch}`]);
+  const head = await runGit(scratchDir, ["rev-parse", "HEAD"]);
+
+  await rm(scratchDir, { recursive: true, force: true });
+  return head.stdout.trim();
+}

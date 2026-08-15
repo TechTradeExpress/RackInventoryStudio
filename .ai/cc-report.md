@@ -1,137 +1,138 @@
 ## Summary
 
-PR: harden(export): restrict export writes to SVG and PNG
+Beta 4 Stage R1-R3: documentation-only repair correcting the last
+remaining release-process inconsistency in `docs/BETA_RELEASE_PROCESS_EN.md`
+— the normal (beta.5+) release flow incorrectly implied that the pre-merge
+RC freeze commit is the same commit that ends up tagged.
 
-Branch: `harden/beta3-export-write-allowlist` → base: `roadmap/beta3`
+**The defect.** Several passages said, in substance, that WDIO "must run
+against the exact commit that will be tagged" and that "the exact commit
+tested must be the exact commit tagged." For a normal release that goes
+through a merge commit, this is impossible: if `RC_FREEZE_SHA` (`A`) is
+validated pre-merge, and the release branch is then merged into `master`
+producing a new commit `B`, then `A != B` as commit IDs by construction —
+merging always creates a new commit. The tag is placed on `B`, never on
+`A`. What the process actually relies on is `tree(A) == tree(B)` (the
+merge introduces no last-minute content drift), not `A == B`.
 
-Audit finding F2: `write_export` in `repository.rs` accepted any file extension.
-The path comes from the native Save dialog, so this is low-severity, but
-defense-in-depth requires export commands to only write `.svg` and `.png` files.
+**Corrected model**, made explicit throughout the WDIO release-gate
+section:
 
-Fix: added `validate_export_extension` helper that checks the file extension
-(case-insensitively) before `std::fs::write`. Both `write_export_file` (SVG)
-and `write_export_bytes` (PNG) are protected through the shared `write_export`
-private function.
+```
+Normal flow (beta.5+, once wdio-e2e.yml is already on master):
+  RC_FREEZE_SHA (A) → pre-merge WDIO on A → installer/QA from A
+  → merge → MERGED_MASTER_SHA (B), B != A as a commit ID
+  → verify tree(A) == tree(B)
+  → TAG_SHA == B (never A)
 
-No version bump. No tags. No GitHub Release.
+Beta.4 (one-time bootstrap — unchanged, still stricter):
+  RC_FREEZE_SHA (A) → installer/QA from A
+  → bootstrap merge → MERGED_MASTER_SHA (B)
+  → verify tree(A) == tree(B)
+  → exact-master WDIO directly on B (no pre-merge WDIO exists for beta.4)
+  → TAG_SHA == B == POSTMERGE_WDIO_SHA
+```
+
+Also added: a "Reuse policy" paragraph stating explicitly that pre-merge
+WDIO results may be reused for release approval once `tree(A) == tree(B)`
+is confirmed — a **tree-equivalence** reuse, not a same-commit-ID reuse —
+and that the merge commit must never be described as "the exact same
+commit" as the one validated.
+
+The beta.4 bootstrap procedure itself (untouched, verified unchanged):
+still requires the post-merge exact-`master` WDIO run's result to gate the
+tag directly, with no pre-merge reuse step of its own — this is stricter
+than the corrected normal flow, and this repair did not weaken or
+generalize it.
+
+**No release gate was executed in this stage.** No date was chosen, no RC
+freeze commit was created, no installer was built, no Windows QA was
+performed, no WDIO was dispatched, nothing was merged, tagged, or
+published. No application, fixture, dependency, or workflow file changed.
+
+## RC Freeze SHA semantics
+
+`RC_FREEZE_SHA` is the pre-merge, validated release-branch commit (release
+date + final release-facing docs already committed — see "A.1 RC freeze").
+For a normal release it is what pre-merge WDIO, the installer build, and
+Windows QA all validate. It is never the commit the tag points at once a
+merge commit is created.
+
+## Merged Master SHA semantics
+
+`MERGED_MASTER_SHA` is the merge commit created when the validated release
+branch lands on `master`. Always a different commit ID from
+`RC_FREEZE_SHA` — merging creates a new commit regardless of whether the
+tree content changed. Required to have identical tree content to
+`RC_FREEZE_SHA` before pre-merge validation is treated as still applying.
+
+## Tag SHA semantics
+
+`TAG_SHA` is the commit the release tag actually references.
+Normal flow: `TAG_SHA == MERGED_MASTER_SHA`, never `RC_FREEZE_SHA`.
+Beta.4: `TAG_SHA == MERGED_MASTER_SHA == POSTMERGE_WDIO_SHA` (WDIO itself
+runs directly on the tagged commit, since beta.4 has no pre-merge WDIO
+step at all).
 
 ## Files changed
 
-| File | Change |
+- `docs/BETA_RELEASE_PROCESS_EN.md` — corrected the top-level step-C
+  pre-merge WDIO description; replaced the "Procedure (run against the
+  exact commit to be tagged)" heading with a neutral one that explains why
+  the old phrasing doesn't hold for the normal flow; added an explicit SHA
+  taxonomy (`RC_FREEZE_SHA`/`MERGED_MASTER_SHA`/`TAG_SHA`, normal vs.
+  beta.4 relationships); split "Pass criteria" into pre-merge exact-SHA
+  validation, merge continuity (exact tree-hash check), tag continuity,
+  and an explicit tree-equivalence reuse policy (replacing the previous
+  same-commit-ID reuse wording). The beta.4 bootstrap section itself was
+  left untouched — verified it already correctly requires the stricter
+  post-merge exact-`master` WDIO result to gate the tag.
+- `.ai/cc-report.md` — this file.
+
+The direct quote of `docs/E2E_WDIO_PLAN.md`'s policy text ("Full WDIO must
+run against the exact release commit...") was reviewed and left
+unchanged — it is a generic mandate, not a specific claim equating the RC
+freeze commit ID with the later tagged merge commit ID.
+
+No application source file, fixture file, dependency file
+(`Cargo.lock`/`pnpm-lock.yaml`), or workflow file changed. `CHANGELOG.md`,
+`docs/releases/v0.1.0-beta.4.md`, and `docs/BETA4_QA_RUNBOOK.md` were not
+touched — no incorrect wording of this kind was found in them.
+
+## Tests
+
+No test code changed. No application/fixture behavior changed.
+
+## Static validation
+
+| Check | Result |
 |---|---|
-| `apps/desktop/src-tauri/src/commands/repository.rs` | Added `validate_export_extension`, called inside `write_export`; added 8 new tests |
-| `docs/BETA3_QA_RUNBOOK.md` | Added cases 9.10–9.11: backend extension rejection |
-| `CHANGELOG.md` | Added security entry under Unreleased |
+| `git diff --check` | clean |
+| `pnpm check:version` | ✓ still `0.1.0-beta.4`, unchanged |
+| `pnpm check:hygiene` | ✓ 8/8 |
+| `pnpm test:scripts` | ✓ 237/237 |
+| `actionlint` | clean, no findings |
 
-## Audit finding F2
-
-`write_export` previously accepted any path extension. The native Save dialog
-filters reduce the risk in normal usage, but the backend command accepted
-arbitrary extensions (`.txt`, `.exe`, `.yaml`, etc.) and wrote arbitrary bytes.
-
-## What changed in the export backend
-
-Added `validate_export_extension(path: &Path) -> Result<(), String>`:
-```rust
-fn validate_export_extension(path: &std::path::Path) -> Result<(), String> {
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_ascii_lowercase());
-    match ext.as_deref() {
-        Some("svg") | Some("png") => Ok(()),
-        _ => Err("Unsupported export file extension. Use .svg or .png.".to_string()),
-    }
-}
-```
-
-Called inside `write_export` after the blank/dir checks, before `fs::write`.
-
-Validation order:
-1. Empty path → error (unchanged)
-2. Path is a directory → error (unchanged)
-3. **Extension not .svg or .png → error (NEW)**
-4. Parent directory missing → error (unchanged)
-5. `std::fs::write` (unchanged)
-
-## Allowed extensions
-
-- `.svg` (and `.SVG`, `.Svg`, etc.)
-- `.png` (and `.PNG`, `.Png`, etc.)
-
-## Rejected examples
-
-- `.txt`
-- `.yaml`
-- `.exe`
-- `.json`
-- `.pdf`
-- (no extension)
-
-## Frontend changes
-
-None. Frontend already uses:
-- `filters: [{ name: "SVG Files", extensions: ["svg"] }]` for SVG dialog
-- `filters: [{ name: "PNG Files", extensions: ["png"] }]` for PNG dialog
-- Default filenames `rack-{name}-{side}.svg` and `rack-{name}-{side}.png`
-
-## Tests added
-
-8 new tests in `commands::repository::tests`:
-
-| Test name | What it covers |
-|---|---|
-| `write_export_allows_svg_extension` | `.svg` path accepted, file written |
-| `write_export_allows_png_extension` | `.png` path accepted, file written |
-| `write_export_extension_check_is_case_insensitive` | `.SVG` and `.Png` accepted |
-| `write_export_rejects_unknown_extension` | `.txt`, `.yaml`, `.exe`, `.json`, `.pdf` rejected |
-| `write_export_rejects_missing_extension` | no-extension path rejected |
-| `validate_export_extension_accepts_svg_and_png` | pure helper: all case variants |
-| `validate_export_extension_rejects_other_extensions` | pure helper: rejects 5 extensions |
-| `validate_export_extension_rejects_no_extension` | pure helper: missing ext rejected |
-
-Total src-tauri tests: 122 (was 114).
-
-## Manual QA required
-
-- Export SVG with default `.svg` filename → succeeds, file readable in browser
-- Export PNG with default `.png` filename → succeeds, image opens correctly
-- In SVG Save dialog: manually type `rack.txt`, confirm → error banner with "Unsupported export file extension"
-- In PNG Save dialog: manually type `rack.json`, confirm → same error
-- Cancel Save dialog → no error banner, no file written
-- See `docs/BETA3_QA_RUNBOOK.md` cases 9.10–9.11
-
-## Checks
-
-```
-cargo fmt --all --check                          → clean
-cargo clippy --workspace -- -D warnings          → clean
-cargo check --workspace                          → clean
-cargo test --manifest-path src-tauri/Cargo.toml  → 122 passed
-node scripts/check-version-consistency.mjs       → 0.1.0-beta.2, all match
-node --test scripts/*.test.mjs                   → 19 passed
-node scripts/check-repo-hygiene.mjs              → 8/8 checks passed
-Frontend checks skipped locally — no frontend code changed.
-```
+A full desktop/Cargo test run was not performed — correctly out of scope
+for a docs-only repair with no code, dependency, or workflow file changes.
 
 ## Risks
 
-- Native Save dialog filters already restrict to `.svg`/`.png` in normal usage.
-  The backend check adds defense-in-depth but is not reachable via normal UI
-  flows unless the user manually types a different extension in the dialog.
-- Case-insensitive matching (`to_ascii_lowercase`) handles common OS variations.
-  Non-ASCII Unicode in the extension (edge case) would fail the `to_str()` call
-  and be rejected as "missing extension" — this is the correct safe default.
+- None newly introduced. The WDIO bootstrap gap itself remains structurally
+  unresolved (unchanged) — a documentation repair cannot close it.
+- Dependency-audit findings unchanged from prior review — not re-reviewed
+  in this stage since no dependency file changed.
 
-## Confirmation
+## Not done
 
-- No version bump ✓
-- No tags created ✓
-- No GitHub Release created ✓
-- No `.ai/review-context-*.md` committed ✓
+- No release date chosen or frozen, no RC freeze commit created.
+- Installer not built, Windows QA not performed, WDIO not dispatched,
+  nothing merged, tagged, or published — all explicitly out of scope for
+  this repair.
 
 ## Suggested next step
 
-Manual QA of cases 9.10–9.11 in `docs/BETA3_QA_RUNBOOK.md` (extension
-rejection), then prepare beta.3 release PR (version bump `0.1.0-beta.2` →
-`0.1.0-beta.3`, CHANGELOG finalization, release notes).
+Beta 4 Stage R2: choose and freeze the release date (creating
+`RC_FREEZE_SHA`), confirm the release branch matches it, then dispatch the
+Windows installer workflow against the branch name and verify the run's
+`head_sha` before Windows 11 manual QA.

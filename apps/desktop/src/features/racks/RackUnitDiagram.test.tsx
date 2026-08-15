@@ -203,6 +203,27 @@ describe("RackUnitDiagram — occupied placement card", () => {
     const card = screen.getByTestId("placed-front-p-no-at");
     expect(card.textContent).toContain("—");
   });
+
+  it("placed card carries data-device-code matching target_code", () => {
+    const p = makePlacement({ id: "dc-1", target_code: "srv-abc", start_u: 1, end_u: 1, effective_height_u: 1, height_u: 1 });
+    render(<RackUnitDiagram {...BASE_PROPS} front={[p]} />);
+    const card = screen.getByTestId("placed-front-dc-1");
+    expect(card.getAttribute("data-device-code")).toBe("srv-abc");
+  });
+
+  it("placed card carries data-start-u matching start_u", () => {
+    const p = makePlacement({ id: "su-1", start_u: 5, end_u: 6, effective_height_u: 2, height_u: 2 });
+    render(<RackUnitDiagram {...BASE_PROPS} front={[p]} />);
+    const card = screen.getByTestId("placed-front-su-1");
+    expect(card.getAttribute("data-start-u")).toBe("5");
+  });
+
+  it("placed card omits data-device-code when target_code is null", () => {
+    const p = makePlacement({ id: "nocode-1", target_code: null, start_u: 1, end_u: 1, effective_height_u: 1, height_u: 1 });
+    render(<RackUnitDiagram {...BASE_PROPS} front={[p]} />);
+    const card = screen.getByTestId("placed-front-nocode-1");
+    expect(card.getAttribute("data-device-code")).toBeNull();
+  });
 });
 
 // ── Empty row (click-to-place) ─────────────────────────────────────────────────

@@ -1,0 +1,41 @@
+# sshd_config for the containerized Git-over-SSH fixture (Stage 3F.5.4).
+#
+# Unlike the native Windows fixture's generated sshd_config
+# (support/git-remote.ts's buildSshdConfig), this file is static and baked
+# into the image: the container's only job is serving git-upload-pack/
+# git-receive-pack over SSH as the unprivileged `git` user, so there is no
+# per-run Windows ForceCommand/cmd.exe/Git-Bash problem to route around here
+# — the server side is plain Linux OpenSSH talking to a POSIX shell.
+
+Port 22
+ListenAddress 0.0.0.0
+HostKey /etc/ssh/ssh_host_ed25519_key
+
+# Pubkey-only. No password or keyboard-interactive fallback, no root login.
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+ChallengeResponseAuthentication no
+PermitRootLogin no
+# No UsePAM directive: Alpine's OpenSSH build (musl libc) has no PAM support
+# compiled in at all — unlike glibc distros, it doesn't even accept "UsePAM
+# no" as a no-op; sshd logs "Unsupported option UsePAM" and ignores the line.
+# Mirrors the Windows native fixture's own platform-conditional PAM handling
+# (support/git-remote.ts's buildSshdConfig) for the same underlying reason:
+# the directive is glibc/PAM-specific, not universal OpenSSH.
+
+# Only the dedicated test user may authenticate at all.
+AllowUsers git
+AuthorizedKeysFile /home/git/.ssh/authorized_keys
+
+# git-shell (this user's login shell — see Dockerfile) already restricts
+# command execution; these strip unrelated SSH capabilities defensively too.
+AllowTcpForwarding no
+X11Forwarding no
+PermitTunnel no
+AllowAgentForwarding no
+GatewayPorts no
+
+StrictModes no
+PidFile /run/sshd.pid
+LogLevel INFO

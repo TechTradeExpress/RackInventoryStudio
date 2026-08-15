@@ -512,7 +512,7 @@ export function RackDetailPanel({
               </>
             )}
             {onBack && (
-              <button className="btn" onClick={onBack}>
+              <button className="btn" data-testid="rack-detail-back-btn" onClick={onBack}>
                 ← Back to racks
               </button>
             )}

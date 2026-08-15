@@ -1,0 +1,7 @@
+# apps/desktop/e2e-wdio/fixtures/git-ssh-server/entrypoint.sh runs as a
+# Linux container's ENTRYPOINT via its shebang line — unlike
+# support/ssh-wrapper.sh (invoked as `bash "<path>"` from Windows, which
+# tolerates a CRLF shebang), a CRLF-corrupted `#!/bin/bash` would fail with
+# "bad interpreter: /bin/bash^M: no such file or directory" inside the
+# container. Force LF regardless of a contributor's core.autocrlf setting.
+apps/desktop/e2e-wdio/fixtures/git-ssh-server/entrypoint.sh text eol=lf

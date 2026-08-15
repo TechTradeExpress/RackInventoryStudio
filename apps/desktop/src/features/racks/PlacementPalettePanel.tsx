@@ -218,6 +218,7 @@ export function PlacementPalettePanel({
                     title={`Place ${d.name?.trim() || "Unnamed device"}…`}
                     aria-label={`Place ${d.name?.trim() || "Unnamed device"}`}
                     data-testid={`place-btn-device-${d.id}`}
+                    data-device-code={d.code}
                     onClick={() => onPlaceDevice(d.id)}
                   >
                     Place…

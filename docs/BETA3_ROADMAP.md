@@ -1,5 +1,28 @@
 # Rack Inventory Studio — Beta 3 Roadmap
 
+> **Superseded (2026-08-04).** `v0.1.0-beta.3` is no longer the target
+> release. `release/v0.1.0-beta.3` (PR #168) has been integrated back into
+> `development` instead of being forced through to `master` — see
+> `docs/releases/v0.1.0-beta.3.md` for the decision record. The next public
+> release is planned as **`v0.1.0-beta.4`**, shipping Windows-complete.
+>
+> **Update (2026-08-05).** The Windows-only remote-shell compatibility
+> defect referenced below is fixed: the containerized Git-over-SSH fixture
+> (Stage 3F.5.4–3F.5.7) sidesteps the `cmd.exe`-quoting defect entirely by
+> routing through a Linux OpenSSH container, and all three WDIO remote-SSH
+> specs (`git-remote-workflows`, `git-clone-workflows`, `git-diverged-pull`)
+> have passed against a real Windows + WSL2 + Docker host with the
+> container provider as the Windows default (Stage 3F.5.7, 15/15-iteration
+> matrix). Stage 3F.5.9 closes this program and opens the integration PR
+> from `feature/windows-ssh-fixture` to `development` — see
+> `docs/E2E_WDIO_PLAN.md`'s Stage 3F.5.9 for the closure report and final
+> platform contract. A Linux-native backend implementation also exists but
+> its real-host WDIO acceptance is explicitly deferred and is not part of
+> beta.4 — see the same section. Everything else in this document (the
+> completed PR sequence, remaining beta.3 QA/release steps) still describes
+> real, still-relevant work — it now lands as part of beta.4 rather than a
+> beta.3 tag.
+
 ## Purpose
 
 Beta 3 focuses on making Rack Inventory Studio comfortable with larger real-world datasets and improving core onboarding and documentation workflows after the beta.2 hardening release.
@@ -164,13 +187,49 @@ Filenames include rack name and side. XML/filename sanitization applied.
 
 ---
 
+### PR 15 — Device Model CSV import ✅
+
+Added a full Device Model CSV import workflow (preview → validate → apply),
+parallel to the existing Device CSV import. New `VAL-DM-001`–`VAL-DM-009`
+validation codes; CSV import panel gained a Devices / Device Models type
+selector. (Not present when this roadmap's PR sequence was first written up
+through PR 14; added here as a correction found during BRSP Stage B4's audit.)
+
+---
+
+### PR 16 — Harden repository clone transport safety ✅
+
+Routes clone through `ris-git`'s `validate_remote_url`, rejecting unsafe
+transports (`ext::`, `fd::`, `file://`, unsupported schemes) before any
+process is spawned. Frontend adds matching defense-in-depth validation.
+
+---
+
+### PR 17 — Restrict rack export writes to SVG/PNG ✅
+
+The export backend now rejects any target path whose extension is not
+`.svg`/`.png` (case-insensitive), for both the SVG and PNG export commands.
+
+---
+
 ## Remaining before beta.3 release
 
-1. **Run full manual QA** using `docs/BETA3_QA_RUNBOOK.md`.
+1. **Run full manual QA** using `docs/BETA3_QA_RUNBOOK.md`. *(Status as of
+   BRSP Stage B5A: not confirmed complete — no record of an executed QA pass
+   exists in this repository. Must be run and confirmed before tagging.)*
 2. **Fix any blockers** found during manual QA.
-3. **Prepare release PR**: version bump, CHANGELOG entry, release notes.
+3. **Run the WDIO release gate** — `app-smoke`, representative specs, then
+   the full matrix — against the exact release commit. See
+   `docs/BETA_RELEASE_PROCESS_EN.md`'s "WDIO release gate" section. Not yet
+   possible as of BRSP Stage B5A (`wdio-e2e.yml` cannot be dispatched until
+   it exists on `master`).
+4. **Prepare release PR**: version bump (not yet done — see
+   `docs/BETA_RELEASE_PROCESS_EN.md`), finalize the already-prepared
+   CHANGELOG `v0.1.0-beta.3` section's date, and the already-drafted
+   `docs/releases/v0.1.0-beta.3.md` release notes.
 
-Do not tag or publish beta.3 before manual QA is complete.
+Do not tag or publish beta.3 before manual QA and the WDIO release gate are
+both complete.
 
 ---
 
@@ -181,3 +240,11 @@ Do not tag or publish beta.3 before manual QA is complete.
 - Full localization (UI remains in English).
 - No installer changes beyond what is already present.
 - No GitHub Release until manual QA is signed off.
+
+---
+
+## Post-beta.3: E2E testing roadmap
+
+Desktop E2E work (WebdriverIO + `@wdio/tauri-service`) was tracked separately on
+`roadmap/e2e-wdio` and has since been merged into `development` (BRSP Stage B3).
+See `docs/E2E_WDIO_PLAN.md` for the full stage history and current program status.

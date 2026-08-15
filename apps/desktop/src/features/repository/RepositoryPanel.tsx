@@ -448,13 +448,13 @@ function GitSection({
   if (!gitStatus.is_repository) {
     return (
       <Panel title="Git" desc="No Git repository detected.">
-        <div className="stack">
+        <div className="stack" data-testid="git-not-initialized">
           <p style={{ margin: 0, fontSize: 12, color: "var(--tx-3)" }}>
             This directory is not tracked by Git.
           </p>
           {initError && <Banner tone="err">{initError}</Banner>}
           <div>
-            <button className="btn" onClick={handleInit} disabled={isBusy}>
+            <button className="btn" onClick={handleInit} disabled={isBusy} data-testid="git-init-btn">
               Initialize Git repository
             </button>
           </div>
@@ -564,6 +564,7 @@ function GitSection({
                     className="btn btn-sm"
                     onClick={handleValidateForPublish}
                     disabled={isBusy || hasUnsavedChanges}
+                    data-testid="git-validate-btn"
                   >
                     <IcRefresh size={11} /> Run
                   </button>
@@ -593,6 +594,7 @@ function GitSection({
                         onChange={(e) => setCommitMessage(e.target.value)}
                         placeholder="Commit message…"
                         disabled={isBusy || committing || hasUnsavedChanges || !validationPassed}
+                        data-testid="git-commit-message-input"
                       />
                       <button
                         type="submit"
@@ -604,6 +606,7 @@ function GitSection({
                             : !commitMessage.trim() ? "Enter a commit message"
                             : undefined
                         }
+                        data-testid="git-commit-btn"
                       >
                         {committing ? "Committing…" : "Commit"}
                       </button>
@@ -636,7 +639,7 @@ function GitSection({
                         : gitStatus.upstream
                           ? "Up to date with remote."
                           : "No upstream configured yet."}
-                    {pullError && <span style={{ color: "var(--st-err-tx)", display: "block", marginTop: 2 }}>{pullError}</span>}
+                    {pullError && <span style={{ color: "var(--st-err-tx)", display: "block", marginTop: 2 }} data-testid="git-pull-error">{pullError}</span>}
                     {pullSuccess && <span style={{ color: "var(--st-ok-tx)", display: "block", marginTop: 2 }}>{pullSuccess}</span>}
                   </div>
                 </div>
@@ -646,6 +649,7 @@ function GitSection({
                     onClick={handlePull}
                     disabled={pullDisabled}
                     title={pullBlockedReason !== null ? pullBlockedReason : undefined}
+                    data-testid="git-stepper-pull-btn"
                   >
                     <IcDownload size={11} /> Pull
                   </button>
@@ -670,7 +674,7 @@ function GitSection({
                       : gitStatus.upstream
                         ? "Remote is up to date."
                         : "No upstream branch — push will configure tracking."}
-                    {pushError && <span style={{ color: "var(--st-err-tx)", display: "block", marginTop: 2 }}>{pushError}</span>}
+                    {pushError && <span style={{ color: "var(--st-err-tx)", display: "block", marginTop: 2 }} data-testid="git-push-error">{pushError}</span>}
                     {pushSuccess && <span style={{ color: "var(--st-ok-tx)", display: "block", marginTop: 2 }}>{pushSuccess}</span>}
                   </div>
                 </div>
@@ -680,6 +684,7 @@ function GitSection({
                     onClick={handlePush}
                     disabled={pushDisabled}
                     title={pushBlockedReason !== null ? pushBlockedReason : undefined}
+                    data-testid="git-stepper-push-btn"
                   >
                     <IcPush size={11} /> Push
                   </button>
@@ -738,7 +743,7 @@ function GitSection({
         <div className="stack-3">
           <dl className="kv">
             <dt>Branch</dt>
-            <dd className="mono" style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <dd className="mono" style={{ display: "flex", alignItems: "center", gap: 4 }} data-testid="git-branch-value">
               <IcGitBranch size={12} /> {gitStatus.branch ?? "—"}
             </dd>
             <dt>Status</dt>
@@ -746,7 +751,7 @@ function GitSection({
             {gitStatus.upstream && (
               <>
                 <dt>Upstream</dt>
-                <dd className="mono">{gitStatus.upstream}</dd>
+                <dd className="mono" data-testid="git-upstream-value">{gitStatus.upstream}</dd>
               </>
             )}
             {!gitStatus.is_clean && (
@@ -797,6 +802,7 @@ function GitSection({
                 onChange={(e) => setNewRemoteName(e.target.value)}
                 placeholder="Name"
                 disabled={isBusy}
+                data-testid="git-remote-name-input"
               />
               <input
                 className="ri-input ri-mono"
@@ -805,13 +811,14 @@ function GitSection({
                 onChange={(e) => setNewRemoteUrl(e.target.value)}
                 placeholder="URL (e.g. git@github.com:org/repo.git)"
                 disabled={isBusy}
+                data-testid="git-remote-url-input"
               />
-              <button type="submit" className="btn btn-sm" disabled={isBusy}>
+              <button type="submit" className="btn btn-sm" disabled={isBusy} data-testid="git-remote-add-btn">
                 Add
               </button>
             </form>
             {addRemoteError && <div style={{ marginTop: 6, fontSize: 12, color: "var(--st-err-tx)" }}>{addRemoteError}</div>}
-            {addRemoteSuccess && <div style={{ marginTop: 6, fontSize: 12, color: "var(--st-ok-tx)" }}>{addRemoteSuccess}</div>}
+            {addRemoteSuccess && <div style={{ marginTop: 6, fontSize: 12, color: "var(--st-ok-tx)" }} data-testid="git-remote-add-success">{addRemoteSuccess}</div>}
           </div>
 
           {remotes.length > 0 && (
@@ -887,6 +894,7 @@ export function RepositoryPanel({
         <PageHeader
           title="Open a repository"
           subtitle="Rack Inventory Studio stores its data as YAML files in a Git repository on disk."
+          testId="repository-landing-title"
         />
         <div className="page-content">
           <div className="cols-sidebar">
@@ -906,7 +914,7 @@ export function RepositoryPanel({
                     </thead>
                     <tbody>
                       {recentRepos.map((path) => (
-                        <tr key={path} className="tbl-clickable">
+                        <tr key={path} className="tbl-clickable" data-testid="recent-repo-row" data-recent-repo-path={path}>
                           <td
                             className="tbl-mono"
                             onClick={() => onRepoPathChange(path)}
@@ -929,6 +937,7 @@ export function RepositoryPanel({
                               onClick={() => onRemoveRecentRepo?.(path)}
                               disabled={working}
                               title="Remove from list"
+                              data-testid="recent-repo-remove-btn"
                             >
                               <IcX size={11} />
                             </button>
@@ -953,6 +962,7 @@ export function RepositoryPanel({
                         onKeyDown={(e) => e.key === "Enter" && onOpen()}
                         placeholder="e.g. examples/example-repository"
                         disabled={working}
+                        data-testid="repository-open-path-input"
                       />
                       <button className="btn" onClick={onBrowse} disabled={working}>
                         <IcFolder size={12} /> Browse…
@@ -964,17 +974,18 @@ export function RepositoryPanel({
                     className="btn btn-primary"
                     onClick={onOpen}
                     disabled={working || !repoPath.trim()}
+                    data-testid="repository-open-path-submit"
                   >
                     Open
                   </button>
                 </div>
               </Panel>
 
-              <Panel title="Clone repository" desc="Clone an existing RIS repository from a Git URL.">
+              <Panel title="Clone repository" desc="Clone an existing RIS repository from a Git URL." testId="repository-clone-title">
                 <CloneRepositoryForm onSuccess={onCloneSuccess} />
               </Panel>
 
-              <Panel title="Create new repository" desc="Scaffold an empty RIS repository on disk.">
+              <Panel title="Create new repository" desc="Scaffold an empty RIS repository on disk." testId="repository-create-title">
                 <CreateRepositoryWizard onSuccess={onCreateSuccess} />
               </Panel>
             </div>
@@ -1017,13 +1028,22 @@ export function RepositoryPanel({
     <>
       <PageHeader
         title="Repository"
-        subtitle={<span className="mono" style={{ fontSize: 12, color: "var(--tx-3)" }}>{summary.repo_path}</span>}
+        testId="repository-active-root"
+        subtitle={
+          <span
+            data-testid="repository-active-path"
+            className="mono"
+            style={{ fontSize: 12, color: "var(--tx-3)" }}
+          >
+            {summary.repo_path}
+          </span>
+        }
         actions={
           <>
             <button className="btn" onClick={onBrowse} disabled={working}>
               <IcFolder size={12} /> Switch…
             </button>
-            <button className="btn btn-danger" onClick={onClose} disabled={working}>
+            <button className="btn btn-danger" onClick={onClose} disabled={working} data-testid="repository-close-action">
               <IcX size={12} /> Close
             </button>
           </>

@@ -1,0 +1,226 @@
+# Desktop E2E (WebdriverIO) — manual CI validation.
+#
+# Promotion path (see docs/CI.md and docs/E2E_WDIO_PLAN.md's "Desktop E2E
+# execution policy" / "Future WDIO CI design"):
+#   1. Manual workflow_dispatch, non-blocking            <- this workflow, today
+#   2. Automatic non-blocking run on roadmap/e2e-wdio PRs <- not enabled yet
+#   3. Required blocking check for roadmap/e2e-wdio -> development
+#   4. Release candidate validation
+#   5. Windows matrix, once the Linux path is stable
+#
+# This workflow is not a required check on any branch. It exists so the
+# full WDIO program (or any single spec) can be validated in CI on demand,
+# without requiring a local Linux/Xvfb environment.
+#
+# Architecture: the wdio-plugin test binary and a pinned tauri-driver are
+# built/installed exactly once (build-binary), then reused by every spec
+# job (wdio-spec) via an uploaded artifact — no matrix job compiles Rust.
+# Each spec runs through the project's own canonical runner
+# (scripts/run-wdio-e2e.mjs), unmodified, so CI exercises the same code
+# path as local development.
+
+name: Desktop E2E (WDIO)
+
+on:
+  workflow_dispatch:
+    inputs:
+      spec:
+        description: Spec to run ("all" for the full suite)
+        type: choice
+        default: all
+        options:
+          - all
+          - app-smoke
+          - core-inventory
+          - csv-device-model-import
+          - csv-import
+          - destructive-guards
+          - entity-deletes
+          - entity-updates-work-mode
+          - git-clone-workflows
+          - git-detection-init
+          - git-diverged-pull
+          - git-local-workflows
+          - git-remote-workflows
+          - global-search-workflow
+          - placement-inspector-workflows
+          - placement-lifecycle
+          - placement-validation
+          - recent-repositories-workflow
+          - repository-lifecycle
+          - safety-recovery
+          - searchable-select-regression
+          - unsaved-changes-discard
+          - validation-panel-workflows
+      repeat:
+        description: Times to repeat each selected spec
+        type: string
+        default: "1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned for reproducibility — see docs/CI.md. Bump deliberately, not
+  # silently via an unpinned `cargo install tauri-driver`.
+  TAURI_DRIVER_VERSION: "2.0.6"
+
+jobs:
+  plan:
+    name: Resolve spec matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      specs: ${{ steps.set.outputs.specs }}
+    steps:
+      - name: Build spec list
+        id: set
+        shell: bash
+        env:
+          SPEC_INPUT: ${{ inputs.spec }}
+        run: |
+          ALL='["app-smoke","core-inventory","csv-device-model-import","csv-import","destructive-guards","entity-deletes","entity-updates-work-mode","git-clone-workflows","git-detection-init","git-diverged-pull","git-local-workflows","git-remote-workflows","global-search-workflow","placement-inspector-workflows","placement-lifecycle","placement-validation","recent-repositories-workflow","repository-lifecycle","safety-recovery","searchable-select-regression","unsaved-changes-discard","validation-panel-workflows"]'
+          if [ "$SPEC_INPUT" = "all" ]; then
+            echo "specs=$ALL" >> "$GITHUB_OUTPUT"
+          else
+            echo "specs=[\"$SPEC_INPUT\"]" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-binary:
+    name: Build wdio-plugin binary + tauri-driver
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CARGO_TARGET_DIR: target-wdio-plugin
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          cache-key-suffix: wdio-plugin
+
+      - name: Install system dependencies
+        uses: ./.github/actions/install-linux-system-deps
+
+      - name: Setup Node + pnpm
+        uses: ./.github/actions/setup-node-pnpm
+        with:
+          node-version: "24"
+
+      - name: Cache tauri-driver
+        id: cache-tauri-driver
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/tauri-driver
+          key: tauri-driver-${{ env.TAURI_DRIVER_VERSION }}-${{ runner.os }}
+
+      - name: Install tauri-driver
+        if: steps.cache-tauri-driver.outputs.cache-hit != 'true'
+        run: cargo install tauri-driver --version "${{ env.TAURI_DRIVER_VERSION }}"
+
+      - name: Build wdio-plugin binary
+        run: pnpm build:e2e:wdio-plugin
+
+      - name: Stage build artifact
+        run: |
+          mkdir -p wdio-artifact
+          cp target-wdio-plugin/release/rack-inventory-studio-desktop wdio-artifact/
+          cp ~/.cargo/bin/tauri-driver wdio-artifact/
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: wdio-build
+          path: wdio-artifact/
+          retention-days: 7
+          if-no-files-found: error
+
+  wdio-spec:
+    name: WDIO spec (${{ matrix.spec }})
+    needs: [plan, build-binary]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    strategy:
+      fail-fast: false
+      matrix:
+        spec: ${{ fromJSON(needs.plan.outputs.specs) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node + pnpm
+        uses: ./.github/actions/setup-node-pnpm
+        with:
+          node-version: "24"
+
+      - name: Install system dependencies
+        uses: ./.github/actions/install-linux-system-deps
+        with:
+          # webkit2gtk-driver + xvfb: needed to run the compiled binary headlessly.
+          # openssh-server: needed only by the three git-*-workflows specs (a local,
+          # unprivileged sshd fixture — see support/git-remote.ts); installed for every
+          # job rather than conditionally, per "don't complicate for small gains".
+          extra-packages: webkit2gtk-driver xvfb openssh-server
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: wdio-build
+          path: wdio-artifact
+
+      - name: Make binaries executable and put tauri-driver on PATH
+        run: |
+          chmod +x wdio-artifact/rack-inventory-studio-desktop wdio-artifact/tauri-driver
+          echo "$GITHUB_WORKSPACE/wdio-artifact" >> "$GITHUB_PATH"
+
+      - name: Run spec
+        id: run-spec
+        shell: bash
+        env:
+          RIS_E2E_KEEP_TEMP: "1"
+        run: |
+          set -o pipefail
+          pnpm test:e2e:wdio -- \
+            --spec "${{ matrix.spec }}" \
+            --repeat "${{ inputs.repeat }}" \
+            --skip-build \
+            --binary "$GITHUB_WORKSPACE/wdio-artifact/rack-inventory-studio-desktop" \
+            --expect-plugin present \
+            2>&1 | tee spec-run.log
+
+      - name: Upload spec log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: wdio-log-${{ matrix.spec }}
+          path: spec-run.log
+          if-no-files-found: warn
+          retention-days: 7
+
+      # RIS_E2E_KEEP_TEMP=1 (above) disables the run's own cleanup, so a failed
+      # run's isolated temp root (repository files, logs written by the app) is
+      # still on disk here. Runner is destroyed after the job either way, so
+      # this only exists to be captured as a diagnostic artifact, never reused.
+      - name: Upload preserved run directory (failure only)
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: wdio-tempdir-${{ matrix.spec }}
+          path: /tmp/ris-wdio-*
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Write job summary
+        if: always()
+        run: |
+          {
+            echo "### WDIO spec: \`${{ matrix.spec }}\`"
+            echo ""
+            echo "Result: **${{ steps.run-spec.outcome }}**"
+          } >> "$GITHUB_STEP_SUMMARY"

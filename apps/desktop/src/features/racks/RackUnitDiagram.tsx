@@ -268,6 +268,8 @@ export function RackUnitDiagram({
                   <div
                     key={idx}
                     data-testid={`placed-${side}-${p.id}`}
+                    data-device-code={p.target_code ?? undefined}
+                    data-start-u={p.start_u}
                     title={label.title}
                     style={{
                       display: "flex",

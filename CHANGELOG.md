@@ -1,6 +1,100 @@
 # Changelog
 
-## Unreleased — Post-beta 1 follow-up
+## Unreleased
+
+Nothing yet — this section accumulates changes made after `v0.1.0-beta.4`
+is tagged. See "CHANGELOG workflow" in `docs/BETA_RELEASE_PROCESS_EN.md`
+for how this section is meant to be used and split going forward.
+
+---
+
+## v0.1.0-beta.4 — 2026-08-15
+
+_Successor to the unshipped `v0.1.0-beta.3` release candidate — see
+`docs/BETA3_ROADMAP.md` and `docs/releases/v0.1.0-beta.3.md` for that
+decision record. `v0.1.0-beta.3` was prepared but never tagged or
+published; this section is the complete user-visible delta from
+`v0.1.0-beta.2`, covering everything originally scoped for beta.3
+(reconstructed from the `roadmap/beta3` PR sequence, 18 commits,
+PRs #119–#135) plus everything merged since. This date marks the frozen
+release candidate (RC freeze); see `docs/releases/v0.1.0-beta.4.md` for
+full release notes and current release-gate status — publication still
+requires the remaining pre-tag gates (installer, Windows QA, and beta.4's
+one-time post-merge WDIO bootstrap gate) to pass._
+
+### Added
+
+- **Search, sort, and filter for Devices and Device Models panels**: Client-side
+  search, column sorting, and filter-aware row counters. Shared `listHelpers.ts`
+  (`matchesSearch`, `cmpStr`, `cmpNum`) used by both panels.
+- **Searchable select (combobox) component**: Replaces plain `<select>` elements
+  with a searchable dropdown — portal-rendered, keyword search, scrollable
+  results, Escape/click-outside close, full keyboard navigation
+  (ArrowDown/Up/Home/End/Enter, no wrap at boundaries), and ARIA roles
+  (`combobox`/`listbox`/`option`, `aria-activedescendant`). Applied to the
+  Device Model picker in the Add/Edit Device form, and to the device and
+  rack-object pickers in the placement flow.
+- **Contextual Rack Object form**: Selecting "Rack object" while adding a
+  placement and choosing "Create new" now opens a form with Device Type
+  locked to `rack_object`; the new object is preselected in the placement
+  modal after save.
+- **Planning / On-site work mode**: A mode toggle in the app titlebar. New
+  devices inherit a default status from the active mode — "planned" in
+  Planning mode, "installed" in On-site mode. Edit flows are unaffected; mode
+  is local UI state persisted in `localStorage`, no backend or DTO changes.
+- **"Create similar" action for Devices and Device Models**: Opens the
+  standard Add form pre-filled from an existing record. Unique identifiers
+  (serial number, asset tag, external reference, id, code) are never copied.
+  For devices, the source status is copied as the prefill, taking priority
+  over the work-mode default.
+- **Auto-fill Device Type from the selected Device Model**: In the Add/Edit
+  Device form, Device Type populates automatically from the chosen model
+  unless the user has already set it manually; the model picker stays
+  unfiltered until the user explicitly chooses a type themselves.
+- **Clone repository flow**: Clone an existing RIS repository from a Git URL
+  — directory name auto-derived from the URL (editable), parent folder via
+  picker, and the result opened exactly like Create/Open. Reuses existing SSH
+  passphrase-prompt infrastructure. Clear errors for invalid URL, auth
+  failure, non-empty target, and non-RIS-repository targets.
+- **Rack view export — SVG and PNG**: Export buttons in the rack detail
+  header. Export is driven by real rack/placement data (`buildRackViewSvg()`,
+  a pure, unit-tested, XML-escaped helper) — not a DOM screenshot. PNG is
+  rasterized via canvas at 2× scale. Front and rear sides export separately.
+- **Device Model CSV import**: A full preview → validate → apply workflow for
+  Device Models, parallel to the existing Device CSV import, with dedicated
+  `VAL-DM-001`–`VAL-DM-009` validation codes. The CSV import panel gained a
+  Devices / Device Models type selector.
+- **Complete desktop E2E (WDIO) program**: Real-compiled-binary end-to-end
+  coverage across repository lifecycle, inventory CRUD, placement, CSV
+  import, destructive-operation guards, and local/remote (SSH) Git workflows
+  — 22 specs, 72/84 (86%) of the identified workflow surface COVERED. See
+  `docs/E2E_WDIO_PLAN.md` and `docs/E2E_WDIO_COVERAGE_GAPS.md`.
+- **Redesigned CI architecture**: composite actions, Rust build caching,
+  concurrency/timeouts across all workflows, and a manual WDIO CI workflow
+  (`wdio-e2e.yml`). See `docs/CI.md`.
+
+### Fixed
+
+- **List scrolling and pagination foundation repaired**: Scroll containers
+  restored around the Devices, Device Models, Locations, and Racks panel
+  tables so rows beyond the viewport are reachable and sticky headers work
+  correctly.
+- **Daily log rotation and 30-day retention**: Log files now use a
+  date-stamped filename (`ris-YYYY-MM-DD`), producing a separate file per
+  calendar day; files older than 30 days are deleted on startup (non-RIS
+  files in the log directory are never touched). Settings panel now shows
+  log directory health, the current log filename, and the retention window.
+- **Rack-object placement inspector edit button now renders**: The inspector's
+  "Edit target model" button never appeared for rack-object placements because
+  `PlacementInspectorPanel.tsx` checked for a `target_kind` value
+  (`"rack_object"`) that never actually occurs — `PlacementDto.target_kind` is
+  only ever `"device"` or `"device_model"`. Corrected to match
+  `EditPlacementModal.tsx`'s already-correct check.
+- **Clone repository no longer freezes the application window**: `clone_repository_cmd`
+  now runs the Git clone and the subsequent repository-open on a background
+  thread instead of the UI/event-loop thread, so the application stays
+  responsive for the duration of a clone instead of appearing hung. No change
+  to clone behavior, authentication, or the resulting repository.
 
 ### Security
 
@@ -8,11 +102,50 @@
   transport safety checks, rejecting unsafe Git transports (`ext::`, `fd::`,
   `file://`, and any unsupported `://` scheme) before any process is spawned.
   Frontend validation provides defense-in-depth; backend validation in `ris-git`
-  is authoritative.
+  is authoritative. The clone command also uses `git clone -- <url>` to prevent
+  option injection from URLs beginning with `-`, and redacts embedded
+  credentials from git's own stderr output (not just from the URL itself)
+  before any error reaches logs or the UI.
 - **Restricted rack export write commands to `.svg` and `.png` targets only**:
   The export backend now rejects any target path with an unsupported or missing
   file extension, preventing unsupported file types from being written through
   the export commands.
+
+### Testing and reliability
+
+- **Windows Git-over-SSH (push/pull/clone) end-to-end coverage**: remote Git
+  workflows are now exercised end-to-end against a real SSH server as part of
+  the desktop E2E suite, run on a real Windows + WSL2 + Docker host — a
+  containerized Linux OpenSSH+git remote by default, with the previous
+  native-Windows-OpenSSH fixture preserved as an explicit fallback. See
+  `docs/E2E_WDIO_PLAN.md` (Stage 3F.5) for the full program. This is test
+  infrastructure, not an application feature; application Git/SSH behavior
+  itself is unchanged.
+
+### Known issues / beta scope limitations
+
+- Manual QA against `docs/BETA4_QA_RUNBOOK.md` had not been confirmed
+  complete as of this section being prepared — required before tagging.
+- The GitHub-hosted WDIO CI workflow (`wdio-e2e.yml`) does not yet exist on
+  `master`, so it cannot be dispatched against a release branch through the
+  normal pre-merge flow for this release; beta.4 uses a documented one-time
+  bootstrap procedure instead (see `docs/BETA_RELEASE_PROCESS_EN.md`). The
+  full WDIO release gate against the exact `master` release commit is
+  required before tagging.
+- Linux and macOS: the containerized Git-over-SSH E2E fixture has a
+  Linux-native backend implementation, but its real-host end-to-end
+  acceptance is deferred and not part of this release; the Linux/macOS
+  default test provider remains the native fixture. This does not affect
+  application behavior on any platform.
+- SSH passphrase prompt Submit/Cancel buttons still lack a stable E2E
+  selector (`docs/E2E_WDIO_COVERAGE_GAPS.md`); the prompt itself works, only
+  its E2E coverage is incomplete.
+- Rack export (SVG/PNG) is not yet E2E-tested — blocked on a native-save-dialog
+  testing approach, not a product gap.
+
+---
+
+## v0.1.0-beta.2 — 2026-06-12
 
 ### Added
 
@@ -33,6 +166,19 @@
 - **Search deprioritises `code`**: Name/label now scores higher than `code` in
   search results (name = primary match, code = secondary, other fields =
   tertiary).
+- Post-beta follow-up plan (`docs/archive/BETA1_FOLLOWUP_PLAN_EN.md`) covering six
+  identified issues and their planned resolutions.
+- **SSH passphrase prompting**: When a push or pull requires a key passphrase
+  and no ssh-agent has the key loaded, a one-time modal prompts the user. The
+  passphrase is passed directly to SSH via a short-lived localhost TCP session;
+  it is never stored in config, logs, environment variables, or files.
+- **SSH diagnostics**: `get_ssh_diagnostics` command surfaces `ssh-add -l`
+  status, `SSH_AUTH_SOCK`, detected SSH executable and version,
+  `core.sshCommand`, and user-facing guidance for common agent/configuration
+  issues.
+- **SSH error classification**: Common SSH stderr messages (permission denied,
+  agent failure, bad passphrase, host key failure) are mapped to user-friendly
+  guidance rather than raw error strings.
 
 ### Fixed
 
@@ -77,22 +223,6 @@
   uses `git push -u origin <branch>` to set tracking; subsequent pushes omit `-u`.
   If the named remote does not exist RIS now returns a clear error instead of a
   confusing Git failure.
-
-### Added
-
-- Post-beta follow-up plan (`docs/BETA1_FOLLOWUP_PLAN_EN.md`) covering six
-  identified issues and their planned resolutions.
-- **SSH passphrase prompting**: When a push or pull requires a key passphrase
-  and no ssh-agent has the key loaded, a one-time modal prompts the user. The
-  passphrase is passed directly to SSH via a short-lived localhost TCP session;
-  it is never stored in config, logs, environment variables, or files.
-- **SSH diagnostics**: `get_ssh_diagnostics` command surfaces `ssh-add -l`
-  status, `SSH_AUTH_SOCK`, detected SSH executable and version,
-  `core.sshCommand`, and user-facing guidance for common agent/configuration
-  issues.
-- **SSH error classification**: Common SSH stderr messages (permission denied,
-  agent failure, bad passphrase, host key failure) are mapped to user-friendly
-  guidance rather than raw error strings.
 
 ### Security
 
