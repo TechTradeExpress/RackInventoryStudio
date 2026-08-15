@@ -8,7 +8,7 @@ for how this section is meant to be used and split going forward.
 
 ---
 
-## v0.1.0-beta.4 — Unreleased
+## v0.1.0-beta.4 — 2026-08-15
 
 _Successor to the unshipped `v0.1.0-beta.3` release candidate — see
 `docs/BETA3_ROADMAP.md` and `docs/releases/v0.1.0-beta.3.md` for that
@@ -16,9 +16,11 @@ decision record. `v0.1.0-beta.3` was prepared but never tagged or
 published; this section is the complete user-visible delta from
 `v0.1.0-beta.2`, covering everything originally scoped for beta.3
 (reconstructed from the `roadmap/beta3` PR sequence, 18 commits,
-PRs #119–#135) plus everything merged since. No calendar release date is
-assigned yet — see `docs/releases/v0.1.0-beta.4.md` for full release notes
-and current release-gate status._
+PRs #119–#135) plus everything merged since. This date marks the frozen
+release candidate (RC freeze); see `docs/releases/v0.1.0-beta.4.md` for
+full release notes and current release-gate status — publication still
+requires the remaining pre-tag gates (installer, Windows QA, and beta.4's
+one-time post-merge WDIO bootstrap gate) to pass._
 
 ### Added
 
